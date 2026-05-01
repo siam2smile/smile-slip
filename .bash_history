@@ -572,3 +572,18 @@ DATABASE_URL=your_db_url
 EOT
 
 echo ".env" >> .gitignore
+git rm -r --cached .
+git add .
+git commit -m "Smile Slip: Secure code by removing secrets"
+git push origin main
+cat <<EOT > .env
+# ใส่รหัสของคุณตรงนี้
+SUPABASE_URL=ของคุณ
+SUPABASE_KEY=ของคุณ
+DB_PASSWORD=ของคุณ
+EOT
+
+import os
+# แทนที่จะเขียนรหัสตรงๆ ให้ใช้แบบนี้ครับ
+supabase_url = os.getenv("SUPABASE_URL")
+supabase_key = os.getenv("SUPABASE_KEY")
