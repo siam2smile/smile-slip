@@ -1,0 +1,14 @@
+2026-04-27 08:45:19.220 [info] 
+
+
+
+
+2026-04-27 08:45:19.243 [info] Extension host agent started.
+2026-04-27 08:45:24.219 [info] [127.0.0.1][91bebb32][ManagementConnection] New connection established.
+2026-04-27 08:45:24.242 [info] [127.0.0.1][02cd2fbc][ExtensionHostConnection] New connection established.
+2026-04-27 08:45:25.386 [info] [127.0.0.1][02cd2fbc][ExtensionHostConnection] <3117> Launched Extension Host Process.
+2026-04-27 08:45:26.023 [info] [127.0.0.1][02cd2fbc][ExtensionHostConnection] <3117> [reconnection-grace-time] Extension host: read VSCODE_RECONNECTION_GRACE_TIME=10800000ms (10800s)
+
+2026-04-27 08:49:23.706 [warning] [File Watcher (node.js)] Watcher shutdown because watched path got deleted
+2026-04-27 08:49:23.708 [warning] [File Watcher (node.js)] Watcher shutdown because watched path got deleted
+2026-04-27 08:49:23.708 [warning] [File Watcher (node.js)] Watcher shutdown because watched path got deleted

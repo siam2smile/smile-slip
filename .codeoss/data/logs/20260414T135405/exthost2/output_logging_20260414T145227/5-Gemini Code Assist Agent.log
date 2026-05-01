@@ -1,0 +1,28 @@
+Starting background process...
+Background process started with PID 2577
+[INFO] 2026-04-14 14:52:39.748 PM -- [CoderAgentExecutor] Overriding workspace path to: /home/smileslip_official
+[ERROR] 2026-04-14 14:52:39.751 PM -- Warning: unexpected file /home/smileslip_official/.gemini/extensions/extension-enablement.json in extensions directory.
+[ERROR] 2026-04-14 14:52:39.752 PM -- Warning: unexpected file /home/smileslip_official/.gemini/extensions/extension-enablement.json in extensions directory.
+[INFO] 2026-04-14 14:52:39.752 PM -- Loading extension: vertex (version: 0.2.0)
+Ignore file not found: /home/smileslip_official/.geminiignore, continue without it.
+Ignore file not found: /home/smileslip_official/.aiexclude, continue without it.
+(node:2577) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+Ignore file not found: /home/smileslip_official/.geminiignore, continue without it.
+Ignore file not found: /home/smileslip_official/.aiexclude, continue without it.
+Ignore file not found: /home/smileslip_official/.geminiignore, continue without it.
+Ignore file not found: /home/smileslip_official/.aiexclude, continue without it.
+Ignore file not found: /home/smileslip_official/.geminiignore, continue without it.
+Ignore file not found: /home/smileslip_official/.aiexclude, continue without it.
+Loading extension: vertex
+Hook registry initialized with 0 hook entries
+Hook system initialized successfully
+[STARTUP] StartupProfiler.flush() called with 1 phases
+[STARTUP] Recording metric for phase: discover_tools duration: 6032.625271
+[INFO] 2026-04-14 14:52:46.070 PM -- [Config] Using CCPA Auth:
+Failed to load credentials from /home/smileslip_official/.gemini/oauth_creds.json: ENOENT: no such file or directory, open '/home/smileslip_official/.gemini/oauth_creds.json'
+[?1049h[2J[H[?1006l[?1002l[<u[?7hPlease visit the following URL to authorize the application:
+
+https://accounts.google.com/o/oauth2/v2/auth?redirect_uri=https%3A%2F%2Fcodeassist.google.com%2Fauthcode&access_type=offline&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloud-platform%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile&code_challenge_method=S256&code_challenge=59b3k09ChtfNBQtHSkIF3lBD3KFllGhylIeqVx4Iyqg&state=2566b8fdd9b2359aaa37a1d843439c53346d3db6242982a8a9f23d31a6a4a819&response_type=code&client_id=681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com
+
+[1G[0JEnter the authorization code: [31G

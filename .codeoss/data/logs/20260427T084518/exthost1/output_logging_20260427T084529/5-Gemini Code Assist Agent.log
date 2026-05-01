@@ -1,0 +1,292 @@
+Starting background process...
+Background process started with PID 3263
+[INFO] 2026-04-27 08:45:43.767 AM -- [CoderAgentExecutor] Overriding workspace path to: /home/smileslip_official
+[ERROR] 2026-04-27 08:45:43.770 AM -- Warning: unexpected file /home/smileslip_official/.gemini/extensions/extension-enablement.json in extensions directory.
+[ERROR] 2026-04-27 08:45:43.771 AM -- Warning: unexpected file /home/smileslip_official/.gemini/extensions/extension-enablement.json in extensions directory.
+[INFO] 2026-04-27 08:45:43.771 AM -- Loading extension: vertex (version: 0.2.0)
+Ignore file not found: /home/smileslip_official/.geminiignore, continue without it.
+Ignore file not found: /home/smileslip_official/.aiexclude, continue without it.
+[DEBUG] [MemoryDiscovery] Loading server hierarchical memory for CWD:  (importFormat: tree)
+[DEBUG] [MemoryDiscovery] Searching for GEMINI.md starting from CWD: /home/smileslip_official
+[DEBUG] [MemoryDiscovery] Determined project root: None
+[DEBUG] [MemoryDiscovery] deduplication: keeping /home/smileslip_official/.gemini/extensions/vertex/GEMINI.md (dev: 2065, ino: 131163)
+[DEBUG] [MemoryDiscovery] Successfully read and processed imports: /home/smileslip_official/.gemini/extensions/vertex/GEMINI.md (Length: 55458)
+Ignore file not found: /home/smileslip_official/.geminiignore, continue without it.
+Ignore file not found: /home/smileslip_official/.aiexclude, continue without it.
+Ignore file not found: /home/smileslip_official/.geminiignore, continue without it.
+Ignore file not found: /home/smileslip_official/.aiexclude, continue without it.
+Ignore file not found: /home/smileslip_official/.geminiignore, continue without it.
+Ignore file not found: /home/smileslip_official/.aiexclude, continue without it.
+Loading extension: vertex
+[MCP error] Error during discovery for MCP server 'VertexMcpServer': spawn ${extensionPath}/run.sh ENOENT Error: spawn ${extensionPath}/run.sh ENOENT
+    at ChildProcess._handle.onexit (node:internal/child_process:285:19)
+    at onErrorNT (node:internal/child_process:483:16)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'spawn ${extensionPath}/run.sh',
+  path: '${extensionPath}/run.sh',
+  spawnargs: []
+}
+Scheduling MCP context refresh...
+Executing MCP context refresh...
+[DEBUG] [MemoryDiscovery] Loading server hierarchical memory for CWD:  (importFormat: tree)
+Hook registry initialized with 0 hook entries
+Hook system initialized successfully
+[DEBUG] [MemoryDiscovery] deduplication: keeping /home/smileslip_official/.gemini/extensions/vertex/GEMINI.md (dev: 2065, ino: 131163)
+[DEBUG] [MemoryDiscovery] Loading environment memory for trusted root: /home/smileslip_official (Stopping at trusted root: /home/smileslip_official — no git root found)
+[DEBUG] [MemoryDiscovery] Starting upward search from /home/smileslip_official stopping at /home/smileslip_official
+[DEBUG] [MemoryDiscovery] deduplication: keeping /home/smileslip_official/.gemini/extensions/vertex/GEMINI.md (dev: 2065, ino: 131163)
+[DEBUG] [MemoryDiscovery] Successfully read and processed imports: /home/smileslip_official/.gemini/extensions/vertex/GEMINI.md (Length: 55458)
+MCP context refresh complete.
+[DEBUG] [MemoryDiscovery] Successfully read and processed imports: /home/smileslip_official/.gemini/extensions/vertex/GEMINI.md (Length: 55458)
+[STARTUP] StartupProfiler.flush() called with 1 phases
+[STARTUP] Recording metric for phase: discover_tools duration: 4556.147794
+[INFO] 2026-04-27 08:45:48.550 AM -- [Config] Using CCPA Auth:
+[INFO] 2026-04-27 08:45:48.550 AM -- [Config] Skipping LOGIN_WITH_GOOGLE due to headless mode. Attempting COMPUTE_ADC.
+Keychain initialization encountered an error: Cannot find package 'keytar' imported from /google/devshell/editor/code-oss-for-cloud-shell/extensions/geminicodeassist/agent/a2a-server.mjs
+Using FileKeychain fallback for secure storage.
+Failed to load credentials from /home/smileslip_official/.gemini/oauth_creds.json: ENOENT: no such file or directory, open '/home/smileslip_official/.gemini/oauth_creds.json'
+Attempting to authenticate via metadata server application default credentials.
+Authentication successful.
+Failed to retrieve user quota _GaxiosError: The caller does not have permission
+    at Gaxios._request (file:///google/devshell/editor/code-oss-for-cloud-shell/extensions/geminicodeassist/agent/a2a-server.mjs:42617:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Compute2.requestAsync (file:///google/devshell/editor/code-oss-for-cloud-shell/extensions/geminicodeassist/agent/a2a-server.mjs:46605:17)
+    at async CodeAssistServer.requestPost (file:///google/devshell/editor/code-oss-for-cloud-shell/extensions/geminicodeassist/agent/a2a-server.mjs:328787:21)
+    at async Config.refreshUserQuota (file:///google/devshell/editor/code-oss-for-cloud-shell/extensions/geminicodeassist/agent/a2a-server.mjs:431070:25)
+    at async Config.refreshAuth (file:///google/devshell/editor/code-oss-for-cloud-shell/extensions/geminicodeassist/agent/a2a-server.mjs:430750:9)
+    at async refreshAuthentication (file:///google/devshell/editor/code-oss-for-cloud-shell/extensions/geminicodeassist/agent/a2a-server.mjs:452884:11)
+    at async loadConfig (file:///google/devshell/editor/code-oss-for-cloud-shell/extensions/geminicodeassist/agent/a2a-server.mjs:452808:3)
+    at async createApp (file:///google/devshell/editor/code-oss-for-cloud-shell/extensions/geminicodeassist/agent/a2a-server.mjs:455335:21)
+    at async main (file:///google/devshell/editor/code-oss-for-cloud-shell/extensions/geminicodeassist/agent/a2a-server.mjs:455468:24) {
+  config: {
+    url: 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': 'CloudCodeVSCode/0.35.2 (aidev_client; os_type=Linux; os_version=6.6.123+; arch=x64; host_path=VSCode/unknown > CloudShell/unknown; proxy_client=geminicli) google-api-nodejs-client/9.15.1',
+      Authorization: '<<REDACTED> - See `errorRedactor` option in `gaxios` for configuration>.',
+      'x-goog-api-client': 'gl-node/22.21.1',
+      Accept: 'application/json'
+    },
+    responseType: 'json',
+    body: '{"project":"cloudshell-gca"}',
+    retryConfig: {
+      retryDelay: 100,
+      retry: 3,
+      noResponseRetries: 3,
+      statusCodesToRetry: [Array],
+      currentRetryAttempt: 0,
+      httpMethodsToRetry: [Array],
+      retryDelayMultiplier: 2,
+      timeOfFirstRequest: 1777279548956,
+      totalTimeout: 9007199254740991,
+      maxRetryDelay: 9007199254740991
+    },
+    paramsSerializer: [Function: paramsSerializer],
+    validateStatus: [Function: validateStatus],
+    errorRedactor: [Function: defaultErrorRedactor]
+  },
+  response: {
+    config: {
+      url: 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota',
+      method: 'POST',
+      headers: [Object],
+      responseType: 'json',
+      body: '{"project":"cloudshell-gca"}',
+      retryConfig: [Object],
+      paramsSerializer: [Function: paramsSerializer],
+      validateStatus: [Function: validateStatus],
+      errorRedactor: [Function: defaultErrorRedactor]
+    },
+    data: { error: [Object] },
+    headers: {
+      'content-encoding': 'gzip',
+      'content-type': 'application/json; charset=UTF-8',
+      date: 'Mon, 27 Apr 2026 08:45:48 GMT',
+      server: 'ESF',
+      'server-timing': 'gfet4t7; dur=35',
+      'transfer-encoding': 'chunked',
+      vary: 'Origin, X-Origin, Referer',
+      'x-cloudaicompanion-trace-id': '547df12e7acf351',
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'SAMEORIGIN',
+      'x-xss-protection': '0'
+    },
+    status: 403,
+    statusText: 'Forbidden',
+    request: {
+      responseURL: 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota'
+    }
+  },
+  error: undefined,
+  status: 403,
+  code: 403,
+  errors: [
+    {
+      message: 'The caller does not have permission',
+      domain: 'global',
+      reason: 'forbidden'
+    }
+  ],
+  [Symbol(gaxios-gaxios-error)]: '6.7.1'
+}
+Experiments loaded {
+  experimentIds: [
+    106018688,
+    105979538,
+    105979560,
+    106015337,
+    105979579,
+    105867471,
+    105979522,
+    105995634,
+    106100625,
+    104638466,
+    105704191,
+    101868197,
+    104817729,
+    105695344,
+    106064591,
+    104913215,
+    105821930,
+    104922093,
+    103012598,
+    106143956,
+    105856899,
+    102617194,
+    106064030,
+    105757908,
+    104892493,
+    105822886,
+    105785683,
+    105721273,
+    105897325,
+    105658071,
+    105885552,
+    105864343,
+    106166745,
+    106106762,
+    106057393,
+    106106760,
+    105620019,
+    106038160,
+    106115648,
+    106115654,
+    104739378,
+    105887313,
+    105849474,
+    106032303,
+    106113886,
+    103118072,
+    105979531,
+    105979553,
+    106015328,
+    105867469,
+    105979517,
+    106100654,
+    104638459,
+    105704187,
+    101551624,
+    104673683,
+    105695346,
+    106064590,
+    104913210,
+    105821928,
+    104922082,
+    103012592,
+    102519585,
+    106064028,
+    104892490,
+    105822881,
+    105721268,
+    105895316,
+    105658068,
+    105885549,
+    105863625,
+    106102706,
+    106057389,
+    105620012,
+    106038153,
+    106115644,
+    106115650,
+    105887311,
+    106032301,
+    106113877,
+    103118069,
+    106018685
+  ],
+  flags: [
+    {
+      flagId: '45740197',
+      floatValue: 0.7
+    },
+    {
+      flagId: '45740199',
+      stringValue: ''
+    },
+    {
+      flagId: '45740200',
+      stringValue: ''
+    },
+    {
+      flagId: '45743869',
+      boolValue: false
+    },
+    {
+      flagId: '45750526',
+      boolValue: true
+    },
+    {
+      flagId: '45750527',
+      intValue: '95'
+    },
+    {
+      flagId: '45752213',
+      boolValue: true
+    },
+    {
+      flagId: '45761848',
+      boolValue: true
+    },
+    {
+      flagId: '45768879',
+      boolValue: true
+    },
+    {
+      flagId: '45773036',
+      stringValue: ''
+    },
+    {
+      flagId: '45773134',
+      intValue: '300'
+    },
+    {
+      flagId: '45773135',
+      intValue: '600'
+    },
+    {
+      flagId: '45773187',
+      stringValue: ''
+    },
+    {
+      flagId: '45773188',
+      boolValue: false
+    },
+    {
+      flagId: '45773189',
+      intValue: '30'
+    },
+    {
+      flagId: '45773190',
+      intValue: '15'
+    }
+  ]
+}
+[INFO] 2026-04-27 08:45:49.483 AM -- [Config] COMPUTE_ADC successful.
+[INFO] 2026-04-27 08:45:49.484 AM -- [Config] GOOGLE_CLOUD_PROJECT: cloudshell-gca
+[INFO] 2026-04-27 08:45:49.500 AM -- Using InMemoryTaskStore
+[INFO] 2026-04-27 08:45:49.508 AM -- [CoreAgent] Agent Server started on http://localhost:43059
+[INFO] 2026-04-27 08:45:49.509 AM -- [CoreAgent] Agent Card: http://localhost:43059/.well-known/agent-card.json
+[INFO] 2026-04-27 08:45:49.509 AM -- [CoreAgent] Press Ctrl+C to stop the server
