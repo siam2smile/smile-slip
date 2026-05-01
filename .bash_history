@@ -556,3 +556,8 @@ __pycache__/
 .env
 EOT
 
+git add .
+git commit -m "Smile Slip: Clean start with only source code"
+git remote add origin https://github.com/siam2smile/smile-slip.git
+git push -u origin main --force
+git branch -M main
