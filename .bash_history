@@ -561,3 +561,14 @@ git commit -m "Smile Slip: Clean start with only source code"
 git remote add origin https://github.com/siam2smile/smile-slip.git
 git push -u origin main --force
 git branch -M main
+git add .
+git commit -m "Smile Slip: Final clean push"
+git push -u origin main --force
+# พิมพ์คำสั่งนี้เพื่อสร้างไฟล์เก็บความลับ
+cat <<EOT > .env
+SUPABASE_URL=your_url_here
+SUPABASE_KEY=your_key_here
+DATABASE_URL=your_db_url
+EOT
+
+echo ".env" >> .gitignore
