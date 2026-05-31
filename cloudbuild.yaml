@@ -1,0 +1,26 @@
+# ============================================================
+# Smile Slip — CI/CD (Cloud Build)
+# push ขึ้น branch main → build + deploy bot อัตโนมัติ
+#
+# หมายเหตุสำคัญเรื่อง secret:
+#   ขั้นตอน deploy นี้ "ไม่ระบุ" --set-env-vars / --env-vars-file
+#   ดังนั้น Cloud Run จะคง env vars เดิมที่ตั้งไว้บน service ไว้ทั้งหมด
+#   => ไม่ต้องเก็บ secret ไว้ใน repo (ปลอดภัยสำหรับ repo public)
+#   ถ้าต้องเพิ่ม/แก้ env ให้ทำผ่านคอนโซล Cloud Run หรือรัน deploy-bot.sh จากเครื่อง (อ่านจาก .env)
+# ============================================================
+steps:
+  - name: 'gcr.io/google-cloud-builders/gcloud'
+    id: 'deploy-bot'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'smileslip-service'
+      - '--source=smileslip-pro'
+      - '--region=asia-southeast1'
+      - '--allow-unauthenticated'
+      - '--quiet'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: '1200s'
