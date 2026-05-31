@@ -15,9 +15,20 @@ const LINE_HEADER = {
   headers: { Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }
 };
 
-// URL หน้า Dashboard — มี fallback ในตัว กันกรณี env FRONTEND_URL ไม่ถูกตั้งบน Cloud Run
-// (เคสนี้เคยทำให้ปุ่มใน Flex Message มี URI = "undefined/..." แล้ว LINE ตีกลับ 400)
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://smileslip-dashboard-832247688217.asia-southeast1.run.app';
+
+// Duplicate event guard: LINE จะ retry webhook ถ้า server ตอบช้า
+// เก็บ eventId ที่ประมวลผลแล้วไว้ใน memory 5 นาที กันตัดเครดิตซ้ำ
+const processedEvents = new Map();
+function isDuplicateEvent(eventId) {
+  const now = Date.now();
+  for (const [id, ts] of processedEvents) {
+    if (now - ts > 5 * 60 * 1000) processedEvents.delete(id);
+  }
+  if (processedEvents.has(eventId)) return true;
+  processedEvents.set(eventId, now);
+  return false;
+}
 
 // ==========================================
 // 2. HELPER FUNCTIONS
@@ -183,120 +194,85 @@ async function replyToLine(replyToken, messages) {
 }
 
 // ==========================================
-// 3. AI CORE ENGINE (HYBRID OCR: Cloud Vision + Gemini 3.5 Flash)
+// 3. AI CORE ENGINE (Gemini OCR)
 // ==========================================
 
-// 3.1 ด่านหลัง: สมองกลขั้นสูง Gemini 3.5 Flash (สำหรับบิลเขียนมือหรือข้อมูลซับซ้อน)
 async function extractDataWithGemini(imageBuffer) {
-  try {
-    const apiKey = process.env.GEMINI_API_KEY;
-    // 🔒 QC LOCK: บังคับใช้รุ่น 3.5 เท่านั้น ห้ามปรับลดเวอร์ชันเด็ดขาด
-    const modelVersion = process.env.GEMINI_MODEL || 'gemini-3.5-flash'; 
-    console.log(`[LOG] 🧠 [Gemini AI] สลับมาใช้สมองกลประมวลผลขั้นสูง: ${modelVersion}`);
-    
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelVersion}:generateContent?key=${apiKey}`;
-    
-    const prompt = `วิเคราะห์บิลหรือสลิปนี้ (รองรับลายมือเขียน) และตอบกลับเป็น JSON เท่านั้น:
-    {
-      "type": "income (ถ้ารับเงิน) หรือ expense (ถ้าจ่ายเงิน/บิลซื้อของ)",
-      "amount": 0.00,
-      "date": "วว/ดด/ปป",
-      "time": "นน:นน",
-      "sender": "คนโอน/ลูกค้า",
-      "receiver": "คนรับ/ร้านค้า",
-      "note": "ค่าน้ำมัน/ค่าอาหาร/ค่าของ"
-    }`;
+  const modelVersion = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
+  console.log(`[LOG] 🧠 [Gemini] กำลังวิเคราะห์สลิปด้วย ${modelVersion}...`);
 
-    const base64Image = imageBuffer.toString('base64');
-    const requestBody = {
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inlineData: { mimeType: "image/jpeg", data: base64Image } }
-        ]
-      }],
-      generationConfig: { responseMimeType: "application/json" }
-    };
+  const prompt = `คุณเป็น AI ผู้เชี่ยวชาญอ่านสลิปโอนเงินและใบเสร็จไทย
+วิเคราะห์รูปนี้แล้วตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่นนอกจาก JSON:
+{
+  "type": "income หรือ expense เท่านั้น",
+  "amount": ตัวเลขทศนิยม 2 ตำแหน่ง เช่น 1500.00,
+  "date": "วว/ดด/ปปปป เช่น 31/05/2569",
+  "time": "นน:นน เช่น 14:30",
+  "sender": "ชื่อผู้โอน/ชื่อบัญชีต้นทาง",
+  "receiver": "ชื่อผู้รับ/ชื่อบัญชีปลายทาง",
+  "note": "หมายเหตุหรือรายการ ถ้าไม่มีให้ใส่ -"
+}
+กฎ:
+- type = income ถ้าเป็นสลิปโอนเงินระหว่างบุคคล
+- type = expense ถ้าเป็นใบเสร็จซื้อของ/จ่ายบิล/บิลค่าบริการ
+- amount ต้องเป็นตัวเลขเท่านั้น ไม่มีเครื่องหมาย ฿ หรือ THB หรือ ลูกน้ำ
+- ถ้าอ่านข้อมูลใดไม่ได้ให้ใส่ "-"`;
 
-    const response = await axios.post(url, requestBody, { headers: { 'Content-Type': 'application/json' } });
+  const base64Image = imageBuffer.toString('base64');
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelVersion}:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
-    if (response.data && response.data.candidates && response.data.candidates[0].content) {
-      const aiResponseText = response.data.candidates[0].content.parts[0].text;
-      console.log(`[LOG] ✨ [Gemini AI] ประมวลผลสำเร็จ`);
-      return JSON.parse(aiResponseText);
-    } else {
-      throw new Error("โครงสร้างการตอบกลับจาก Gemini API ไม่ถูกต้อง");
-    }
-  } catch (error) {
-    console.error("[ERROR] ❌ เกิดข้อผิดพลาดในการเรียกใช้ Gemini API:", error.message);
-    throw error;
+  const response = await axios.post(url, {
+    contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }],
+    generationConfig: { responseMimeType: "application/json" }
+  }, { headers: { 'Content-Type': 'application/json' } });
+
+  if (!response.data?.candidates?.[0]?.content) {
+    throw new Error("Gemini ไม่ส่งผลลัพธ์กลับมา");
   }
+
+  const parsed = JSON.parse(response.data.candidates[0].content.parts[0].text);
+  console.log(`[LOG] ✨ [Gemini] วิเคราะห์สำเร็จ: ${parsed.type} ฿${parsed.amount}`);
+  return parsed;
 }
 
-// 3.2 ด่านหน้า: Hybrid Engine ตัดสินใจและประมวลผลความเร็วสูง
-async function extractDataHybrid(imageBuffer) {
-  console.log(`[LOG] ⚡ [Hybrid OCR] เริ่มกระบวนการสแกนผ่านด่านหน้า (Google Cloud Vision API)`);
-  try {
-    const visionApiKey = process.env.GOOGLE_VISION_API_KEY; // ต้องเพิ่ม KEY นี้ใน .env
-    const base64Image = imageBuffer.toString('base64');
-    
-    const visionUrl = `https://vision.googleapis.com/v1/images:annotate?key=${visionApiKey}`;
-    const visionReq = {
-      requests: [
-        {
-          image: { content: base64Image },
-          features: [{ type: "TEXT_DETECTION" }]
-        }
-      ]
-    };
-
-    const visionRes = await axios.post(visionUrl, visionReq);
-    const textAnnotations = visionRes.data.responses[0].textAnnotations;
-
-    // เงื่อนไขสลับไปใช้ Gemini: หาก Vision API อ่านข้อความไม่ได้เลย หรือข้อความน้อยเกินไป (เสี่ยงเป็นบิลเขียนมือ)
-    if (!textAnnotations || textAnnotations.length === 0 || textAnnotations[0].description.length < 20) {
-      console.log(`[LOG] ⚠️ [Hybrid OCR] ข้อมูลน้อยเกินไปหรืออาจเป็นลายมือ สลับไปใช้ Gemini...`);
-      return await extractDataWithGemini(imageBuffer);
-    }
-
-    const rawText = textAnnotations[0].description;
-    
-    // ชุดคำสั่ง Regex พื้นฐานสำหรับสกัดข้อมูลจาก Text ปกติ (ปรับแต่งเพิ่มเติมได้ตามโครงสร้างสลิป)
-    const amountMatch = rawText.match(/(?:จำนวนเงิน|Amount|จำนวน)\s*[:=]?\s*([\d,]+\.\d{2})/i);
-    const dateMatch = rawText.match(/(\d{1,2}\s*[ก-๙]+\s*\d{2,4}|\d{2}\/\d{2}\/\d{2,4})/);
-    
-    if (amountMatch && dateMatch) {
-      console.log(`[LOG] 🚀 [Hybrid OCR] Cloud Vision สแกนสำเร็จ ทำงานรวดเร็วโดยไม่ต้องพึ่ง Gemini`);
-      return {
-        type: "income", // ค่าเริ่มต้น (สามารถปรับแต่ง logic วิเคราะห์เพิ่มเติมได้)
-        amount: parseFloat(amountMatch[1].replace(/,/g, '')),
-        date: dateMatch[1],
-        time: "00:00", // กรณีหาไม่เจอ ให้ใส่ค่าเริ่มต้น
-        sender: "ไม่ระบุ (สแกนด่วน)",
-        receiver: "ร้านค้า",
-        note: "สแกนด้วยโหมดความเร็วสูง"
-      };
-    } else {
-      console.log(`[LOG] ⚠️ [Hybrid OCR] Cloud Vision สกัดยอดเงิน/วันที่ไม่ครบถ้วน สลับไปใช้ Gemini...`);
-      return await extractDataWithGemini(imageBuffer);
-    }
-
-  } catch (error) {
-    console.error(`[ERROR] ❌ Cloud Vision ขัดข้อง: ${error.message}. สลับการทำงานไปใช้ Gemini ทันที...`);
-    return await extractDataWithGemini(imageBuffer);
+// ตรวจสอบและแก้ไขข้อมูลจาก Gemini ก่อนใช้งานจริง
+function validateSlipData(data) {
+  const amount = parseFloat(String(data.amount).replace(/[^\d.]/g, ''));
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error(`อ่านยอดเงินจากสลิปไม่ได้ (ค่าที่ได้: "${data.amount}") กรุณาลองส่งรูปใหม่`);
   }
+  return {
+    ...data,
+    amount,
+    type: ['income', 'expense'].includes(data.type) ? data.type : 'income',
+    date: data.date && data.date !== '-' ? data.date : getThaiDateTime().date,
+    time: data.time && data.time !== '-' ? data.time : getThaiDateTime().time,
+    sender: data.sender || '-',
+    receiver: data.receiver || '-',
+    note: data.note || '-',
+  };
 }
 
 // ==========================================
 // 4. MAIN WEBHOOK ENDPOINT (LINE RECEIVER)
 // ==========================================
 app.post('/webhook', async (req, res) => {
+  // ตอบ LINE ทันทีก่อนประมวลผล กันกรณี timeout ทำให้ LINE retry แล้วตัดเครดิตซ้ำ
+  res.status(200).send('OK');
+
   const events = req.body.events;
-  if (!events || events.length === 0) return res.status(200).send('OK');
+  if (!events || events.length === 0) return;
 
   for (const event of events) {
     const replyToken = event.replyToken;
-    
+
+    // กัน event ซ้ำจาก LINE retry
+    const eventId = event.webhookEventId;
+    if (eventId && isDuplicateEvent(eventId)) {
+      console.log(`[LOG] ⏭️ ข้าม event ซ้ำ: ${eventId}`);
+      continue;
+    }
+
     // ถ้าผู้ใช้อัญเชิญบอทเข้ากลุ่ม
     if (event.type === 'join') {
       const groupId = event.source.groupId;
@@ -337,32 +313,28 @@ app.post('/webhook', async (req, res) => {
           continue;
         }
 
-        // STEP 3: ประมวลผลรูปภาพด้วย Gemini
+        // STEP 3: ประมวลผลรูปภาพด้วย Gemini + ตรวจสอบความถูกต้อง
         const imageBuffer = await getLineImage(event.message.id);
-        const slipData = await extractDataWithGemini(imageBuffer);
+        const rawSlipData = await extractDataWithGemini(imageBuffer);
+        const slipData = validateSlipData(rawSlipData);
 
         // STEP 4: อัปโหลดรูปลง Google Drive และลง Sheet (ถ้าลูกค้าตั้งค่าไว้)
-        let driveFileId = null;
         let driveFileUrl = null;
-        
-        // ตรวจสอบว่าร้านนี้มีการผูก Google Token ไว้หรือไม่
-        const { data: gToken } = await supabase.from('google_tokens').select('refresh_token').eq('shop_id', shop.id).maybeSingle();
-        
-        if (gToken && gToken.refresh_token && shop.google_folder_id && shop.google_sheet_id) {
-          const accessToken = await getAccessToken(gToken.refresh_token);
-          const thaiTime = getThaiDateTime();
-          const monthYearFolderName = `${thaiTime.date.split('/')[1]}-${thaiTime.date.split('/')[2]}`; // เช่น 05-2567
-          
-          // สร้างโฟลเดอร์แยกตามเดือน
-          const currentMonthFolderId = await getOrCreateDriveFolder(accessToken, shop.google_folder_id, monthYearFolderName);
-          
-          // อัปโหลดรูป (ตั้งชื่อตามยอดเงิน)
-          const fileName = `_${slipData.amount}THB_${thaiTime.date.replace(/\//g, '')}_${Date.now()}.jpg`;
-          driveFileId = await uploadToGoogleDrive(imageBuffer, accessToken, currentMonthFolderId, fileName);
-          driveFileUrl = `https://drive.google.com/open?id=${driveFileId}`;
-
-          // อัปเดตลง Google Sheets
-          await appendToGoogleSheet(accessToken, shop.google_sheet_id, slipData, driveFileUrl);
+        try {
+          const { data: gToken } = await supabase.from('google_tokens').select('refresh_token').eq('shop_id', shop.id).maybeSingle();
+          if (gToken?.refresh_token && shop.google_folder_id && shop.google_sheet_id) {
+            const accessToken = await getAccessToken(gToken.refresh_token);
+            const thaiTime = getThaiDateTime();
+            const monthYearFolderName = `${thaiTime.date.split('/')[1]}-${thaiTime.date.split('/')[2]}`;
+            const currentMonthFolderId = await getOrCreateDriveFolder(accessToken, shop.google_folder_id, monthYearFolderName);
+            const fileName = `_${slipData.amount}THB_${thaiTime.date.replace(/\//g, '')}_${Date.now()}.jpg`;
+            const driveFileId = await uploadToGoogleDrive(imageBuffer, accessToken, currentMonthFolderId, fileName);
+            driveFileUrl = `https://drive.google.com/open?id=${driveFileId}`;
+            await appendToGoogleSheet(accessToken, shop.google_sheet_id, slipData, driveFileUrl);
+          }
+        } catch (googleErr) {
+          // Google token หมดอายุหรือ Drive/Sheets ขัดข้อง — ข้ามไป บันทึก Supabase ตามปกติ
+          console.error('[WARN] ⚠️ Google Drive/Sheets ขัดข้อง (ข้าม):', googleErr.message);
         }
 
         // STEP 5: บันทึกข้อมูลธุรกรรมลง Supabase (จับคู่คอลัมน์ให้ตรงเป๊ะ)
