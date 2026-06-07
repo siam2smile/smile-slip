@@ -1,25 +1,60 @@
 #!/bin/bash
-export SERVICE_NAME="smileslip-dashboard"
-export REGION="asia-southeast1"
+# ============================================================
+# Smile Slip Dashboard — Canonical Deploy Script
+# อ่าน secret จาก .env (ซึ่งอยู่ใน .gitignore) — ไม่มี secret hardcode ในไฟล์นี้
+# ใช้สคริปต์นี้ตัวเดียวในการ deploy dashboard เสมอ เพื่อกัน code/config drift
+# ============================================================
+set -euo pipefail
+cd "$(dirname "$0")"
 
-# --- Supabase ---
-SB_URL="https://sbgwwxuhzfeflexipgkz.supabase.co"
-SB_PUB_KEY="sb_publishable_MaAMwA184SJU9jtF2BSCkg_8ZjmEvkJ"
+SERVICE="smileslip-dashboard"
+REGION="asia-southeast1"
 
-# --- LINE ---
-L_TOKEN="A8KnRecB7fCCpCTQ5KckJSv98Xy53Hq/zLhBSJi4eYPuH4HCOF3cAs22KsFNzjNYD/5RhFCytMZ+eQQwOInzoGuAF02n6HZ4wIJo/LryWPPQ0+C8xQGGRQ7H3vAeXkOAja/IznRwjqq07fihuZosBwdB04t89/1O/w1cDnyilFU="
-L_LOGIN_ID="2009797558"
-L_LOGIN_SECRET="685a6d7cf9b0411b616ac241a4f43845"
+if [ ! -f .env ]; then
+  echo "❌ ไม่พบไฟล์ .env (ต้องมี secret ทั้งหมดอยู่ในนั้น) — ยกเลิกการ deploy"
+  exit 1
+fi
 
-# --- Google ---
-G_CLIENT_ID="832247688217-3fgu04nhdj5dfd3iofb1sq8ab7lcib6k.apps.googleusercontent.com"
-G_CLIENT_SECRET="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"
-G_REDIRECT="https://smileslip-dashboard-832247688217.asia-southeast1.run.app/api/auth/google/callback"
+# แปลง .env → env yaml (สำหรับ --env-vars-file) และ build-env-vars (NEXT_PUBLIC_*)
+ENV_YAML="$(mktemp)"
+BUILD_ENV_FILE="$(mktemp)"
+trap 'rm -f "$ENV_YAML" "$BUILD_ENV_FILE"' EXIT
 
-gcloud run deploy $SERVICE_NAME \
+python3 - "$ENV_YAML" "$BUILD_ENV_FILE" <<'PY'
+import sys, json
+
+env_vars = {}
+for line in open('.env', encoding='utf-8'):
+    s = line.strip()
+    if not s or s.startswith('#') or '=' not in s:
+        continue
+    k, v = s.split('=', 1)
+    k = k.strip()
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
+        v = v[1:-1]
+    env_vars[k] = v
+
+# runtime env yaml (ครอบคลุมทุก key)
+open(sys.argv[1], 'w', encoding='utf-8').write(
+    '\n'.join(f'{k}: {json.dumps(v)}' for k, v in env_vars.items()) + '\n'
+)
+print(f'[deploy] เตรียม env จาก .env จำนวน {len(env_vars)} ตัวแปร')
+
+# build-time env สำหรับ NEXT_PUBLIC_* (ต้องฝังตอน build)
+pub = {k: v for k, v in env_vars.items() if k.startswith('NEXT_PUBLIC_')}
+open(sys.argv[2], 'w', encoding='utf-8').write(','.join(f'{k}={v}' for k, v in pub.items()))
+print(f'[deploy] NEXT_PUBLIC_ vars สำหรับ build: {list(pub.keys())}')
+PY
+
+BUILD_ENV_VARS="$(cat "$BUILD_ENV_FILE")"
+
+echo "[deploy] 🚀 กำลัง deploy $SERVICE ที่ $REGION ..."
+gcloud run deploy "$SERVICE" \
   --source . \
-  --region $REGION \
-  --allow-unauthenticated \
-  --clear-base-image \
-  --set-env-vars "NEXT_PUBLIC_SUPABASE_URL=$SB_URL,NEXT_PUBLIC_SUPABASE_KEY=$SB_PUB_KEY,SUPABASE_URL=$SB_URL,SUPABASE_KEY=$SB_PUB_KEY,LINE_CHANNEL_ACCESS_TOKEN=$L_TOKEN,LINE_LOGIN_ID=$L_LOGIN_ID,LINE_LOGIN_SECRET=$L_LOGIN_SECRET,GOOGLE_CLIENT_ID=$G_CLIENT_ID,GOOGLE_CLIENT_SECRET=$G_CLIENT_SECRET,GOOGLE_REDIRECT_URI=$G_REDIRECT" \
-  --set-build-env-vars "NEXT_PUBLIC_SUPABASE_URL=$SB_URL,NEXT_PUBLIC_SUPABASE_KEY=$SB_PUB_KEY"
+  --region "$REGION" \
+  --env-vars-file "$ENV_YAML" \
+  --set-build-env-vars "$BUILD_ENV_VARS" \
+  --allow-unauthenticated
+
+echo "[deploy] ✅ เสร็จสิ้น"

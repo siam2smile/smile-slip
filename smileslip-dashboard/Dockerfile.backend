@@ -1,0 +1,21 @@
+# อัปเกรดเป็น node:22-alpine เพื่อให้มี Native WebSocket ติดมากับตัวระบบเลย
+FROM node:22-alpine
+
+WORKDIR /app
+
+# ก๊อปปี้ไฟล์จัดการแพ็กเกจ
+COPY package*.json ./
+
+# ติดตั้งไลบรารีทั้งหมด
+RUN npm install
+
+# ก๊อปปี้โค้ดทั้งหมดเข้าสู่คอนเทนเนอร์
+COPY . .
+
+# กำหนดสภาพแวดล้อมและพอร์ตบังคับ
+ENV PORT=8080
+ENV NODE_ENV=production
+EXPOSE 8080
+
+# สั่งรันไฟล์หลังบ้าน Stripe โดยตรง
+CMD ["node", "stripe-server.js"]

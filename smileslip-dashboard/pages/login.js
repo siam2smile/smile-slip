@@ -1,85 +1,150 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/router';
-import { MessageCircle, Mail, ChevronRight, ArrowLeft } from 'lucide-react';
-import axios from 'axios';
+import Head from 'next/head';
 import Link from 'next/link';
+import Script from 'next/script';
+import { Mail, Lock, ChevronRight, Eye, EyeOff } from 'lucide-react';
+import axios from 'axios';
 
-export default function Login() {
+export default function LoginPage() {
   const router = useRouter();
+  const [liffFailed, setLiffFailed] = useState(false);
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleLineLogin = () => {
-    const clientId = "2009797558";
-    const redirectUri = "https://smileslip-dashboard-832247688217.asia-southeast1.run.app/api/auth/callback/line";
-    const lineUrl = `https://access.line.me/oauth2/v2.1/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=smile123&scope=profile%20openid%20email&bot_prompt=normal`;
-    window.location.href = lineUrl;
+  // เรียกหลัง LIFF SDK โหลดจาก CDN สำเร็จ
+  const initLiff = async () => {
+    try {
+      await window.liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID });
+
+      if (!window.liff.isLoggedIn()) {
+        window.liff.login();
+        return;
+      }
+
+      const profile = await window.liff.getProfile();
+      const lineUserId = profile.userId;
+      const displayName = profile.displayName;
+
+      // เช็คว่ามีบัญชีในระบบหรือยัง
+      const res = await fetch(`/api/auth/check-user?userId=${lineUserId}`);
+      const { exists } = await res.json();
+
+      if (exists) {
+        router.push(`/dashboard?userId=${lineUserId}`);
+      } else {
+        router.push(`/register?userId=${lineUserId}&name=${encodeURIComponent(displayName)}`);
+      }
+    } catch (err) {
+      console.error('LIFF init error:', err);
+      setLiffFailed(true);
+    }
   };
 
   const handleEmailLogin = async (e) => {
     e.preventDefault();
+    setError('');
     setLoading(true);
     try {
-      // ส่งไปเช็คที่ API ว่าอีเมลนี้มีในระบบไหม
-      const res = await axios.post('/api/auth/email-login', { email });
-      if (res.data.userId) {
-        router.push(`/dashboard?userId=${res.data.userId}`);
-      }
+      const res = await axios.post('/api/auth/email-login', { email, password });
+      if (res.data.userId) router.push(`/dashboard?userId=${res.data.userId}`);
     } catch (err) {
-      alert("ไม่พบข้อมูลผู้ใช้งานด้วยอีเมลนี้ กรุณาลงทะเบียนก่อนครับ 😊");
+      setError(err.response?.data?.error || 'เกิดข้อผิดพลาด กรุณาลองใหม่');
     }
     setLoading(false);
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col justify-center items-center px-6 py-12 font-sans relative">
-      <Link href="/" className="absolute top-8 left-8 text-slate-400 hover:text-indigo-600 transition-colors flex items-center gap-2 font-bold uppercase text-[10px] tracking-widest">
-        <ArrowLeft size={16}/> Back to Home
-      </Link>
+    <div className="min-h-screen bg-gradient-to-br from-blue-950 via-blue-900 to-blue-800 flex flex-col justify-center items-center px-6 py-12 font-sans">
+      <Head><title>เข้าสู่ระบบ | Smile Slip Pro</title></Head>
 
-      <div className="max-w-md w-full bg-white rounded-[3rem] shadow-2xl shadow-slate-200/50 p-12 border border-slate-50 relative overflow-hidden">
-        <div className="text-center mb-10">
-          <div className="text-5xl mb-4">😊</div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight italic">Welcome Back</h2>
-          <p className="text-slate-400 font-medium">เลือกวิธีเข้าใช้งานระบบของคุณ</p>
-        </div>
+      {/* โหลด LIFF SDK จาก CDN — ไม่ต้องติดตั้ง npm package */}
+      <Script
+        src="https://static.line-scdn.net/liff/edge/2/sdk.js"
+        strategy="afterInteractive"
+        onLoad={initLiff}
+        onError={() => setLiffFailed(true)}
+      />
 
-        {/* LINE LOGIN */}
-        <button 
-          onClick={handleLineLogin} 
-          className="w-full bg-[#06C755] text-white font-black py-5 rounded-2xl flex items-center justify-center gap-3 shadow-xl shadow-green-100 hover:scale-[1.02] active:scale-95 transition-all mb-10"
-        >
-          <MessageCircle fill="white" size={24} />
-          เข้าสู่ระบบด้วย LINE
-        </button>
+      {/* Logo */}
+      <div className="text-center mb-8">
+        <div className="text-5xl mb-3">😊</div>
+        <h1 className="text-white font-black text-2xl">Smile Slip <span className="text-blue-300 font-medium">Pro</span></h1>
+        <p className="text-blue-400 text-sm mt-1">ระบบจัดการสลิปอัจฉริยะสำหรับธุรกิจไทย</p>
+      </div>
 
-        <div className="relative mb-10">
-          <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100"></div></div>
-          <div className="relative flex justify-center text-[10px] uppercase font-black tracking-[0.3em] text-slate-300"><span className="bg-white px-4">หรือใช้อีเมล</span></div>
-        </div>
+      <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl shadow-blue-950/50 p-8">
 
-        {/* EMAIL LOGIN */}
-        <form onSubmit={handleEmailLogin} className="space-y-4">
-          <div className="relative group">
-            <Mail className="absolute left-4 top-4 text-slate-300 group-focus-within:text-indigo-500 transition-colors" size={20}/>
-            <input 
-              required 
-              type="email" 
-              placeholder="ใส่อีเมลที่คุณลงทะเบียนไว้" 
-              className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-50 rounded-2xl focus:bg-white focus:border-indigo-500 outline-none transition-all font-bold"
-              onChange={(e) => setEmail(e.target.value)}
-            />
+        {/* กำลังเชื่อมต่อ LINE */}
+        {!liffFailed ? (
+          <div className="text-center py-6">
+            <div className="text-4xl mb-4 animate-bounce">😊</div>
+            <h2 className="text-lg font-black text-slate-900 mb-1">กำลังเชื่อมต่อกับ LINE...</h2>
+            <p className="text-slate-400 text-sm mb-6">กรุณารอสักครู่</p>
+            <div className="flex gap-1.5 justify-center">
+              <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}/>
+              <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}/>
+              <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}/>
+            </div>
+            <p className="text-xs text-slate-300 mt-6">
+              เข้าไม่ได้?{' '}
+              <button onClick={() => setLiffFailed(true)} className="text-blue-600 font-bold underline">
+                เข้าด้วยอีเมลแทน
+              </button>
+            </p>
           </div>
-          <button 
-            disabled={loading}
-            className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black flex items-center justify-center gap-3 hover:bg-indigo-600 transition-all shadow-xl shadow-slate-200"
-          >
-            {loading ? "กำลังตรวจสอบ..." : "เข้าสู่ระบบ"} <ChevronRight size={20}/>
-          </button>
-        </form>
+        ) : (
+          /* Fallback: Email Login */
+          <>
+            <h2 className="text-lg font-black text-slate-900 mb-1">เข้าสู่ระบบด้วยอีเมล</h2>
+            <p className="text-slate-400 text-xs mb-6">
+              <button onClick={() => { setLiffFailed(false); window.location.reload(); }}
+                className="text-blue-600 font-bold underline underline-offset-2">
+                ลองเชื่อมต่อ LINE อีกครั้ง
+              </button>
+              {' '}หรือกรอกอีเมล + รหัสผ่านด้านล่าง
+            </p>
 
-        <p className="mt-10 text-center text-slate-400 text-sm font-medium">
-          ยังไม่มีบัญชี? <Link href="/register" className="text-indigo-600 font-black underline underline-offset-4">สร้างบัญชีใหม่</Link>
+            <form onSubmit={handleEmailLogin} className="space-y-3">
+              {error && (
+                <div className="bg-red-50 border border-red-200 text-red-600 text-xs font-bold px-4 py-3 rounded-xl">
+                  {error}
+                </div>
+              )}
+
+              <div className="relative group">
+                <Mail className="absolute left-4 top-3.5 text-slate-300 group-focus-within:text-blue-500 transition-colors" size={17}/>
+                <input required type="email" placeholder="อีเมลที่ลงทะเบียนไว้"
+                  className="w-full pl-11 pr-4 py-3.5 bg-slate-50 border-2 border-transparent rounded-xl focus:bg-white focus:border-blue-500 outline-none transition-all font-bold text-sm"
+                  value={email} onChange={e => setEmail(e.target.value)}/>
+              </div>
+
+              <div className="relative group">
+                <Lock className="absolute left-4 top-3.5 text-slate-300 group-focus-within:text-blue-500 transition-colors" size={17}/>
+                <input required type={showPassword ? 'text' : 'password'} placeholder="รหัสผ่าน"
+                  className="w-full pl-11 pr-11 py-3.5 bg-slate-50 border-2 border-transparent rounded-xl focus:bg-white focus:border-blue-500 outline-none transition-all font-bold text-sm"
+                  value={password} onChange={e => setPassword(e.target.value)}/>
+                <button type="button" onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-3.5 text-slate-300 hover:text-slate-600">
+                  {showPassword ? <EyeOff size={17}/> : <Eye size={17}/>}
+                </button>
+              </div>
+
+              <button type="submit" disabled={loading}
+                className="w-full py-3.5 bg-blue-900 hover:bg-blue-700 text-white rounded-xl font-black flex items-center justify-center gap-2 transition-all shadow-lg disabled:opacity-50 text-sm">
+                {loading ? 'กำลังตรวจสอบ...' : 'เข้าสู่ระบบ'} <ChevronRight size={17}/>
+              </button>
+            </form>
+          </>
+        )}
+
+        <p className="mt-5 text-center text-[10px] text-slate-400">
+          <Link href="/terms" className="underline hover:text-blue-600">เงื่อนไขการใช้บริการ</Link>
+          {' '}·{' '}
+          <Link href="/privacy" className="underline hover:text-blue-600">ความเป็นส่วนตัว</Link>
         </p>
       </div>
     </div>
