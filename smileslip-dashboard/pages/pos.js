@@ -261,9 +261,9 @@ export default function POSPage() {
   const [qrImageData, setQrImageData] = useState('');
   const [qrLoading, setQrLoading] = useState(false);
 
-  // POS settings (Staff PIN + PromptPay)
-  const [posConfig, setPosConfig] = useState({ has_pin: false, promptpay_id: '' });
-  const [posSettingsForm, setPosSettingsForm] = useState({ staff_pin: '', promptpay_id: '' });
+  // POS settings (Staff PIN + PromptPay + Biller ID)
+  const [posConfig, setPosConfig] = useState({ has_pin: false, promptpay_id: '', scb_biller_id: '' });
+  const [posSettingsForm, setPosSettingsForm] = useState({ staff_pin: '', promptpay_id: '', scb_biller_id: '' });
   const [settingsSaving, setSettingsSaving] = useState(false);
 
   // ── Multi-table bill management ───────────────────────────────────────────
@@ -481,7 +481,7 @@ export default function POSPage() {
       const d = await r.json();
       if (d.ok !== false) {
         setPosConfig(d);
-        setPosSettingsForm({ staff_pin: '', promptpay_id: d.promptpay_id || '' });
+        setPosSettingsForm({ staff_pin: '', promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '' });
       }
     } catch {}
   }
@@ -493,6 +493,7 @@ export default function POSPage() {
       const body = { shopId };
       if (posSettingsForm.staff_pin) body.staff_pin = posSettingsForm.staff_pin;
       if (posSettingsForm.promptpay_id !== undefined) body.promptpay_id = posSettingsForm.promptpay_id;
+      if (posSettingsForm.scb_biller_id !== undefined) body.scb_biller_id = posSettingsForm.scb_biller_id;
       const r = await fetch('/api/pos/pos-config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -2989,7 +2990,7 @@ export default function POSPage() {
                 <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
                   <h3 className="text-white font-bold mb-1">📲 พร้อมเพย์ QR</h3>
                   <p className="text-gray-400 text-xs mb-4">
-                    เลขพร้อมเพย์สำหรับสร้าง QR ในหน้าชำระเงิน (เบอร์โทรหรือเลขนิติบุคคล)
+                    ใช้เบอร์โทรส่วนตัว หรือเลขผู้เสียภาษีนิติบุคคล 13 หลัก (ระบบตรวจจับประเภทให้อัตโนมัติ) — เงินจะเข้าบัญชีธนาคารที่ผูกพร้อมเพย์กับเลขนี้อยู่ ณ ตอนนี้เท่านั้น
                     {posConfig.promptpay_id ? ` — ปัจจุบัน: ${posConfig.promptpay_id}` : ''}
                   </p>
                   <div>
@@ -2999,7 +3000,27 @@ export default function POSPage() {
                       value={posSettingsForm.promptpay_id}
                       onChange={e => setPosSettingsForm(f => ({ ...f, promptpay_id: e.target.value }))}
                       className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
-                      placeholder="เช่น 0812345678"
+                      placeholder="เช่น 0812345678 หรือ 0105536000000"
+                    />
+                  </div>
+                </div>
+
+                {/* Biller ID (Thai QR Payment / Bill Payment — ธนาคารใดก็ได้) */}
+                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
+                  <h3 className="text-white font-bold mb-1">🏦 Biller ID จากธนาคาร</h3>
+                  <p className="text-gray-400 text-xs mb-4">
+                    สำหรับร้าน/บริษัทที่ธนาคารออกการ์ดหรือเอกสารระบุคำว่า "Biller ID" มาให้ (ธนาคารใดก็ได้ ไม่จำกัดแค่ SCB/KBank) —
+                    เป็นคนละระบบกับพร้อมเพย์ด้านบน เงินจะเข้าบัญชีที่ผูกกับ Biller ID นี้โดยตรง <b>ถ้ากรอกช่องนี้ ระบบจะใช้ช่องนี้แทนพร้อมเพย์ทันที</b>
+                    {posConfig.scb_biller_id ? ` — ปัจจุบัน: ${posConfig.scb_biller_id}` : ' — เว้นว่างไว้ถ้าไม่มี'}
+                  </p>
+                  <div>
+                    <label className="block text-gray-400 text-xs mb-1.5">Biller ID</label>
+                    <input
+                      type="text"
+                      value={posSettingsForm.scb_biller_id}
+                      onChange={e => setPosSettingsForm(f => ({ ...f, scb_biller_id: e.target.value }))}
+                      className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                      placeholder="เช่น 050556501923609"
                     />
                   </div>
                 </div>
