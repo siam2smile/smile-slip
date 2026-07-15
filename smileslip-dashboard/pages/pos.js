@@ -1230,19 +1230,57 @@ export default function POSPage() {
   }
 
   // ── CSV / VCF import / export helpers ────────────────────────────────────
+  function decodeQuotedPrintable(str, charset) {
+    const bytes = [];
+    for (let i = 0; i < str.length; i++) {
+      if (str[i] === '=' && /^[0-9A-Fa-f]{2}$/.test(str.substr(i + 1, 2))) {
+        bytes.push(parseInt(str.substr(i + 1, 2), 16));
+        i += 2;
+      } else {
+        bytes.push(str.charCodeAt(i));
+      }
+    }
+    try {
+      return new TextDecoder(charset || 'utf-8').decode(new Uint8Array(bytes));
+    } catch (e) {
+      return str;
+    }
+  }
+
   function parseVCFText(text) {
     const results = [];
     const cards = text.split(/BEGIN:VCARD/i).slice(1);
     for (const card of cards) {
       // unfold continued lines (RFC 6350: CRLF + SPACE)
       const unfolded = card.replace(/\r?\n[ \t]/g, '');
-      const lines = unfolded.split(/\r?\n/);
+      const rawLines = unfolded.split(/\r?\n/);
+
+      // vCard 2.1 quoted-printable values can also soft-break with a trailing '='
+      // (separate from RFC 6350 folding above) — rejoin those before parsing.
+      const lines = [];
+      for (let i = 0; i < rawLines.length; i++) {
+        let line = rawLines[i];
+        const colonIdx0 = line.indexOf(':');
+        const isQPLine = colonIdx0 !== -1 && /ENCODING=QUOTED-PRINTABLE/i.test(line.slice(0, colonIdx0));
+        if (isQPLine) {
+          while (line.endsWith('=') && i + 1 < rawLines.length) {
+            line = line.slice(0, -1) + rawLines[++i];
+          }
+        }
+        lines.push(line);
+      }
+
       let name = '', phone = '', email = '', company_name = '', notes = '';
       for (const line of lines) {
         const upper = line.toUpperCase();
         const colonIdx = line.indexOf(':');
         if (colonIdx === -1) continue;
-        const val = line.slice(colonIdx + 1).trim();
+        const params = line.slice(0, colonIdx);
+        let val = line.slice(colonIdx + 1).trim();
+        if (/ENCODING=QUOTED-PRINTABLE/i.test(params)) {
+          const charsetMatch = params.match(/CHARSET=([^;:]+)/i);
+          val = decodeQuotedPrintable(val, charsetMatch ? charsetMatch[1] : 'utf-8');
+        }
         if (upper.startsWith('FN:') || upper.startsWith('FN;')) {
           name = val;
         } else if (!name && (upper.startsWith('N:') || upper.startsWith('N;'))) {
