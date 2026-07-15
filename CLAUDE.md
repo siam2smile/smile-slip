@@ -25,6 +25,13 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
    - **บทเรียน:** ไฟล์ที่เสียหายจากเหตุการณ์เครื่องล่มอาจมีมากกว่า 1 ไฟล์ และ syntax check แบบ sucrase เพียงอย่างเดียวไม่พอ (pos.js ผ่าน sucrase แต่จริง ๆ ก็เคยพังเพราะ NUL byte) — ทางที่ชัวร์สุดคือรัน `npm run build` เต็มโปรเจกต์ก่อน deploy ทุกครั้งหลังกู้ไฟล์ที่สงสัยว่าเสียหาย
 5. **เพิ่มฟีเจอร์ QR รับเงินแบบ Biller ID (Thai QR Payment / Bill Payment)** — เดิม POS รองรับแค่พร้อมเพย์ส่วนบุคคล (Tag 29: เบอร์โทร/เลขนิติบุคคล 13 หลัก ผ่านไลบรารี `promptpay-qr`) แต่บางร้าน/บริษัทรับเงินผ่าน **Biller ID ที่ธนาคารออกให้ต่างหาก** (Tag 30, มาตรฐาน ITMX เดียวกันทุกธนาคาร ไม่จำกัดแค่ SCB/KBank) ซึ่งเป็นคนละระบบกับพร้อมเพย์โดยสิ้นเชิง (เงินไม่ผ่านทะเบียนพร้อมเพย์ แต่เข้าบัญชีที่ผูกกับ Biller ID นั้นตรง ๆ) เพิ่ม `lib/thai-qr-billpayment.js` (self-written ตามสเปก EMVCo/ธปท. เพราะไม่มี npm package รองรับ Tag 30) + แก้ `api/pos/promptpay-qr.js` ให้เช็ค `pos_configs.scb_biller_id` ก่อน ถ้ามีค่าใช้ Bill Payment แทนพร้อมเพย์ทันที + เพิ่มช่องกรอก "Biller ID จากธนาคาร" แยกในหน้าตั้งค่า POS ของ `pos.js` (self-service ต่อร้าน ไม่ hardcode) — commit `2cf344e`
    - **ข้อควรระวัง:** เลขที่โชว์บนหน้าจอ "QR รับเงิน" ของแอปธนาคาร (เช่น "เลขอ้างอิง" ใน K SHOP ของ KBank) **อาจไม่ใช่ Biller ID จริง** ต้องเข้าไปดูใน "แก้ไขข้อมูลร้านค้า"/merchant settings ของแอปธนาคารเพื่อหา Biller ID ตัวจริงมากรอก (พบเคสจริง: K SHOP โชว์ "เลขอ้างอิง: KPS004KB000001925570" แต่ Biller ID จริงคือ `010753600031508` คนละเลขกันเลย)
+6. **แก้ 5 ข้อจาก punch list ตรวจสอบโค้ดเต็มโปรเจกต์ (commit `e01c927`):**
+   - **Stripe webhook idempotency** — เพิ่ม insert `event.id` ลงตาราง `stripe_processed_events` ก่อนประมวลผลทุกครั้ง ถ้า insert ชนซ้ำ (unique violation, code `23505`) แปลว่าเคยประมวลผลไปแล้ว ข้ามได้เลย ถ้า error เป็นแบบอื่น (เช่น ตารางยังไม่ถูกสร้าง) จะ fail-open ทำงานต่อไปเหมือนเดิมกันไม่ให้ checkout พังทั้งระบบ — **ต้องสร้างตารางนี้ก่อนถึงจะกันซ้ำได้จริง** (ดู SQL ในหัวข้อ "ต้องทำด้วยมือ" ด้านล่าง)
+   - **`api/admin/pos-stats.js` และ `delivery-stats.js`** เช็ค token ผิดรูปแบบมาตั้งแต่สร้าง (เทียบ decoded token กับ `ADMIN_PASSWORD` ตรง ๆ แทนที่จะเช็ค prefix `smileslip-admin:` แบบไฟล์ admin อื่น) ทำให้ admin login ปกติเรียกใช้ไม่ได้ 401 ตลอด — แก้ให้ตรงกับ pattern เดียวกับไฟล์ admin อื่นแล้ว
+   - **`lib/google-delivery.js`** เดิมรู้อยู่แล้วว่าบัญชี Google ภาษาไทยได้ tab ชื่อ "แผ่น1" ไม่ใช่ "Sheet1" แต่ API ทุกไฟล์ hardcode "Sheet1" ตรง ๆ — แก้ที่ต้นตอโดยบังคับ rename tab แรกเป็น "Sheet1" เสมอตอนสร้าง spreadsheet ใหม่ (ไม่ต้องแก้ทุก API route)
+   - **`api/shop/branches.js`** เพิ่มการเช็คจำนวนสาขาปัจจุบันเทียบ `MAX_BRANCHES` ตาม tier ก่อน insert (เดิมกันแค่ฝั่ง client เท่านั้น ยิง API ตรงเพิ่มเกิน limit ได้) — ต้องตรงกับ `MAX_BRANCHES` ใน `smileslip-pro/index.js` เสมอถ้าจะแก้ค่า limit ในอนาคต
+   - ลบ `StampSVG()` dead code ใน `pages/invoice/request.js` ออกแล้ว (ยืนยันซ้ำว่าไม่มีที่เรียกใช้ที่ไหนก่อนลบ)
+   - **ยังไม่ทำ:** ข้อ KBank/SCB auto-confirm webhook (`api/banking/kbank-notify.js`, `scb-notify.js`) ยังเป็น scaffolding 0% เหมือนเดิม — ต้องมี API credential จริงจากธนาคารก่อนถึงจะเขียนต่อได้ (รอผู้ใช้ติดต่อธนาคารขอ credential)
 
 **ข้อควรระวังใหม่ที่เพิ่มจากเหตุการณ์นี้:**
 - **Git identity ของเครื่องนี้ตั้งแบบ repo-local เท่านั้น** (`user.name=Vespa`, `user.email=six.papigod@gmail.com`) ไม่ใช่ global — ถ้าย้ายเครื่อง/ไดร์อีกต้องตั้งใหม่
@@ -605,9 +612,9 @@ gcloud builds list --region asia-southeast1 --limit=5
 ### ต้องทำในโค้ด
 - [x] **Sheets column K/P/Q/R header patch** — ไม่ต้องทำมือแล้ว `getOrCreateYearSheet()` auto-patch header ที่ขาดให้ทุกครั้งที่บันทึกรายการใหม่ — แก้ไข 2026-06-28
 - [ ] **สร้าง shop_category_rules table** ใน Supabase (SQL: `CREATE TABLE shop_category_rules (id uuid DEFAULT gen_random_uuid() PRIMARY KEY, shop_id uuid REFERENCES shop_profiles(id) ON DELETE CASCADE, keyword text NOT NULL, category text NOT NULL, created_at timestamptz DEFAULT now(), UNIQUE(shop_id, keyword));`)
-- [ ] **บังคับ branch limit ตาม tier จริง** — พบจากการตรวจสอบระบบ 2026-06-27: ตาราง Tier กำหนด max สาขาไว้ (Starter 1, Pro 1, Advance 5, Business 10, Enterprise 20) แต่โค้ด `/api/shop/branches` POST ยังไม่เช็คจำนวนสาขาปัจจุบันเทียบกับ limit ก่อนสร้างสาขาใหม่ — ร้าน Starter เพิ่มสาขาเกิน 1 ได้ในทางเทคนิค (ยังไม่แก้ ตามคำขอผู้ใช้ให้วิเคราะห์ก่อน)
-- [ ] **Stripe webhook idempotency** — พบจากการตรวจสอบระบบ 2026-06-27: `webhooks/stripe.js` ยังไม่เช็ค event.id ซ้ำ ถ้า Stripe retry ส่ง event เดิมมาซ้ำ (เช่น เครือข่ายสะดุดตอนตอบ 200) มีโอกาสเติมเครดิตซ้ำได้ในบางจังหวะ — ควรเก็บ processed event ID ไว้เช็คก่อนประมวลผล (ยังไม่แก้)
-- [ ] **ลบโค้ดที่ไม่ใช้แล้ว: `StampSVG`** — พบจากการตรวจสอบระบบ 2026-06-27 ใน dashboard มี component/asset นี้ไม่ถูกเรียกใช้ที่ไหนแล้ว (dead code) ปลอดภัยที่จะลบ
+- [x] **บังคับ branch limit ตาม tier จริง** — แก้แล้ว `/api/shop/branches` POST เช็คจำนวนสาขาปัจจุบันเทียบ `MAX_BRANCHES` ตาม tier ก่อน insert แล้ว — 2026-07-15 (commit `e01c927`)
+- [x] **Stripe webhook idempotency** — แก้แล้ว insert `event.id` ลง `stripe_processed_events` ก่อนประมวลผล ข้ามถ้าซ้ำ — 2026-07-15 (commit `e01c927`, **ต้องรัน SQL สร้างตารางก่อนถึงจะกันซ้ำได้จริง** ดูหัวข้อ Supabase SQL ด้านบน)
+- [x] **ลบโค้ดที่ไม่ใช้แล้ว: `StampSVG`** — ลบแล้ว — 2026-07-15 (commit `e01c927`)
 - [x] **Upstash Redis live** — UPSTASH_REDIS_REST_URL + TOKEN ใส่ใน .env แล้ว, bot log `[BOOT] ✅ Upstash Redis connected` — Duplicate Guard ทำงานข้าม instance แล้ว — 2026-06-13
 - [x] **รายงาน VAT/ภาษี** — สรุปตามผู้ขาย/เลขภาษี + Export CSV (Business+) — 2026-06-12
 - [x] **Category System** — bot detectCategory() Gemini + learned rules (shop_category_rules), Sheets column P, edit page, analytics breakdown (Business+) — 2026-06-13
@@ -651,6 +658,15 @@ CREATE TABLE IF NOT EXISTS delivery_configs (
   customer_sheet_id text,
   order_sheet_id text,
   created_at timestamptz DEFAULT now()
+);
+```
+
+**สร้าง stripe_processed_events table (ก่อนใช้ idempotency guard ใน webhooks/stripe.js — เพิ่ม 2026-07-15):**
+```sql
+CREATE TABLE IF NOT EXISTS stripe_processed_events (
+  event_id text PRIMARY KEY,
+  event_type text,
+  processed_at timestamptz DEFAULT now()
 );
 ```
 
