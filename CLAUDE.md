@@ -26,7 +26,7 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
 5. **เพิ่มฟีเจอร์ QR รับเงินแบบ Biller ID (Thai QR Payment / Bill Payment)** — เดิม POS รองรับแค่พร้อมเพย์ส่วนบุคคล (Tag 29: เบอร์โทร/เลขนิติบุคคล 13 หลัก ผ่านไลบรารี `promptpay-qr`) แต่บางร้าน/บริษัทรับเงินผ่าน **Biller ID ที่ธนาคารออกให้ต่างหาก** (Tag 30, มาตรฐาน ITMX เดียวกันทุกธนาคาร ไม่จำกัดแค่ SCB/KBank) ซึ่งเป็นคนละระบบกับพร้อมเพย์โดยสิ้นเชิง (เงินไม่ผ่านทะเบียนพร้อมเพย์ แต่เข้าบัญชีที่ผูกกับ Biller ID นั้นตรง ๆ) เพิ่ม `lib/thai-qr-billpayment.js` (self-written ตามสเปก EMVCo/ธปท. เพราะไม่มี npm package รองรับ Tag 30) + แก้ `api/pos/promptpay-qr.js` ให้เช็ค `pos_configs.scb_biller_id` ก่อน ถ้ามีค่าใช้ Bill Payment แทนพร้อมเพย์ทันที + เพิ่มช่องกรอก "Biller ID จากธนาคาร" แยกในหน้าตั้งค่า POS ของ `pos.js` (self-service ต่อร้าน ไม่ hardcode) — commit `2cf344e`
    - **ข้อควรระวัง:** เลขที่โชว์บนหน้าจอ "QR รับเงิน" ของแอปธนาคาร (เช่น "เลขอ้างอิง" ใน K SHOP ของ KBank) **อาจไม่ใช่ Biller ID จริง** ต้องเข้าไปดูใน "แก้ไขข้อมูลร้านค้า"/merchant settings ของแอปธนาคารเพื่อหา Biller ID ตัวจริงมากรอก (พบเคสจริง: K SHOP โชว์ "เลขอ้างอิง: KPS004KB000001925570" แต่ Biller ID จริงคือ `010753600031508` คนละเลขกันเลย)
 6. **แก้ 5 ข้อจาก punch list ตรวจสอบโค้ดเต็มโปรเจกต์ (commit `e01c927`):**
-   - **Stripe webhook idempotency** — เพิ่ม insert `event.id` ลงตาราง `stripe_processed_events` ก่อนประมวลผลทุกครั้ง ถ้า insert ชนซ้ำ (unique violation, code `23505`) แปลว่าเคยประมวลผลไปแล้ว ข้ามได้เลย ถ้า error เป็นแบบอื่น (เช่น ตารางยังไม่ถูกสร้าง) จะ fail-open ทำงานต่อไปเหมือนเดิมกันไม่ให้ checkout พังทั้งระบบ — **ต้องสร้างตารางนี้ก่อนถึงจะกันซ้ำได้จริง** (ดู SQL ในหัวข้อ "ต้องทำด้วยมือ" ด้านล่าง)
+   - **Stripe webhook idempotency** — เพิ่ม insert `event.id` ลงตาราง `stripe_processed_events` ก่อนประมวลผลทุกครั้ง ถ้า insert ชนซ้ำ (unique violation, code `23505`) แปลว่าเคยประมวลผลไปแล้ว ข้ามได้เลย ถ้า error เป็นแบบอื่น (เช่น ตารางยังไม่ถูกสร้าง) จะ fail-open ทำงานต่อไปเหมือนเดิมกันไม่ให้ checkout พังทั้งระบบ — **สร้างตาราง `stripe_processed_events` แล้ว (verified 2026-07-16 ผ่าน REST query) กันซ้ำได้จริงแล้ว ไม่ fail-open อีกต่อไป**
    - **`api/admin/pos-stats.js` และ `delivery-stats.js`** เช็ค token ผิดรูปแบบมาตั้งแต่สร้าง (เทียบ decoded token กับ `ADMIN_PASSWORD` ตรง ๆ แทนที่จะเช็ค prefix `smileslip-admin:` แบบไฟล์ admin อื่น) ทำให้ admin login ปกติเรียกใช้ไม่ได้ 401 ตลอด — แก้ให้ตรงกับ pattern เดียวกับไฟล์ admin อื่นแล้ว
    - **`lib/google-delivery.js`** เดิมรู้อยู่แล้วว่าบัญชี Google ภาษาไทยได้ tab ชื่อ "แผ่น1" ไม่ใช่ "Sheet1" แต่ API ทุกไฟล์ hardcode "Sheet1" ตรง ๆ — แก้ที่ต้นตอโดยบังคับ rename tab แรกเป็น "Sheet1" เสมอตอนสร้าง spreadsheet ใหม่ (ไม่ต้องแก้ทุก API route)
    - **`api/shop/branches.js`** เพิ่มการเช็คจำนวนสาขาปัจจุบันเทียบ `MAX_BRANCHES` ตาม tier ก่อน insert (เดิมกันแค่ฝั่ง client เท่านั้น ยิง API ตรงเพิ่มเกิน limit ได้) — ต้องตรงกับ `MAX_BRANCHES` ใน `smileslip-pro/index.js` เสมอถ้าจะแก้ค่า limit ในอนาคต
@@ -661,7 +661,7 @@ CREATE TABLE IF NOT EXISTS delivery_configs (
 );
 ```
 
-**สร้าง stripe_processed_events table (ก่อนใช้ idempotency guard ใน webhooks/stripe.js — เพิ่ม 2026-07-15):**
+**สร้าง stripe_processed_events table (ก่อนใช้ idempotency guard ใน webhooks/stripe.js — เพิ่ม 2026-07-15, ✅ สร้างแล้ว 2026-07-16):**
 ```sql
 CREATE TABLE IF NOT EXISTS stripe_processed_events (
   event_id text PRIMARY KEY,
