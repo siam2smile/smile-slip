@@ -15,6 +15,12 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
+// บังคับให้ Google Sheets เก็บเป็นข้อความล้วน กันเบอร์โทร/วันที่ถูกตีความเป็นตัวเลข
+function asText(v) {
+  if (v === '' || v == null) return v;
+  return `'${v}`;
+}
+
 async function getConfig(shopId) {
   const [{ data: pc }, { data: gc }] = await Promise.all([
     supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
@@ -50,7 +56,7 @@ export default async function handler(req, res) {
       const staff_id = makeStaffId();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
       await appendSheet(token, sheetId, 'พนักงาน', [
-        staff_id, name, phone, line_id, role, notes, now, branch_name,
+        staff_id, name, asText(phone), line_id, role, notes, asText(now), branch_name,
       ]);
       return res.json({ ok: true, staff_id, name });
     }
@@ -68,7 +74,7 @@ export default async function handler(req, res) {
       const existing = [...dataRows[idx]];
       while (existing.length < 8) existing.push('');
       if (name        !== undefined) existing[1] = name;
-      if (phone       !== undefined) existing[2] = phone;
+      if (phone       !== undefined) existing[2] = asText(phone);
       if (line_id     !== undefined) existing[3] = line_id;
       if (role        !== undefined) existing[4] = role;
       if (notes       !== undefined) existing[5] = notes;

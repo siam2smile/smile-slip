@@ -24,6 +24,13 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
+// บังคับให้ Google Sheets เก็บเป็นข้อความล้วน กันเบอร์โทรที่ขึ้นต้นด้วย 0 โดนตัด 0 ทิ้ง
+// (valueInputOption=USER_ENTERED ตีความค่าที่หน้าตาเป็นตัวเลขแล้วแปลงเป็นเลขเอง)
+function asText(v) {
+  if (v === '' || v == null) return v;
+  return `'${v}`;
+}
+
 async function getConfig(shopId) {
   const [{ data: pc }, { data: gc }] = await Promise.all([
     supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
@@ -183,7 +190,7 @@ export default async function handler(req, res) {
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
 
       await appendSheet(token, sheetId, 'ออเดอร์จัดส่ง', [
-        order_no, now, customer_id, customer_name, phone,
+        order_no, now, customer_id, customer_name, asText(phone),
         address, maps_link, JSON.stringify(items), total,
         payment_method, staff_id, staff_name, 'รอจัดส่ง', notes,
       ]);
@@ -258,7 +265,7 @@ export default async function handler(req, res) {
       while (existing.length < 14) existing.push('');
       if (customer_id     !== undefined) existing[2]  = customer_id;
       if (customer_name   !== undefined) existing[3]  = customer_name;
-      if (phone           !== undefined) existing[4]  = phone;
+      if (phone           !== undefined) existing[4]  = asText(phone);
       if (address         !== undefined) existing[5]  = address;
       if (maps_link       !== undefined) existing[6]  = maps_link;
       if (items           !== undefined) existing[7]  = JSON.stringify(items);

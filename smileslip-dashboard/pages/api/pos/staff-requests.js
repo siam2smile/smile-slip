@@ -16,6 +16,12 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
+// บังคับให้ Google Sheets เก็บเป็นข้อความล้วน กันวันที่/เบอร์โทรถูกตีความเป็นตัวเลข
+function asText(v) {
+  if (v === '' || v == null) return v;
+  return `'${v}`;
+}
+
 export default async function handler(req, res) {
   const shopId = req.query.shopId || req.body?.shopId;
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
@@ -64,7 +70,7 @@ export default async function handler(req, res) {
         const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
         await appendSheet(token, pc.pos_sheet_id, 'พนักงาน', [
           staff_id, reqRow.display_name || 'พนักงานส่ง', '', reqRow.line_user_id,
-          'พนักงานส่ง', '', now, reqRow.branch_name || '',
+          'พนักงานส่ง', '', asText(now), reqRow.branch_name || '',
         ]);
       } catch (err) {
         console.error('[staff-requests] sync to พนักงาน sheet failed:', err.message);
