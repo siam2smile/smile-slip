@@ -49,12 +49,29 @@ export async function readSheet(accessToken, sheetId, range) {
   return d.values || [];
 }
 
+// แปลงเลขคอลัมน์ (1-indexed) เป็นตัวอักษร เช่น 1→A, 18→R, 27→AA
+function colLetter(n) {
+  let s = '';
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    s = String.fromCharCode(65 + rem) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
 // เพิ่มหลายแถวในคำขอเดียว — สำคัญมากสำหรับ import จำนวนมาก (เช่น นำเข้า VCF หลักพันรายชื่อ)
 // เพราะยิง append ทีละแถวจะช้ามากและโดน rate limit ของ Google (ทั้ง OAuth token refresh
 // และ Sheets API เอง) จนพังกลางทางได้ถ้าเรียกซ้ำๆ ในเวลาสั้นๆ
+//
+// สำคัญ: range ต้องระบุขอบเขตคอลัมน์ให้ตรงกับความกว้างจริงของแถวที่จะเขียน (ไม่ใช่ A:Z
+// แบบเปิดกว้าง) เพราะเจอบั๊กจริงใน production ที่ Google Sheets append แถวใหม่ผิดตำแหน่ง
+// ไปเรื่อยๆ ทางขวา (คอลัมน์ P → Y → ...) ทุกครั้งที่เรียก append ซ้ำบนชีตที่มี header
+// สั้นกว่าข้อมูลจริง — ยิ่งเรียกยิ่งเพี้ยนสะสม ระบุ range แคบพอดีป้องกันปัญหานี้แน่นอน
 export async function appendRows(accessToken, sheetId, sheetName, rows) {
   if (!rows.length) return { ok: true };
-  const range = encodeURIComponent(`${sheetName}!A:Z`);
+  const width = Math.max(...rows.map(r => r.length));
+  const range = encodeURIComponent(`${sheetName}!A:${colLetter(width)}`);
   const res = await sheetsFetch(
     `${SHEETS_BASE}/${sheetId}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
     {

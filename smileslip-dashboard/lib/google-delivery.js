@@ -38,9 +38,21 @@ export async function readSheet(accessToken, sheetId, range) {
   return d.values || [];
 }
 
-// เพิ่มแถวท้าย sheet
+// แปลงเลขคอลัมน์ (1-indexed) เป็นตัวอักษร เช่น 1→A, 18→R, 27→AA
+function colLetter(n) {
+  let s = '';
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    s = String.fromCharCode(65 + rem) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+// เพิ่มแถวท้าย sheet — range ต้องระบุขอบเขตคอลัมน์ให้ตรงความกว้างจริงของแถว (ไม่ใช้ A:Z
+// แบบเปิดกว้าง) กันบั๊ก Google Sheets append เพี้ยนตำแหน่งสะสมทางขวาที่เจอจริงใน google-pos.js
 export async function appendSheet(accessToken, sheetId, sheetName, row) {
-  const range = encodeURIComponent(`${sheetName}!A:Z`);
+  const range = encodeURIComponent(`${sheetName}!A:${colLetter(row.length)}`);
   const res = await fetch(
     `${SHEETS_BASE}/${sheetId}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
     {
