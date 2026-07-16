@@ -251,9 +251,13 @@ export const CONTACT_HEADERS = [
   'ประเภทบุคคล', 'ชื่อผู้ติดต่อ (นิติบุคคล)', 'เบอร์ผู้ติดต่อ (นิติบุคคล)',
 ];
 
+// รหัสผู้จำหน่าย/ยอดก่อน VAT/ยอด VAT รวม (G-I) เพิ่มท้ายสุด — ผูกกับ contact_id จริงแทน
+// ข้อความอิสระเดิม + แตกยอด VAT ออกจากยอดต้นทุนรวม (col E ยังหมายถึงยอดสุทธิรวม VAT เหมือนเดิม
+// เพื่อไม่กระทบของเก่า)
 export const RECEIVE_HEADERS = [
   'เลขที่รับสินค้า', 'วันที่-เวลา', 'ผู้จำหน่าย', 'รายการสินค้า (JSON)',
   'ยอดต้นทุนรวม (บาท)', 'หมายเหตุ',
+  'รหัสผู้จำหน่าย', 'ยอดก่อน VAT (บาท)', 'ยอด VAT รวม (บาท)',
 ];
 
 
@@ -452,5 +456,8 @@ export function rowToReceive(row) {
     items,
     total_cost:  parseFloat(row[4]) || 0,
     notes:       row[5] || '',
+    supplier_id: row[6] || '',
+    subtotal:    parseFloat(row[7]) || 0,
+    vat_total:   parseFloat(row[8]) || 0,
   };
 }

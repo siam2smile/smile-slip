@@ -1,10 +1,12 @@
 /**
- * GET  /api/pos/receives?shopId&date  → ประวัติรับสินค้า
- * POST /api/pos/receives { shopId, supplier, items:[{sku,name,qty,unitCost,unit}], notes }
+ * GET  /api/pos/receives?shopId&date&supplierId  → ประวัติรับสินค้า
+ * POST /api/pos/receives { shopId, supplierId, supplier, items:[{sku,name,qty,unitCost,unit,hasVat}], notes }
  *   → บันทึกการรับสินค้า + อัปเดตสต็อค + คำนวณ weighted average cost ทุกรายการ
+ *   → unitCost ถือเป็นราคาก่อน VAT เสมอ ถ้า item.hasVat=true จะคำนวณ VAT 7% เพิ่มให้อัตโนมัติ
  *
  * เก็บใน Google Sheets tab "รับสินค้า" (PDPA compliant)
  */
+const VAT_RATE = 0.07;
 import { createClient } from '@supabase/supabase-js';
 import {
   getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
@@ -38,7 +40,7 @@ export default async function handler(req, res) {
 
     // ── GET ─────────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'รับสินค้า!A:F');
+      const rows = await readSheet(token, sheetId, 'รับสินค้า!A:I');
       let receives = rows.slice(1)
         .map((r, i) => ({ ...rowToReceive(r), _row: i + 2 }))
         .filter(r => r.receive_no);
@@ -48,12 +50,17 @@ export default async function handler(req, res) {
         receives = receives.filter(r => r.created_at.startsWith(req.query.date));
       }
 
+      // filter by supplier (contact_id) — ใช้ดึงราคาซื้อล่าสุดต่อผู้จำหน่ายรายนี้
+      if (req.query.supplierId) {
+        receives = receives.filter(r => r.supplier_id === req.query.supplierId);
+      }
+
       return res.json({ receives: receives.reverse() });
     }
 
     // ── POST ─────────────────────────────────────────────────────────────────
     if (req.method === 'POST') {
-      const { supplier = '', items = [], notes = '' } = req.body;
+      const { supplierId = '', supplier = '', items = [], notes = '' } = req.body;
       if (!items.length) return res.status(400).json({ error: 'ต้องมีรายการสินค้าอย่างน้อย 1 รายการ' });
 
       // อ่านข้อมูลสินค้าทั้งหมดเพื่อคำนวณ weighted avg cost — ต้องอ่านเต็ม A:R (18 คอลัมน์)
@@ -64,16 +71,19 @@ export default async function handler(req, res) {
 
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
       const receiveNo = makeReceiveNo();
-      let totalCost = 0;
+      let subtotal = 0;   // ยอดก่อน VAT (ต้นทุนถ่วงน้ำหนักของสินค้าคำนวณจากยอดนี้เสมอ)
+      let vatTotal = 0;    // ยอด VAT รวมทั้งใบ
 
-      // อัปเดตสต็อค + weighted avg cost ทีละสินค้า
+      // อัปเดตสต็อค + weighted avg cost ทีละสินค้า (ใช้ราคาก่อน VAT เสมอ — ต้นทุนสินค้าไม่รวม VAT)
       for (const item of items) {
-        const { sku, qty, unitCost } = item;
+        const { sku, qty, unitCost, hasVat } = item;
         const numQty = parseFloat(qty) || 0;
         const numCost = parseFloat(unitCost) || 0;
         if (!sku || numQty <= 0) continue;
 
-        totalCost += numQty * numCost;
+        const lineSubtotal = numQty * numCost;
+        subtotal += lineSubtotal;
+        if (hasVat) vatTotal += lineSubtotal * VAT_RATE;
 
         const idx = prodDataRows.findIndex(r => r[0] === sku);
         if (idx === -1) continue;
@@ -100,20 +110,35 @@ export default async function handler(req, res) {
         prodDataRows[idx] = existing;
       }
 
+      const roundedSubtotal = Math.round(subtotal * 100) / 100;
+      const roundedVat = Math.round(vatTotal * 100) / 100;
+      const grandTotal = Math.round((subtotal + vatTotal) * 100) / 100;
+
       // บันทึกใบรับสินค้าลง tab "รับสินค้า"
       await appendSheet(token, sheetId, 'รับสินค้า', [
         receiveNo,
         now,
         supplier,
-        JSON.stringify(items.map(i => ({
-          sku: i.sku, name: i.name, qty: parseFloat(i.qty) || 0,
-          unit: i.unit || '', unitCost: parseFloat(i.unitCost) || 0,
-        }))),
-        Math.round(totalCost * 100) / 100,
+        JSON.stringify(items.map(i => {
+          const q = parseFloat(i.qty) || 0;
+          const c = parseFloat(i.unitCost) || 0;
+          const lineSub = q * c;
+          const lineVat = i.hasVat ? lineSub * VAT_RATE : 0;
+          return {
+            sku: i.sku, name: i.name, qty: q, unit: i.unit || '', unitCost: c,
+            hasVat: !!i.hasVat,
+            vatAmount: Math.round(lineVat * 100) / 100,
+            lineTotal: Math.round((lineSub + lineVat) * 100) / 100,
+          };
+        })),
+        grandTotal,
         notes,
+        supplierId,
+        roundedSubtotal,
+        roundedVat,
       ]);
 
-      return res.json({ ok: true, receiveNo, totalCost, itemCount: items.length });
+      return res.json({ ok: true, receiveNo, subtotal: roundedSubtotal, vatTotal: roundedVat, totalCost: grandTotal, itemCount: items.length });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });

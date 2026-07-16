@@ -323,8 +323,11 @@ export default function POSPage() {
   const [creditCustomerQ, setCreditCustomerQ] = useState('');
 
   // receive stock — แบบใบรับสินค้า (รองรับหลายรายการ)
-  const [receiveSupplier, setReceiveSupplier] = useState('');
-  const [receiveItems, setReceiveItems] = useState([]);   // [{sku,name,qty,unit,unitCost}]
+  const [receiveSupplier, setReceiveSupplier] = useState(''); // ชื่อพิมพ์อิสระ (fallback ถ้าไม่ผูก contact)
+  const [receiveSupplierContact, setReceiveSupplierContact] = useState(null); // ผู้จำหน่ายที่ผูก contact_id จริง
+  const [receiveSupplierQ, setReceiveSupplierQ] = useState('');
+  const [supplierPrices, setSupplierPrices] = useState({}); // { sku: ราคาต่อหน่วยล่าสุดที่ผู้จำหน่ายรายนี้เคยขายให้ }
+  const [receiveItems, setReceiveItems] = useState([]);   // [{sku,name,qty,unit,unitCost,hasVat}]
   const [receiveSearch, setReceiveSearch] = useState('');
   const [receiveNotes, setReceiveNotes] = useState('');
   const [receiveSaving, setReceiveSaving] = useState(false);
@@ -1211,7 +1214,9 @@ export default function POSPage() {
     setReceiveItems(prev => {
       const ex = prev.find(i => i.sku === prod.sku);
       if (ex) return prev; // มีแล้ว ไม่เพิ่มซ้ำ
-      return [...prev, { sku: prod.sku, name: prod.name, unit: prod.unit, qty: '', unitCost: '' }];
+      // ถ้าผู้จำหน่ายรายนี้เคยขายสินค้าตัวนี้มาก่อน ใส่ราคาล่าสุดให้อัตโนมัติ
+      const lastPrice = supplierPrices[prod.sku];
+      return [...prev, { sku: prod.sku, name: prod.name, unit: prod.unit, qty: '', unitCost: lastPrice != null ? String(lastPrice) : '', hasVat: false }];
     });
     setReceiveSearch('');
     showToast(`เพิ่ม "${prod.name}" แล้ว`);
@@ -1225,12 +1230,16 @@ export default function POSPage() {
     setReceiveItems(prev => prev.map(i => i.sku === sku ? { ...i, [field]: value } : i));
   }
 
-  const receiveTotalCost = receiveItems.reduce((sum, i) => {
-    return sum + (parseFloat(i.qty) || 0) * (parseFloat(i.unitCost) || 0);
+  const receiveSubtotal = receiveItems.reduce((sum, i) => sum + (parseFloat(i.qty) || 0) * (parseFloat(i.unitCost) || 0), 0);
+  const receiveVatTotal = receiveItems.reduce((sum, i) => {
+    if (!i.hasVat) return sum;
+    return sum + (parseFloat(i.qty) || 0) * (parseFloat(i.unitCost) || 0) * 0.07;
   }, 0);
+  const receiveTotalCost = receiveSubtotal + receiveVatTotal;
 
   // computed views — ลูกค้า / ผู้จำหน่าย filtered จาก contacts รวม
   const customers = contacts.filter(c => c.contact_type === 'ลูกค้า' || c.contact_type === 'ทั้งคู่');
+  const suppliers = contacts.filter(c => c.contact_type === 'ผู้จำหน่าย' || c.contact_type === 'ทั้งคู่');
 
   // ลูกค้าที่ตรงกับคำค้นหาในหน้าจัดส่ง — เทียบเบอร์โทรเฉพาะตัวเลข กันปัญหาต้องพิมพ์ขีด (-) ให้ตรงเป๊ะ
   const delivMatchedCustomers = useMemo(() => {
@@ -1242,9 +1251,38 @@ export default function POSPage() {
       (qDigits.length > 0 && (c.phone || '').replace(/\D/g, '').includes(qDigits))
     );
   }, [customers, delivCustSearch]);
-  const supplierNames = contacts
-    .filter(c => c.contact_type === 'ผู้จำหน่าย' || c.contact_type === 'ทั้งคู่')
-    .map(c => c.name);
+
+  // ผู้จำหน่ายที่ตรงกับคำค้นหาในหน้ารับสินค้า — เทียบเบอร์โทรเฉพาะตัวเลขเหมือนกัน
+  const receiveMatchedSuppliers = useMemo(() => {
+    const q = receiveSupplierQ.trim().toLowerCase();
+    if (!q) return [];
+    const qDigits = q.replace(/\D/g, '');
+    return suppliers.filter(c =>
+      (c.name || '').toLowerCase().includes(q) ||
+      (qDigits.length > 0 && (c.phone || '').replace(/\D/g, '').includes(qDigits))
+    ).slice(0, 5);
+  }, [suppliers, receiveSupplierQ]);
+
+  // ดึงราคาซื้อล่าสุดจากผู้จำหน่ายรายนี้ต่อสินค้าแต่ละตัว (จากประวัติรับสินค้า)
+  async function fetchSupplierPrices(contactId) {
+    if (!contactId || !shopId) { setSupplierPrices({}); return; }
+    try {
+      const r = await fetch(`/api/pos/receives?shopId=${shopId}&supplierId=${contactId}`);
+      const d = await r.json();
+      const prices = {};
+      // receives คืนเรียงใหม่สุดก่อนอยู่แล้ว — เจอ sku ไหนก่อนคือราคาล่าสุด
+      for (const rec of (d.receives || [])) {
+        for (const item of (rec.items || [])) {
+          if (item.sku && !(item.sku in prices)) prices[item.sku] = item.unitCost;
+        }
+      }
+      setSupplierPrices(prices);
+      if (Object.keys(prices).length > 0) {
+        setReceiveItems(prev => prev.map(i => prices[i.sku] != null ? { ...i, unitCost: String(prices[i.sku]) } : i));
+        showToast('ใช้ราคาซื้อล่าสุดจากผู้จำหน่ายรายนี้แล้ว');
+      }
+    } catch {}
+  }
 
   async function handleReceive() {
     if (!receiveItems.length || receiveSaving) return;
@@ -1258,7 +1296,8 @@ export default function POSPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           shopId,
-          supplier: receiveSupplier,
+          supplierId: receiveSupplierContact?.contact_id || '',
+          supplier: receiveSupplierContact?.name || receiveSupplier,
           items: validItems,
           notes: receiveNotes,
         }),
@@ -1266,9 +1305,12 @@ export default function POSPage() {
       const d = await r.json();
       if (d.ok) {
         await fetchProducts();
-        showToast(`✅ รับสินค้าสำเร็จ! ${d.itemCount} รายการ รวมทุน ฿${(d.totalCost || 0).toLocaleString()}`);
+        showToast(`✅ รับสินค้าสำเร็จ! ${d.itemCount} รายการ รวม ฿${(d.totalCost || 0).toLocaleString()} (VAT ฿${(d.vatTotal || 0).toLocaleString()})`);
         setReceiveItems([]);
         setReceiveSupplier('');
+        setReceiveSupplierContact(null);
+        setReceiveSupplierQ('');
+        setSupplierPrices({});
         setReceiveNotes('');
       } else {
         alert(d.error);
@@ -2227,24 +2269,48 @@ export default function POSPage() {
 
                 {receiveView === 'form' ? (
                   <>
-                    {/* ผู้จำหน่าย */}
+                    {/* ผู้จำหน่าย — เลือกจาก contact จริงเพื่อผูกประวัติราคาซื้อ หรือพิมพ์ชื่อใหม่เฉยๆ ก็ได้ */}
                     <div className="bg-gray-800 rounded-xl p-4 mb-4">
                       <label className="block text-gray-400 text-xs mb-2 font-medium">🏢 ผู้จำหน่าย</label>
-                      <input
-                        list="supplier-options"
-                        value={receiveSupplier}
-                        onChange={e => setReceiveSupplier(e.target.value)}
-                        placeholder="พิมพ์หรือเลือกจากรายชื่อ..."
-                        className="w-full bg-gray-700 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-600 focus:outline-none focus:border-green-500"
-                      />
-                      <datalist id="supplier-options">
-                        {supplierNames.map(n => <option key={n} value={n} />)}
-                      </datalist>
-                      {supplierNames.length === 0 && (
-                        <p className="text-gray-600 text-xs mt-1.5">
-                          ยังไม่มีผู้จำหน่าย —{' '}
-                          <button onClick={() => setTab('contacts')} className="text-green-500 underline">เพิ่มผู้จำหน่าย</button>
-                        </p>
+                      {receiveSupplierContact ? (
+                        <div className="bg-gray-700 rounded-xl p-3 flex items-center justify-between">
+                          <div>
+                            <div className="text-white font-bold text-sm">{receiveSupplierContact.name}</div>
+                            {receiveSupplierContact.phone && <div className="text-gray-400 text-xs">{receiveSupplierContact.phone}</div>}
+                            {Object.keys(supplierPrices).length > 0 && (
+                              <div className="text-green-400 text-xs mt-0.5">💰 ใช้ราคาซื้อล่าสุดแล้ว</div>
+                            )}
+                          </div>
+                          <button onClick={() => { setReceiveSupplierContact(null); setSupplierPrices({}); }}
+                            className="text-gray-500 hover:text-gray-300 text-lg ml-2">✕</button>
+                        </div>
+                      ) : (
+                        <div>
+                          <input
+                            value={receiveSupplierQ}
+                            onChange={e => { setReceiveSupplierQ(e.target.value); setReceiveSupplier(e.target.value); }}
+                            placeholder="ค้นหาผู้จำหน่ายเดิม หรือพิมพ์ชื่อใหม่..."
+                            className="w-full bg-gray-700 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-600 focus:outline-none focus:border-green-500"
+                          />
+                          {receiveMatchedSuppliers.length > 0 && (
+                            <div className="bg-gray-700 rounded-xl overflow-hidden border border-gray-600 mt-2">
+                              {receiveMatchedSuppliers.map(c => (
+                                <button key={c.contact_id} className="w-full text-left px-3 py-2.5 hover:bg-gray-600 text-sm text-gray-200 border-b border-gray-600/50 last:border-0"
+                                  onClick={() => { setReceiveSupplierContact(c); setReceiveSupplierQ(''); setReceiveSupplier(''); fetchSupplierPrices(c.contact_id); }}>
+                                  <div>{c.name}</div>
+                                  {c.phone && <div className="text-gray-500 text-xs">{c.phone}</div>}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {suppliers.length === 0 && (
+                            <p className="text-gray-600 text-xs mt-1.5">
+                              ยังไม่มีผู้จำหน่ายในระบบ —{' '}
+                              <button onClick={() => setTab('contacts')} className="text-green-500 underline">เพิ่มผู้จำหน่าย</button>
+                              {' '}(หรือพิมพ์ชื่อไว้เฉยๆ ก็บันทึกได้ แค่จะไม่ผูกประวัติราคาซื้อ)
+                            </p>
+                          )}
+                        </div>
                       )}
                     </div>
 
@@ -2304,7 +2370,7 @@ export default function POSPage() {
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-gray-400 text-xs mb-1">ราคาต้นทุน/หน่วย (฿)</label>
+                                  <label className="block text-gray-400 text-xs mb-1">ราคาต้นทุน/หน่วย ก่อน VAT (฿)</label>
                                   <input
                                     type="number"
                                     value={item.unitCost}
@@ -2315,18 +2381,39 @@ export default function POSPage() {
                                   />
                                 </div>
                               </div>
-                              {item.qty && item.unitCost && (
-                                <div className="text-green-400 text-xs mt-1.5">
-                                  รวม ฿{((parseFloat(item.qty) || 0) * (parseFloat(item.unitCost) || 0)).toLocaleString(undefined, {minimumFractionDigits:2})}
-                                </div>
-                              )}
+                              <label className="flex items-center gap-2 mt-2 cursor-pointer select-none">
+                                <input type="checkbox" checked={!!item.hasVat}
+                                  onChange={e => updateReceiveItem(item.sku, 'hasVat', e.target.checked)}
+                                  className="w-3.5 h-3.5 accent-green-600" />
+                                <span className="text-gray-400 text-xs">มี VAT 7% (ตามใบกำกับภาษีของผู้จำหน่าย)</span>
+                              </label>
+                              {item.qty && item.unitCost && (() => {
+                                const lineSub = (parseFloat(item.qty) || 0) * (parseFloat(item.unitCost) || 0);
+                                const lineVat = item.hasVat ? lineSub * 0.07 : 0;
+                                return (
+                                  <div className="text-green-400 text-xs mt-1.5">
+                                    รวม ฿{(lineSub + lineVat).toLocaleString(undefined, {minimumFractionDigits:2})}
+                                    {item.hasVat && <span className="text-gray-500"> (ก่อน VAT ฿{lineSub.toLocaleString(undefined, {minimumFractionDigits:2})} + VAT ฿{lineVat.toLocaleString(undefined, {minimumFractionDigits:2})})</span>}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           ))}
 
-                          {/* ยอดรวมต้นทุน */}
-                          <div className="bg-gray-700 rounded-xl p-3 flex justify-between items-center">
-                            <span className="text-gray-300 text-sm">ยอดต้นทุนรวม</span>
-                            <span className="text-green-400 font-bold text-lg">฿{receiveTotalCost.toLocaleString(undefined, {minimumFractionDigits:2})}</span>
+                          {/* สรุปยอด — แบบใบกำกับภาษี */}
+                          <div className="bg-gray-700 rounded-xl p-3 space-y-1.5">
+                            <div className="flex justify-between items-center text-sm">
+                              <span className="text-gray-400">ยอดก่อน VAT</span>
+                              <span className="text-gray-200">฿{receiveSubtotal.toLocaleString(undefined, {minimumFractionDigits:2})}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-sm">
+                              <span className="text-gray-400">VAT รวม</span>
+                              <span className="text-gray-200">฿{receiveVatTotal.toLocaleString(undefined, {minimumFractionDigits:2})}</span>
+                            </div>
+                            <div className="flex justify-between items-center border-t border-gray-600 pt-1.5">
+                              <span className="text-gray-300 text-sm font-medium">ยอดสุทธิ</span>
+                              <span className="text-green-400 font-bold text-lg">฿{receiveTotalCost.toLocaleString(undefined, {minimumFractionDigits:2})}</span>
+                            </div>
                           </div>
                         </div>
                       ) : (
