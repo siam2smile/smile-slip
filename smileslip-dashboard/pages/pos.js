@@ -874,6 +874,8 @@ export default function POSPage() {
     setDiscount('');
     setCashReceived('');
     setCustomerName('');
+    setCreditCustomer(custObj);
+    setCustomerPrices({});
     setShowNewBillModal(false);
     setNewBillName('');
     setNewBillCust(null);
@@ -889,8 +891,43 @@ export default function POSPage() {
     setDiscount('');
     setCashReceived('');
     setCustomerName('');
+    setCreditCustomer(bill.customer_id ? (contacts.find(c => c.contact_id === bill.customer_id) || null) : null);
+    setCustomerPrices({});
     setShowCartDrawer(false);
     setShowCheckout(false);
+  }
+
+  // ลูกค้าที่เลือกไว้ตอนเปิดบิล (newBillCust) หรือระหว่างขาย (creditCustomer) ให้ใช้ตัวเดียวกันต่อ
+  // ไม่ต้องเลือกซ้ำตอนกดชำระเงิน/จัดส่ง — ถ้ายังไม่มีเลยค่อยถามตอนนั้น
+  function openCheckout() {
+    if (!creditCustomer) {
+      const bill = openBills.find(b => b.id === activeBillId);
+      const full = bill?.customer_id ? contacts.find(c => c.contact_id === bill.customer_id) : null;
+      if (full) { setCreditCustomer(full); fetchCustomerPrices(full.contact_id); }
+    }
+    setShowCheckout(true);
+  }
+
+  function openDelivery() {
+    const bill = openBills.find(b => b.id === activeBillId);
+    const full = bill?.customer_id ? contacts.find(c => c.contact_id === bill.customer_id) : null;
+    const already = creditCustomer || full;
+    setDelivStaff(null);
+    setDelivAddrIdx(0);
+    setDelivAddrCustom('');
+    setDelivMapsCustom('');
+    setDelivPayment('เก็บปลายทาง');
+    setDelivNotes('');
+    setDelivCustSearch('');
+    setShowCartDrawer(false);
+    if (already) {
+      setDelivCust(already);
+      setDelivStep(2);
+    } else {
+      setDelivCust(null);
+      setDelivStep(1);
+    }
+    setShowDelivery(true);
   }
 
   function closeBill(billId, e) {
@@ -2124,10 +2161,10 @@ export default function POSPage() {
                       <span className="text-white font-bold text-base">฿{cartSubtotal.toLocaleString()}</span>
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={() => setShowCheckout(true)} className="flex-1 bg-green-600 hover:bg-green-500 active:bg-green-700 text-white font-bold py-3 rounded-xl transition-colors text-sm">
+                      <button onClick={openCheckout} className="flex-1 bg-green-600 hover:bg-green-500 active:bg-green-700 text-white font-bold py-3 rounded-xl transition-colors text-sm">
                         ชำระเงิน ฿{cartSubtotal.toLocaleString()}
                       </button>
-                      <button onClick={() => { setDelivStep(1); setDelivCust(null); setDelivStaff(null); setDelivAddrIdx(0); setDelivAddrCustom(''); setDelivMapsCustom(''); setDelivPayment('เก็บปลายทาง'); setDelivNotes(''); setDelivCustSearch(''); setShowDelivery(true); }} className="w-14 bg-orange-600 hover:bg-orange-500 active:bg-orange-700 text-white font-bold py-3 rounded-xl transition-colors text-xl flex items-center justify-center" title="ส่งสินค้า">
+                      <button onClick={openDelivery} className="w-14 bg-orange-600 hover:bg-orange-500 active:bg-orange-700 text-white font-bold py-3 rounded-xl transition-colors text-xl flex items-center justify-center" title="ส่งสินค้า">
                         🛵
                       </button>
                     </div>
@@ -3469,11 +3506,11 @@ export default function POSPage() {
                   className="flex-1 bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm font-medium py-3 rounded-xl transition-colors">
                   ล้าง
                 </button>
-                <button onClick={() => { setShowCartDrawer(false); setDelivStep(1); setDelivCust(null); setDelivCustSearch(''); setShowDelivery(true); }}
+                <button onClick={openDelivery}
                   className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-colors text-sm">
                   🛵 จัดส่ง
                 </button>
-                <button onClick={() => { setShowCartDrawer(false); setShowCheckout(true); }}
+                <button onClick={openCheckout}
                   className="flex-[2] bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl transition-colors text-sm">
                   ชำระเงิน
                 </button>
@@ -3952,9 +3989,10 @@ export default function POSPage() {
                     />
                     {newBillCustQ.trim().length > 0 && (() => {
                       const q = newBillCustQ.toLowerCase();
+                      const qDigits = q.replace(/\D/g, '');
                       const hits = customers.filter(c =>
                         c.name.toLowerCase().includes(q) ||
-                        c.phone.includes(q) ||
+                        (qDigits.length > 0 && (c.phone || '').replace(/\D/g, '').includes(qDigits)) ||
                         (c.shop_name || '').toLowerCase().includes(q)
                       ).slice(0, 6);
                       return hits.length > 0 ? (
