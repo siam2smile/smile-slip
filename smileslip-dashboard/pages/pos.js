@@ -382,6 +382,13 @@ export default function POSPage() {
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [orderStatusUpdating, setOrderStatusUpdating] = useState(null); // order_no being updated
+  const [orderDeleting, setOrderDeleting] = useState(null); // order_no being deleted
+  const [showOrderEditForm, setShowOrderEditForm] = useState(false);
+  const [editingOrder, setEditingOrder] = useState(null);
+  const [orderEditForm, setOrderEditForm] = useState({
+    customer_name: '', phone: '', address: '', payment_method: '', staff_id: '', notes: '',
+  });
+  const [orderEditSaving, setOrderEditSaving] = useState(false);
 
   // ── Debt payment modal ────────────────────────────────────────────────────
   const [showDebtModal, setShowDebtModal] = useState(false);
@@ -636,6 +643,73 @@ export default function POSPage() {
       fetchOrders(shopId);
     } catch (err) { alert(err.message); }
     setOrderStatusUpdating(null);
+  }
+
+  function openEditOrder(order) {
+    setEditingOrder(order);
+    setOrderEditForm({
+      customer_name: order.customer_name || '',
+      phone: order.phone || '',
+      address: order.address || '',
+      payment_method: order.payment_method || 'เก็บปลายทาง',
+      staff_id: order.staff_id || '',
+      notes: order.notes || '',
+    });
+    setShowOrderEditForm(true);
+  }
+
+  async function saveOrderEdit() {
+    if (!editingOrder) return;
+    if (!orderEditForm.customer_name.trim()) { showToast('กรุณากรอกชื่อลูกค้า'); return; }
+    setOrderEditSaving(true);
+    try {
+      const chosenStaff = staff.find(s => s.staff_id === orderEditForm.staff_id);
+      const r = await fetch('/api/pos/delivery', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId,
+          order_no: editingOrder.order_no,
+          customer_name: orderEditForm.customer_name,
+          phone: orderEditForm.phone,
+          address: orderEditForm.address,
+          payment_method: orderEditForm.payment_method,
+          staff_id: orderEditForm.staff_id,
+          staff_name: chosenStaff?.name || '',
+          notes: orderEditForm.notes,
+        }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        setShowOrderEditForm(false);
+        setEditingOrder(null);
+        await fetchOrders(shopId);
+        showToast('แก้ไขออเดอร์แล้ว');
+      } else {
+        alert(d.error);
+      }
+    } catch (err) { alert(err.message); }
+    setOrderEditSaving(false);
+  }
+
+  async function deleteOrder(order) {
+    if (!confirm(`ลบออเดอร์ "${order.order_no}" ของ "${order.customer_name}" ?`)) return;
+    setOrderDeleting(order.order_no);
+    try {
+      const r = await fetch('/api/pos/delivery', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, order_no: order.order_no }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        await fetchOrders(shopId);
+        showToast('ลบออเดอร์แล้ว');
+      } else {
+        alert(d.error);
+      }
+    } catch (err) { alert(err.message); }
+    setOrderDeleting(null);
   }
 
   async function handleDelivery() {
@@ -2289,6 +2363,14 @@ export default function POSPage() {
                               {order.items.map((item, j) => <span key={j} className="mr-2">{item.name} ×{item.qty}</span>)}
                             </div>
                           )}
+                          <div className="flex gap-1.5 mt-2 pt-2 border-t border-gray-700">
+                            <button onClick={() => openEditOrder(order)}
+                              className="text-xs bg-gray-700 hover:bg-blue-700 text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">✏️ แก้ไข</button>
+                            <button onClick={() => deleteOrder(order)} disabled={orderDeleting === order.order_no}
+                              className="text-xs bg-gray-700 hover:bg-red-700 text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50">
+                              {orderDeleting === order.order_no ? 'กำลังลบ...' : '🗑️ ลบ'}
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
@@ -2298,6 +2380,73 @@ export default function POSPage() {
             </div>
           )}
 
+          {/* ══ Modal: แก้ไขออเดอร์จัดส่ง ══════════════════════════════════════ */}
+          {showOrderEditForm && editingOrder && (
+            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-gray-900 rounded-2xl w-full max-w-md border border-gray-700 shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div className="p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-white font-bold">✏️ แก้ไขออเดอร์ {editingOrder.order_no}</h3>
+                    <button onClick={() => setShowOrderEditForm(false)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-gray-400 text-xs mb-1.5">ชื่อลูกค้า</label>
+                      <input value={orderEditForm.customer_name}
+                        onChange={e => setOrderEditForm(f => ({ ...f, customer_name: e.target.value }))}
+                        className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                    </div>
+                    <div>
+                      <label className="block text-gray-400 text-xs mb-1.5">เบอร์โทร</label>
+                      <input value={orderEditForm.phone}
+                        onChange={e => setOrderEditForm(f => ({ ...f, phone: e.target.value }))}
+                        className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                    </div>
+                    <div>
+                      <label className="block text-gray-400 text-xs mb-1.5">ที่อยู่จัดส่ง</label>
+                      <textarea value={orderEditForm.address} rows={2}
+                        onChange={e => setOrderEditForm(f => ({ ...f, address: e.target.value }))}
+                        className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                    </div>
+                    <div>
+                      <label className="block text-gray-400 text-xs mb-1.5">พนักงานส่ง</label>
+                      <select value={orderEditForm.staff_id}
+                        onChange={e => setOrderEditForm(f => ({ ...f, staff_id: e.target.value }))}
+                        className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500">
+                        <option value="">— ไม่ระบุ —</option>
+                        {staff.map(s => (
+                          <option key={s.staff_id} value={s.staff_id}>{s.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-gray-400 text-xs mb-1.5">วิธีชำระ</label>
+                      <select value={orderEditForm.payment_method}
+                        onChange={e => setOrderEditForm(f => ({ ...f, payment_method: e.target.value }))}
+                        className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500">
+                        <option value="เก็บปลายทาง">เก็บปลายทาง</option>
+                        <option value="โอนแล้ว">โอนแล้ว</option>
+                        <option value="ค้างจ่าย">ค้างจ่าย</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-gray-400 text-xs mb-1.5">หมายเหตุ</label>
+                      <textarea value={orderEditForm.notes} rows={2}
+                        onChange={e => setOrderEditForm(f => ({ ...f, notes: e.target.value }))}
+                        className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                    </div>
+                  </div>
+                  <div className="flex gap-3 mt-5">
+                    <button onClick={() => setShowOrderEditForm(false)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-colors text-sm">ยกเลิก</button>
+                    <button onClick={saveOrderEdit} disabled={orderEditSaving}
+                      className="flex-[2] bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm">
+                      {orderEditSaving ? 'กำลังบันทึก...' : '💾 บันทึก'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ══ Modal: รับเงินหนี้ลูกค้า ══════════════════════════════════════ */}
           {showDebtModal && debtCust && (
