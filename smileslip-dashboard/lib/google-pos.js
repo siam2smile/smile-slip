@@ -49,14 +49,18 @@ export async function readSheet(accessToken, sheetId, range) {
   return d.values || [];
 }
 
-export async function appendSheet(accessToken, sheetId, sheetName, row) {
+// เพิ่มหลายแถวในคำขอเดียว — สำคัญมากสำหรับ import จำนวนมาก (เช่น นำเข้า VCF หลักพันรายชื่อ)
+// เพราะยิง append ทีละแถวจะช้ามากและโดน rate limit ของ Google (ทั้ง OAuth token refresh
+// และ Sheets API เอง) จนพังกลางทางได้ถ้าเรียกซ้ำๆ ในเวลาสั้นๆ
+export async function appendRows(accessToken, sheetId, sheetName, rows) {
+  if (!rows.length) return { ok: true };
   const range = encodeURIComponent(`${sheetName}!A:Z`);
   const res = await sheetsFetch(
     `${SHEETS_BASE}/${sheetId}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
     {
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ values: [row] }),
+      body: JSON.stringify({ values: rows }),
     }
   );
   if (!res.ok) {
@@ -64,6 +68,10 @@ export async function appendSheet(accessToken, sheetId, sheetName, row) {
     throw new Error(`Sheets append error: ${err.error?.message || res.status}`);
   }
   return await res.json();
+}
+
+export async function appendSheet(accessToken, sheetId, sheetName, row) {
+  return appendRows(accessToken, sheetId, sheetName, [row]);
 }
 
 export async function updateSheetRow(accessToken, sheetId, sheetName, rowIndex, rowData) {
@@ -233,7 +241,10 @@ export function makeBillNo() {
 }
 
 export function makeContactId() {
-  return 'C' + Date.now().toString(36).toUpperCase().slice(-6);
+  // เพิ่มส่วนสุ่มต่อท้าย — ตอน bulk import สร้างหลายพัน ID ใน loop เดียวกัน (synchronous)
+  // Date.now() อย่างเดียวอาจได้ millisecond เดียวกันหลายแถว ทำให้ contact_id ชนกันได้
+  const rand = Math.random().toString(36).slice(2, 5).toUpperCase();
+  return 'C' + Date.now().toString(36).toUpperCase().slice(-6) + rand;
 }
 
 

@@ -1371,44 +1371,61 @@ export default function POSPage() {
       contacts.map(c => (c.phone || '').replace(/\D/g, '')).filter(Boolean)
     );
     setImportLoading(true);
-    setImportProgress({ done: 0, total: validRows.length, skipped: 0 });
-    let done = 0, skipped = 0;
+
+    const seenPhones = new Set();
+    const toImport = [];
+    let skipped = 0;
     for (const row of validRows) {
       const rawPhone = (importMapping.phone ? row[importMapping.phone] : '') || '';
       const normPhone = rawPhone.replace(/\D/g, '');
-      if (normPhone && existingPhones.has(normPhone)) {
+      if (normPhone && (existingPhones.has(normPhone) || seenPhones.has(normPhone))) {
         skipped++;
-        done++;
-        setImportProgress({ done, total: validRows.length, skipped });
         continue;
       }
+      if (normPhone) seenPhones.add(normPhone);
+      toImport.push({
+        name:         row[importMapping.name]                                        || '',
+        contact_type: importDefaultType,
+        phone:        rawPhone,
+        email:        (importMapping.email        ? row[importMapping.email]        : '') || '',
+        company_name: (importMapping.company_name ? row[importMapping.company_name] : '') || '',
+        notes:        (importMapping.notes        ? row[importMapping.notes]        : '') || '',
+      });
+    }
+
+    // ยิงเป็น chunk (ไม่ใช่ทีละคนแบบเดิม) — กันคำขอเดียวใหญ่/นานเกินไป พร้อมให้เห็น progress
+    // และสำคัญที่สุดคือ "เช็คผลลัพธ์จริง" ทุกก้อน ไม่ใช่ถือว่าสำเร็จเสมอเหมือนโค้ดเดิม
+    const CHUNK = 300;
+    let imported = 0, failed = 0;
+    setImportProgress({ done: 0, total: toImport.length, skipped });
+    for (let i = 0; i < toImport.length; i += CHUNK) {
+      const chunk = toImport.slice(i, i + CHUNK);
       try {
-        await fetch('/api/pos/contacts', {
+        const r = await fetch('/api/pos/contacts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            shopId,
-            name:         row[importMapping.name]                                        || '',
-            contact_type: importDefaultType,
-            phone:        rawPhone,
-            email:        (importMapping.email        ? row[importMapping.email]        : '') || '',
-            company_name: (importMapping.company_name ? row[importMapping.company_name] : '') || '',
-            notes:        (importMapping.notes        ? row[importMapping.notes]        : '') || '',
-          }),
+          body: JSON.stringify({ shopId, contacts: chunk }),
         });
-        if (normPhone) existingPhones.add(normPhone);
-      } catch (_) {}
-      done++;
-      setImportProgress({ done, total: validRows.length, skipped });
+        const d = await r.json();
+        if (d.ok) imported += d.imported ?? chunk.length;
+        else failed += chunk.length;
+      } catch (_) {
+        failed += chunk.length;
+      }
+      setImportProgress({ done: Math.min(i + CHUNK, toImport.length), total: toImport.length, skipped });
     }
+
     setImportLoading(false);
     setImportProgress(null);
     setShowImportModal(false);
     setImportRows([]);
     setImportHeaders([]);
     await fetchContacts(shopId);
-    const imported = done - skipped;
-    showToast(skipped > 0 ? `นำเข้า ${imported} รายการ (ข้าม ${skipped} ซ้ำ)` : `นำเข้า ${imported} ผู้ติดต่อแล้ว`);
+    if (failed > 0) {
+      showToast(`นำเข้าสำเร็จ ${imported} รายการ — ล้มเหลว ${failed} รายการ (ลองนำเข้าไฟล์เดิมซ้ำได้ ระบบจะข้ามเบอร์ที่มีอยู่แล้ว)`);
+    } else {
+      showToast(skipped > 0 ? `นำเข้า ${imported} รายการ (ข้าม ${skipped} ซ้ำ)` : `นำเข้า ${imported} ผู้ติดต่อแล้ว`);
+    }
   }
 
   function closeImportModal() {
