@@ -118,7 +118,8 @@ export default async function handler(req, res) {
 
     // ── GET ──────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'ยอดขาย!A:L');
+      // A:P (16 คอลัมน์เต็ม) — เดิมอ่านแค่ A:L ทำให้รหัส/ชื่อลูกค้า (คอลัมน์ M/N) ไม่เคยถูกอ่านเลย
+      const rows = await readSheet(token, sheetId, 'ยอดขาย!A:P');
       let sales = rows.slice(1).map(r => rowToSale(r)).filter(s => s.bill_no);
 
       if (req.query.date) {
@@ -131,6 +132,10 @@ export default async function handler(req, res) {
           const pattern = `${parseInt(d)}/${parseInt(m)}/${buddhistYear}`;
           return s.created_at.startsWith(pattern) || s.created_at.startsWith(dateStr);
         });
+      }
+
+      if (req.query.customerId) {
+        sales = sales.filter(s => s.customer_id === req.query.customerId);
       }
 
       const summary = {

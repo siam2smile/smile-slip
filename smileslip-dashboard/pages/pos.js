@@ -244,6 +244,8 @@ export default function POSPage() {
   const [showCheckout, setShowCheckout] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [discount, setDiscount] = useState('');
+  const [discountType, setDiscountType] = useState('amount'); // 'amount' (บาท) | 'percent' (%)
+  const [customerPrices, setCustomerPrices] = useState({}); // { sku: ราคาล่าสุดที่ลูกค้าคนนี้เคยซื้อ }
   const [payMethod, setPayMethod] = useState('เงินสด');
   const [cashReceived, setCashReceived] = useState('');
   const [checkoutLoading, setCheckoutLoading] = useState(false);
@@ -758,7 +760,7 @@ export default function POSPage() {
       const maps = delivAddrIdx === 0 ? delivCust.maps_1 :
                    delivAddrIdx === 1 ? delivCust.maps_2 : delivMapsCustom;
       const items = cart.map(i => ({ name: i.name, qty: i.qty, price: i.price, sku: i.sku }));
-      const total = Math.max(0, cartSubtotal - (parseFloat(discount) || 0));
+      const total = cartTotal;
       const cylinders_delivered = cart
         .filter(i => products.find(p => p.sku === i.sku)?.type === 'หมุนเวียน')
         .reduce((sum, i) => sum + i.qty, 0);
@@ -962,8 +964,36 @@ export default function POSPage() {
     setCart(prev => prev.map(i => i.sku === sku ? { ...i, qty } : i));
   }
 
+  function updatePrice(sku, newPrice) {
+    const price = Math.max(0, parseFloat(newPrice) || 0);
+    setCart(prev => prev.map(i => i.sku === sku ? { ...i, price } : i));
+  }
+
+  // ดึงราคาประจำตัวของลูกค้า (จากบิลล่าสุดที่เคยขายให้ลูกค้าคนนี้) มาใช้กับสินค้าในตะกร้า
+  async function fetchCustomerPrices(contactId) {
+    if (!contactId || !shopId) { setCustomerPrices({}); return; }
+    try {
+      const r = await fetch(`/api/pos/sales?shopId=${shopId}&customerId=${contactId}`);
+      const d = await r.json();
+      const prices = {};
+      // sales คืนเรียงใหม่สุดก่อนอยู่แล้ว — เจอ sku ไหนก่อนคือราคาล่าสุด
+      for (const sale of (d.sales || [])) {
+        for (const item of (sale.items || [])) {
+          if (item.sku && !(item.sku in prices)) prices[item.sku] = item.price;
+        }
+      }
+      setCustomerPrices(prices);
+      if (Object.keys(prices).length > 0) {
+        setCart(prev => prev.map(i => prices[i.sku] !== undefined ? { ...i, price: prices[i.sku] } : i));
+        showToast('ใช้ราคาประจำตัวของลูกค้าคนนี้แล้ว');
+      }
+    } catch {}
+  }
+
   const cartSubtotal = useMemo(() => cart.reduce((sum, i) => sum + i.price * i.qty, 0), [cart]);
-  const cartDiscount = parseFloat(discount) || 0;
+  const cartDiscount = discountType === 'percent'
+    ? cartSubtotal * (parseFloat(discount) || 0) / 100
+    : (parseFloat(discount) || 0);
   const cartTotal = Math.max(0, cartSubtotal - cartDiscount);
   const cartChange = payMethod === 'เงินสด' ? Math.max(0, (parseFloat(cashReceived) || 0) - cartTotal) : 0;
 
@@ -1031,8 +1061,8 @@ export default function POSPage() {
           payment_method: payMethod,
           cash_received: parseFloat(cashReceived) || cartTotal,
           cashier: shopInfo?.shop_name || '',
-          customerName: payMethod === 'เชื่อ' ? (creditCustomer?.name || customerName.trim()) : customerName.trim(),
-          customerId: payMethod === 'เชื่อ' ? (creditCustomer?.id || '') : '',
+          customerName: creditCustomer?.name || customerName.trim(),
+          customerId: creditCustomer?.contact_id || '',
           slipUrl: slipDriveUrl || '',
           slipSender: slipOcrData?.sender || '',
           slipRefNo: slipOcrData?.refNo || '',
@@ -3343,12 +3373,19 @@ export default function POSPage() {
               <button onClick={() => setShowCheckout(false)} className="text-gray-500 hover:text-white text-xl leading-none">✕</button>
             </div>
             <div className="p-5 space-y-4">
-              {/* รายการสินค้า */}
-              <div className="bg-gray-800 rounded-xl p-3 space-y-1.5 max-h-36 overflow-y-auto">
+              {/* รายการสินค้า — ราคาแก้ไขได้ต่อรายการ */}
+              <div className="bg-gray-800 rounded-xl p-3 space-y-2 max-h-48 overflow-y-auto">
                 {cart.map(item => (
-                  <div key={item.sku} className="flex justify-between text-sm">
-                    <span className="text-gray-300">{item.name} ×{item.qty}</span>
-                    <span className="text-white font-medium">฿{(item.price * item.qty).toLocaleString()}</span>
+                  <div key={item.sku} className="flex items-center justify-between gap-2 text-sm">
+                    <span className="text-gray-300 flex-1 min-w-0 truncate">{item.name} ×{item.qty}</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-gray-500">฿</span>
+                      <input type="number" value={item.price} min="0"
+                        onChange={e => updatePrice(item.sku, e.target.value)}
+                        className="w-16 bg-gray-900 text-white text-right px-1.5 py-1 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500 text-sm"
+                      />
+                      <span className="text-white font-medium w-16 text-right">= ฿{(item.price * item.qty).toLocaleString()}</span>
+                    </div>
                   </div>
                 ))}
                 <div className="border-t border-gray-700 pt-1.5 flex justify-between text-sm font-bold">
@@ -3357,22 +3394,77 @@ export default function POSPage() {
                 </div>
               </div>
 
-              {/* ชื่อลูกค้า */}
+              {/* ลูกค้า — ค้นหาลูกค้าเดิมเพื่อดึงราคาประจำตัว หรือพิมพ์ชื่อใหม่เฉยๆ ก็ได้ */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">ชื่อลูกค้า (ไม่บังคับ)</label>
-                <input value={customerName} onChange={e => setCustomerName(e.target.value)}
-                  placeholder="เช่น คุณสมชาย, โต๊ะ 3"
-                  className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
-                />
+                <label className="block text-gray-400 text-xs mb-1.5">ลูกค้า (ไม่บังคับ)</label>
+                {creditCustomer ? (
+                  <div className="bg-gray-800 rounded-xl p-3 flex items-center justify-between border border-gray-700">
+                    <div>
+                      <div className="text-white font-bold text-sm">{creditCustomer.name}</div>
+                      {creditCustomer.phone && <div className="text-gray-400 text-xs">{creditCustomer.phone}</div>}
+                      {Object.keys(customerPrices).length > 0 && (
+                        <div className="text-green-400 text-xs mt-0.5">💰 ใช้ราคาประจำตัวแล้ว</div>
+                      )}
+                    </div>
+                    <button onClick={() => { setCreditCustomer(null); setCustomerPrices({}); }}
+                      className="text-gray-500 hover:text-gray-300 text-lg ml-2">✕</button>
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      type="text"
+                      value={creditCustomerQ}
+                      onChange={e => setCreditCustomerQ(e.target.value)}
+                      placeholder="ค้นหาลูกค้าเดิม หรือพิมพ์ชื่อใหม่..."
+                      className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 mb-2"
+                    />
+                    {creditCustomerQ.length > 0 && (() => {
+                      const q = creditCustomerQ.toLowerCase();
+                      const matches = (contacts || []).filter(c =>
+                        (c.name || '').toLowerCase().includes(q) ||
+                        (c.phone || '').includes(q)
+                      ).slice(0, 5);
+                      return matches.length > 0 ? (
+                        <div className="bg-gray-800 rounded-xl overflow-hidden border border-gray-700">
+                          {matches.map((c, i) => (
+                            <button key={i} className="w-full text-left px-3 py-2.5 hover:bg-gray-700 text-sm text-gray-200 border-b border-gray-700/50 last:border-0"
+                              onClick={() => { setCreditCustomer(c); setCreditCustomerQ(''); fetchCustomerPrices(c.contact_id); }}>
+                              <div>{c.name}</div>
+                              {c.phone && <div className="text-gray-500 text-xs">{c.phone}</div>}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-2">
+                          <button onClick={() => { setCreditCustomer({ name: creditCustomerQ, phone: '' }); setCreditCustomerQ(''); }}
+                            className="text-xs text-green-400 hover:text-green-300">
+                            + ใช้ "{creditCustomerQ}" เป็นชื่อลูกค้าใหม่ (ไม่บันทึกราคาประจำตัว)
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
 
-              {/* ส่วนลด */}
+              {/* ส่วนลด — เลือกได้ทั้ง บาท / เปอร์เซ็นต์ */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">ส่วนลด (บาท)</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-gray-400 text-xs">ส่วนลด</label>
+                  <div className="flex bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+                    <button type="button" onClick={() => setDiscountType('amount')}
+                      className={`text-xs px-3 py-1 transition-colors ${discountType === 'amount' ? 'bg-green-600 text-white' : 'text-gray-400 hover:text-white'}`}>฿ บาท</button>
+                    <button type="button" onClick={() => setDiscountType('percent')}
+                      className={`text-xs px-3 py-1 transition-colors ${discountType === 'percent' ? 'bg-green-600 text-white' : 'text-gray-400 hover:text-white'}`}>% เปอร์เซ็นต์</button>
+                  </div>
+                </div>
                 <input type="number" value={discount} onChange={e => setDiscount(e.target.value)}
-                  placeholder="0" min="0"
+                  placeholder="0" min="0" max={discountType === 'percent' ? 100 : undefined}
                   className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
                 />
+                {discountType === 'percent' && discount && (
+                  <div className="text-gray-500 text-xs mt-1">= ฿{cartDiscount.toLocaleString()}</div>
+                )}
               </div>
 
               {/* ยอดสุทธิ */}
@@ -3467,56 +3559,14 @@ export default function POSPage() {
                 </div>
               )}
 
-              {/* เชื่อ — ต้องเลือกลูกค้าก่อน */}
+              {/* เชื่อ — เตือนว่าต้องเลือกลูกค้า (เลือกได้จากช่อง "ลูกค้า" ด้านบนแล้ว) */}
               {payMethod === 'เชื่อ' && (
-                <div className="bg-orange-900/20 border border-orange-800/60 rounded-xl p-4 space-y-3">
-                  <div className="text-orange-300 text-sm font-bold">💳 ขายเชื่อ — ระบุลูกค้า</div>
-                  {creditCustomer ? (
-                    <div className="bg-orange-900/30 rounded-xl p-3 flex items-center justify-between">
-                      <div>
-                        <div className="text-white font-bold text-sm">{creditCustomer.name}</div>
-                        <div className="text-gray-400 text-xs">{creditCustomer.phone}</div>
-                      </div>
-                      <button onClick={() => { setCreditCustomer(null); setCreditCustomerQ(''); }}
-                        className="text-gray-500 hover:text-gray-300 text-lg ml-2">✕</button>
-                    </div>
+                <div className="bg-orange-900/20 border border-orange-800/60 rounded-xl p-3">
+                  {!creditCustomer ? (
+                    <div className="text-orange-300 text-xs">⚠️ ขายเชื่อต้องเลือกลูกค้าที่ช่อง "ลูกค้า" ด้านบนก่อน</div>
                   ) : (
-                    <div>
-                      <input
-                        type="text"
-                        value={creditCustomerQ}
-                        onChange={e => setCreditCustomerQ(e.target.value)}
-                        placeholder="ค้นหาชื่อลูกค้า..."
-                        className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-orange-700 focus:outline-none focus:border-orange-500 mb-2"
-                      />
-                      {creditCustomerQ.length > 0 && (() => {
-                        const q = creditCustomerQ.toLowerCase();
-                        const matches = (contacts || []).filter(c =>
-                          (c.name || '').toLowerCase().includes(q) ||
-                          (c.phone || '').includes(q)
-                        ).slice(0, 5);
-                        return matches.length > 0 ? (
-                          <div className="bg-gray-800 rounded-xl overflow-hidden border border-gray-700">
-                            {matches.map((c, i) => (
-                              <button key={i} className="w-full text-left px-3 py-2.5 hover:bg-gray-700 text-sm text-gray-200 border-b border-gray-700/50 last:border-0"
-                                onClick={() => { setCreditCustomer(c); setCreditCustomerQ(''); }}>
-                                <div>{c.name}</div>
-                                {c.phone && <div className="text-gray-500 text-xs">{c.phone}</div>}
-                              </button>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="text-center py-2">
-                            <button onClick={() => { setCreditCustomer({ name: creditCustomerQ, phone: '' }); setCreditCustomerQ(''); }}
-                              className="text-xs text-orange-400 hover:text-orange-300">
-                              + ใช้ "{creditCustomerQ}" เป็นชื่อลูกค้าใหม่
-                            </button>
-                          </div>
-                        );
-                      })()}
-                    </div>
+                    <div className="text-orange-400 text-xs">⚠️ บิลเชื่อจะไม่บันทึกลงบัญชีหลักจนกว่าจะรับชำระ</div>
                   )}
-                  <div className="text-orange-400 text-xs">⚠️ บิลเชื่อจะไม่บันทึกลงบัญชีหลักจนกว่าจะรับชำระ</div>
                 </div>
               )}
 
@@ -4210,7 +4260,7 @@ export default function POSPage() {
                     ))}
                     <div className="border-t border-gray-700 mt-2 pt-2 flex justify-between font-bold">
                       <span className="text-gray-300 text-sm">รวม</span>
-                      <span className="text-white">฿{Math.max(0, cartSubtotal - (parseFloat(discount) || 0)).toLocaleString()}</span>
+                      <span className="text-white">฿{cartTotal.toLocaleString()}</span>
                     </div>
                   </div>
 
