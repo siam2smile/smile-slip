@@ -20,6 +20,14 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
+// บังคับให้ Google Sheets เก็บค่านี้เป็นข้อความล้วน ไม่แปลงเป็นตัวเลข/วันที่เองผ่าน
+// valueInputOption=USER_ENTERED — เจอบั๊กจริงตอนนำเข้า VCF: เบอร์โทรที่ขึ้นต้นด้วย 0 โดนตัด 0
+// ทิ้ง (ตีความเป็นตัวเลข) และบางแถวของวันที่กลายเป็นเลข serial ดิบแทนที่จะเป็นข้อความอ่านได้
+function asText(v) {
+  if (v === '' || v == null) return v;
+  return `'${v}`;
+}
+
 async function getConfig(shopId) {
   const [{ data: pc }, { data: gc }] = await Promise.all([
     supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
@@ -79,11 +87,11 @@ export default async function handler(req, res) {
       const rows = req.body.contacts
         .filter(c => c?.name)
         .map(c => [
-          makeContactId(), c.name, c.contact_type || 'ผู้จำหน่าย', c.phone || '', c.email || '',
+          makeContactId(), c.name, c.contact_type || 'ผู้จำหน่าย', asText(c.phone || ''), c.email || '',
           c.address_1 || '', c.maps_1 || '', c.address_2 || '', c.maps_2 || '',
-          c.company_name || '', c.tax_id || '', c.tax_address || '', c.tax_branch || '',
-          c.debt || 0, c.cylinders || 0, c.shop_name || '', c.aliases || '', c.notes || '', now, now,
-          c.person_type || 'บุคคลธรรมดา', c.contact_person_name || '', c.contact_person_phone || '',
+          c.company_name || '', asText(c.tax_id || ''), c.tax_address || '', c.tax_branch || '',
+          c.debt || 0, c.cylinders || 0, c.shop_name || '', c.aliases || '', c.notes || '', asText(now), asText(now),
+          c.person_type || 'บุคคลธรรมดา', c.contact_person_name || '', asText(c.contact_person_phone || ''),
         ]);
       // ยิงเป็น chunk กัน request เดียวใหญ่เกินไป/timeout ฝั่ง Google
       const CHUNK = 500;
@@ -110,11 +118,11 @@ export default async function handler(req, res) {
       const contact_id = makeContactId();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
       await appendSheet(token, sheetId, 'ผู้ติดต่อ', [
-        contact_id, name, contact_type, phone, email,
+        contact_id, name, contact_type, asText(phone), email,
         address_1, maps_1, address_2, maps_2,
-        company_name, tax_id, tax_address, tax_branch,
-        debt, cylinders, shop_name, aliases, notes, now, now,
-        person_type, contact_person_name, contact_person_phone,
+        company_name, asText(tax_id), tax_address, tax_branch,
+        debt, cylinders, shop_name, aliases, notes, asText(now), asText(now),
+        person_type, contact_person_name, asText(contact_person_phone),
       ]);
       return res.json({ ok: true, contact_id, name });
     }
@@ -134,14 +142,14 @@ export default async function handler(req, res) {
 
       if (updates.name                !== undefined) existing[1]  = updates.name;
       if (updates.contact_type        !== undefined) existing[2]  = updates.contact_type;
-      if (updates.phone               !== undefined) existing[3]  = updates.phone;
+      if (updates.phone               !== undefined) existing[3]  = asText(updates.phone);
       if (updates.email               !== undefined) existing[4]  = updates.email;
       if (updates.address_1           !== undefined) existing[5]  = updates.address_1;
       if (updates.maps_1              !== undefined) existing[6]  = updates.maps_1;
       if (updates.address_2           !== undefined) existing[7]  = updates.address_2;
       if (updates.maps_2              !== undefined) existing[8]  = updates.maps_2;
       if (updates.company_name        !== undefined) existing[9]  = updates.company_name;
-      if (updates.tax_id              !== undefined) existing[10] = updates.tax_id;
+      if (updates.tax_id              !== undefined) existing[10] = asText(updates.tax_id);
       if (updates.tax_address         !== undefined) existing[11] = updates.tax_address;
       if (updates.tax_branch          !== undefined) existing[12] = updates.tax_branch;
       if (updates.debt                !== undefined) existing[13] = updates.debt;
@@ -151,8 +159,8 @@ export default async function handler(req, res) {
       if (updates.notes               !== undefined) existing[17] = updates.notes;
       if (updates.person_type         !== undefined) existing[20] = updates.person_type;
       if (updates.contact_person_name !== undefined) existing[21] = updates.contact_person_name;
-      if (updates.contact_person_phone!== undefined) existing[22] = updates.contact_person_phone;
-      existing[19] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }); // updated_at
+      if (updates.contact_person_phone!== undefined) existing[22] = asText(updates.contact_person_phone);
+      existing[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })); // updated_at
 
       await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', idx + 2, existing);
       return res.json({ ok: true, contact_id });
