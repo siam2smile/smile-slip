@@ -32,6 +32,9 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
    - **ตัดสินใจแล้ว (2026-07-16):** ยังไม่มีลูกค้าจริงใช้งาน มีแค่ร้านทดสอบเดียวกันนี้ จึงไม่ต้องสแกนร้านอื่นเพิ่ม แต่เพิ่มการป้องกันล่วงหน้าไว้แทน (ดูข้อถัดไป)
 9. **Preventive fix: `ensureTabExists()` auto-patch header ที่สั้นกว่ามาตรฐาน** — กันปัญหาแบบข้อ 8 เกิดซ้ำกับร้านในอนาคตที่เชื่อมต่อ POS ไว้ก่อน schema จะขยายคอลัมน์อีก (หรือ schema เปลี่ยนอีกในอนาคต) ทุกครั้งที่เปิดใช้แท็บ (`สินค้า`/`ยอดขาย`/`ผู้ติดต่อ`/ฯลฯ) จะเช็ค header แถวแรกเทียบกับ headers ที่ควรมี ถ้าสั้นกว่าจะเขียน header เต็มกลับเข้าไปทันที (แก้แค่แถว header เท่านั้น ไม่แตะข้อมูล) เหมือน pattern `getOrCreateYearSheet()` ของบอท (commit `779405a`)
 10. **เพิ่มปุ่มแก้ไข/ลบในแท็บ "ออเดอร์จัดส่ง"** — เดิมมีแค่ปุ่มเปลี่ยนสถานะ ไม่มีทางแก้รายละเอียด (เช่น เปลี่ยนพนักงานส่ง) หรือลบออเดอร์เลย (ไม่ใช่บั๊ก แค่ยังไม่เคยสร้าง) เหตุผลใช้งานจริง: บางครั้งต้องเปลี่ยนผู้ส่ง หรือลูกค้ามารับเองแทนการจัดส่งเลยต้องลบทิ้ง — แก้ `api/pos/delivery.js` ขยาย PATCH ให้แก้ได้ทุกฟิลด์ (ชื่อ/เบอร์/ที่อยู่/วิธีชำระ/พนักงานส่ง/หมายเหตุ) + เพิ่ม DELETE (blank แถวทิ้ง แบบเดียวกับ products/contacts) และเพิ่ม modal แก้ไข + ปุ่มลบใน `pos.js` (commit `da96f29`)
+11. **เพิ่ม `#สมัครพนักงานขนส่ง` / `#สมัครผู้จัดการสาขา`** — มิเรอร์ `#สมัครแอดมิน` เดิมทุกประการ (บอทดักจับ LINE userId อัตโนมัติจาก `event.source.userId` ตอนพิมพ์คำสั่งในกลุ่ม ไม่ต้องขอ user id เอง) ต่างแค่ผูกกับ **สาขา** ผ่าน `findShopBySource()` ที่รู้อยู่แล้วว่ากลุ่มไลน์ไหนคือสาขาไหน — พนักงานพิมพ์ในกลุ่มสาขาไหนก็ขึ้นสาขานั้นอัตโนมัติ **"แอดมิน" เดิมปล่อยไว้เหมือนเดิมทั้งร้าน ไม่ผูกสาขา** (ตัดสินใจแล้วไม่ retrofit ของเดิม) เพิ่ม role ใหม่แยกต่างหาก 2 ตัวแทน — เก็บคำขอ pending ในตาราง `branch_role_requests` ใหม่ อนุมัติผ่านแดชบอร์ด POS → ตั้งค่า → คำขอสมัคร (mirror UI สไตล์เดียวกับอนุมัติแอดมิน) อนุมัติ `delivery_staff` แล้ว sync เข้าแท็บ "พนักงาน" ทันที (เพิ่มคอลัมน์ "สาขา" ต่อท้าย H — ปลอดภัยเพราะมี auto-patch header จากข้อ 9 รองรับอยู่แล้ว) ส่วน `branch_manager` แค่ mark approved (ยังไม่มีระบบสิทธิ์แยกตามสาขาจริงจัง เป็น known gap) (commit `892d66f`)
+    - **ต้องทำด้วยมือ:** ต้องรัน SQL สร้างตาราง `branch_role_requests` ก่อนใช้งานได้จริง (ดู SQL ด้านล่าง)
+    - **พบปัญหาแทรก: CI/CD ของบอทพังอยู่ตั้งแต่ก่อนหน้านี้ (ไม่เกี่ยวกับโค้ด feature นี้)** — auto-deploy trigger `deploy-bot-on-push` fail ด้วย error ดึง build image `gcr.io/google-cloud-builders/gcloud` ไม่ได้ (`Permission "artifactregistry.repositories.downloadArtifacts" denied`) เป็นปัญหา IAM/Artifact Registry migration ของโปรเจกต์ ไม่ใช่บั๊กโค้ด — revision ล่าสุดของ `smileslip-service` ค้างอยู่ที่ 2026-07-03 ทั้งที่ push โค้ดใหม่ไปหลายรอบแล้ว แก้ชั่วคราวโดย deploy บอทด้วยมือผ่าน `gcloud run deploy` ตรง ๆ (เหมือน dashboard) จนกว่าจะมีคนไปแก้ IAM permission ของ Cloud Build service account ให้ดึง image จาก Artifact Registry ได้จริง
 6. **แก้ 5 ข้อจาก punch list ตรวจสอบโค้ดเต็มโปรเจกต์ (commit `e01c927`):**
    - **Stripe webhook idempotency** — เพิ่ม insert `event.id` ลงตาราง `stripe_processed_events` ก่อนประมวลผลทุกครั้ง ถ้า insert ชนซ้ำ (unique violation, code `23505`) แปลว่าเคยประมวลผลไปแล้ว ข้ามได้เลย ถ้า error เป็นแบบอื่น (เช่น ตารางยังไม่ถูกสร้าง) จะ fail-open ทำงานต่อไปเหมือนเดิมกันไม่ให้ checkout พังทั้งระบบ — **สร้างตาราง `stripe_processed_events` แล้ว (verified 2026-07-16 ผ่าน REST query) กันซ้ำได้จริงแล้ว ไม่ fail-open อีกต่อไป**
    - **`api/admin/pos-stats.js` และ `delivery-stats.js`** เช็ค token ผิดรูปแบบมาตั้งแต่สร้าง (เทียบ decoded token กับ `ADMIN_PASSWORD` ตรง ๆ แทนที่จะเช็ค prefix `smileslip-admin:` แบบไฟล์ admin อื่น) ทำให้ admin login ปกติเรียกใช้ไม่ได้ 401 ตลอด — แก้ให้ตรงกับ pattern เดียวกับไฟล์ admin อื่นแล้ว
@@ -674,6 +677,22 @@ CREATE TABLE IF NOT EXISTS stripe_processed_events (
   event_id text PRIMARY KEY,
   event_type text,
   processed_at timestamptz DEFAULT now()
+);
+```
+
+**สร้าง branch_role_requests table (ก่อนใช้ `#สมัครพนักงานขนส่ง`/`#สมัครผู้จัดการสาขา` — เพิ่ม 2026-07-16):**
+```sql
+CREATE TABLE IF NOT EXISTS branch_role_requests (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  shop_id uuid NOT NULL REFERENCES shop_profiles(id) ON DELETE CASCADE,
+  branch_id uuid REFERENCES shop_branches(id) ON DELETE CASCADE,
+  branch_name text,
+  line_user_id text NOT NULL,
+  display_name text,
+  role text NOT NULL CHECK (role IN ('delivery_staff','branch_manager')),
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  created_at timestamptz DEFAULT now(),
+  approved_at timestamptz
 );
 ```
 
