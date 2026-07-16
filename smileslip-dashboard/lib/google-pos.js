@@ -136,6 +136,30 @@ export async function ensureTabExists(accessToken, sheetId, tabName, headers) {
       body: JSON.stringify({ requests: [{ addSheet: { properties: { title: tabName } } }] }),
     });
     if (headers?.length) await appendSheet(accessToken, sheetId, tabName, headers);
+    return;
+  }
+
+  // แท็บมีอยู่แล้ว แต่ header อาจสั้นกว่ามาตรฐานปัจจุบัน (เช่น ร้านเชื่อมต่อ POS ไว้ก่อนที่
+  // schema จะขยายคอลัมน์เพิ่มทีหลัง) — ถ้าไม่ patch header ให้ครบ การ append แถวใหม่จะ
+  // เพี้ยนตำแหน่งไปเรื่อยๆ ได้ (เจอบั๊กจริงในโปรดักชันมาแล้วกับแท็บ "สินค้า") จึงต้องเช็ค
+  // และเติม header ที่ขาดให้ครบทุกครั้งที่เปิดใช้แท็บนี้ เหมือนที่บอทมี getOrCreateYearSheet()
+  if (headers?.length) {
+    const range = `${tabName}!A1:${colLetter(headers.length)}1`;
+    const res = await fetch(`${SHEETS_BASE}/${sheetId}/values/${encodeURIComponent(range)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const d = await res.json();
+    const currentHeader = d.values?.[0] || [];
+    if (currentHeader.length < headers.length) {
+      await fetch(
+        `${SHEETS_BASE}/${sheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,
+        {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ values: [headers] }),
+        }
+      );
+    }
   }
 }
 
