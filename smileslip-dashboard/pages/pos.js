@@ -342,6 +342,8 @@ export default function POSPage() {
   const [contactFilter, setContactFilter] = useState('ทั้งหมด');
   const [showTaxSection, setShowTaxSection] = useState(false);
   const [contactSearch, setContactSearch] = useState('');
+  const [contactPage, setContactPage] = useState(1);
+  const CONTACTS_PER_PAGE = 20;
 
   // debt history modal
   const [showDebtHistory, setShowDebtHistory] = useState(false);
@@ -1229,6 +1231,17 @@ export default function POSPage() {
 
   // computed views — ลูกค้า / ผู้จำหน่าย filtered จาก contacts รวม
   const customers = contacts.filter(c => c.contact_type === 'ลูกค้า' || c.contact_type === 'ทั้งคู่');
+
+  // ลูกค้าที่ตรงกับคำค้นหาในหน้าจัดส่ง — เทียบเบอร์โทรเฉพาะตัวเลข กันปัญหาต้องพิมพ์ขีด (-) ให้ตรงเป๊ะ
+  const delivMatchedCustomers = useMemo(() => {
+    const q = delivCustSearch.trim().toLowerCase();
+    if (!q) return customers;
+    const qDigits = q.replace(/\D/g, '');
+    return customers.filter(c =>
+      (c.name || '').toLowerCase().includes(q) ||
+      (qDigits.length > 0 && (c.phone || '').replace(/\D/g, '').includes(qDigits))
+    );
+  }, [customers, delivCustSearch]);
   const supplierNames = contacts
     .filter(c => c.contact_type === 'ผู้จำหน่าย' || c.contact_type === 'ทั้งคู่')
     .map(c => c.name);
@@ -1276,13 +1289,26 @@ export default function POSPage() {
     }
     if (contactSearch.trim()) {
       const q = contactSearch.trim().toLowerCase();
-      list = list.filter(c =>
-        [c.name, c.phone, c.email, c.company_name, c.shop_name, c.aliases, c.tax_id]
-          .some(v => v && v.toLowerCase().includes(q))
-      );
+      const qDigits = q.replace(/\D/g, '');
+      list = list.filter(c => {
+        const textHit = [c.name, c.email, c.company_name, c.shop_name, c.aliases, c.tax_id]
+          .some(v => v && v.toLowerCase().includes(q));
+        // เบอร์โทร: เทียบเฉพาะตัวเลข กันปัญหาต้องพิมพ์ขีด (-) ให้ตรงเป๊ะถึงจะเจอ
+        const phoneHit = qDigits.length > 0 && c.phone && c.phone.replace(/\D/g, '').includes(qDigits);
+        return textHit || phoneHit;
+      });
     }
     return list;
   }, [contacts, contactFilter, contactSearch]);
+
+  // รีเซ็ตกลับหน้า 1 ทุกครั้งที่เปลี่ยนตัวกรอง/คำค้นหา
+  useEffect(() => { setContactPage(1); }, [contactFilter, contactSearch]);
+
+  const contactTotalPages = Math.max(1, Math.ceil(displayContacts.length / CONTACTS_PER_PAGE));
+  const pagedContacts = useMemo(() =>
+    displayContacts.slice((contactPage - 1) * CONTACTS_PER_PAGE, contactPage * CONTACTS_PER_PAGE),
+    [displayContacts, contactPage]
+  );
 
   function openAddContact() {
     setEditContact(null);
@@ -2628,7 +2654,7 @@ export default function POSPage() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {displayContacts.map(c => (
+                    {pagedContacts.map(c => (
                       <div key={c.contact_id} className="bg-gray-800 rounded-xl p-4">
                         <div className="flex items-start gap-3">
                           <div className="text-xl mt-0.5 shrink-0">
@@ -2675,6 +2701,17 @@ export default function POSPage() {
                         )}
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {/* pagination — 20 รายชื่อต่อหน้า */}
+                {displayContacts.length > CONTACTS_PER_PAGE && (
+                  <div className="flex items-center justify-between mt-4">
+                    <button onClick={() => setContactPage(p => Math.max(1, p - 1))} disabled={contactPage <= 1}
+                      className="text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-gray-800 text-gray-300 px-3 py-2 rounded-lg transition-colors">← ก่อนหน้า</button>
+                    <span className="text-gray-500 text-xs">หน้า {contactPage} / {contactTotalPages} ({displayContacts.length} รายการ)</span>
+                    <button onClick={() => setContactPage(p => Math.min(contactTotalPages, p + 1))} disabled={contactPage >= contactTotalPages}
+                      className="text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-gray-800 text-gray-300 px-3 py-2 rounded-lg transition-colors">ถัดไป →</button>
                   </div>
                 )}
 
@@ -3420,9 +3457,10 @@ export default function POSPage() {
                     />
                     {creditCustomerQ.length > 0 && (() => {
                       const q = creditCustomerQ.toLowerCase();
+                      const qDigits = q.replace(/\D/g, '');
                       const matches = (contacts || []).filter(c =>
                         (c.name || '').toLowerCase().includes(q) ||
-                        (c.phone || '').includes(q)
+                        (qDigits.length > 0 && (c.phone || '').replace(/\D/g, '').includes(qDigits))
                       ).slice(0, 5);
                       return matches.length > 0 ? (
                         <div className="bg-gray-800 rounded-xl overflow-hidden border border-gray-700">
@@ -4273,10 +4311,7 @@ export default function POSPage() {
 
                   {/* ลิสลูกค้า */}
                   <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                    {customers.filter(c => {
-                      const q = delivCustSearch.toLowerCase();
-                      return !q || c.name.toLowerCase().includes(q) || c.phone.includes(q);
-                    }).map(c => (
+                    {delivMatchedCustomers.map(c => (
                       <button key={c.contact_id}
                         onClick={() => { setDelivCust(c); setDelivStep(2); }}
                         className="w-full text-left bg-gray-800 hover:bg-gray-700 rounded-xl p-3 transition-colors flex items-center justify-between gap-2">
@@ -4288,10 +4323,7 @@ export default function POSPage() {
                         <span className="text-green-400 text-lg shrink-0">›</span>
                       </button>
                     ))}
-                    {customers.filter(c => {
-                      const q = delivCustSearch.toLowerCase();
-                      return !q || c.name.toLowerCase().includes(q) || c.phone.includes(q);
-                    }).length === 0 && (
+                    {delivMatchedCustomers.length === 0 && (
                       <div className="text-center py-6 text-gray-500 text-sm">
                         ไม่พบลูกค้า —{' '}
                         <button onClick={() => { setShowDelivery(false); setTab('contacts'); }} className="text-green-400 underline">เพิ่มลูกค้าใหม่</button>
@@ -4652,7 +4684,8 @@ export default function POSPage() {
                 />
                 {loanContactQ.length > 0 && !loanForm.contact_name && (() => {
                   const q = loanContactQ.toLowerCase();
-                  const matches = (contacts || []).filter(c => (c.name || '').toLowerCase().includes(q) || (c.phone || '').includes(q)).slice(0, 4);
+                  const qDigits = q.replace(/\D/g, '');
+                  const matches = (contacts || []).filter(c => (c.name || '').toLowerCase().includes(q) || (qDigits.length > 0 && (c.phone || '').replace(/\D/g, '').includes(qDigits))).slice(0, 4);
                   return matches.length > 0 ? (
                     <div className="bg-gray-800 rounded-xl overflow-hidden border border-gray-700">
                       {matches.map((c, i) => (
