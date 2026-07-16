@@ -156,6 +156,70 @@ async function findShopBySource(sourceId) {
   return null;
 }
 
+// ขอสิทธิ์ระดับสาขา (พนักงานส่ง / ผู้จัดการสาขา) ผ่านกลุ่ม LINE — มิเรอร์ #สมัครแอดมิน
+// เดิมทุกประการ ต่างแค่ผูกกับ "สาขา" (branchId/branchName จาก findShopBySource) แทนร้าน
+// ทั้งร้าน — เจ้าของ/แอดมินไปอนุมัติที่แดชบอร์ด (ตั้งค่า POS → คำขอสมัคร)
+async function requestBranchRole(replyToken, shop, foundCmd, senderId, groupId, role, roleLabel) {
+  if (!groupId) {
+    await replyToLine(replyToken, [{ type: 'text', text: '⚠️ คำสั่งนี้ใช้ได้เฉพาะในกลุ่ม LINE ที่เชื่อมต่อกับร้าน/สาขาเท่านั้นค่ะ' }]);
+    return;
+  }
+
+  let displayName = null;
+  try {
+    const profileRes = await axios.get(
+      `https://api.line.me/v2/bot/group/${groupId}/member/${senderId}`,
+      LINE_HEADER
+    );
+    displayName = profileRes.data.displayName || null;
+  } catch (e) { /* ถ้า API ล้มเหลวก็บันทึกโดยไม่มีชื่อ */ }
+
+  const { branchId, branchName } = foundCmd;
+
+  try {
+    // เช็คคำขอเดิมก่อน (สาขา+คน+role เดียวกัน) — ถ้าเคยขอไว้แล้ว (แม้เคยถูกปฏิเสธ) reset เป็น pending ใหม่แทนสร้างซ้ำ
+    let existingQuery = supabase
+      .from('branch_role_requests')
+      .select('id')
+      .eq('shop_id', shop.id)
+      .eq('line_user_id', senderId)
+      .eq('role', role);
+    existingQuery = branchId ? existingQuery.eq('branch_id', branchId) : existingQuery.is('branch_id', null);
+    const { data: existing } = await existingQuery.maybeSingle();
+
+    if (existing) {
+      await supabase.from('branch_role_requests')
+        .update({ status: 'pending', display_name: displayName, approved_at: null })
+        .eq('id', existing.id);
+    } else {
+      await supabase.from('branch_role_requests').insert({
+        shop_id: shop.id,
+        branch_id: branchId,
+        branch_name: branchName,
+        line_user_id: senderId,
+        display_name: displayName,
+        role,
+        status: 'pending',
+      });
+    }
+
+    await replyToLine(replyToken, [{
+      type: 'text',
+      text: `📋 ส่งคำขอเป็น${roleLabel}ของ "${branchName}" แล้วค่ะ\n\nรอเจ้าของร้าน/แอดมินอนุมัติในแดชบอร์ดนะคะ (ตั้งค่า POS → คำขอสมัคร) 😊`
+    }]);
+
+    if (shop.owner_line_id) {
+      pushToOwner(shop.owner_line_id, [{
+        type: 'text',
+        text: `🔔 มีคำขอเป็น${roleLabel}ของ "${branchName}" ใหม่!\n👤 ${displayName || 'สมาชิกในกลุ่ม'}\n\nอนุมัติได้ที่ Dashboard → POS → ตั้งค่า → คำขอสมัครค่ะ`
+      }]).catch(() => {});
+    }
+  } catch (err) {
+    console.error(`[${role}] request error:`, err.message);
+    await replyToLine(replyToken, [{ type: 'text', text: '❌ เกิดข้อผิดพลาด กรุณาลองใหม่ภายหลังค่ะ' }]);
+  }
+}
+
 // Push แจ้งเตือนส่วนตัวเจ้าของ (Pro+)
 async function pushToOwner(ownerLineId, messages) {
   try {
@@ -1363,7 +1427,18 @@ app.post('/webhook', async (req, res) => {
       }
       // ---- End #สมัครแอดมิน ----
 
-      const isSummaryCmd = ['#สรุปวันนี้','#สรุปวัน','#สรุปเดือนนี้','#สรุปเดือน','#กำไรขาดทุน','#กำไร','#สรุปทุกสาขา','#สรุปอาทิตย์นี้','#สรุปสัปดาห์','#สรุปปีนี้','#สรุปปี','#สรุปวันที่','#ดูวันที่','#รายงาน','#ช่วยเหลือ','#help','#วิธีใช้งาน'].some(k => text.startsWith(k));
+      // ---- #สมัครพนักงานขนส่ง / #สมัครผู้จัดการสาขา — ขอสิทธิ์ระดับสาขาผ่านกลุ่ม LINE ----
+      if (text === '#สมัครพนักงานขนส่ง') {
+        await requestBranchRole(replyToken, shop, foundCmd, event.source.userId, event.source.groupId, 'delivery_staff', 'พนักงานส่ง');
+        continue;
+      }
+      if (text === '#สมัครผู้จัดการสาขา') {
+        await requestBranchRole(replyToken, shop, foundCmd, event.source.userId, event.source.groupId, 'branch_manager', 'ผู้จัดการสาขา');
+        continue;
+      }
+      // ---- End #สมัครพนักงานขนส่ง / #สมัครผู้จัดการสาขา ----
+
+      const isSummaryCmd =['#สรุปวันนี้','#สรุปวัน','#สรุปเดือนนี้','#สรุปเดือน','#กำไรขาดทุน','#กำไร','#สรุปทุกสาขา','#สรุปอาทิตย์นี้','#สรุปสัปดาห์','#สรุปปีนี้','#สรุปปี','#สรุปวันที่','#ดูวันที่','#รายงาน','#ช่วยเหลือ','#help','#วิธีใช้งาน'].some(k => text.startsWith(k));
       if (!isSummaryCmd) continue; // ไม่ใช่ command ของเรา ข้ามไป
 
       try {

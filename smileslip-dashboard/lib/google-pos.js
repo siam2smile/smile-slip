@@ -258,8 +258,10 @@ export const RECEIVE_HEADERS = [
 
 
 // A           B     C        D          E      F        G
+// สาขา (H) เพิ่มท้ายสุด — ไม่แทรกกลาง กันข้อมูลเก่าเลื่อนคอลัมน์ผิด (ensureTabExists auto-patch
+// header ที่สั้นกว่าให้อยู่แล้ว)
 export const STAFF_HEADERS = [
-  'รหัสพนักงาน', 'ชื่อ', 'เบอร์โทร', 'LINE ID', 'บทบาท', 'หมายเหตุ', 'วันที่เพิ่ม',
+  'รหัสพนักงาน', 'ชื่อ', 'เบอร์โทร', 'LINE ID', 'บทบาท', 'หมายเหตุ', 'วันที่เพิ่ม', 'สาขา',
 ];
 
 // A          B          C             D           E      F       G         H              I        J         K           L      M       N
@@ -408,13 +410,14 @@ export function rowToContact(row) {
 
 export function rowToStaff(row) {
   return {
-    staff_id:   row[0] || '',
-    name:       row[1] || '',
-    phone:      row[2] || '',
-    line_id:    row[3] || '',
-    role:       row[4] || 'พนักงานส่ง',
-    notes:      row[5] || '',
-    created_at: row[6] || '',
+    staff_id:    row[0] || '',
+    name:        row[1] || '',
+    phone:       row[2] || '',
+    line_id:     row[3] || '',
+    role:        row[4] || 'พนักงานส่ง',
+    notes:       row[5] || '',
+    created_at:  row[6] || '',
+    branch_name: row[7] || '',
   };
 }
 

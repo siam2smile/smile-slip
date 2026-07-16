@@ -376,6 +376,11 @@ export default function POSPage() {
   const [showStaffForm, setShowStaffForm] = useState(false);
   const [editStaff, setEditStaff] = useState(null);
   const [staffForm, setStaffForm] = useState({ name: '', phone: '', line_id: '', role: 'พนักงานส่ง', notes: '' });
+
+  // ── คำขอสมัคร #สมัครพนักงานขนส่ง / #สมัครผู้จัดการสาขา (ผ่านกลุ่ม LINE) ──────
+  const [staffRequests, setStaffRequests] = useState([]);
+  const [staffRequestsLoading, setStaffRequestsLoading] = useState(false);
+  const [staffRequestActing, setStaffRequestActing] = useState(null); // request id กำลังดำเนินการ
   const [staffSaving, setStaffSaving] = useState(false);
 
   // ── Orders (ออเดอร์จัดส่ง) ─────────────────────────────────────────────
@@ -447,6 +452,7 @@ export default function POSPage() {
             fetchProducts(profile.id),
             fetchContacts(profile.id),
             fetchStaff(profile.id),
+            fetchStaffRequests(profile.id),
             fetchPosConfig(profile.id),
             fetchOrders(profile.id),
           ]);
@@ -564,6 +570,37 @@ export default function POSPage() {
       if (d.staff) setStaff(d.staff);
     } catch {}
     setStaffLoading(false);
+  }
+
+  async function fetchStaffRequests(sid = shopId) {
+    if (!sid) return;
+    setStaffRequestsLoading(true);
+    try {
+      const r = await fetch(`/api/pos/staff-requests?shopId=${sid}`);
+      const d = await r.json();
+      if (d.requests) setStaffRequests(d.requests);
+    } catch {}
+    setStaffRequestsLoading(false);
+  }
+
+  async function actOnStaffRequest(requestId, action) {
+    setStaffRequestActing(requestId);
+    try {
+      const r = await fetch('/api/pos/staff-requests', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, requestId, action }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        await fetchStaffRequests(shopId);
+        if (action === 'approve') { await fetchStaff(shopId); showToast('อนุมัติแล้ว'); }
+        else showToast('ปฏิเสธคำขอแล้ว');
+      } else {
+        alert(d.error);
+      }
+    } catch (err) { alert(err.message); }
+    setStaffRequestActing(null);
   }
 
   function openMapPicker(slot) {
@@ -774,7 +811,7 @@ export default function POSPage() {
   useEffect(() => {
     if (!configured || !shopId) return;
     if (tab === 'report') { fetchSales(); fetchReport('sales', reportDateFrom, reportDateTo); }
-    if (tab === 'settings') fetchStaff();
+    if (tab === 'settings') { fetchStaff(); fetchStaffRequests(); }
     if (tab === 'orders') fetchOrders(shopId);
   }, [tab, configured, shopId]);
 
@@ -3107,6 +3144,46 @@ export default function POSPage() {
                     </div>
                   )}
                 </div>
+
+                {/* คำขอสมัคร (#สมัครพนักงานขนส่ง / #สมัครผู้จัดการสาขา) */}
+                {staffRequests.filter(r => r.status === 'pending').length > 0 && (
+                  <div className="bg-gray-900 rounded-2xl p-5 border border-orange-800/50">
+                    <div className="flex items-center justify-between mb-1">
+                      <h3 className="text-white font-bold">📋 คำขอสมัคร</h3>
+                      <span className="text-[10px] font-bold px-2 py-0.5 bg-orange-900/60 text-orange-300 rounded-full animate-pulse">
+                        {staffRequests.filter(r => r.status === 'pending').length} รออนุมัติ
+                      </span>
+                    </div>
+                    <p className="text-gray-400 text-xs mb-4">
+                      ให้พนักงาน/ผู้จัดการพิมพ์ <span className="font-mono bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">#สมัครพนักงานขนส่ง</span> หรือ <span className="font-mono bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">#สมัครผู้จัดการสาขา</span> ในกลุ่ม LINE ของสาขา แล้วมาอนุมัติที่นี่
+                    </p>
+                    <div className="space-y-2">
+                      {staffRequests.filter(r => r.status === 'pending').map(req => (
+                        <div key={req.id} className="bg-gray-800 rounded-xl p-3 flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-white text-sm font-medium">{req.display_name || 'สมาชิก LINE'}</span>
+                              <span className="text-xs bg-gray-700 text-gray-400 px-2 py-0.5 rounded-full">
+                                {req.role === 'delivery_staff' ? '🛵 พนักงานส่ง' : '🏬 ผู้จัดการสาขา'}
+                              </span>
+                            </div>
+                            <div className="text-gray-500 text-xs mt-0.5">สาขา: {req.branch_name || '-'}</div>
+                          </div>
+                          <div className="flex gap-1.5 shrink-0">
+                            <button onClick={() => actOnStaffRequest(req.id, 'approve')} disabled={staffRequestActing === req.id}
+                              className="text-xs bg-green-700 hover:bg-green-600 text-white px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50">
+                              {staffRequestActing === req.id ? '...' : 'อนุมัติ'}
+                            </button>
+                            <button onClick={() => actOnStaffRequest(req.id, 'reject')} disabled={staffRequestActing === req.id}
+                              className="text-xs bg-gray-700 hover:bg-red-800 text-gray-300 hover:text-red-300 px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50">
+                              ปฏิเสธ
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Staff / Drivers */}
                 <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
