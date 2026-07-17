@@ -16,7 +16,7 @@
 import { createClient } from '@supabase/supabase-js';
 import {
   getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
-  makeOrderNo, rowToOrder, rowToContact, ORDER_HEADERS, CONTACT_HEADERS,
+  makeOrderNo, rowToOrder, rowToContact, rowToProduct, ORDER_HEADERS, CONTACT_HEADERS,
 } from '../../../lib/google-pos';
 
 const supabase = createClient(
@@ -159,7 +159,7 @@ export default async function handler(req, res) {
 
     // ── GET — รายการออเดอร์ ─────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:N');
+      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:R');
       const orders = rows.slice(1)
         .map((r, i) => ({ ...rowToOrder(r), _row: i + 2 }))
         .filter(o => o.order_no)
@@ -248,21 +248,25 @@ export default async function handler(req, res) {
     }
 
     // ── PATCH — แก้ไขออเดอร์ (สถานะ, พิกัด, หรือรายละเอียดเต็ม เช่น เปลี่ยนผู้ส่ง) ──
+    // confirm_delivery: true → พนักงานส่งกดยืนยันจัดส่งสำเร็จจากหน้า pos-staff
+    //   items ที่ส่งมาสามารถมี returned_qty ต่อรายการ (เฉพาะสินค้าประเภทหมุนเวียน) —
+    //   ใช้อัปเดตสต็อค "เปล่ารอรีฟิล" ของสินค้า + ลดยอด "ถังอยู่กับลูกค้า" ของผู้ติดต่อ
     if (req.method === 'PATCH') {
       const {
         order_no, status, notes, maps_link,
         customer_id, customer_name, phone, address,
         items, total, payment_method, staff_id, staff_name,
+        confirm_delivery, slip_url, confirmed_by, cash_received,
       } = req.body;
       if (!order_no) return res.status(400).json({ error: 'Missing order_no' });
 
-      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:N');
+      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:R');
       const dataRows = rows.slice(1);
       const idx = dataRows.findIndex(r => r[0] === order_no);
       if (idx === -1) return res.status(404).json({ error: 'ไม่พบออเดอร์' });
 
       const existing = [...dataRows[idx]];
-      while (existing.length < 14) existing.push('');
+      while (existing.length < 18) existing.push('');
       if (customer_id     !== undefined) existing[2]  = customer_id;
       if (customer_name   !== undefined) existing[3]  = customer_name;
       if (phone           !== undefined) existing[4]  = asText(phone);
@@ -275,6 +279,60 @@ export default async function handler(req, res) {
       if (staff_name      !== undefined) existing[11] = staff_name;
       if (status          !== undefined) existing[12] = status;
       if (notes           !== undefined) existing[13] = notes;
+      if (slip_url        !== undefined) existing[14] = slip_url;
+      if (cash_received   !== undefined) existing[17] = cash_received ? 'TRUE' : 'FALSE';
+
+      if (confirm_delivery) {
+        existing[12] = 'ส่งสำเร็จ';
+        existing[15] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+        if (confirmed_by !== undefined) existing[16] = confirmed_by;
+
+        // อัปเดตสต็อคสินค้าหมุนเวียนที่ลูกค้าคืนถังเปล่ามา + ลดยอดถังค้างที่ลูกค้า
+        const cust = customer_id !== undefined ? customer_id : existing[2];
+        const returnedTotal = (items || []).reduce((sum, i) => sum + (parseInt(i.returned_qty) || 0), 0);
+
+        if (Array.isArray(items) && items.length) {
+          try {
+            const prodRows = await readSheet(token, sheetId, 'สินค้า!A:R');
+            const prodDataRows = prodRows.slice(1);
+            for (const item of items) {
+              const returnedQty = parseInt(item.returned_qty) || 0;
+              if (returnedQty <= 0 || !item.sku) continue;
+              const pIdx = prodDataRows.findIndex(r => r[0] === item.sku);
+              if (pIdx === -1) continue;
+              const prod = rowToProduct(prodDataRows[pIdx]);
+              if (prod.type !== 'หมุนเวียน') continue;
+              const prodExisting = [...prodDataRows[pIdx]];
+              while (prodExisting.length < 18) prodExisting.push('');
+              prodExisting[12] = (prod.empty_waiting || 0) + returnedQty; // เปล่ารอรีฟิล
+              prodExisting[9] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+              await updateSheetRow(token, sheetId, 'สินค้า', pIdx + 2, prodExisting);
+              prodDataRows[pIdx] = prodExisting;
+            }
+          } catch (prodErr) {
+            console.error('[delivery] update product empty_waiting error:', prodErr.message);
+          }
+        }
+
+        if (returnedTotal > 0 && cust) {
+          try {
+            await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
+            const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:W');
+            const custDataRows = custRows.slice(1);
+            const custIdx = custDataRows.findIndex(r => r[0] === cust);
+            if (custIdx !== -1) {
+              const custRow = rowToContact(custDataRows[custIdx]);
+              const custExisting = [...custDataRows[custIdx]];
+              while (custExisting.length < 23) custExisting.push('');
+              custExisting[14] = Math.max(0, (custRow.cylinders || 0) - returnedTotal); // ถังอยู่กับลูกค้า
+              custExisting[19] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+              await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
+            }
+          } catch (custErr) {
+            console.error('[delivery] update customer cylinders on return error:', custErr.message);
+          }
+        }
+      }
 
       await updateSheetRow(token, sheetId, 'ออเดอร์จัดส่ง', idx + 2, existing);
       return res.json({ ok: true, order_no });
@@ -285,11 +343,11 @@ export default async function handler(req, res) {
       const { order_no } = req.body;
       if (!order_no) return res.status(400).json({ error: 'Missing order_no' });
 
-      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:N');
+      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:R');
       const idx = rows.slice(1).findIndex(r => r[0] === order_no);
       if (idx === -1) return res.status(404).json({ error: 'ไม่พบออเดอร์' });
 
-      await updateSheetRow(token, sheetId, 'ออเดอร์จัดส่ง', idx + 2, Array(14).fill(''));
+      await updateSheetRow(token, sheetId, 'ออเดอร์จัดส่ง', idx + 2, Array(18).fill(''));
       return res.json({ ok: true });
     }
 

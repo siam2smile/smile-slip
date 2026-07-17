@@ -269,10 +269,14 @@ export const STAFF_HEADERS = [
 ];
 
 // A          B          C             D           E      F       G         H              I        J         K           L      M       N
+//            O            P                Q              R
+// O-R เพิ่มท้ายสุด — ไม่แทรกกลาง กันข้อมูลเก่าเลื่อนคอลัมน์ผิด (ensureTabExists auto-patch
+// header ที่สั้นกว่าให้อยู่แล้ว)
 export const ORDER_HEADERS = [
   'เลขออเดอร์', 'วันที่-เวลา', 'รหัสลูกค้า', 'ชื่อลูกค้า', 'เบอร์',
   'ที่อยู่จัดส่ง', 'maps_link', 'รายการ (JSON)', 'ยอดรวม (บาท)',
   'วิธีชำระ', 'รหัสพนักงานส่ง', 'ชื่อพนักงานส่ง', 'สถานะ', 'หมายเหตุ',
+  'ลิงก์สลิป', 'ยืนยันจัดส่งเมื่อ', 'ยืนยันโดย', 'รับเงินเข้าร้านแล้ว',
 ];
 
 // ── Key Generators ────────────────────────────────────────────────────────────
@@ -443,6 +447,10 @@ export function rowToOrder(row) {
     staff_name:  row[11] || '',
     status:      row[12] || 'รอจัดส่ง',
     notes:       row[13] || '',
+    slip_url:      row[14] || '',
+    confirmed_at:  row[15] || '',
+    confirmed_by:  row[16] || '',
+    cash_received: row[17] === 'TRUE' || row[17] === '1',
   };
 }
 
