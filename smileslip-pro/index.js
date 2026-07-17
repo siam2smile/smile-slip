@@ -205,7 +205,7 @@ async function requestBranchRole(replyToken, shop, foundCmd, senderId, groupId, 
 
     await replyToLine(replyToken, [{
       type: 'text',
-      text: `📋 ส่งคำขอเป็น${roleLabel}ของ "${branchName}" แล้วค่ะ\n\nรอเจ้าของร้าน/แอดมินอนุมัติในแดชบอร์ดนะคะ (ตั้งค่า POS → คำขอสมัคร) 😊`
+      text: `📋 ส่งคำขอเป็น${roleLabel}ของ "${branchName}" แล้วค่ะ\n\nรอเจ้าของร้าน/แอดมินอนุมัติในแดชบอร์ดนะคะ (ตั้งค่า POS → คำขอสมัคร) 😊\n\n⚠️ สำคัญมาก: ต้องกด "เพิ่มเพื่อน" บัญชีไลน์ Smile Slip ก่อนนะคะ ไม่งั้นระบบจะแจ้งเตือนงาน (เช่นงานส่งของ) หาไม่ได้เลย แม้จะอนุมัติแล้วก็ตาม\n👉 https://lin.ee/wdnoEN5`
     }]);
 
     if (shop.owner_line_id) {
@@ -1411,7 +1411,8 @@ app.post('/webhook', async (req, res) => {
           await replyToLine(replyToken, [{
             type: 'text',
             text: `📋 ส่งคำขอเป็นแอดมินร้าน "${shop.shop_name}" แล้วค่ะ\n\n` +
-              `รอเจ้าของร้านอนุมัติในแดชบอร์ด (ตั้งค่า → แอดมินร้าน) นะคะ 😊`
+              `รอเจ้าของร้านอนุมัติในแดชบอร์ด (ตั้งค่า → แอดมินร้าน) นะคะ 😊\n\n` +
+              `⚠️ อย่าลืมกด "เพิ่มเพื่อน" บัญชีไลน์ Smile Slip ด้วยนะคะ ไม่งั้นระบบจะแจ้งเตือนหาไม่ได้ค่ะ\n👉 https://lin.ee/wdnoEN5`
           }]);
           // Push แจ้งเจ้าของ
           if (shop.owner_line_id) {
