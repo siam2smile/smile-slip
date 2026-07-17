@@ -23,6 +23,111 @@ function emptyContactForm() {
   };
 }
 
+// ── พิมพ์ใบเสร็จ/ใบกำกับภาษี — สร้าง HTML สั่งพิมพ์ผ่าน window.print() ────────────
+// ใช้ print dialog ของระบบปฏิบัติการเอง (ทำงานได้ทั้ง Android และ iPhone/AirPrint
+// เหมือนกัน ไม่ต้องพึ่ง Web Bluetooth ซึ่งใช้ได้เฉพาะ Android/Chrome เท่านั้น)
+function bahtText(amount) {
+  const ones = ['', 'หนึ่ง', 'สอง', 'สาม', 'สี่', 'ห้า', 'หก', 'เจ็ด', 'แปด', 'เก้า'];
+  function spell(n) {
+    if (!n) return '';
+    const units = [[1000000, 'ล้าน'], [100000, 'แสน'], [10000, 'หมื่น'], [1000, 'พัน'], [100, 'ร้อย']];
+    let s = '';
+    for (const [d, label] of units) {
+      const q = Math.floor(n / d);
+      if (q) { s += ones[q] + label; n %= d; }
+    }
+    const ten = Math.floor(n / 10), one = n % 10;
+    if (ten === 1) s += 'สิบ';
+    else if (ten === 2) s += 'ยี่สิบ';
+    else if (ten > 0) s += ones[ten] + 'สิบ';
+    if (one === 1 && ten > 0) s += 'เอ็ด';
+    else if (one > 0) s += ones[one];
+    return s;
+  }
+  const v = Math.round(Number(amount || 0) * 100) / 100;
+  const baht = Math.floor(v);
+  const satang = Math.round((v - baht) * 100);
+  return (baht ? spell(baht) : 'ศูนย์') + 'บาท' + (satang ? spell(satang) + 'สตางค์' : 'ถ้วน');
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// paperSize: '58mm' | '80mm' — isTaxInvoice: true เมื่อพิมพ์ใบกำกับภาษีเต็มรูปแบบ (มีข้อมูลผู้ซื้อ + แยก VAT)
+function buildReceiptHtml({ paperSize = '80mm', shopInfo, isTaxInvoice, docNo, dateStr, buyer, items, subtotal, vat, discount, total, payMethod, cashReceived, change, footer }) {
+  const widthMm = paperSize === '58mm' ? 58 : 80;
+  const title = isTaxInvoice ? 'ใบกำกับภาษี / ใบเสร็จรับเงิน' : 'ใบเสร็จรับเงิน';
+  const itemRows = (items || []).map(i => `
+    <tr>
+      <td colspan="3" style="padding-top:4px">${escapeHtml(i.name)}</td>
+    </tr>
+    <tr>
+      <td style="color:#555">${i.qty} × ${Number(i.price).toLocaleString()}</td>
+      <td></td>
+      <td style="text-align:right;font-weight:bold">${(i.qty * i.price).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+    </tr>`).join('');
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>${title} ${escapeHtml(docNo || '')}</title>
+<style>
+  @page { size: ${widthMm}mm auto; margin: 2mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Sarabun', 'TH Sarabun New', sans-serif; width: ${widthMm}mm; margin: 0; padding: 0; font-size: ${paperSize === '58mm' ? '10px' : '12px'}; color: #111; }
+  .center { text-align: center; }
+  .bold { font-weight: bold; }
+  .line { border-top: 1px dashed #000; margin: 6px 0; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 1px 0; vertical-align: top; }
+  .shop-name { font-size: ${paperSize === '58mm' ? '13px' : '15px'}; font-weight: bold; }
+  .totals td { padding-top: 2px; }
+  .grand { font-size: ${paperSize === '58mm' ? '13px' : '15px'}; font-weight: bold; }
+  .foot { text-align: center; margin-top: 8px; font-size: ${paperSize === '58mm' ? '9px' : '10px'}; color: #444; }
+</style></head>
+<body onload="window.print()">
+  <div class="center shop-name">${escapeHtml(shopInfo?.shop_name || '')}</div>
+  ${shopInfo?.address ? `<div class="center">${escapeHtml(shopInfo.address)}</div>` : ''}
+  ${shopInfo?.tax_id ? `<div class="center">เลขผู้เสียภาษี ${escapeHtml(shopInfo.tax_id)}</div>` : ''}
+  ${shopInfo?.phone ? `<div class="center">โทร ${escapeHtml(shopInfo.phone)}</div>` : ''}
+  <div class="line"></div>
+  <div class="center bold">${title}</div>
+  <div>เลขที่: ${escapeHtml(docNo || '')}</div>
+  <div>วันที่: ${escapeHtml(dateStr || '')}</div>
+  ${isTaxInvoice ? `
+    <div class="line"></div>
+    <div class="bold">ผู้ซื้อ:</div>
+    <div>${escapeHtml(buyer?.name || '')}</div>
+    ${buyer?.tax_id ? `<div>เลขผู้เสียภาษี: ${escapeHtml(buyer.tax_id)}</div>` : ''}
+    ${buyer?.address ? `<div>${escapeHtml(buyer.address)}</div>` : ''}
+    ${buyer?.branch ? `<div>สาขา: ${escapeHtml(buyer.branch)}</div>` : ''}
+  ` : ''}
+  <div class="line"></div>
+  <table>${itemRows}</table>
+  <div class="line"></div>
+  <table class="totals">
+    ${isTaxInvoice ? `
+      <tr><td>ยอดก่อน VAT</td><td style="text-align:right">${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+      <tr><td>ภาษีมูลค่าเพิ่ม 7%</td><td style="text-align:right">${vat.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+    ` : (discount > 0 ? `<tr><td>ส่วนลด</td><td style="text-align:right">-${discount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>` : '')}
+    <tr class="grand"><td>ยอดรวมสุทธิ</td><td style="text-align:right">${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+    ${payMethod ? `<tr><td colspan="2">วิธีชำระ: ${escapeHtml(payMethod)}</td></tr>` : ''}
+    ${cashReceived > 0 ? `<tr><td>รับเงิน</td><td style="text-align:right">${cashReceived.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>` : ''}
+    ${change > 0 ? `<tr><td>เงินทอน</td><td style="text-align:right">${change.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>` : ''}
+  </table>
+  ${isTaxInvoice ? `<div style="margin-top:4px">(${bahtText(total)})</div>` : ''}
+  <div class="line"></div>
+  <div class="foot">${escapeHtml(footer || 'ขอบคุณที่ใช้บริการ')}</div>
+</body></html>`;
+}
+
+function openPrintWindow(html) {
+  const w = window.open('', '_blank', 'width=400,height=600');
+  if (!w) { alert('เบราว์เซอร์บล็อกหน้าต่างพิมพ์ — กรุณาอนุญาต popup สำหรับเว็บนี้'); return; }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
+
 // ── Map Picker Modal ─────────────────────────────────────────────────────────
 // ใช้ Leaflet + OpenStreetMap (ฟรี ไม่ต้องมี API key)
 // ผู้ใช้คลิกบนแผนที่เพื่อวางหมุดตรงจุดที่ต้องการ
@@ -250,6 +355,9 @@ export default function POSPage() {
   const [cashReceived, setCashReceived] = useState('');
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [lastBill, setLastBill] = useState(null);
+  const [showTaxInvoiceForm, setShowTaxInvoiceForm] = useState(false);
+  const [taxInvoiceForm, setTaxInvoiceForm] = useState({ buyer_name: '', buyer_tax_id: '', buyer_address: '', buyer_branch: 'สำนักงานใหญ่' });
+  const [taxInvoiceIssuing, setTaxInvoiceIssuing] = useState(false);
   const [showBill, setShowBill] = useState(false);
   const [showCartDrawer, setShowCartDrawer] = useState(false);
 
@@ -264,7 +372,7 @@ export default function POSPage() {
   const [qrLoading, setQrLoading] = useState(false);
 
   // POS settings (Staff PIN + PromptPay + Biller ID)
-  const [posConfig, setPosConfig] = useState({ has_pin: false, promptpay_id: '', scb_biller_id: '' });
+  const [posConfig, setPosConfig] = useState({ has_pin: false, promptpay_id: '', scb_biller_id: '', receipt_paper_size: '80mm' });
   const [posSettingsForm, setPosSettingsForm] = useState({ staff_pin: '', promptpay_id: '', scb_biller_id: '' });
   const [settingsSaving, setSettingsSaving] = useState(false);
 
@@ -507,7 +615,7 @@ export default function POSPage() {
       const d = await r.json();
       if (d.ok !== false) {
         setPosConfig(d);
-        setPosSettingsForm({ staff_pin: '', promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '' });
+        setPosSettingsForm({ staff_pin: '', promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '', receipt_paper_size: d.receipt_paper_size || '80mm' });
       }
     } catch {}
   }
@@ -520,6 +628,7 @@ export default function POSPage() {
       if (posSettingsForm.staff_pin) body.staff_pin = posSettingsForm.staff_pin;
       if (posSettingsForm.promptpay_id !== undefined) body.promptpay_id = posSettingsForm.promptpay_id;
       if (posSettingsForm.scb_biller_id !== undefined) body.scb_biller_id = posSettingsForm.scb_biller_id;
+      if (posSettingsForm.receipt_paper_size !== undefined) body.receipt_paper_size = posSettingsForm.receipt_paper_size;
       const r = await fetch('/api/pos/pos-config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -1173,7 +1282,8 @@ export default function POSPage() {
           discount: cartDiscount,
           total: cartTotal,
           payMethod,
-          customerName: customerName.trim(),
+          customerName: creditCustomer?.name || customerName.trim(),
+          customerId: creditCustomer?.contact_id || '',
           cashReceived: parseFloat(cashReceived) || cartTotal,
           change: cartChange,
           time: new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' }),
@@ -1208,6 +1318,82 @@ export default function POSPage() {
       alert(err.message);
     }
     setCheckoutLoading(false);
+  }
+
+  // ── พิมพ์ใบเสร็จ / ใบกำกับภาษี ───────────────────────────────────────────────
+  function printReceipt(bill) {
+    const html = buildReceiptHtml({
+      paperSize: posConfig.receipt_paper_size || '80mm',
+      shopInfo,
+      isTaxInvoice: false,
+      docNo: bill.billNo,
+      dateStr: new Date().toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' }) + ' ' + bill.time,
+      items: bill.items,
+      subtotal: bill.subtotal,
+      discount: bill.discount,
+      total: bill.total,
+      payMethod: bill.payMethod,
+      cashReceived: bill.payMethod === 'เงินสด' ? bill.cashReceived : 0,
+      change: bill.change,
+    });
+    openPrintWindow(html);
+  }
+
+  function openTaxInvoiceForm(bill) {
+    const cust = bill.customerId ? contacts.find(c => c.contact_id === bill.customerId) : null;
+    setTaxInvoiceForm({
+      buyer_name: cust?.company_name || cust?.name || bill.customerName || '',
+      buyer_tax_id: cust?.tax_id || '',
+      buyer_address: cust?.tax_address || cust?.address_1 || '',
+      buyer_branch: cust?.tax_branch || 'สำนักงานใหญ่',
+    });
+    setShowTaxInvoiceForm(true);
+  }
+
+  async function issueTaxInvoice() {
+    if (!lastBill || taxInvoiceIssuing) return;
+    if (!taxInvoiceForm.buyer_name.trim()) { showToast('กรุณากรอกชื่อผู้ซื้อ'); return; }
+    if (!taxInvoiceForm.buyer_tax_id.trim()) { showToast('กรุณากรอกเลขผู้เสียภาษีของผู้ซื้อ'); return; }
+    setTaxInvoiceIssuing(true);
+    try {
+      const r = await fetch('/api/pos/tax-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId,
+          ref_bill_no: lastBill.billNo,
+          customer_id: lastBill.customerId || '',
+          buyer_name: taxInvoiceForm.buyer_name.trim(),
+          buyer_tax_id: taxInvoiceForm.buyer_tax_id.trim(),
+          buyer_address: taxInvoiceForm.buyer_address.trim(),
+          buyer_branch: taxInvoiceForm.buyer_branch.trim(),
+          items: lastBill.items,
+          issued_by: shopInfo?.shop_name || '',
+        }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        const html = buildReceiptHtml({
+          paperSize: posConfig.receipt_paper_size || '80mm',
+          shopInfo,
+          isTaxInvoice: true,
+          docNo: d.invoice_no,
+          dateStr: d.issued_at,
+          buyer: { name: taxInvoiceForm.buyer_name, tax_id: taxInvoiceForm.buyer_tax_id, address: taxInvoiceForm.buyer_address, branch: taxInvoiceForm.buyer_branch },
+          items: lastBill.items,
+          subtotal: d.subtotal,
+          vat: d.vat,
+          total: d.total,
+          payMethod: lastBill.payMethod,
+        });
+        openPrintWindow(html);
+        setShowTaxInvoiceForm(false);
+        showToast(`ออกใบกำกับภาษี ${d.invoice_no} แล้ว`);
+      } else {
+        alert(d.error);
+      }
+    } catch (err) { alert(err.message); }
+    setTaxInvoiceIssuing(false);
   }
 
   // ── product CRUD ──────────────────────────────────────────────────────────
@@ -3581,6 +3767,25 @@ export default function POSPage() {
                   </div>
                 </div>
 
+                {/* ขนาดกระดาษเครื่องพิมพ์ใบเสร็จ */}
+                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
+                  <h3 className="text-white font-bold mb-1">🖨️ ขนาดกระดาษเครื่องพิมพ์ใบเสร็จ</h3>
+                  <p className="text-gray-400 text-xs mb-4">
+                    เลือกตามเครื่องพิมพ์ใบเสร็จที่ร้านมีอยู่แล้ว (ไม่ต้องซื้อเครื่องใหม่) — ใช้กำหนดความกว้างตอนพิมพ์ใบเสร็จ/ใบกำกับภาษี
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {['58mm', '80mm'].map(size => (
+                      <button key={size} type="button"
+                        onClick={() => setPosSettingsForm(f => ({ ...f, receipt_paper_size: size }))}
+                        className={`py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                          posSettingsForm.receipt_paper_size === size ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                        }`}>
+                        {size}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <button
                   onClick={savePosSettings}
                   disabled={settingsSaving}
@@ -3898,10 +4103,63 @@ export default function POSPage() {
                 </div>
               )}
             </div>
+            <div className="flex gap-2 mb-2">
+              <button onClick={() => printReceipt(lastBill)}
+                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm font-bold py-2.5 rounded-xl transition-colors">
+                🖨️ พิมพ์ใบเสร็จ
+              </button>
+              <button onClick={() => openTaxInvoiceForm(lastBill)}
+                className="flex-1 bg-blue-100 hover:bg-blue-200 text-blue-800 text-sm font-bold py-2.5 rounded-xl transition-colors">
+                🧾 ใบกำกับภาษี
+              </button>
+            </div>
             <button onClick={() => setShowBill(false)}
               className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl transition-colors">
               ปิด / รายการถัดไป
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ══ TAX INVOICE FORM MODAL ══════════════════════════════════════════ */}
+      {showTaxInvoiceForm && lastBill && (
+        <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-gray-900 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl">
+            <div className="p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-white font-bold">🧾 ออกใบกำกับภาษี</h3>
+                <button onClick={() => setShowTaxInvoiceForm(false)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+              </div>
+              <p className="text-gray-500 text-xs mb-4">อ้างอิงบิล {lastBill.billNo} — ยอด ฿{lastBill.total.toLocaleString()}</p>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-gray-400 text-xs mb-1.5">ชื่อผู้ซื้อ / บริษัท *</label>
+                  <input value={taxInvoiceForm.buyer_name} onChange={e => setTaxInvoiceForm(f => ({ ...f, buyer_name: e.target.value }))}
+                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                </div>
+                <div>
+                  <label className="block text-gray-400 text-xs mb-1.5">เลขประจำตัวผู้เสียภาษี (13 หลัก) *</label>
+                  <input value={taxInvoiceForm.buyer_tax_id} onChange={e => setTaxInvoiceForm(f => ({ ...f, buyer_tax_id: e.target.value }))}
+                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    placeholder="0-0000-00000-00-0" maxLength={17} />
+                </div>
+                <div>
+                  <label className="block text-gray-400 text-xs mb-1.5">ที่อยู่</label>
+                  <textarea value={taxInvoiceForm.buyer_address} rows={2} onChange={e => setTaxInvoiceForm(f => ({ ...f, buyer_address: e.target.value }))}
+                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 resize-none" />
+                </div>
+                <div>
+                  <label className="block text-gray-400 text-xs mb-1.5">สาขา</label>
+                  <input value={taxInvoiceForm.buyer_branch} onChange={e => setTaxInvoiceForm(f => ({ ...f, buyer_branch: e.target.value }))}
+                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    placeholder="สำนักงานใหญ่" />
+                </div>
+              </div>
+              <button onClick={issueTaxInvoice} disabled={taxInvoiceIssuing}
+                className="w-full mt-5 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors">
+                {taxInvoiceIssuing ? 'กำลังออกใบกำกับภาษี...' : '🧾 ออกใบกำกับภาษี + พิมพ์'}
+              </button>
+            </div>
           </div>
         </div>
       )}

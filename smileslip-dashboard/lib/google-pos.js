@@ -241,6 +241,35 @@ export const LOAN_HEADERS = [
   'รายการสินค้า (JSON)', 'หมายเหตุ', 'สถานะ', 'วันที่คืน', 'สาขา',
 ];
 
+// tab "ใบกำกับภาษี" — ใบกำกับภาษีที่ร้านออกให้ลูกค้าของร้านเอง (คนละระบบกับใบกำกับภาษี
+// ที่ Smile Slip Pro ออกให้ร้านตอนซื้อแพ็กเกจ — นี่คือร้านออกให้ลูกค้าร้านตัวเอง)
+// เลขที่รันต่อปี ไม่ให้เลขขาดหาย (นับจากจำนวนแถวที่มีอยู่ของปีนั้น + 1)
+export const TAX_INVOICE_HEADERS = [
+  'เลขที่ใบกำกับภาษี', 'วันที่ออก', 'เลขที่บิลอ้างอิง', 'รหัสลูกค้า',
+  'ชื่อผู้ซื้อ', 'เลขภาษีผู้ซื้อ', 'ที่อยู่ผู้ซื้อ', 'สาขาผู้ซื้อ',
+  'รายการ (JSON)', 'ยอดก่อน VAT', 'ยอด VAT', 'ยอดรวม', 'ออกโดย',
+];
+
+export function rowToTaxInvoice(row) {
+  let items = [];
+  try { items = JSON.parse(row[8] || '[]'); } catch {}
+  return {
+    invoice_no:   row[0]  || '',
+    issued_at:    row[1]  || '',
+    ref_bill_no:  row[2]  || '',
+    customer_id:  row[3]  || '',
+    buyer_name:   row[4]  || '',
+    buyer_tax_id: row[5]  || '',
+    buyer_address:row[6]  || '',
+    buyer_branch: row[7]  || '',
+    items,
+    subtotal:     parseFloat(row[9])  || 0,
+    vat:          parseFloat(row[10]) || 0,
+    total:        parseFloat(row[11]) || 0,
+    issued_by:    row[12] || '',
+  };
+}
+
 // A-W (23 คอลัมน์) — รวม ลูกค้า + ผู้จำหน่าย + ข้อมูลภาษีบริษัท + ประเภทบุคคล
 export const CONTACT_HEADERS = [
   'รหัสผู้ติดต่อ', 'ชื่อ', 'ประเภท (ลูกค้า/ผู้จำหน่าย/ทั้งคู่)', 'เบอร์โทร', 'อีเมล',
