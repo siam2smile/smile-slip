@@ -89,7 +89,9 @@ export default async function handler(req, res) {
 
       // เลขที่รันต่อปี — นับจากจำนวนใบที่ออกไปแล้วในปีนี้ + 1 กันเลขขาดหาย
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-      const yearBE = new Date().toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', year: 'numeric' });
+      // toLocaleDateString('th-TH') คืนสตริงแบบ "พ.ศ. 2569" (มีจุด/วรรค) ไม่เหมาะเป็นส่วนหนึ่งของ
+      // เลขที่เอกสาร — ดึงเฉพาะตัวเลขปี พ.ศ. ออกมา (ปี ค.ศ. + 543)
+      const yearBE = String(new Date().getFullYear() + 543);
       const existingRows = await readSheet(token, sheetId, 'ใบกำกับภาษี!A:A');
       const countThisYear = existingRows.slice(1)
         .filter(r => (r[0] || '').includes(`-${yearBE}-`)).length;
