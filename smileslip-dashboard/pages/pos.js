@@ -421,6 +421,7 @@ export default function POSPage() {
   const [delivAddrIdx, setDelivAddrIdx] = useState(0); // 0=ที่อยู่_1, 1=ที่อยู่_2, 2=กรอกใหม่
   const [delivAddrCustom, setDelivAddrCustom] = useState('');
   const [delivMapsCustom, setDelivMapsCustom] = useState('');
+  const [showDelivMapPicker, setShowDelivMapPicker] = useState(false);
   const [delivStaff, setDelivStaff] = useState(null);
   const [delivPayment, setDelivPayment] = useState('เก็บปลายทาง');
   const [delivNotes, setDelivNotes] = useState('');
@@ -4498,9 +4499,19 @@ export default function POSPage() {
                             <input value={delivAddrCustom} onChange={e => setDelivAddrCustom(e.target.value)}
                               className="w-full bg-gray-700 text-white text-sm px-3 py-2 rounded-lg border border-gray-600 focus:outline-none"
                               placeholder="ที่อยู่จัดส่ง..." />
-                            <input value={delivMapsCustom} onChange={e => setDelivMapsCustom(e.target.value)}
-                              className="w-full bg-gray-700 text-white text-sm px-3 py-2 rounded-lg border border-gray-600 focus:outline-none"
-                              placeholder="ลิงก์ Google Maps (ถ้ามี)" />
+                            {delivMapsCustom ? (
+                              <div className="flex items-center gap-2">
+                                <span className="text-green-400 text-xs flex-1 truncate">✅ ปักหมุดแล้ว</span>
+                                <button type="button" onClick={() => setShowDelivMapPicker(true)} className="text-xs text-blue-400 hover:text-blue-300 shrink-0">แก้ไข</button>
+                                <a href={delivMapsCustom} target="_blank" rel="noreferrer" className="text-xs text-gray-400 hover:text-gray-200 shrink-0">ดู</a>
+                                <button type="button" onClick={() => setDelivMapsCustom('')} className="text-xs text-gray-500 hover:text-red-400 shrink-0">ลบ</button>
+                              </div>
+                            ) : (
+                              <button type="button" onClick={() => setShowDelivMapPicker(true)}
+                                className="w-full flex items-center justify-center gap-1.5 bg-gray-600 hover:bg-green-800 text-gray-300 hover:text-green-300 text-xs py-2 rounded-lg border border-gray-500 hover:border-green-700 transition-colors">
+                                🗺️ เปิดแผนที่วางหมุด
+                              </button>
+                            )}
                           </div>
                         )}
                       </button>
@@ -4979,6 +4990,24 @@ export default function POSPage() {
               setShowMapPicker(false);
             }}
             onClose={() => setShowMapPicker(false)}
+          />
+        );
+      })()}
+
+      {showDelivMapPicker && (() => {
+        let initCoords = null;
+        if (delivMapsCustom) {
+          const m = delivMapsCustom.match(/q=([+-]?\d+\.?\d*),([+-]?\d+\.?\d*)/);
+          if (m) initCoords = { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+        }
+        return (
+          <MapPickerModal
+            initCoords={initCoords}
+            onConfirm={(lat, lng) => {
+              setDelivMapsCustom(`https://www.google.com/maps?q=${lat},${lng}`);
+              setShowDelivMapPicker(false);
+            }}
+            onClose={() => setShowDelivMapPicker(false)}
           />
         );
       })()}
