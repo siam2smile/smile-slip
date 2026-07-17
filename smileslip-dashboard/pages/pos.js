@@ -4491,8 +4491,9 @@ export default function POSPage() {
                           {delivCust.maps_2 && <span className="ml-2 text-xs text-green-400">🗺️ มี Maps</span>}
                         </button>
                       )}
-                      <button onClick={() => setDelivAddrIdx(2)}
-                        className={`w-full text-left p-3 rounded-xl border text-sm transition-colors ${delivAddrIdx === 2 ? 'bg-green-900/40 border-green-600 text-green-200' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}`}>
+                      <div role="button" tabIndex={0} onClick={() => setDelivAddrIdx(2)}
+                        onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && setDelivAddrIdx(2)}
+                        className={`w-full text-left p-3 rounded-xl border text-sm transition-colors cursor-pointer ${delivAddrIdx === 2 ? 'bg-green-900/40 border-green-600 text-green-200' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}`}>
                         <div className="font-medium text-xs text-gray-400 mb-0.5">ที่อยู่อื่น (พิมพ์เอง)</div>
                         {delivAddrIdx === 2 && (
                           <div className="space-y-1.5 mt-2" onClick={e => e.stopPropagation()}>
@@ -4514,7 +4515,7 @@ export default function POSPage() {
                             )}
                           </div>
                         )}
-                      </button>
+                      </div>
                     </div>
                   </div>
 
