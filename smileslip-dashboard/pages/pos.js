@@ -343,6 +343,7 @@ export default function POSPage() {
   const [contactForm, setContactForm] = useState(emptyContactForm());
   const [contactSaving, setContactSaving] = useState(false);
   const [contactFilter, setContactFilter] = useState('ทั้งหมด');
+  const [contactOutstandingOnly, setContactOutstandingOnly] = useState(false); // แสดงเฉพาะที่มียอดค้าง/ถังค้าง
   const [showTaxSection, setShowTaxSection] = useState(false);
   const [contactSearch, setContactSearch] = useState('');
   const [contactPage, setContactPage] = useState(1);
@@ -1430,11 +1431,18 @@ export default function POSPage() {
         return textHit || phoneHit;
       });
     }
+    // เฉพาะที่มียอดค้างชำระหรือถังค้างอยู่ — เรียงยอดค้าง (บาท) มากไปน้อยก่อน แล้วค่อยถังค้าง
+    // (ไม่รวมหน่วยเข้าด้วยกัน กันเลขบาทกับจำนวนถังไปปนกันจนเรียงมั่ว)
+    if (contactOutstandingOnly) {
+      list = list.filter(c => (c.debt || 0) > 0 || (c.cylinders || 0) > 0)
+        .slice()
+        .sort((a, b) => (b.debt || 0) - (a.debt || 0) || (b.cylinders || 0) - (a.cylinders || 0));
+    }
     return list;
-  }, [contacts, contactFilter, contactSearch]);
+  }, [contacts, contactFilter, contactSearch, contactOutstandingOnly]);
 
   // รีเซ็ตกลับหน้า 1 ทุกครั้งที่เปลี่ยนตัวกรอง/คำค้นหา
-  useEffect(() => { setContactPage(1); }, [contactFilter, contactSearch]);
+  useEffect(() => { setContactPage(1); }, [contactFilter, contactSearch, contactOutstandingOnly]);
 
   const contactTotalPages = Math.max(1, Math.ceil(displayContacts.length / CONTACTS_PER_PAGE));
   const pagedContacts = useMemo(() =>
@@ -2855,12 +2863,30 @@ export default function POSPage() {
                       }`}
                     >{f}</button>
                   ))}
+                  <button onClick={() => setContactOutstandingOnly(v => !v)}
+                    className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                      contactOutstandingOnly ? 'bg-red-700 text-white' : 'bg-gray-800 text-red-300 hover:bg-gray-700'
+                    }`}
+                  >🧾 มียอดค้าง/ถังค้าง</button>
                   {contactSearch && (
                     <span className="px-3 py-1.5 bg-blue-900/40 text-blue-400 text-xs rounded-full">
                       {displayContacts.length} รายการ
                     </span>
                   )}
                 </div>
+
+                {contactOutstandingOnly && !contactsLoading && (
+                  <div className="bg-gray-900 rounded-xl p-3 mb-4 flex flex-wrap gap-4 border border-gray-800">
+                    <div>
+                      <div className="text-red-400 font-bold">฿{displayContacts.reduce((s, c) => s + (c.debt || 0), 0).toLocaleString()}</div>
+                      <div className="text-gray-500 text-xs">ยอดค้างชำระรวม ({displayContacts.filter(c => c.debt > 0).length} ราย)</div>
+                    </div>
+                    <div>
+                      <div className="text-orange-400 font-bold">{displayContacts.reduce((s, c) => s + (c.cylinders || 0), 0).toLocaleString()} ถัง</div>
+                      <div className="text-gray-500 text-xs">ถังค้างที่ลูกค้ารวม ({displayContacts.filter(c => c.cylinders > 0).length} ราย)</div>
+                    </div>
+                  </div>
+                )}
 
                 {contactsLoading ? (
                   <div className="text-center text-gray-500 py-12 animate-pulse">กำลังโหลด...</div>
