@@ -6,12 +6,16 @@
  *   shopId, customer_id, customer_name, phone, address, maps_link,
  *   items: [{name, qty, price}], total, payment_method,
  *   staff_id, staff_name, staff_line_id, notes,
- *   cylinders_delivered   ← จำนวนถังที่ส่งไปกับลูกค้า (สินค้าหมุนเวียน)
+ *   cylinders_delivered,  ← จำนวนถังที่ส่งไปกับลูกค้า (สินค้าหมุนเวียน)
+ *   created_by            ← LINE user id ของแอดมิน/เจ้าของที่กดสร้างออเดอร์ (audit trail)
  * }
  *
  * GET /api/pos/delivery?shopId               → รายการออเดอร์ทั้งหมด
  * GET /api/pos/delivery?shopId&order_no=xxx  → ดึงออเดอร์เดียว
- * PATCH /api/pos/delivery { shopId, order_no, status, notes, maps_link } → อัปเดตสถานะ/พิกัด
+ * PATCH /api/pos/delivery { shopId, order_no, status, notes, maps_link,
+ *   cash_received, goods_received,   ← แอดมิน/ผู้จัดการกดยืนยันรับเงิน/รับของเข้าร้านจริง (Phase B)
+ *   confirm_delivery, payment_method, slip_url, confirmed_by, items[].returned_qty  ← พนักงานส่งกดยืนยันจัดส่งสำเร็จ (Phase A)
+ * } → อัปเดตสถานะ/พิกัด/รายละเอียด
  */
 import { createClient } from '@supabase/supabase-js';
 import {
@@ -159,7 +163,7 @@ export default async function handler(req, res) {
 
     // ── GET — รายการออเดอร์ ─────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:R');
+      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:T');
       const orders = rows.slice(1)
         .map((r, i) => ({ ...rowToOrder(r), _row: i + 2 }))
         .filter(o => o.order_no)
@@ -180,7 +184,7 @@ export default async function handler(req, res) {
         customer_id = '', customer_name, phone = '', address = '', maps_link = '',
         items = [], total = 0, payment_method = 'เก็บปลายทาง',
         staff_id = '', staff_name = '', staff_line_id = '', notes = '',
-        cylinders_delivered = 0,
+        cylinders_delivered = 0, created_by = '',
       } = req.body;
 
       if (!customer_name) return res.status(400).json({ error: 'ต้องระบุชื่อลูกค้า' });
@@ -193,6 +197,7 @@ export default async function handler(req, res) {
         order_no, now, customer_id, customer_name, asText(phone),
         address, maps_link, JSON.stringify(items), total,
         payment_method, staff_id, staff_name, 'รอจัดส่ง', notes,
+        '', '', '', '', '', created_by,
       ]);
 
       // ถ้าค้างจ่าย → อัปเดตยอดหนี้ผู้ติดต่ออัตโนมัติ
@@ -256,17 +261,17 @@ export default async function handler(req, res) {
         order_no, status, notes, maps_link,
         customer_id, customer_name, phone, address,
         items, total, payment_method, staff_id, staff_name,
-        confirm_delivery, slip_url, confirmed_by, cash_received,
+        confirm_delivery, slip_url, confirmed_by, cash_received, goods_received,
       } = req.body;
       if (!order_no) return res.status(400).json({ error: 'Missing order_no' });
 
-      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:R');
+      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:T');
       const dataRows = rows.slice(1);
       const idx = dataRows.findIndex(r => r[0] === order_no);
       if (idx === -1) return res.status(404).json({ error: 'ไม่พบออเดอร์' });
 
       const existing = [...dataRows[idx]];
-      while (existing.length < 18) existing.push('');
+      while (existing.length < 20) existing.push('');
       if (customer_id     !== undefined) existing[2]  = customer_id;
       if (customer_name   !== undefined) existing[3]  = customer_name;
       if (phone           !== undefined) existing[4]  = asText(phone);
@@ -281,9 +286,10 @@ export default async function handler(req, res) {
       if (notes           !== undefined) existing[13] = notes;
       if (slip_url        !== undefined) existing[14] = slip_url;
       if (cash_received   !== undefined) existing[17] = cash_received ? 'TRUE' : 'FALSE';
+      if (goods_received  !== undefined) existing[18] = goods_received ? 'TRUE' : 'FALSE';
 
       if (confirm_delivery) {
-        existing[12] = 'ส่งสำเร็จ';
+        existing[12] = 'ส่งแล้ว'; // ใช้ label เดียวกับสถานะที่แอดมินกดเปลี่ยนเองในหน้า pos.js
         existing[15] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
         if (confirmed_by !== undefined) existing[16] = confirmed_by;
 
@@ -343,11 +349,11 @@ export default async function handler(req, res) {
       const { order_no } = req.body;
       if (!order_no) return res.status(400).json({ error: 'Missing order_no' });
 
-      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:R');
+      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:T');
       const idx = rows.slice(1).findIndex(r => r[0] === order_no);
       if (idx === -1) return res.status(404).json({ error: 'ไม่พบออเดอร์' });
 
-      await updateSheetRow(token, sheetId, 'ออเดอร์จัดส่ง', idx + 2, Array(18).fill(''));
+      await updateSheetRow(token, sheetId, 'ออเดอร์จัดส่ง', idx + 2, Array(20).fill(''));
       return res.json({ ok: true });
     }
 

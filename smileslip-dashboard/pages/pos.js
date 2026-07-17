@@ -397,6 +397,9 @@ export default function POSPage() {
   const [orderDeleting, setOrderDeleting] = useState(null); // order_no being deleted
   const [showOrderEditForm, setShowOrderEditForm] = useState(false);
   const [editingOrder, setEditingOrder] = useState(null);
+  const [adminsList, setAdminsList] = useState([]); // ใช้ resolve "สร้างโดย" เป็นชื่อคน
+  const [cashConfirming, setCashConfirming] = useState(null); // order_no ที่กำลังกดยืนยันรับเงิน
+  const [goodsConfirming, setGoodsConfirming] = useState(null); // order_no ที่กำลังกดยืนยันรับของ
   const [orderEditForm, setOrderEditForm] = useState({
     customer_name: '', phone: '', address: '', payment_method: '', staff_id: '', notes: '',
   });
@@ -463,6 +466,7 @@ export default function POSPage() {
             fetchStaffRequests(profile.id),
             fetchPosConfig(profile.id),
             fetchOrders(profile.id),
+            fetchAdmins(profile.id),
           ]);
 
           // เลือกสาขาอัตโนมัติ (หรือให้เลือก)
@@ -677,6 +681,53 @@ export default function POSPage() {
     setOrdersLoading(false);
   }
 
+  async function fetchAdmins(sid) {
+    if (!sid) return;
+    try {
+      const r = await fetch(`/api/shop/admins?shopId=${sid}`);
+      const d = await r.json();
+      if (d.admins) setAdminsList(d.admins);
+    } catch {}
+  }
+
+  // แปลง LINE user id ของผู้สร้างออเดอร์ → ชื่อคนอ่านง่าย (เจ้าของร้าน/ชื่อแอดมิน/รหัสดิบ)
+  function resolveCreatedBy(lineId) {
+    if (!lineId) return '';
+    if (lineId === shopInfo?.owner_line_id) return 'เจ้าของร้าน';
+    const admin = adminsList.find(a => a.line_user_id === lineId);
+    return admin?.display_name || `แอดมิน (${lineId.slice(-6)})`;
+  }
+
+  async function confirmCashReceived(order) {
+    setCashConfirming(order.order_no);
+    try {
+      const r = await fetch('/api/pos/delivery', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, order_no: order.order_no, cash_received: true }),
+      });
+      const d = await r.json();
+      if (d.ok) { await fetchOrders(shopId); showToast('✅ ยืนยันรับเงินเข้าร้านแล้ว'); }
+      else alert(d.error);
+    } catch (err) { alert(err.message); }
+    setCashConfirming(null);
+  }
+
+  async function confirmGoodsReceived(order) {
+    setGoodsConfirming(order.order_no);
+    try {
+      const r = await fetch('/api/pos/delivery', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, order_no: order.order_no, goods_received: true }),
+      });
+      const d = await r.json();
+      if (d.ok) { await fetchOrders(shopId); showToast('✅ ยืนยันรับของคืนเข้าคลังแล้ว'); }
+      else alert(d.error);
+    } catch (err) { alert(err.message); }
+    setGoodsConfirming(null);
+  }
+
   async function updateOrderStatus(orderNo, newStatus) {
     setOrderStatusUpdating(orderNo);
     try {
@@ -787,6 +838,7 @@ export default function POSPage() {
           staff_line_id: delivStaff.line_id,
           notes: delivNotes,
           cylinders_delivered,
+          created_by: userId || '',
         }),
       });
       const d = await r.json();
@@ -2558,6 +2610,9 @@ export default function POSPage() {
                               <div className="text-green-400 text-sm font-bold">฿{order.total?.toLocaleString()}</div>
                               <div className="text-gray-500 text-xs">{order.payment_method} · {order.staff_name}</div>
                               <div className="text-gray-600 text-xs">{order.created_at}</div>
+                              {order.created_by && (
+                                <div className="text-gray-600 text-xs">👤 ออกโดย {resolveCreatedBy(order.created_by)}</div>
+                              )}
                             </div>
                             <div className="flex flex-col gap-1.5 items-end">
                               {order.maps_link && (
@@ -2578,9 +2633,49 @@ export default function POSPage() {
                           </div>
                           {Array.isArray(order.items) && order.items.length > 0 && (
                             <div className="mt-2 pt-2 border-t border-gray-700 text-xs text-gray-500">
-                              {order.items.map((item, j) => <span key={j} className="mr-2">{item.name} ×{item.qty}</span>)}
+                              {order.items.map((item, j) => (
+                                <span key={j} className="mr-2">
+                                  {item.name} ×{item.qty}
+                                  {item.returned_qty > 0 && <span className="text-orange-400"> (คืนเปล่า {item.returned_qty})</span>}
+                                </span>
+                              ))}
                             </div>
                           )}
+
+                          {/* ยืนยันจัดส่งแล้ว — แสดงรายละเอียดการยืนยันจากพนักงาน + ปุ่มยืนยันรับเงิน/รับของ (Phase B) */}
+                          {order.status === 'ส่งแล้ว' && order.confirmed_at && (
+                            <div className="mt-2 pt-2 border-t border-gray-700">
+                              <div className="text-gray-500 text-xs">
+                                ✅ ยืนยันจัดส่งเมื่อ {order.confirmed_at}{order.confirmed_by ? ` โดย ${order.confirmed_by}` : ''}
+                                {order.slip_url && (
+                                  <> · <a href={order.slip_url} target="_blank" rel="noreferrer" className="text-blue-400 underline">ดูสลิป</a></>
+                                )}
+                              </div>
+                              <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                                {order.payment_method !== 'ค้างจ่าย' && (
+                                  order.cash_received ? (
+                                    <span className="text-xs bg-green-900/60 text-green-300 px-2.5 py-1.5 rounded-lg">💰 รับเงินเข้าร้านแล้ว</span>
+                                  ) : (
+                                    <button onClick={() => confirmCashReceived(order)} disabled={cashConfirming === order.order_no}
+                                      className="text-xs bg-yellow-700 hover:bg-yellow-600 text-white px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50">
+                                      {cashConfirming === order.order_no ? '...' : '💰 ยืนยันรับเงินเข้าร้าน'}
+                                    </button>
+                                  )
+                                )}
+                                {Array.isArray(order.items) && order.items.some(i => i.returned_qty > 0) && (
+                                  order.goods_received ? (
+                                    <span className="text-xs bg-green-900/60 text-green-300 px-2.5 py-1.5 rounded-lg">📦 รับของเข้าคลังแล้ว</span>
+                                  ) : (
+                                    <button onClick={() => confirmGoodsReceived(order)} disabled={goodsConfirming === order.order_no}
+                                      className="text-xs bg-orange-700 hover:bg-orange-600 text-white px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50">
+                                      {goodsConfirming === order.order_no ? '...' : '📦 ยืนยันรับของคืนเข้าคลัง'}
+                                    </button>
+                                  )
+                                )}
+                              </div>
+                            </div>
+                          )}
+
                           <div className="flex gap-1.5 mt-2 pt-2 border-t border-gray-700">
                             <button onClick={() => openEditOrder(order)}
                               className="text-xs bg-gray-700 hover:bg-blue-700 text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">✏️ แก้ไข</button>
