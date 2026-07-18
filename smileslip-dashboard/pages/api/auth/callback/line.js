@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 
 export default async function handler(req, res) {
   const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_KEY;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 
   if (!supabaseUrl || !supabaseKey) {
     return res.status(500).send('Server configuration error: Missing Supabase URL or Key');
@@ -20,7 +20,7 @@ export default async function handler(req, res) {
       new URLSearchParams({
         grant_type: 'authorization_code',
         code: code,
-        redirect_uri: `${process.env.NEXT_PUBLIC_BASE_URL}/api/auth/callback/line`,
+        redirect_uri: `${process.env.NEXT_PUBLIC_BASE_URL || process.env.FRONTEND_URL}/api/auth/callback/line`,
         client_id: process.env.NEXT_PUBLIC_LINE_LOGIN_CHANNEL_ID || '2009797558',
         // ✅ แก้ไขบรรทัดนี้ให้ตรงกับชื่อตัวแปรใน deploy-web.sh
         client_secret: process.env.LINE_LOGIN_SECRET, 

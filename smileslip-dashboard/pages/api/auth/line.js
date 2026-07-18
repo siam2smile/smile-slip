@@ -1,9 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 
-// เชื่อมต่อฐานข้อมูล Supabase
+// ใช้ service role key เสมอสำหรับ API route (bypass RLS)
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_KEY
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
 export default async function handler(req, res) {
@@ -41,6 +41,12 @@ export default async function handler(req, res) {
 
         if (insertError) throw insertError;
         shop = newShop;
+
+        // สร้าง shop_credits ให้ร้านใหม่ (ป้องกัน bot crash ตอนเช็คเครดิต)
+        await supabase.from('shop_credits').insert({
+          shop_id: shop.id,
+          balance_credits: 20
+        });
       }
 
       // 3. ส่งข้อมูลร้านค้ากลับไปให้หน้าเว็บเพื่อเข้าสู่ระบบ
@@ -60,7 +66,7 @@ export default async function handler(req, res) {
     const clientId = "2009797558"; 
     
     // ตั้งค่า URL ที่จะให้ LINE เด้งกลับมาหลังจากลูกค้ากดยืนยัน (ต้องตรงกับใน LINE Developers)
-    const redirectUri = encodeURIComponent(`${process.env.NEXT_PUBLIC_BASE_URL}/api/auth/callback/line`);
+    const redirectUri = encodeURIComponent(`${process.env.NEXT_PUBLIC_BASE_URL || process.env.FRONTEND_URL}/api/auth/callback/line`);
     
     if (!clientId) {
       return res.status(500).json({ error: 'ยังไม่ได้ตั้งค่า LINE_LOGIN_CHANNEL_ID ใน Environment' });

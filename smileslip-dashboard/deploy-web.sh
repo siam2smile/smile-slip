@@ -20,32 +20,33 @@ ENV_YAML="$(mktemp)"
 BUILD_ENV_FILE="$(mktemp)"
 trap 'rm -f "$ENV_YAML" "$BUILD_ENV_FILE"' EXIT
 
-python3 - "$ENV_YAML" "$BUILD_ENV_FILE" <<'PY'
-import sys, json
+node - "$ENV_YAML" "$BUILD_ENV_FILE" <<'JS'
+const fs = require('fs');
+const [,, envYaml, buildEnvFile] = process.argv;
 
-env_vars = {}
-for line in open('.env', encoding='utf-8'):
-    s = line.strip()
-    if not s or s.startswith('#') or '=' not in s:
-        continue
-    k, v = s.split('=', 1)
-    k = k.strip()
-    v = v.strip()
-    if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
-        v = v[1:-1]
-    env_vars[k] = v
+const envVars = {};
+const lines = fs.readFileSync('.env', 'utf-8').split('\n');
+for (const line of lines) {
+  const s = line.trim();
+  if (!s || s.startsWith('#') || !s.includes('=')) continue;
+  const idx = s.indexOf('=');
+  let k = s.slice(0, idx).trim();
+  let v = s.slice(idx + 1).trim();
+  if (v.length >= 2 && v[0] === v[v.length - 1] && (v[0] === '"' || v[0] === "'")) {
+    v = v.slice(1, -1);
+  }
+  envVars[k] = v;
+}
 
-# runtime env yaml (ครอบคลุมทุก key)
-open(sys.argv[1], 'w', encoding='utf-8').write(
-    '\n'.join(f'{k}: {json.dumps(v)}' for k, v in env_vars.items()) + '\n'
-)
-print(f'[deploy] เตรียม env จาก .env จำนวน {len(env_vars)} ตัวแปร')
+// runtime env yaml (ครอบคลุมทุก key)
+fs.writeFileSync(envYaml, Object.entries(envVars).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join('\n') + '\n', 'utf-8');
+console.log(`[deploy] เตรียม env จาก .env จำนวน ${Object.keys(envVars).length} ตัวแปร`);
 
-# build-time env สำหรับ NEXT_PUBLIC_* (ต้องฝังตอน build)
-pub = {k: v for k, v in env_vars.items() if k.startswith('NEXT_PUBLIC_')}
-open(sys.argv[2], 'w', encoding='utf-8').write(','.join(f'{k}={v}' for k, v in pub.items()))
-print(f'[deploy] NEXT_PUBLIC_ vars สำหรับ build: {list(pub.keys())}')
-PY
+// build-time env สำหรับ NEXT_PUBLIC_* (ต้องฝังตอน build)
+const pub = Object.entries(envVars).filter(([k]) => k.startsWith('NEXT_PUBLIC_'));
+fs.writeFileSync(buildEnvFile, pub.map(([k, v]) => `${k}=${v}`).join(','), 'utf-8');
+console.log(`[deploy] NEXT_PUBLIC_ vars สำหรับ build: ${pub.map(([k]) => k)}`);
+JS
 
 BUILD_ENV_VARS="$(cat "$BUILD_ENV_FILE")"
 

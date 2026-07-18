@@ -1,0 +1,23 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_BASE_URL=https://smileslippro.com'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_SUPABASE_URL=https://sbgwwxuhzfeflexipgkz.supabase.co'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_SUPABASE_KEY=sb_publishable_p8sTJjwpMdq8FSnc75afzA_PGf-QtEh'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_LINE_LOGIN_CHANNEL_ID=2009797558'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_LIFF_ID=2009797558-LMletOqM'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_EMAIL_CONFIGURED=true'
+      - '-t'
+      - 'asia-southeast1-docker.pkg.dev/smileslip-accounting-pro/cloud-run-source-deploy/smileslip-dashboard-manual:latest'
+      - '.'
+images:
+  - 'asia-southeast1-docker.pkg.dev/smileslip-accounting-pro/cloud-run-source-deploy/smileslip-dashboard-manual:latest'
+options:
+  logging: CLOUD_LOGGING_ONLY

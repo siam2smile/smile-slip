@@ -13,10 +13,10 @@ export default function TermsOfService() {
 
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-4xl mx-auto px-6 h-16 flex items-center justify-between">
-          <span className="text-xl font-bold tracking-tight text-indigo-600">
+          <span className="text-xl font-bold tracking-tight text-blue-700">
             😊 Smile Slip <span className="text-slate-900 font-medium text-lg">Pro</span>
           </span>
-          <button onClick={() => window.history.back()} className="text-sm font-semibold text-indigo-600 hover:text-indigo-500 transition-colors">
+          <button onClick={() => window.history.back()} className="text-sm font-semibold text-blue-700 hover:text-blue-600 transition-colors">
             ← กลับ
           </button>
         </div>
@@ -29,7 +29,7 @@ export default function TermsOfService() {
             <h1 className="text-2xl md:text-3xl font-black text-slate-950 mb-3 tracking-tight">
               เงื่อนไขและข้อตกลงการใช้บริการ (Terms of Service)
             </h1>
-            <p className="text-sm text-slate-400">มีผลบังคับใช้ ณ วันที่ 3 มิถุนายน 2569 | เวอร์ชัน 1.1.0</p>
+            <p className="text-sm text-slate-400">มีผลบังคับใช้ ณ วันที่ 29 มิถุนายน 2569 | เวอร์ชัน 1.2.0</p>
           </div>
 
           {/* ข้อมูลผู้ให้บริการ */}
@@ -106,7 +106,9 @@ export default function TermsOfService() {
                 <h2 className="text-lg font-bold text-slate-900 tracking-tight">การสมัครสมาชิก การต่ออายุ และการยกเลิก</h2>
                 <div className="text-slate-600 leading-relaxed text-sm md:text-base space-y-2">
                   <p>
-                    แพ็กเกจสมาชิก (Shop Pro, Advance, Super) จะถูกเรียกเก็บเงินตามรอบรายเดือนหรือรายปีโดยอัตโนมัติผ่านระบบ Stripe
+                    แพ็กเกจสมาชิก (Shop Pro, Advance, Business, Enterprise) จะถูกเรียกเก็บเงินตามรอบรายเดือนหรือรายปีโดยอัตโนมัติผ่านระบบ Stripe
+                    ในบางกรณีผู้ให้บริการอาจกำหนดแพ็กเกจและวันหมดอายุให้เป็นการภายใน (เช่น โปรโมชั่นหรือการชำระเงินนอกระบบ Stripe)
+                    ซึ่งจะถูกปรับกลับเป็นแพ็กเกจ Starter โดยอัตโนมัติเมื่อครบกำหนด
                   </p>
                   <p>
                     <strong>การยกเลิก:</strong> ผู้ใช้บริการสามารถยกเลิก Subscription ได้ตลอดเวลาโดยติดต่อทางอีเมล{' '}
@@ -157,6 +159,22 @@ export default function TermsOfService() {
               </div>
             </section>
 
+            <section className="flex items-start">
+              <div className="flex-shrink-0 bg-indigo-600 text-white font-mono font-bold rounded-lg w-8 h-8 flex items-center justify-center text-sm mr-4 shadow-sm">9</div>
+              <div className="space-y-2">
+                <h2 className="text-lg font-bold text-slate-900 tracking-tight">การเก็บข้อมูลการใช้งาน (Analytics)</h2>
+                <p className="text-slate-600 leading-relaxed text-sm md:text-base">
+                  ท่านยินยอมให้ Smile Slip Pro เก็บและใช้ข้อมูลการใช้งานในรูปแบบ aggregated และ anonymized
+                  เพื่อปรับปรุงระบบ วิเคราะห์แนวโน้ม พัฒนาฟีเจอร์ใหม่ และแสดงผลเป็นฟีเจอร์ "Marketing Intelligence"
+                  (เช่น Peak Time Heatmap และการจัดกลุ่มลูกค้าแบบ RFM) ให้แก่ท่านในแพ็กเกจ Enterprise เพื่อใช้วางแผนธุรกิจของท่านเอง
+                  ข้อมูลดังกล่าวไม่สามารถระบุตัวตนบุคคลได้ และจะไม่นำไปเปิดเผยแก่บุคคลที่สามรายอื่น
+                  ระบบจะเก็บเฉพาะ pattern การใช้งานของร้านค้า เช่น ช่วงเวลาที่มีรายการ ประเภทธุรกรรม
+                  และขนาดยอดในรูปแบบ range เท่านั้น ไม่มีการเก็บชื่อผู้โอนหรือยอดเงินจริง
+                  รายละเอียดเพิ่มเติมดูได้ที่ <a href="/privacy" className="underline hover:text-slate-800">นโยบายความเป็นส่วนตัว</a>
+                </p>
+              </div>
+            </section>
+
           </div>
 
           <div className="mt-12 pt-8 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -168,7 +186,7 @@ export default function TermsOfService() {
             </div>
             <button
               onClick={() => window.history.back()}
-              className="w-full sm:w-auto inline-flex items-center justify-center px-6 py-3 bg-slate-900 text-white text-sm font-bold rounded-xl shadow-sm hover:bg-slate-800 transition-all active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-900"
+              className="w-full sm:w-auto inline-flex items-center justify-center px-6 py-3 bg-blue-800 text-white text-sm font-bold rounded-xl shadow-sm hover:bg-blue-700 transition-all active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-800"
             >
               ฉันเข้าใจและยอมรับข้อตกลง
             </button>
@@ -176,6 +194,20 @@ export default function TermsOfService() {
 
         </div>
       </main>
+
+      {/* ════ FOOTER ════ */}
+      <footer className="border-t border-slate-200 py-6 px-4">
+        <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-1 text-xs text-slate-400 flex-wrap justify-center">
+            <a href="/terms" className="hover:text-blue-600 transition-colors px-2 py-1 font-medium text-blue-700">เงื่อนไขการใช้งาน</a>
+            <span className="text-slate-300">·</span>
+            <a href="/privacy" className="hover:text-blue-600 transition-colors px-2 py-1">นโยบายความเป็นส่วนตัว (PDPA)</a>
+            <span className="text-slate-300">·</span>
+            <a href="mailto:support@smileslip.pro" className="hover:text-blue-600 transition-colors px-2 py-1">ติดต่อเรา</a>
+          </div>
+          <p className="text-xs text-slate-300 whitespace-nowrap">© {new Date().getFullYear()} Siam Global Network Enterprise</p>
+        </div>
+      </footer>
     </div>
   );
 }

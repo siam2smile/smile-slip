@@ -20,24 +20,24 @@ fi
 ENV_YAML="$(mktemp)"
 trap 'rm -f "$ENV_YAML"' EXIT
 
-python3 - "$ENV_YAML" <<'PY'
-import sys, json
-out = []
-for line in open('.env', encoding='utf-8'):
-    s = line.strip()
-    if not s or s.startswith('#') or '=' not in s:
-        continue
-    k, v = s.split('=', 1)
-    k = k.strip()
-    v = v.strip()
-    # ตัด quote คร่อมค่า (ถ้ามี)
-    if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
-        v = v[1:-1]
-    # json.dumps ให้ YAML double-quoted scalar ที่ปลอดภัย (JSON ⊂ YAML)
-    out.append(f'{k}: {json.dumps(v)}')
-open(sys.argv[1], 'w', encoding='utf-8').write('\n'.join(out) + '\n')
-print(f'[deploy] เตรียม env จาก .env จำนวน {len(out)} ตัวแปร')
-PY
+node - "$ENV_YAML" <<'JS'
+const fs = require('fs');
+const [,, envYaml] = process.argv;
+const out = [];
+for (const line of fs.readFileSync('.env', 'utf-8').split('\n')) {
+  const s = line.trim();
+  if (!s || s.startsWith('#') || !s.includes('=')) continue;
+  const idx = s.indexOf('=');
+  let k = s.slice(0, idx).trim();
+  let v = s.slice(idx + 1).trim();
+  if (v.length >= 2 && v[0] === v[v.length - 1] && (v[0] === '"' || v[0] === "'")) {
+    v = v.slice(1, -1);
+  }
+  out.push(`${k}: ${JSON.stringify(v)}`);
+}
+fs.writeFileSync(envYaml, out.join('\n') + '\n', 'utf-8');
+console.log(`[deploy] เตรียม env จาก .env จำนวน ${out.length} ตัวแปร`);
+JS
 
 echo "[deploy] 🚀 กำลัง deploy $SERVICE ที่ $REGION ..."
 gcloud run deploy "$SERVICE" \

@@ -21,6 +21,8 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [consentChecked, setConsentChecked] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [termsScrolled, setTermsScrolled] = useState(false);
 
   const [formData, setFormData] = useState({
     shopName: '', taxId: '', branch: 'สำนักงานใหญ่',
@@ -29,7 +31,7 @@ export default function Register() {
     bankName: '', bankAccountName: '', bankAccountNumber: '', bankAccountType: 'ออมทรัพย์'
   });
 
-  const { userId, name } = router.query;
+  const { userId, name, ref: referralCode } = router.query;
 
   useEffect(() => {
     if (router.isReady) setIsReady(true);
@@ -60,7 +62,9 @@ export default function Register() {
         ...formData,
         userType,
         lineUserId: userId,
-        ownerName: name || 'คุณลูกค้า'
+        ownerName: name || 'คุณลูกค้า',
+        referralCode: referralCode || null,
+        termsAccepted: consentChecked,
       });
       setStep(4);
     } catch (err) {
@@ -378,20 +382,21 @@ export default function Register() {
 
               {/* Consent */}
               <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all ${consentChecked ? 'bg-blue-600 border-blue-600' : 'border-slate-300 bg-white'}`}
-                    onClick={() => setConsentChecked(!consentChecked)}>
-                    {consentChecked && <CheckCircle2 size={12} className="text-white"/>}
-                  </div>
-                  <input type="checkbox" className="hidden" checked={consentChecked} onChange={e => setConsentChecked(e.target.checked)}/>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    ฉันได้อ่านและยอมรับ{' '}
-                    <Link href="/terms" target="_blank" className="text-blue-600 font-bold underline">เงื่อนไขการใช้บริการ</Link>
-                    {' '}และ{' '}
-                    <Link href="/privacy" target="_blank" className="text-blue-600 font-bold underline">นโยบายความเป็นส่วนตัว</Link>
-                    {' '}ของ Smile Slip Pro รวมถึงยินยอมให้ระบบประมวลผลข้อมูลสลิปและบันทึกลง Google Drive/Sheets ของฉัน
-                  </p>
-                </label>
+                {!consentChecked ? (
+                  <button type="button" onClick={() => { setTermsScrolled(false); setShowTermsModal(true); }}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold transition-all">
+                    <ShieldCheck size={15}/> อ่านและยอมรับเงื่อนไข & นโยบาย
+                  </button>
+                ) : (
+                  <label className="flex items-start gap-3 cursor-pointer" onClick={() => setConsentChecked(false)}>
+                    <div className="w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 mt-0.5 bg-blue-600 border-blue-600">
+                      <CheckCircle2 size={12} className="text-white"/>
+                    </div>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      ฉันได้อ่านและยอมรับเงื่อนไขการใช้บริการและนโยบายความเป็นส่วนตัวของ Smile Slip Pro แล้ว
+                    </p>
+                  </label>
+                )}
               </div>
 
               <div className="flex gap-3">
@@ -409,19 +414,48 @@ export default function Register() {
 
           {/* ═══ STEP 4: สำเร็จ ═══ */}
           {step === 4 && (
-            <div className="text-center py-4 animate-in zoom-in-95 duration-300">
-              <div className="w-20 h-20 bg-emerald-50 text-emerald-500 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner">
-                <CheckCircle2 size={44} strokeWidth={2.5}/>
+            <div className="py-2 animate-in zoom-in-95 duration-300">
+              {/* Success header */}
+              <div className="text-center mb-5">
+                <div className="w-16 h-16 bg-emerald-50 text-emerald-500 rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-inner">
+                  <CheckCircle2 size={36} strokeWidth={2.5}/>
+                </div>
+                <h2 className="text-2xl font-black text-slate-900 mb-1 tracking-tight">สมัครสำเร็จ!</h2>
+                <p className="text-slate-500 text-sm leading-relaxed">
+                  ยินดีต้อนรับ <span className="text-blue-600 font-black">{formData.shopName}</span>
+                </p>
+                <p className="text-slate-400 text-xs mt-1">ได้รับเครดิตเริ่มต้น <strong>20 แผ่น</strong> ฟรี</p>
               </div>
-              <h2 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">สมัครสำเร็จ!</h2>
-              <p className="text-slate-500 text-sm mb-2 leading-relaxed">
-                ยินดีต้อนรับ <span className="text-blue-600 font-black">{formData.shopName}</span>
-                <br/>เข้าสู่ครอบครัว Smile Slip Pro
-              </p>
-              <p className="text-slate-400 text-xs mb-8">คุณได้รับเครดิตเริ่มต้น <strong>20 แผ่น</strong> เพื่อทดลองใช้งาน</p>
+
+              {/* ขั้นตอนถัดไป: เพิ่ม LINE Bot */}
+              <div className="bg-[#06C755]/10 border-2 border-[#06C755]/40 rounded-2xl p-4 mb-4">
+                <p className="font-black text-slate-800 text-sm mb-3 flex items-center gap-2">
+                  <span className="text-lg">🤖</span> ขั้นตอนถัดไป — เพิ่ม LINE Bot
+                </p>
+                <div className="space-y-2 text-xs text-slate-600 mb-4">
+                  <div className="flex items-start gap-2">
+                    <span className="w-5 h-5 rounded-full bg-[#06C755] text-white flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">1</span>
+                    <span>กดปุ่มด้านล่างเพื่อ <strong>เพิ่ม Smile Slip Bot</strong> เป็นเพื่อนใน LINE</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="w-5 h-5 rounded-full bg-[#06C755] text-white flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">2</span>
+                    <span><strong>เชิญ Bot เข้ากลุ่ม LINE</strong> ของร้านคุณที่ใช้ส่งสลิป</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="w-5 h-5 rounded-full bg-[#06C755] text-white flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">3</span>
+                    <span>พิมพ์ <strong>#ช่วยเหลือ</strong> ในกลุ่ม เพื่อเริ่มใช้งาน</span>
+                  </div>
+                </div>
+                <a href="https://lin.ee/wdnoEN5" target="_blank" rel="noreferrer"
+                  className="w-full flex items-center justify-center gap-2 bg-[#06C755] hover:bg-[#05a848] text-white font-black py-3 rounded-xl text-sm transition-all">
+                  <svg width="18" height="18" viewBox="0 0 48 48" fill="currentColor"><path d="M24 4C12.95 4 4 11.86 4 21.5c0 5.5 2.93 10.4 7.52 13.6L9.5 44l9.3-4.64C20.5 39.78 22.22 40 24 40c11.05 0 20-7.86 20-17.5S35.05 4 24 4z"/></svg>
+                  เพิ่ม Smile Slip Bot (@574unjqj)
+                </a>
+              </div>
+
               <button onClick={() => router.push(`/dashboard?userId=${userId}`)}
-                className="w-full py-4 bg-blue-900 hover:bg-blue-700 text-white rounded-2xl font-black text-base shadow-xl transition-all">
-                เข้าสู่ Dashboard →
+                className="w-full py-3.5 bg-blue-900 hover:bg-blue-700 text-white rounded-2xl font-black text-sm transition-all">
+                ข้ามไปที่ Dashboard →
               </button>
             </div>
           )}
@@ -433,6 +467,72 @@ export default function Register() {
           <Link href="/login" className="text-white font-bold underline underline-offset-2">เข้าสู่ระบบ</Link>
         </p>
       </div>
+
+      {/* ─── Terms & Privacy Modal ─── */}
+      {showTermsModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl flex flex-col max-h-[90vh] shadow-2xl">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <h3 className="font-black text-slate-900 text-sm">📋 เงื่อนไขการใช้บริการ & นโยบายความเป็นส่วนตัว</h3>
+              <button onClick={() => setShowTermsModal(false)} className="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+            </div>
+
+            {/* เนื้อหา — สรุปสั้น + ลิงก์ไปอ่านฉบับเต็มจริง (ที่มาเดียวกับ /terms และ /privacy เสมอ ไม่ก๊อปแยก) */}
+            <div className="overflow-y-auto flex-1 px-5 py-4 text-xs text-slate-600 leading-relaxed space-y-4"
+              onScroll={e => {
+                const el = e.currentTarget;
+                if (el.scrollHeight - el.scrollTop - el.clientHeight < 50) setTermsScrolled(true);
+              }}>
+              <p className="text-slate-400">สรุปสาระสำคัญด้านล่างนี้ ส่วนฉบับเต็มกดอ่านได้จากปุ่มลิงก์ — เมื่อเลื่อนอ่านจนสุดหน้านี้แล้วจะกดยอมรับได้ครับ</p>
+
+              <div>
+                <p className="font-black text-slate-800 text-sm mb-2">เงื่อนไขการใช้บริการ (สรุป)</p>
+                <p><strong>1. บริการ:</strong> Smile Slip Pro อ่านสลิปด้วย AI แล้วบันทึกลง Google Drive/Sheets ของร้านคุณเอง ไม่ใช่สถาบันการเงิน</p>
+                <p className="mt-2"><strong>2. เครดิต:</strong> สแกนสลิป 1 ครั้ง = 1 เครดิต ซื้อแล้วไม่คืนเงิน เว้นแต่ระบบผิดพลาดจากฝั่งเรา</p>
+                <p className="mt-2"><strong>3. ความรับผิดชอบ:</strong> ท่านรับผิดชอบความถูกต้องของข้อมูลที่บันทึก เราไม่รับผิดชอบความผิดพลาดจาก OCR</p>
+                <p className="mt-2"><strong>4. แพ็กเกจ/การชำระเงิน:</strong> Shop Pro / Advance / Business / Enterprise เรียกเก็บอัตโนมัติผ่าน Stripe ยกเลิกได้ตลอดเวลา</p>
+                <p className="mt-2"><strong>5. การระงับบัญชี:</strong> สงวนสิทธิ์ระงับบัญชีที่ใช้งานผิดกฎหมายหรือผิดเงื่อนไขทันที</p>
+              </div>
+
+              <div>
+                <p className="font-black text-slate-800 text-sm mb-2 mt-4">นโยบายความเป็นส่วนตัว (PDPA) (สรุป)</p>
+                <p><strong>1. ข้อมูลที่เก็บใน Database ของเรา:</strong> ชื่อร้าน, LINE User ID, อีเมล, เบอร์โทร, บัญชีธนาคาร, เครดิตคงเหลือ และ LINE ของผู้ดูแลร้าน (ถ้ามี)</p>
+                <p className="mt-2"><strong>2. ข้อมูลธุรกรรม:</strong> รูปสลิป/ชื่อผู้โอน/ยอดเงิน เก็บใน Google Drive/Sheets ของร้านท่านเองโดยตรง ท่านควบคุมและลบได้เอง</p>
+                <p className="mt-2"><strong>3. Anonymized Analytics:</strong> เก็บ pattern การใช้งาน (hash SHA-256 ไม่เก็บชื่อจริง) เพื่อปรับปรุงบริการ และแสดงเป็นฟีเจอร์ Marketing Intelligence ให้เจ้าของร้าน Enterprise ใช้วางแผนธุรกิจ</p>
+                <p className="mt-2"><strong>4. การแชร์ข้อมูล:</strong> ไม่ขาย/แจกจ่ายให้บุคคลที่สาม ยกเว้นผู้ให้บริการที่จำเป็น (Google, Stripe, LINE, Supabase)</p>
+                <p className="mt-2"><strong>5. สิทธิ์ของท่าน:</strong> ขอเข้าถึง แก้ไข ลบ หรือถอนความยินยอมได้ตลอดเวลา ติดต่อ DPO ได้ที่ smileslip.official@gmail.com</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-2">
+                <a href="/terms" target="_blank" rel="noopener noreferrer"
+                  className="text-center bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl py-2.5 text-xs transition-colors">
+                  📋 อ่านเงื่อนไขฉบับเต็ม
+                </a>
+                <a href="/privacy" target="_blank" rel="noopener noreferrer"
+                  className="text-center bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl py-2.5 text-xs transition-colors">
+                  🔒 อ่านนโยบายฉบับเต็ม
+                </a>
+              </div>
+
+              {/* sentinel — เมื่อมองเห็น element นี้ = scroll ถึงท้ายแล้ว */}
+              <div className="h-4"/>
+            </div>
+
+            <div className="px-5 py-4 border-t border-slate-100 shrink-0">
+              {!termsScrolled ? (
+                <p className="text-center text-xs text-slate-400 mb-3">⬇️ เลื่อนอ่านจนจบเพื่อยืนยัน</p>
+              ) : null}
+              <button
+                type="button"
+                disabled={!termsScrolled}
+                onClick={() => { setConsentChecked(true); setShowTermsModal(false); }}
+                className={`w-full py-3 rounded-xl font-black text-sm transition-all ${termsScrolled ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg' : 'bg-slate-100 text-slate-300 cursor-not-allowed'}`}>
+                {termsScrolled ? '✅ ฉันอ่านครบและยอมรับเงื่อนไขทั้งหมด' : 'กรุณาเลื่อนอ่านให้ครบก่อน'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

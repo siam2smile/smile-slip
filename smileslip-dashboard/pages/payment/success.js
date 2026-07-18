@@ -11,11 +11,13 @@ export default function PaymentSuccess() {
 
   useEffect(() => {
     if (!router.isReady) return;
+    const { userId } = router.query;
+    const dest = userId ? `/dashboard?userId=${userId}` : '/login';
     const timer = setInterval(() => {
       setCountdown(c => {
         if (c <= 1) {
           clearInterval(timer);
-          router.push('/dashboard');
+          router.push(dest);
         }
         return c - 1;
       });
@@ -36,7 +38,8 @@ export default function PaymentSuccess() {
         <p className="text-blue-600 font-bold text-sm mb-6">
           กลับแดชบอร์ดใน {countdown} วินาที...
         </p>
-        <Link href="/dashboard" className="w-full inline-block py-3 bg-blue-900 text-white rounded-xl font-black text-sm hover:bg-blue-700 transition-all">
+        <Link href={router.query.userId ? `/dashboard?userId=${router.query.userId}` : '/login'}
+          className="w-full inline-block py-3 bg-blue-900 text-white rounded-xl font-black text-sm hover:bg-blue-700 transition-all">
           กลับแดชบอร์ดทันที
         </Link>
       </div>

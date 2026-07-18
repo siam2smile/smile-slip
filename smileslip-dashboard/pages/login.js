@@ -3,58 +3,95 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Link from 'next/link';
 import Script from 'next/script';
-import { Mail, Lock, ChevronRight, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, ChevronRight, Eye, EyeOff, MessageCircle } from 'lucide-react';
 import axios from 'axios';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [liffFailed, setLiffFailed] = useState(false);
+  // 'loading' | 'options' | 'email'
+  const [view, setView] = useState('loading');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // เรียกหลัง LIFF SDK โหลดจาก CDN สำเร็จ
-  const initLiff = async () => {
+  // เรียกเมื่อผู้ใช้คลิกปุ่ม LINE หรือ auto-เมื่อ logged in อยู่แล้ว
+  const doLineLogin = async () => {
     try {
-      await window.liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID });
-
+      // ถ้า LIFF SDK ยังไม่โหลด → ใช้ LINE OAuth ธรรมดา (แสดง QR บน desktop เหมือนกัน)
+      if (!window.liff) {
+        window.location.href = '/api/auth/line';
+        return;
+      }
       if (!window.liff.isLoggedIn()) {
+        // user gesture → LINE redirect → desktop แสดง QR code ให้สแกน
         window.liff.login();
         return;
       }
-
       const profile = await window.liff.getProfile();
-      const lineUserId = profile.userId;
-      const displayName = profile.displayName;
+      const res = await fetch(`/api/auth/check-user?userId=${profile.userId}`);
+      const data = await res.json();
 
-      // เช็คว่ามีบัญชีในระบบหรือยัง
-      const res = await fetch(`/api/auth/check-user?userId=${lineUserId}`);
-      const { exists } = await res.json();
-
-      if (exists) {
-        router.push(`/dashboard?userId=${lineUserId}`);
+      // รองรับ ?next=pricing ฯลฯ
+      const next = router.query.next;
+      if (data.exists) {
+        if (data.role === 'admin') {
+          router.push(`/dashboard?userId=${data.ownerId}&adminId=${profile.userId}`);
+        } else if (next) {
+          router.push(`/${next}?userId=${profile.userId}`);
+        } else {
+          router.push(`/dashboard?userId=${profile.userId}`);
+        }
       } else {
-        router.push(`/register?userId=${lineUserId}&name=${encodeURIComponent(displayName)}`);
+        router.push(`/register?userId=${profile.userId}&name=${encodeURIComponent(profile.displayName)}`);
       }
     } catch (err) {
-      console.error('LIFF init error:', err);
-      setLiffFailed(true);
+      console.error('LINE login error:', err);
+      // LIFF ล้มเหลว → fallback LINE OAuth (ไม่ค้างหน้าเดิม)
+      window.location.href = '/api/auth/line';
+    }
+  };
+
+  // เรียกหลัง LIFF SDK โหลดจาก CDN สำเร็จ
+  const initLiff = async () => {
+    // timeout 8 วิ — ถ้า LIFF ค้างให้แสดงหน้าตัวเลือก
+    const fallbackTimer = setTimeout(() => setView('options'), 8000);
+    try {
+      await window.liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID });
+      clearTimeout(fallbackTimer);
+
+      // อยู่ใน LINE app → auto-login (ผู้ใช้คาดหวัง)
+      if (window.liff.isInClient()) {
+        await doLineLogin();
+        return;
+      }
+
+      // Browser + เคย login ไว้แล้ว → auto ไป dashboard (ไม่ต้องกดอีกครั้ง)
+      if (window.liff.isLoggedIn()) {
+        await doLineLogin();
+        return;
+      }
+
+      // Browser + ยังไม่ login → แสดงปุ่มให้เลือก (user gesture ก่อน login)
+      setView('options');
+    } catch (err) {
+      clearTimeout(fallbackTimer);
+      setView('options');
     }
   };
 
   const handleEmailLogin = async (e) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
+    setLoginLoading(true);
     try {
       const res = await axios.post('/api/auth/email-login', { email, password });
       if (res.data.userId) router.push(`/dashboard?userId=${res.data.userId}`);
     } catch (err) {
       setError(err.response?.data?.error || 'เกิดข้อผิดพลาด กรุณาลองใหม่');
     }
-    setLoading(false);
+    setLoginLoading(false);
   };
 
   return (
@@ -66,7 +103,7 @@ export default function LoginPage() {
         src="https://static.line-scdn.net/liff/edge/2/sdk.js"
         strategy="afterInteractive"
         onLoad={initLiff}
-        onError={() => setLiffFailed(true)}
+        onError={() => setView('options')}
       />
 
       {/* Logo */}
@@ -78,35 +115,58 @@ export default function LoginPage() {
 
       <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl shadow-blue-950/50 p-8">
 
-        {/* กำลังเชื่อมต่อ LINE */}
-        {!liffFailed ? (
+        {/* ─── Loading ─── */}
+        {view === 'loading' && (
           <div className="text-center py-6">
             <div className="text-4xl mb-4 animate-bounce">😊</div>
-            <h2 className="text-lg font-black text-slate-900 mb-1">กำลังเชื่อมต่อกับ LINE...</h2>
+            <h2 className="text-lg font-black text-slate-900 mb-1">กำลังโหลด...</h2>
             <p className="text-slate-400 text-sm mb-6">กรุณารอสักครู่</p>
             <div className="flex gap-1.5 justify-center">
               <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}/>
               <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}/>
               <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}/>
             </div>
-            <p className="text-xs text-slate-300 mt-6">
-              เข้าไม่ได้?{' '}
-              <button onClick={() => setLiffFailed(true)} className="text-blue-600 font-bold underline">
-                เข้าด้วยอีเมลแทน
-              </button>
-            </p>
           </div>
-        ) : (
-          /* Fallback: Email Login */
+        )}
+
+        {/* ─── ตัวเลือก Login ─── */}
+        {view === 'options' && (
+          <div className="space-y-4">
+            <div className="text-center mb-6">
+              <h2 className="text-xl font-black text-slate-900 mb-1">เข้าสู่ระบบ</h2>
+              <p className="text-slate-400 text-xs">เลือกวิธีเข้าสู่ระบบ</p>
+            </div>
+
+            {/* ปุ่ม LINE — user gesture → LINE redirect → desktop แสดง QR */}
+            <button onClick={doLineLogin}
+              className="w-full flex items-center justify-center gap-3 py-3.5 bg-[#06C755] hover:bg-[#05b34c] text-white rounded-xl font-bold text-sm transition-all shadow-lg">
+              <MessageCircle size={18}/>
+              เข้าสู่ระบบด้วย LINE
+            </button>
+
+            <div className="flex items-center gap-3 my-2">
+              <div className="flex-1 h-px bg-slate-100"/>
+              <span className="text-xs text-slate-300 font-medium">หรือ</span>
+              <div className="flex-1 h-px bg-slate-100"/>
+            </div>
+
+            <button onClick={() => setView('email')}
+              className="w-full flex items-center justify-center gap-2 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm transition-all">
+              <Mail size={16}/>
+              เข้าสู่ระบบด้วยอีเมล
+            </button>
+          </div>
+        )}
+
+        {/* ─── Email Login ─── */}
+        {view === 'email' && (
           <>
-            <h2 className="text-lg font-black text-slate-900 mb-1">เข้าสู่ระบบด้วยอีเมล</h2>
-            <p className="text-slate-400 text-xs mb-6">
-              <button onClick={() => { setLiffFailed(false); window.location.reload(); }}
-                className="text-blue-600 font-bold underline underline-offset-2">
-                ลองเชื่อมต่อ LINE อีกครั้ง
+            <div className="flex items-center gap-2 mb-5">
+              <button onClick={() => setView('options')} className="text-blue-600 hover:text-blue-700 text-lg">
+                ←
               </button>
-              {' '}หรือกรอกอีเมล + รหัสผ่านด้านล่าง
-            </p>
+              <h2 className="text-lg font-black text-slate-900">เข้าสู่ระบบด้วยอีเมล</h2>
+            </div>
 
             <form onSubmit={handleEmailLogin} className="space-y-3">
               {error && (
@@ -133,9 +193,9 @@ export default function LoginPage() {
                 </button>
               </div>
 
-              <button type="submit" disabled={loading}
-                className="w-full py-3.5 bg-blue-900 hover:bg-blue-700 text-white rounded-xl font-black flex items-center justify-center gap-2 transition-all shadow-lg disabled:opacity-50 text-sm">
-                {loading ? 'กำลังตรวจสอบ...' : 'เข้าสู่ระบบ'} <ChevronRight size={17}/>
+              <button type="submit" disabled={loginLoading}
+                className="w-full py-3.5 bg-blue-800 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg disabled:opacity-50 text-sm">
+                {loginLoading ? 'กำลังตรวจสอบ...' : 'เข้าสู่ระบบ'} <ChevronRight size={17}/>
               </button>
             </form>
           </>

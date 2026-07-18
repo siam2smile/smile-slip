@@ -13,7 +13,7 @@ export default async function handler(req, res) {
 
   const { data: profile, error } = await supabase
     .from('shop_profiles')
-    .select('id, shop_name, tax_id, branch_name, address, email, phone, user_type, subscription_tier, owner_line_id')
+    .select('id, shop_name, tax_id, branch_name, address, email, phone, user_type, subscription_tier, owner_line_id, stripe_subscription_id')
     .eq('owner_line_id', userId)
     .maybeSingle();
 
