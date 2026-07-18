@@ -163,7 +163,7 @@ export default async function handler(req, res) {
 
     // ── GET — รายการออเดอร์ ─────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:T');
+      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:U');
       const orders = rows.slice(1)
         .map((r, i) => ({ ...rowToOrder(r), _row: i + 2 }))
         .filter(o => o.order_no)
@@ -261,17 +261,17 @@ export default async function handler(req, res) {
         order_no, status, notes, maps_link,
         customer_id, customer_name, phone, address,
         items, total, payment_method, staff_id, staff_name,
-        confirm_delivery, slip_url, confirmed_by, cash_received, goods_received,
+        confirm_delivery, slip_url, confirmed_by, cash_received, goods_received, credit_settled,
       } = req.body;
       if (!order_no) return res.status(400).json({ error: 'Missing order_no' });
 
-      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:T');
+      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:U');
       const dataRows = rows.slice(1);
       const idx = dataRows.findIndex(r => r[0] === order_no);
       if (idx === -1) return res.status(404).json({ error: 'ไม่พบออเดอร์' });
 
       const existing = [...dataRows[idx]];
-      while (existing.length < 20) existing.push('');
+      while (existing.length < 21) existing.push('');
       if (customer_id     !== undefined) existing[2]  = customer_id;
       if (customer_name   !== undefined) existing[3]  = customer_name;
       if (phone           !== undefined) existing[4]  = asText(phone);
@@ -287,6 +287,32 @@ export default async function handler(req, res) {
       if (slip_url        !== undefined) existing[14] = slip_url;
       if (cash_received   !== undefined) existing[17] = cash_received ? 'TRUE' : 'FALSE';
       if (goods_received  !== undefined) existing[18] = goods_received ? 'TRUE' : 'FALSE';
+
+      // ── ยืนยันรับชำระเงินเชื่อ (ออเดอร์จัดส่งที่จ่ายแบบ "ค้างจ่าย") ──────────────
+      // ลดยอด "ยอดค้างชำระ" ของผู้ติดต่อกลับลง (ตอนสร้างออเดอร์ ค้างจ่าย เคยบวกยอดนี้ไว้แล้ว)
+      if (credit_settled === true && !existing[20]) {
+        existing[20] = 'TRUE';
+        const custId = customer_id !== undefined ? customer_id : existing[2];
+        const orderTotal = parseFloat(existing[8]) || 0;
+        if (custId && orderTotal > 0) {
+          try {
+            await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
+            const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:W');
+            const custDataRows = custRows.slice(1);
+            const custIdx = custDataRows.findIndex(r => r[0] === custId);
+            if (custIdx !== -1) {
+              const custRow = rowToContact(custDataRows[custIdx]);
+              const custExisting = [...custDataRows[custIdx]];
+              while (custExisting.length < 23) custExisting.push('');
+              custExisting[13] = Math.max(0, (custRow.debt || 0) - orderTotal); // ยอดค้างชำระ
+              custExisting[19] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+              await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
+            }
+          } catch (debtErr) {
+            console.error('[delivery] settle credit debt error:', debtErr.message);
+          }
+        }
+      }
 
       if (confirm_delivery) {
         existing[12] = 'ส่งแล้ว'; // ใช้ label เดียวกับสถานะที่แอดมินกดเปลี่ยนเองในหน้า pos.js
@@ -349,11 +375,11 @@ export default async function handler(req, res) {
       const { order_no } = req.body;
       if (!order_no) return res.status(400).json({ error: 'Missing order_no' });
 
-      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:T');
+      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:U');
       const idx = rows.slice(1).findIndex(r => r[0] === order_no);
       if (idx === -1) return res.status(404).json({ error: 'ไม่พบออเดอร์' });
 
-      await updateSheetRow(token, sheetId, 'ออเดอร์จัดส่ง', idx + 2, Array(20).fill(''));
+      await updateSheetRow(token, sheetId, 'ออเดอร์จัดส่ง', idx + 2, Array(21).fill(''));
       return res.json({ ok: true });
     }
 

@@ -12,8 +12,8 @@
 import { createClient } from '@supabase/supabase-js';
 import {
   getAccessToken, readSheet, ensureTabExists,
-  rowToSale, rowToProduct, rowToLoan,
-  SALE_HEADERS, LOAN_HEADERS,
+  rowToSale, rowToProduct, rowToLoan, rowToOrder,
+  SALE_HEADERS, LOAN_HEADERS, ORDER_HEADERS,
 } from '../../../lib/google-pos';
 
 const supabase = createClient(
@@ -123,17 +123,36 @@ export default async function handler(req, res) {
     }
 
     // ── เงินเชื่อ (Accounts Receivable) ───────────────────────────────────
+    // รวม 2 แหล่ง: ขายเชื่อหน้าร้าน (ยอดขาย, payment_method=เชื่อ) + ออเดอร์จัดส่งค้างจ่าย
+    // (ออเดอร์จัดส่ง, payment_method=ค้างจ่าย) — เดิมรายงานนี้อ่านแค่ขายหน้าร้านอย่างเดียว
+    // ทำให้ยอดค้างจากฝั่งจัดส่งไม่โผล่ในรายงานนี้เลย (พึ่งพา contact.debt แยกไปคนละทาง)
     if (type === 'credit') {
       await ensureTabExists(token, sheetId, 'ยอดขาย', SALE_HEADERS);
       const saleRows = await readSheet(token, sheetId, 'ยอดขาย!A:P');
-      let credits = saleRows.slice(1)
+      let posCredits = saleRows.slice(1)
         .map(r => rowToSale(r))
-        .filter(s => s.bill_no && s.payment_method === 'เชื่อ');
+        .filter(s => s.bill_no && s.payment_method === 'เชื่อ')
+        .map(s => ({ ...s, source: 'pos' }));
 
-      if (status === 'ค้างชำระ') credits = credits.filter(s => s.status === 'ค้างชำระ');
-      if (status === 'ชำระแล้ว') credits = credits.filter(s => s.status === 'ชำระแล้ว');
-      if (branch) credits = credits.filter(s => s.branch === branch);
-      credits = credits.filter(s => inRange(s.created_at, from, to));
+      await ensureTabExists(token, sheetId, 'ออเดอร์จัดส่ง', ORDER_HEADERS);
+      const orderRows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:U');
+      let deliveryCredits = orderRows.slice(1)
+        .map(r => rowToOrder(r))
+        .filter(o => o.order_no && o.payment_method === 'ค้างจ่าย')
+        .map(o => ({
+          bill_no: o.order_no, created_at: o.created_at, items: o.items, total: o.total,
+          payment_method: 'เชื่อ', status: o.credit_settled ? 'ชำระแล้ว' : 'ค้างชำระ',
+          customer_id: o.customer_id, customer_name: o.customer_name, branch: '',
+          source: 'delivery',
+        }));
+
+      if (status === 'ค้างชำระ') { posCredits = posCredits.filter(s => s.status === 'ค้างชำระ'); deliveryCredits = deliveryCredits.filter(s => s.status === 'ค้างชำระ'); }
+      if (status === 'ชำระแล้ว') { posCredits = posCredits.filter(s => s.status === 'ชำระแล้ว'); deliveryCredits = deliveryCredits.filter(s => s.status === 'ชำระแล้ว'); }
+      if (branch) posCredits = posCredits.filter(s => s.branch === branch);
+      posCredits = posCredits.filter(s => inRange(s.created_at, from, to));
+      deliveryCredits = deliveryCredits.filter(s => inRange(s.created_at, from, to));
+
+      const credits = [...posCredits, ...deliveryCredits];
 
       // จัดกลุ่มตามลูกค้า
       const byCustomer = {};

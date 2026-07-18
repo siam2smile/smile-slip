@@ -1947,14 +1947,21 @@ export default function POSPage() {
     setReportLoading(false);
   }
 
-  async function markCreditPaid(billNo) {
+  // source: 'pos' (ขายเชื่อหน้าร้าน) หรือ 'delivery' (ออเดอร์จัดส่งค้างจ่าย) — คนละ endpoint กัน
+  async function markCreditPaid(billNo, source = 'pos') {
     if (!confirm(`ยืนยันรับชำระบิล ${billNo}?`)) return;
     try {
-      const r = await fetch('/api/pos/sales', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shopId, bill_no: billNo }),
-      });
+      const r = source === 'delivery'
+        ? await fetch('/api/pos/delivery', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ shopId, order_no: billNo, credit_settled: true }),
+          })
+        : await fetch('/api/pos/sales', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ shopId, bill_no: billNo }),
+          });
       const d = await r.json();
       if (d.ok) { showToast('✅ บันทึกรับชำระแล้ว'); fetchReport(); }
       else showToast('❌ ' + d.error);
@@ -3381,7 +3388,12 @@ export default function POSPage() {
                                 {(cust.bills||[]).map((bill, j) => (
                                   <div key={j} className="px-4 py-3 flex items-center justify-between">
                                     <div>
-                                      <div className="text-gray-300 text-xs font-mono">{bill.bill_no}</div>
+                                      <div className="text-gray-300 text-xs font-mono">
+                                        {bill.bill_no}{' '}
+                                        <span className={`px-1.5 py-0.5 rounded-full ${bill.source === 'delivery' ? 'bg-orange-900/60 text-orange-300' : 'bg-blue-900/60 text-blue-300'}`}>
+                                          {bill.source === 'delivery' ? '🚚 จัดส่ง' : '🏪 หน้าร้าน'}
+                                        </span>
+                                      </div>
                                       <div className="text-gray-500 text-xs">{bill.created_at?.split(',')[0]}</div>
                                       <div className="text-gray-500 text-xs">{(bill.items||[]).map(i=>i.name+'×'+i.qty).join(', ')}</div>
                                     </div>
@@ -3389,7 +3401,7 @@ export default function POSPage() {
                                       <div className="text-white font-bold text-sm">฿{bill.total.toLocaleString()}</div>
                                       <span className={`text-xs px-2 py-0.5 rounded-full ${bill.status==='ค้างชำระ' ? 'bg-red-900/60 text-red-300' : 'bg-green-900/60 text-green-300'}`}>{bill.status}</span>
                                       {bill.status === 'ค้างชำระ' && (
-                                        <button onClick={() => markCreditPaid(bill.bill_no)}
+                                        <button onClick={() => markCreditPaid(bill.bill_no, bill.source)}
                                           className="text-xs bg-green-700 hover:bg-green-600 text-white px-2 py-0.5 rounded-lg transition-colors">
                                           ✅ รับชำระ
                                         </button>
