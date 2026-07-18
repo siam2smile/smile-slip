@@ -487,6 +487,53 @@ export function rowToOrder(row) {
   };
 }
 
+// tab "งานเก็บเงิน/ของ" — ส่งพนักงานไปเก็บเงินเชื่อค้างชำระ และ/หรือสินค้าหมุนเวียนที่ลูกค้ายืมค้างอยู่
+// A-U (21 คอลัมน์) mirror pattern เดียวกับ ORDER_HEADERS (สร้าง/ยืนยันโดยพนักงาน แล้วแอดมินยืนยันรับเข้าร้านอีกชั้น)
+export const COLLECTION_HEADERS = [
+  'เลขที่งาน', 'วันที่-เวลา', 'รหัสลูกค้า', 'ชื่อลูกค้า', 'เบอร์',
+  'ประเภทงาน', 'ยอดที่ต้องเก็บ (บาท)', 'สินค้าที่ต้องเก็บคืน (JSON)',
+  'รหัสพนักงาน', 'ชื่อพนักงาน', 'สถานะ', 'หมายเหตุ',
+  'ยอดที่เก็บได้จริง (บาท)', 'สินค้าที่เก็บคืนได้จริง (JSON)',
+  'ลิงก์สลิป', 'ยืนยันเมื่อ', 'ยืนยันโดย', 'หมายเหตุจากพนักงาน',
+  'รับเงินเข้าร้านแล้ว', 'รับของเข้าคลังแล้ว', 'สร้างโดย',
+];
+
+export function rowToCollection(row) {
+  let items = [];
+  try { items = JSON.parse(row[7] || '[]'); } catch {}
+  let collectedItems = [];
+  try { collectedItems = JSON.parse(row[13] || '[]'); } catch {}
+  return {
+    collection_no:  row[0]  || '',
+    created_at:     row[1]  || '',
+    customer_id:    row[2]  || '',
+    customer_name:  row[3]  || '',
+    phone:          row[4]  || '',
+    task_type:      row[5]  || 'เงินเชื่อ',
+    debt_amount:    parseFloat(row[6]) || 0,
+    items,
+    staff_id:       row[8]  || '',
+    staff_name:     row[9]  || '',
+    status:         row[10] || 'รอดำเนินการ',
+    notes:          row[11] || '',
+    collected_amount: parseFloat(row[12]) || 0,
+    collected_items: collectedItems,
+    slip_url:       row[14] || '',
+    confirmed_at:   row[15] || '',
+    confirmed_by:   row[16] || '',
+    staff_note:     row[17] || '',
+    cash_received:  row[18] === 'TRUE' || row[18] === '1',
+    goods_received: row[19] === 'TRUE' || row[19] === '1',
+    created_by:     row[20] || '',
+  };
+}
+
+export function makeCollectionNo() {
+  const now = new Date();
+  const pad = (n, len = 2) => String(n).padStart(len, '0');
+  return `COL${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+}
+
 export function rowToReceive(row) {
   let items = [];
   try { items = JSON.parse(row[3] || '[]'); } catch {}

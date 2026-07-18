@@ -93,6 +93,8 @@ export default async function handler(req, res) {
 
         const oldStock = parseFloat(existing[5]) || 0;
         const oldAvgCost = parseFloat(existing[4]) || 0;
+        const rawType = existing[10] || 'นับสต็อค';
+        const prodType = rawType === 'ทั่วไป' ? 'นับสต็อค' : rawType;
 
         // Weighted average cost: (เก่า × ต้นทุนเก่า + ใหม่ × ต้นทุนใหม่) / (เก่า + ใหม่)
         const newStock = oldStock + numQty;
@@ -103,6 +105,12 @@ export default async function handler(req, res) {
         existing[4] = Math.round(newAvgCost * 100) / 100;  // col E: ราคาทุนเฉลี่ย
         existing[5] = newStock;                              // col F: สต็อค
         existing[9] = now;                                   // col J: วันที่อัปเดต
+
+        // สินค้าหมุนเวียน: รับสินค้าเข้า = ได้ของที่รีฟิล/บรรจุกลับมาแล้ว ต้องหักออกจาก
+        // "เปล่ารอรีฟิล" ด้วยเสมอ (เดิมเพิ่มแค่ "เต็ม" อย่างเดียว เปล่าค้างไม่ลดลงเลย)
+        if (prodType === 'หมุนเวียน') {
+          existing[12] = Math.max(0, (parseFloat(existing[12]) || 0) - numQty);
+        }
 
         await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
 

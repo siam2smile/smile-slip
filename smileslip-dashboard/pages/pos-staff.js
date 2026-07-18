@@ -9,9 +9,9 @@ import { useRouter } from 'next/router';
 
 export default function PosStaffPage() {
   const router = useRouter();
-  const { shopId, order_no: deepLinkOrderNo } = router.query;
+  const { shopId, order_no: deepLinkOrderNo, collection_no: deepLinkCollectionNo } = router.query;
 
-  const [step, setStep] = useState('pin'); // 'pin' | 'menu' | 'bills' | 'confirm' | 'deliveries' | 'deliver-confirm'
+  const [step, setStep] = useState('pin'); // 'pin' | 'menu' | 'bills' | 'confirm' | 'deliveries' | 'deliver-confirm' | 'collections' | 'collect-confirm'
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState('');
   const [pinLoading, setPinLoading] = useState(false);
@@ -40,9 +40,23 @@ export default function PosStaffPage() {
   const [deliverSlipUploading, setDeliverSlipUploading] = useState(false);
   const [deliverQr, setDeliverQr] = useState('');
   const [deliverQrLoading, setDeliverQrLoading] = useState(false);
-  const [returnedQty, setReturnedQty] = useState({}); // { sku: qty }
+  // ค่าเริ่มต้น = ลูกค้านำของเก่ามาแลกครบทุกชิ้น (exchange) — ถ้ายืมไม่คืนของเก่า ต้องกดปุ่ม "ยืม" แล้วใส่จำนวนที่ยืมแยกต่างหาก
+  const [borrowingSku, setBorrowingSku] = useState({}); // { sku: true } — เปิดโหมดยืมสำหรับ SKU นั้น
+  const [borrowedQty, setBorrowedQty] = useState({}); // { sku: จำนวนที่ยืม (ไม่คืนของเก่า) }
   const [deliverConfirming, setDeliverConfirming] = useState(false);
   const deliverSlipRef = useRef(null);
+
+  // ── งานเก็บเงิน/ของ (collections) ────────────────────────────────────────
+  const [collectionTasks, setCollectionTasks] = useState([]);
+  const [collectionTasksLoading, setCollectionTasksLoading] = useState(false);
+  const [selectedCollection, setSelectedCollection] = useState(null);
+  const [collectedAmount, setCollectedAmount] = useState('');
+  const [collectedItemsQty, setCollectedItemsQty] = useState({}); // { sku: qty }
+  const [collectSlipUrl, setCollectSlipUrl] = useState('');
+  const [collectSlipUploading, setCollectSlipUploading] = useState(false);
+  const [collectFailNote, setCollectFailNote] = useState('');
+  const [collectSubmitting, setCollectSubmitting] = useState(false);
+  const collectSlipRef = useRef(null);
 
   function showToast(msg) {
     setToast(msg);
@@ -70,12 +84,16 @@ export default function PosStaffPage() {
         fetchBills();
         fetchProducts();
         const fetchedOrders = await fetchOrders();
-        // มาจากลิงก์ใน LINE push (มี order_no แนบมา) → พาไปหน้ายืนยันจัดส่งออเดอร์นั้นเลย
-        const target = deepLinkOrderNo ? fetchedOrders.find(o => o.order_no === deepLinkOrderNo) : null;
-        if (target) {
-          openDeliverConfirm(target);
+        const fetchedTasks = await fetchCollectionTasks();
+        // มาจากลิงก์ใน LINE push (มี order_no/collection_no แนบมา) → พาไปหน้ายืนยันงานนั้นเลย
+        const orderTarget = deepLinkOrderNo ? fetchedOrders.find(o => o.order_no === deepLinkOrderNo) : null;
+        const taskTarget = deepLinkCollectionNo ? fetchedTasks.find(t => t.collection_no === deepLinkCollectionNo) : null;
+        if (orderTarget) {
+          openDeliverConfirm(orderTarget);
+        } else if (taskTarget) {
+          openCollectConfirm(taskTarget);
         } else {
-          setStep(deepLinkOrderNo ? 'deliveries' : 'menu');
+          setStep((deepLinkOrderNo || deepLinkCollectionNo) ? (deepLinkOrderNo ? 'deliveries' : 'collections') : 'menu');
         }
       } else {
         setPinError('PIN ไม่ถูกต้อง');
@@ -131,8 +149,99 @@ export default function PosStaffPage() {
     setDeliverPayMethod(order.payment_method || 'เก็บปลายทาง');
     setDeliverSlipUrl('');
     setDeliverQr('');
-    setReturnedQty({});
+    setBorrowingSku({});
+    setBorrowedQty({});
     setStep('deliver-confirm');
+  }
+
+  // ── งานเก็บเงิน/ของ (collections) ────────────────────────────────────────
+  async function fetchCollectionTasks() {
+    if (!shopId) return [];
+    setCollectionTasksLoading(true);
+    let filtered = [];
+    try {
+      const r = await fetch(`/api/pos/collections?shopId=${shopId}`);
+      const d = await r.json();
+      if (d.tasks) {
+        filtered = d.tasks.filter(t => t.status === 'รอดำเนินการ');
+        setCollectionTasks(filtered);
+      }
+    } catch {}
+    setCollectionTasksLoading(false);
+    return filtered;
+  }
+
+  function openCollectConfirm(task) {
+    setSelectedCollection(task);
+    // ค่าเริ่มต้น = เก็บได้ครบตามที่คาดไว้ (ปกติที่สุด) พนักงานแก้เป็นยอด/จำนวนจริงได้ถ้าเก็บได้บางส่วน
+    setCollectedAmount(task.debt_amount > 0 ? String(task.debt_amount) : '');
+    const initQty = {};
+    (task.items || []).forEach(item => { initQty[item.sku] = String(item.qty); });
+    setCollectedItemsQty(initQty);
+    setCollectSlipUrl('');
+    setCollectFailNote('');
+    setStep('collect-confirm');
+  }
+
+  async function handleCollectSlipCapture(e) {
+    const file = e.target.files?.[0];
+    if (!file || !shopId) return;
+    setCollectSlipUploading(true);
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const r = await fetch('/api/pos/process-slip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, imageBase64: base64, mimeType: file.type }),
+      });
+      const d = await r.json();
+      if (d.ok) setCollectSlipUrl(d.url || '');
+      else alert('อัปโหลดสลิปไม่สำเร็จ: ' + (d.error || ''));
+    } catch (err) { alert(err.message); }
+    setCollectSlipUploading(false);
+    if (collectSlipRef.current) collectSlipRef.current.value = '';
+  }
+
+  async function submitCollectionResult(success) {
+    if (!selectedCollection || collectSubmitting) return;
+    if (!success && !collectFailNote.trim()) {
+      if (!confirm('ยังไม่ได้ใส่เหตุผลที่เก็บไม่ได้ ยืนยันต่อโดยไม่ใส่เหตุผลเลยไหม?')) return;
+    }
+    setCollectSubmitting(true);
+    try {
+      const collectedItems = (selectedCollection.items || [])
+        .map(item => ({ sku: item.sku, name: item.name, qty: parseInt(collectedItemsQty[item.sku]) || 0 }))
+        .filter(item => item.qty > 0);
+      const r = await fetch('/api/pos/collections', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId,
+          collection_no: selectedCollection.collection_no,
+          result: success ? 'success' : 'failed',
+          collected_amount: success ? (parseFloat(collectedAmount) || 0) : 0,
+          collected_items: success ? collectedItems : [],
+          slip_url: collectSlipUrl,
+          confirmed_by: staffName.trim() || undefined,
+          staff_note: collectFailNote.trim(),
+        }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        showToast(success ? '✅ บันทึกผลเก็บสำเร็จแล้ว' : '📝 บันทึกว่าเก็บไม่ได้แล้ว');
+        setCollectionTasks(prev => prev.filter(t => t.collection_no !== selectedCollection.collection_no));
+        setSelectedCollection(null);
+        setStep('collections');
+      } else {
+        alert(d.error || 'เกิดข้อผิดพลาด');
+      }
+    } catch (err) { alert(err.message); }
+    setCollectSubmitting(false);
   }
 
   async function loadDeliverQr() {
@@ -171,7 +280,8 @@ export default function PosStaffPage() {
     if (deliverSlipRef.current) deliverSlipRef.current.value = '';
   }
 
-  // สินค้าหมุนเวียน (เช่น ถังแก๊ส) ในออเดอร์นี้ — ต้องถามว่าลูกค้าคืนถังเปล่ามากี่ใบ
+  // สินค้าหมุนเวียน (เช่น ถังแก๊ส/ขวดน้ำ/ถังออกซิเจน) ในออเดอร์นี้ — ค่าเริ่มต้นถือว่าลูกค้านำของเก่ามาแลกครบทุกชิ้น
+  // ต้องกดปุ่ม "ยืม" ต่อรายการเท่านั้นถ้าลูกค้าไม่ได้เอาของเก่ามาคืน (ยืมไปก่อน)
   const cyclicalItemsInOrder = (selectedOrder?.items || []).filter(item => {
     const prod = products.find(p => p.sku === item.sku);
     return prod?.type === 'หมุนเวียน';
@@ -185,8 +295,11 @@ export default function PosStaffPage() {
     setDeliverConfirming(true);
     try {
       const items = (selectedOrder.items || []).map(item => {
-        const qty = parseInt(returnedQty[item.sku]) || 0;
-        return qty > 0 ? { ...item, returned_qty: qty } : item;
+        const prod = products.find(p => p.sku === item.sku);
+        if (prod?.type !== 'หมุนเวียน') return item;
+        const borrowed = borrowingSku[item.sku] ? Math.min(item.qty, parseInt(borrowedQty[item.sku]) || 0) : 0;
+        const returnedQty = item.qty - borrowed;
+        return returnedQty > 0 ? { ...item, returned_qty: returnedQty } : item;
       });
       const r = await fetch('/api/pos/delivery', {
         method: 'PATCH',
@@ -391,6 +504,14 @@ export default function PosStaffPage() {
                   <div className="text-gray-500 text-xs mt-0.5">ยืนยันจัดส่งสำเร็จ + รับเงิน</div>
                 </div>
                 <span className="bg-orange-900 text-orange-300 text-xs px-2.5 py-1 rounded-full font-bold">{orders.length}</span>
+              </button>
+              <button onClick={() => setStep('collections')}
+                className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-5 text-left hover:bg-gray-800 transition-colors flex items-center justify-between">
+                <div>
+                  <div className="text-white font-bold">🧾 งานเก็บเงิน/ของ</div>
+                  <div className="text-gray-500 text-xs mt-0.5">ไปเก็บเงินเชื่อค้าง หรือของที่ลูกค้ายืมค้างอยู่</div>
+                </div>
+                <span className="bg-orange-900 text-orange-300 text-xs px-2.5 py-1 rounded-full font-bold">{collectionTasks.length}</span>
               </button>
             </div>
           )}
@@ -649,23 +770,38 @@ export default function PosStaffPage() {
                 </div>
               )}
 
-              {/* สินค้าหมุนเวียน — ถามว่าลูกค้าคืนถังเปล่ามากี่ใบ */}
+              {/* สินค้าหมุนเวียน — ค่าเริ่มต้นถือว่าลูกค้านำของเก่ามาแลกครบทุกชิ้น กดปุ่ม "ยืม" เฉพาะรายการที่ลูกค้าไม่ได้เอาของเก่ามาคืน */}
               {cyclicalItemsInOrder.length > 0 && (
                 <div className="mb-4">
-                  <h3 className="text-white font-bold mb-2 text-sm">🔄 ลูกค้าคืนถังเปล่ามาไหม</h3>
+                  <h3 className="text-white font-bold mb-2 text-sm">🔄 สินค้าหมุนเวียน — ค่าเริ่มต้นคือลูกค้านำของเก่ามาแลกครบ</h3>
                   <div className="space-y-2">
-                    {cyclicalItemsInOrder.map(item => (
-                      <div key={item.sku} className="bg-gray-900 rounded-xl p-3 border border-gray-800 flex items-center justify-between gap-3">
-                        <div className="text-gray-300 text-sm flex-1">{item.name}</div>
-                        <input type="number" min="0" max={item.qty}
-                          value={returnedQty[item.sku] || ''}
-                          onChange={e => setReturnedQty(q => ({ ...q, [item.sku]: e.target.value }))}
-                          placeholder="0"
-                          className="w-16 bg-gray-800 text-white text-sm text-center px-2 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500" />
-                      </div>
-                    ))}
+                    {cyclicalItemsInOrder.map(item => {
+                      const unit = item.unit || 'ชิ้น';
+                      const isBorrowing = !!borrowingSku[item.sku];
+                      return (
+                        <div key={item.sku} className="bg-gray-900 rounded-xl p-3 border border-gray-800">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-gray-300 text-sm flex-1">{item.name} <span className="text-gray-600">×{item.qty}</span></div>
+                            <button type="button"
+                              onClick={() => setBorrowingSku(s => ({ ...s, [item.sku]: !s[item.sku] }))}
+                              className={`text-xs px-3 py-1.5 rounded-lg shrink-0 transition-colors ${isBorrowing ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                              {isBorrowing ? '🤝 ยืม' : 'แลกครบ'}
+                            </button>
+                          </div>
+                          {isBorrowing && (
+                            <div className="flex items-center justify-end gap-2 mt-2 text-xs text-gray-400">
+                              <span>จำนวนที่ยืม (ไม่เอา{unit}เก่ามาแลก)</span>
+                              <input type="number" min="0" max={item.qty}
+                                value={borrowedQty[item.sku] || ''}
+                                onChange={e => setBorrowedQty(q => ({ ...q, [item.sku]: e.target.value }))}
+                                placeholder="0"
+                                className="w-16 bg-gray-800 text-white text-sm text-center px-2 py-1.5 rounded-lg border border-orange-700/50 focus:outline-none focus:border-orange-500" />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                  <p className="text-gray-600 text-xs mt-1.5">ใส่จำนวนถังเปล่าที่รับคืนมา ถ้าลูกค้ายังไม่คืน ปล่อยว่างไว้</p>
                 </div>
               )}
 
@@ -676,6 +812,140 @@ export default function PosStaffPage() {
               >
                 {deliverConfirming ? 'กำลังบันทึก...' : '✅ ยืนยันจัดส่งสำเร็จ'}
               </button>
+            </div>
+          )}
+
+          {/* ══ รายการงานเก็บเงิน/ของ ══════════════════════════════════════════ */}
+          {step === 'collections' && (
+            <div>
+              <button onClick={() => setStep('menu')} className="text-gray-400 hover:text-white text-sm mb-4 flex items-center gap-1">← เมนู</button>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-white font-bold text-lg">งานเก็บเงิน/ของ</h2>
+                <button onClick={fetchCollectionTasks} disabled={collectionTasksLoading}
+                  className="text-green-400 text-xs border border-green-800 px-3 py-1.5 rounded-lg hover:bg-green-900/30 transition-colors">
+                  {collectionTasksLoading ? '...' : '🔄 รีเฟรช'}
+                </button>
+              </div>
+
+              {collectionTasksLoading ? (
+                <div className="text-center text-gray-400 py-12">กำลังโหลด...</div>
+              ) : collectionTasks.length === 0 ? (
+                <div className="text-center py-16">
+                  <div className="text-5xl mb-4">✅</div>
+                  <div className="text-gray-300 font-medium">ไม่มีงานเก็บเงิน/ของค้าง</div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {collectionTasks.map(task => (
+                    <div key={task.collection_no} className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+                      <div className="flex items-start justify-between mb-2">
+                        <div>
+                          <div className="text-white font-bold">{task.customer_name}</div>
+                          {task.phone && <div className="text-gray-400 text-xs">📞 {task.phone}</div>}
+                        </div>
+                        <span className="bg-orange-900 text-orange-300 text-xs px-2 py-1 rounded-full shrink-0">{task.task_type}</span>
+                      </div>
+                      {task.debt_amount > 0 && (
+                        <div className="text-orange-400 text-sm font-bold mb-1">💳 เงินเชื่อค้าง ฿{task.debt_amount.toLocaleString()}</div>
+                      )}
+                      {Array.isArray(task.items) && task.items.length > 0 && (
+                        <div className="space-y-0.5 mb-2">
+                          {task.items.map((item, j) => (
+                            <div key={j} className="text-xs text-gray-400">🔄 {item.name} ×{item.qty}</div>
+                          ))}
+                        </div>
+                      )}
+                      {task.notes && <div className="text-gray-500 text-xs mb-2 truncate">📝 {task.notes}</div>}
+                      <button onClick={() => openCollectConfirm(task)}
+                        className="w-full bg-orange-600 hover:bg-orange-500 text-white text-sm font-bold py-2.5 rounded-xl transition-colors">
+                        🧾 บันทึกผลการเก็บ
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ══ บันทึกผลการเก็บเงิน/ของ ══════════════════════════════════════════ */}
+          {step === 'collect-confirm' && selectedCollection && (
+            <div>
+              <button onClick={() => setStep('collections')} className="text-gray-400 hover:text-white text-sm mb-5 flex items-center gap-1">
+                ← กลับ
+              </button>
+
+              <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800 mb-5">
+                <div className="text-white font-bold text-lg">{selectedCollection.customer_name}</div>
+                {selectedCollection.phone && <div className="text-gray-400 text-xs mt-0.5">📞 {selectedCollection.phone}</div>}
+                {selectedCollection.notes && <div className="text-gray-500 text-xs mt-1">📝 {selectedCollection.notes}</div>}
+              </div>
+
+              {selectedCollection.debt_amount > 0 && (
+                <div className="mb-4">
+                  <label className="text-white font-bold mb-2 block text-sm">💳 ยอดที่เก็บได้จริง (บาท)</label>
+                  <div className="text-gray-500 text-xs mb-1.5">ยอดที่ต้องเก็บ ฿{selectedCollection.debt_amount.toLocaleString()} — ค่าเริ่มต้นคือเก็บได้ครบ แก้ได้ถ้าเก็บได้บางส่วน</div>
+                  <input type="number" min="0" value={collectedAmount}
+                    onChange={e => setCollectedAmount(e.target.value)}
+                    className="w-full bg-gray-800 text-white text-lg font-bold px-4 py-3 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+
+                  <h4 className="text-white font-bold mt-4 mb-2 text-sm">📷 แนบสลิปการโอน (ถ้ารับโอน)</h4>
+                  {collectSlipUrl ? (
+                    <div className="bg-green-900/30 border border-green-800 rounded-2xl p-4 flex items-center gap-3">
+                      <div className="text-green-400 text-2xl shrink-0">✅</div>
+                      <div className="flex-1 text-green-300 text-sm font-bold">อัปโหลดสลิปแล้ว</div>
+                      <button onClick={() => setCollectSlipUrl('')} className="text-gray-500 hover:text-gray-300 shrink-0">✕</button>
+                    </div>
+                  ) : (
+                    <div>
+                      <button type="button" onClick={() => collectSlipRef.current?.click()} disabled={collectSlipUploading}
+                        className="w-full bg-gray-800 hover:bg-gray-700 border-2 border-dashed border-gray-600 text-gray-300 font-medium py-4 rounded-2xl transition-colors flex flex-col items-center gap-2 disabled:opacity-60">
+                        {collectSlipUploading ? (
+                          <><span className="text-2xl animate-spin">⏳</span><span className="text-sm">กำลังอ่านสลิป...</span></>
+                        ) : (
+                          <><span className="text-2xl">📷</span><span className="text-sm">ถ่ายรูป / เลือกสลิปโอน</span></>
+                        )}
+                      </button>
+                      <input ref={collectSlipRef} type="file" accept="image/*" capture="environment"
+                        className="hidden" onChange={handleCollectSlipCapture} />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {Array.isArray(selectedCollection.items) && selectedCollection.items.length > 0 && (
+                <div className="mb-4">
+                  <h3 className="text-white font-bold mb-2 text-sm">🔄 สินค้าที่เก็บคืนได้จริง — ค่าเริ่มต้นคือเก็บได้ครบ</h3>
+                  <div className="space-y-2">
+                    {selectedCollection.items.map(item => (
+                      <div key={item.sku} className="bg-gray-900 rounded-xl p-3 border border-gray-800 flex items-center justify-between gap-3">
+                        <div className="text-gray-300 text-sm flex-1">{item.name} <span className="text-gray-600">(ต้องเก็บ {item.qty})</span></div>
+                        <input type="number" min="0" max={item.qty}
+                          value={collectedItemsQty[item.sku] ?? ''}
+                          onChange={e => setCollectedItemsQty(q => ({ ...q, [item.sku]: e.target.value }))}
+                          className="w-16 bg-gray-800 text-white text-sm text-center px-2 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="mb-4">
+                <label className="text-gray-400 text-xs block mb-1.5">หมายเหตุ (ใส่เหตุผลถ้าเก็บไม่ได้)</label>
+                <input value={collectFailNote} onChange={e => setCollectFailNote(e.target.value)}
+                  placeholder="เช่น ลูกค้าไม่อยู่ นัดใหม่พรุ่งนี้"
+                  className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={() => submitCollectionResult(false)} disabled={collectSubmitting}
+                  className="bg-gray-800 hover:bg-red-900/60 border border-gray-700 disabled:opacity-50 text-gray-300 hover:text-red-300 font-bold py-4 rounded-2xl transition-colors">
+                  ❌ เก็บไม่ได้
+                </button>
+                <button onClick={() => submitCollectionResult(true)} disabled={collectSubmitting}
+                  className="bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-4 rounded-2xl transition-colors">
+                  {collectSubmitting ? '...' : '✅ เก็บได้'}
+                </button>
+              </div>
             </div>
           )}
 

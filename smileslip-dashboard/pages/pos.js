@@ -351,7 +351,9 @@ export default function POSPage() {
   const [products, setProducts] = useState([]);
   const [productsLoading, setProductsLoading] = useState(false);
   const [cart, setCart] = useState([]);
-  const [returnedQty, setReturnedQty] = useState({}); // { sku: qty } ถังเปล่าที่ลูกค้าเอามาคืนตอนซื้อหน้าร้าน (สินค้าหมุนเวียน)
+  // ค่าเริ่มต้น = ลูกค้านำของเก่ามาแลกครบทุกชิ้น (exchange) — ถ้ายืมไม่คืนของเก่า ต้องกดปุ่ม "ยืม" แล้วใส่จำนวนที่ยืมแยกต่างหาก
+  const [borrowingSku, setBorrowingSku] = useState({}); // { sku: true } — เปิดโหมดยืมสำหรับ SKU นั้น (สินค้าหมุนเวียน)
+  const [borrowedQty, setBorrowedQty] = useState({}); // { sku: จำนวนที่ยืม (ไม่คืนของเก่า) }
   const [selectedCat, setSelectedCat] = useState('ทั้งหมด');
   const [search, setSearch] = useState('');
 
@@ -447,6 +449,8 @@ export default function POSPage() {
   const [supplierPrices, setSupplierPrices] = useState({}); // { sku: ราคาต่อหน่วยล่าสุดที่ผู้จำหน่ายรายนี้เคยขายให้ }
   const [receiveItems, setReceiveItems] = useState([]);   // [{sku,name,qty,unit,unitCost,hasVat}]
   const [receiveSearch, setReceiveSearch] = useState('');
+  const [receiveCat, setReceiveCat] = useState('ทั้งหมด'); // ตัวกรองหมวดหมู่ตอนเลือกสินค้าเข้าใบรับสินค้า
+  const [showReceivePicker, setShowReceivePicker] = useState(false); // เปิด/ปิด รายการสินค้าให้เลือกแบบเบราส์
   const [receiveNotes, setReceiveNotes] = useState('');
   const [receiveSaving, setReceiveSaving] = useState(false);
   const [receiveHistory, setReceiveHistory] = useState([]);
@@ -531,6 +535,19 @@ export default function POSPage() {
   const [debtCust, setDebtCust] = useState(null);
   const [debtAmount, setDebtAmount] = useState('');
   const [debtSaving, setDebtSaving] = useState(false);
+
+  // ── ส่งพนักงานไปเก็บเงินเชื่อ/สินค้ายืม (collection dispatch) ─────────────────
+  const [showCollectDispatch, setShowCollectDispatch] = useState(false);
+  const [collectDispatchCust, setCollectDispatchCust] = useState(null);
+  const [collectDispatchForm, setCollectDispatchForm] = useState({
+    task_type: 'เงินเชื่อ', debt_amount: '', itemsQty: {}, staff_id: '', staff_name: '', staff_line_id: '', notes: '',
+  });
+  const [collectDispatching, setCollectDispatching] = useState(false);
+  const [collectionTasks, setCollectionTasks] = useState([]);
+  const [collectionTasksLoading, setCollectionTasksLoading] = useState(false);
+  const [collectStatusFilter, setCollectStatusFilter] = useState('all'); // 'all' | 'pending' | 'done'
+  const [collectCashConfirming, setCollectCashConfirming] = useState(null);
+  const [collectGoodsConfirming, setCollectGoodsConfirming] = useState(null);
 
   // ── Cyclical product modal ────────────────────────────────────────────────
   const [showCyclicalModal, setShowCyclicalModal] = useState(null); // 'receive-back' | 'refill' | null
@@ -850,6 +867,119 @@ export default function POSPage() {
     setGoodsConfirming(null);
   }
 
+  // ── งานเก็บเงิน/ของ (collection dispatch) ────────────────────────────────
+  async function fetchCollectionTasks(sid = shopId) {
+    if (!sid) return;
+    setCollectionTasksLoading(true);
+    try {
+      const r = await fetch(`/api/pos/collections?shopId=${sid}`);
+      const d = await r.json();
+      if (d.tasks) setCollectionTasks(d.tasks);
+    } catch {}
+    setCollectionTasksLoading(false);
+  }
+
+  function openCollectDispatch(cust) {
+    const hasDebt = (cust.debt || 0) > 0;
+    const hasItems = (cust.cylinders || 0) > 0;
+    const cyclicalProducts = products.filter(p => p.type === 'หมุนเวียน');
+    const itemsQty = {};
+    // ถ้าร้านมีสินค้าหมุนเวียนแบบเดียว เดาให้อัตโนมัติจากยอดรวมที่ลูกค้าถืออยู่ (แก้ได้ถ้าไม่ตรง)
+    if (hasItems && cyclicalProducts.length === 1) {
+      itemsQty[cyclicalProducts[0].sku] = String(cust.cylinders);
+    }
+    setCollectDispatchCust(cust);
+    setCollectDispatchForm({
+      task_type: hasDebt && hasItems ? 'ทั้งคู่' : hasItems ? 'สินค้ายืม' : 'เงินเชื่อ',
+      debt_amount: hasDebt ? String(cust.debt) : '',
+      itemsQty,
+      staff_id: '', staff_name: '', staff_line_id: '', notes: '',
+    });
+    setShowCollectDispatch(true);
+  }
+
+  async function submitCollectDispatch() {
+    if (!collectDispatchCust || !collectDispatchForm.staff_id || collectDispatching) return;
+    setCollectDispatching(true);
+    try {
+      const cyclicalProducts = products.filter(p => p.type === 'หมุนเวียน');
+      const items = cyclicalProducts
+        .map(p => ({ sku: p.sku, name: p.name, unit: p.unit, qty: parseInt(collectDispatchForm.itemsQty[p.sku]) || 0 }))
+        .filter(i => i.qty > 0);
+      const r = await fetch('/api/pos/collections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId,
+          customer_id: collectDispatchCust.contact_id,
+          customer_name: collectDispatchCust.name,
+          phone: collectDispatchCust.phone,
+          task_type: collectDispatchForm.task_type,
+          debt_amount: parseFloat(collectDispatchForm.debt_amount) || 0,
+          items,
+          staff_id: collectDispatchForm.staff_id,
+          staff_name: collectDispatchForm.staff_name,
+          staff_line_id: collectDispatchForm.staff_line_id,
+          notes: collectDispatchForm.notes,
+          created_by: userId || '',
+        }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        showToast(`ส่งงานให้ ${collectDispatchForm.staff_name} แล้ว — ${d.collection_no}`);
+        setShowCollectDispatch(false);
+        fetchCollectionTasks();
+      } else {
+        alert(d.error);
+      }
+    } catch (err) { alert(err.message); }
+    setCollectDispatching(false);
+  }
+
+  async function confirmCollectCash(task) {
+    setCollectCashConfirming(task.collection_no);
+    try {
+      const r = await fetch('/api/pos/collections', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, collection_no: task.collection_no, cash_received: true }),
+      });
+      const d = await r.json();
+      if (d.ok) { await fetchCollectionTasks(); showToast('✅ ยืนยันรับเงินเข้าร้านแล้ว'); }
+      else alert(d.error);
+    } catch (err) { alert(err.message); }
+    setCollectCashConfirming(null);
+  }
+
+  async function confirmCollectGoods(task) {
+    setCollectGoodsConfirming(task.collection_no);
+    try {
+      const r = await fetch('/api/pos/collections', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, collection_no: task.collection_no, goods_received: true }),
+      });
+      const d = await r.json();
+      if (d.ok) { await fetchCollectionTasks(); showToast('✅ ยืนยันรับของคืนเข้าคลังแล้ว'); }
+      else alert(d.error);
+    } catch (err) { alert(err.message); }
+    setCollectGoodsConfirming(null);
+  }
+
+  async function deleteCollectionTask(task) {
+    if (!confirm(`ยกเลิกงาน ${task.collection_no}?`)) return;
+    try {
+      const r = await fetch('/api/pos/collections', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, collection_no: task.collection_no }),
+      });
+      const d = await r.json();
+      if (d.ok) { await fetchCollectionTasks(); showToast('ยกเลิกงานแล้ว'); }
+      else alert(d.error);
+    } catch (err) { alert(err.message); }
+  }
+
   async function updateOrderStatus(orderNo, newStatus) {
     setOrderStatusUpdating(orderNo);
     try {
@@ -1013,6 +1143,7 @@ export default function POSPage() {
     if (tab === 'report') { fetchSales(); fetchReport('sales', reportDateFrom, reportDateTo); }
     if (tab === 'settings') { fetchStaff(); fetchStaffRequests(); }
     if (tab === 'orders') fetchOrders(shopId);
+    if (tab === 'collections') fetchCollectionTasks(shopId);
   }, [tab, configured, shopId]);
 
   // โหลดบิลที่ค้างจาก localStorage เมื่อ shopId พร้อม
@@ -1099,11 +1230,12 @@ export default function POSPage() {
       const full = bill?.customer_id ? contacts.find(c => c.contact_id === bill.customer_id) : null;
       if (full) setCreditCustomer(full);
     }
-    setReturnedQty({});
+    setBorrowingSku({});
+    setBorrowedQty({});
     setShowCheckout(true);
   }
 
-  // รายการในตะกร้าที่เป็นสินค้าหมุนเวียน (เช่น ถังแก๊ส) — ต้องถามว่าลูกค้าเอาถังเปล่าเก่ามาคืนกี่ใบ
+  // รายการในตะกร้าที่เป็นสินค้าหมุนเวียน (เช่น ถังแก๊ส/ขวดน้ำ/ถังออกซิเจน) — ค่าเริ่มต้นถือว่าแลกเปลี่ยนเต็มจำนวน
   const cyclicalCartItems = cart.filter(item => products.find(p => p.sku === item.sku)?.type === 'หมุนเวียน');
 
   function openDelivery() {
@@ -1292,9 +1424,13 @@ export default function POSPage() {
     if (!cart.length || checkoutLoading) return;
     setCheckoutLoading(true);
     try {
-      // แนบ returned_qty (ถังเปล่าที่ลูกค้าคืนมา) เข้ากับรายการสินค้าหมุนเวียนในตะกร้า
+      // แนบ returned_qty (ของเก่าที่ลูกค้าคืนมา) เข้ากับรายการสินค้าหมุนเวียนในตะกร้า
+      // ค่าเริ่มต้น = แลกเปลี่ยนเต็มจำนวน (returned_qty = qty) ยกเว้นเปิดโหมด "ยืม" ไว้จะหักจำนวนที่ยืมออก
       const itemsWithReturns = cart.map(item => {
-        const qty = parseInt(returnedQty[item.sku]) || 0;
+        const isCyclical = products.find(p => p.sku === item.sku)?.type === 'หมุนเวียน';
+        if (!isCyclical) return item;
+        const borrowed = borrowingSku[item.sku] ? Math.min(item.qty, parseInt(borrowedQty[item.sku]) || 0) : 0;
+        const qty = item.qty - borrowed;
         return qty > 0 ? { ...item, returned_qty: qty } : item;
       });
       const r = await fetch('/api/pos/sales', {
@@ -1348,7 +1484,8 @@ export default function POSPage() {
         setSlipOcrData(null);
         setCreditCustomer(null);
         setCreditCustomerQ('');
-        setReturnedQty({});
+        setBorrowingSku({});
+        setBorrowedQty({});
         setShowCheckout(false);
         setShowCartDrawer(false);
         setShowBill(true);
@@ -1524,6 +1661,7 @@ export default function POSPage() {
 
   // ── receive stock ─────────────────────────────────────────────────────────
   const receiveFiltered = products.filter(p => {
+    if (receiveCat !== 'ทั้งหมด' && p.category !== receiveCat) return false;
     if (!receiveSearch) return true;
     const q = receiveSearch.toLowerCase();
     return p.name.toLowerCase().includes(q) || p.aliases.toLowerCase().includes(q);
@@ -2279,6 +2417,7 @@ export default function POSPage() {
           {[
             { key: 'sell',     label: '💰 ขาย' },
             { key: 'orders',   label: '🚚 ออเดอร์' },
+            { key: 'collections', label: '🧾 เก็บเงิน/ของ' },
             { key: 'contacts', label: '👥 ผู้ติดต่อ' },
             { key: 'products', label: '📦 สินค้า' },
             { key: 'receive',  label: '📥 รับสินค้า' },
@@ -2676,29 +2815,54 @@ export default function POSPage() {
                         <span className="text-gray-500 text-xs">{receiveItems.length} รายการ</span>
                       </div>
 
-                      {/* ค้นหาสินค้าเพิ่ม */}
-                      <div className="relative mb-3">
-                        <input
-                          value={receiveSearch}
-                          onChange={e => setReceiveSearch(e.target.value)}
-                          placeholder="🔍 ค้นหาสินค้าที่ต้องการเพิ่ม..."
-                          className="w-full bg-gray-700 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-600 focus:outline-none focus:border-green-500"
-                        />
-                        {receiveSearch && (
-                          <div className="absolute top-full left-0 right-0 z-10 bg-gray-700 rounded-xl mt-1 max-h-48 overflow-y-auto shadow-xl border border-gray-600">
-                            {receiveFiltered.slice(0, 10).map(p => (
-                              <button
-                                key={p.sku}
-                                onClick={() => addReceiveItem(p)}
-                                className="w-full text-left px-4 py-2.5 hover:bg-gray-600 transition-colors flex items-center justify-between"
-                              >
-                                <span className="text-white text-sm">{p.name}</span>
-                                <span className="text-gray-400 text-xs">{p.stock} {p.unit}</span>
-                              </button>
-                            ))}
-                            {receiveFiltered.length === 0 && (
-                              <div className="text-gray-500 text-xs text-center py-3">ไม่พบสินค้า</div>
+                      {/* ค้นหา + เลือกจากรายการสินค้า */}
+                      <div className="mb-3">
+                        <div className="flex gap-2 mb-2">
+                          <input
+                            value={receiveSearch}
+                            onChange={e => { setReceiveSearch(e.target.value); setShowReceivePicker(true); }}
+                            onFocus={() => setShowReceivePicker(true)}
+                            placeholder="🔍 ค้นหาสินค้าที่ต้องการเพิ่ม..."
+                            className="flex-1 min-w-0 bg-gray-700 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-600 focus:outline-none focus:border-green-500"
+                          />
+                          <button type="button" onClick={() => setShowReceivePicker(v => !v)}
+                            className={`shrink-0 text-xs px-3 py-2.5 rounded-xl transition-colors ${showReceivePicker ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+                            📋 เลือกจากรายการ
+                          </button>
+                        </div>
+
+                        {showReceivePicker && (
+                          <div className="bg-gray-700 rounded-xl border border-gray-600 overflow-hidden">
+                            {/* ตัวกรองหมวดหมู่ */}
+                            {categories.length > 1 && (
+                              <div className="flex gap-1.5 overflow-x-auto p-2 border-b border-gray-600 scrollbar-hide">
+                                {categories.map(cat => (
+                                  <button key={cat} onClick={() => setReceiveCat(cat)}
+                                    className={`shrink-0 text-xs px-3 py-1 rounded-full transition-colors ${
+                                      receiveCat === cat ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-600'
+                                    }`}>{cat}</button>
+                                ))}
+                              </div>
                             )}
+                            <div className="max-h-56 overflow-y-auto">
+                              {receiveFiltered.slice(0, 30).map(p => {
+                                const already = receiveItems.some(i => i.sku === p.sku);
+                                return (
+                                  <button
+                                    key={p.sku}
+                                    onClick={() => !already && addReceiveItem(p)}
+                                    disabled={already}
+                                    className={`w-full text-left px-4 py-2.5 transition-colors flex items-center justify-between gap-2 border-b border-gray-600/50 last:border-0 ${already ? 'opacity-50 cursor-default' : 'hover:bg-gray-600'}`}
+                                  >
+                                    <span className="text-white text-sm truncate">{p.name}</span>
+                                    <span className="text-gray-400 text-xs shrink-0">{already ? '✅ เพิ่มแล้ว' : `${p.stock} ${p.unit}`}</span>
+                                  </button>
+                                );
+                              })}
+                              {receiveFiltered.length === 0 && (
+                                <div className="text-gray-500 text-xs text-center py-3">ไม่พบสินค้า</div>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -2982,6 +3146,130 @@ export default function POSPage() {
             </div>
           )}
 
+          {/* ══ TAB: เก็บเงิน/ของ ═══════════════════════════════════════════ */}
+          {tab === 'collections' && (() => {
+            const displayTasks = collectionTasks.filter(t => {
+              if (collectStatusFilter === 'pending') return t.status === 'รอดำเนินการ';
+              if (collectStatusFilter === 'done') return t.status !== 'รอดำเนินการ';
+              return true;
+            });
+            return (
+              <div className="h-full overflow-y-auto">
+                <div className="p-4 max-w-3xl mx-auto">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-white font-bold">งานเก็บเงิน/ของ ({displayTasks.length}{displayTasks.length !== collectionTasks.length ? `/${collectionTasks.length}` : ''})</h2>
+                    <button onClick={() => fetchCollectionTasks(shopId)} className="text-xs text-gray-400 hover:text-white bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-700 transition-colors">
+                      🔄 รีเฟรช
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+                    {[
+                      { v: 'all', label: 'ทั้งหมด' },
+                      { v: 'pending', label: '🕒 รอดำเนินการ' },
+                      { v: 'done', label: '✅ เสร็จแล้ว' },
+                    ].map(f => (
+                      <button key={f.v} onClick={() => setCollectStatusFilter(f.v)}
+                        className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${collectStatusFilter === f.v ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {collectionTasksLoading ? (
+                    <div className="text-center text-gray-500 py-12 animate-pulse">กำลังโหลด...</div>
+                  ) : displayTasks.length === 0 ? (
+                    <div className="text-center py-16">
+                      <div className="text-5xl mb-3">🧾</div>
+                      <p className="text-gray-400 text-sm">{collectionTasks.length === 0 ? 'ยังไม่มีงานเก็บเงิน/ของ' : 'ไม่พบงานตามตัวกรองที่เลือก'}</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {displayTasks.map(task => {
+                        const statusColor = {
+                          'รอดำเนินการ': 'bg-yellow-900/60 text-yellow-300',
+                          'เก็บสำเร็จ': 'bg-green-900/60 text-green-300',
+                          'เก็บไม่ได้': 'bg-red-900/60 text-red-300',
+                        }[task.status] || 'bg-gray-700 text-gray-400';
+                        return (
+                          <div key={task.collection_no} className="bg-gray-800 rounded-xl p-4">
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                              <div>
+                                <div className="text-gray-400 text-xs font-mono">{task.collection_no}</div>
+                                <div className="text-white font-medium">{task.customer_name}</div>
+                                {task.phone && <div className="text-gray-400 text-xs">📞 {task.phone}</div>}
+                              </div>
+                              <span className={`shrink-0 text-xs px-2 py-1 rounded-full font-medium ${statusColor}`}>{task.status}</span>
+                            </div>
+                            <div className="text-gray-500 text-xs mb-1.5">{task.task_type} · {task.staff_name} · {task.created_at}</div>
+                            {task.debt_amount > 0 && <div className="text-orange-400 text-sm font-bold">💳 เงินเชื่อค้าง ฿{task.debt_amount.toLocaleString()}</div>}
+                            {Array.isArray(task.items) && task.items.length > 0 && (
+                              <div className="text-xs text-gray-500 mt-1">
+                                {task.items.map((item, j) => <span key={j} className="mr-2">🔄 {item.name} ×{item.qty}</span>)}
+                              </div>
+                            )}
+                            {task.notes && <div className="text-gray-500 text-xs mt-1">📝 {task.notes}</div>}
+
+                            {task.status !== 'รอดำเนินการ' && (
+                              <div className="mt-2 pt-2 border-t border-gray-700">
+                                <div className="text-gray-500 text-xs">
+                                  ยืนยันเมื่อ {task.confirmed_at}{task.confirmed_by ? ` โดย ${task.confirmed_by}` : ''}
+                                  {task.slip_url && (<> · <a href={task.slip_url} target="_blank" rel="noreferrer" className="text-blue-400 underline">ดูสลิป</a></>)}
+                                </div>
+                                {task.status === 'เก็บสำเร็จ' && (
+                                  <div className="text-green-400 text-xs mt-0.5">
+                                    เก็บได้ ฿{task.collected_amount.toLocaleString()}
+                                    {task.collected_items?.length > 0 && ` · ${task.collected_items.map(i => `${i.name} ×${i.qty}`).join(', ')}`}
+                                  </div>
+                                )}
+                                {task.status === 'เก็บไม่ได้' && task.staff_note && (
+                                  <div className="text-red-400 text-xs mt-0.5">เหตุผล: {task.staff_note}</div>
+                                )}
+                                {task.status === 'เก็บสำเร็จ' && (
+                                  <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                                    {task.collected_amount > 0 && (
+                                      task.cash_received ? (
+                                        <span className="text-xs bg-green-900/60 text-green-300 px-2.5 py-1.5 rounded-lg">💰 รับเงินเข้าร้านแล้ว</span>
+                                      ) : (
+                                        <button onClick={() => confirmCollectCash(task)} disabled={collectCashConfirming === task.collection_no}
+                                          className="text-xs bg-yellow-700 hover:bg-yellow-600 text-white px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50">
+                                          {collectCashConfirming === task.collection_no ? '...' : '💰 ยืนยันรับเงินเข้าร้าน'}
+                                        </button>
+                                      )
+                                    )}
+                                    {task.collected_items?.length > 0 && (
+                                      task.goods_received ? (
+                                        <span className="text-xs bg-green-900/60 text-green-300 px-2.5 py-1.5 rounded-lg">📦 รับของเข้าคลังแล้ว</span>
+                                      ) : (
+                                        <button onClick={() => confirmCollectGoods(task)} disabled={collectGoodsConfirming === task.collection_no}
+                                          className="text-xs bg-orange-700 hover:bg-orange-600 text-white px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50">
+                                          {collectGoodsConfirming === task.collection_no ? '...' : '📦 ยืนยันรับของคืนเข้าคลัง'}
+                                        </button>
+                                      )
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {task.status === 'รอดำเนินการ' && (
+                              <div className="flex gap-1.5 mt-2 pt-2 border-t border-gray-700">
+                                <button onClick={() => deleteCollectionTask(task)}
+                                  className="text-xs bg-gray-700 hover:bg-red-700 text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">
+                                  🗑️ ยกเลิกงาน
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* ══ Modal: แก้ไขออเดอร์จัดส่ง ══════════════════════════════════════ */}
           {showOrderEditForm && editingOrder && (
             <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
@@ -3092,6 +3380,96 @@ export default function POSPage() {
                     <button onClick={payDebt} disabled={debtSaving || !debtAmount || parseFloat(debtAmount) <= 0}
                       className="flex-[2] bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm">
                       {debtSaving ? 'กำลังบันทึก...' : `รับ ฿${parseFloat(debtAmount || 0).toLocaleString()}`}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══ MODAL: ส่งพนักงานไปเก็บเงินเชื่อ/สินค้ายืม ══════════════════════ */}
+          {showCollectDispatch && collectDispatchCust && (
+            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-gray-900 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div className="p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-white font-bold">📤 ส่งพนักงานไปเก็บ</h3>
+                    <button onClick={() => setShowCollectDispatch(false)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+                  </div>
+                  <div className="bg-gray-800 rounded-xl p-3 mb-4">
+                    <div className="text-white font-medium">{collectDispatchCust.name}</div>
+                    {collectDispatchCust.phone && <div className="text-gray-400 text-xs">{collectDispatchCust.phone}</div>}
+                  </div>
+
+                  <label className="block text-gray-400 text-xs mb-1.5">ประเภทงาน</label>
+                  <div className="grid grid-cols-3 gap-2 mb-4">
+                    {['เงินเชื่อ', 'สินค้ายืม', 'ทั้งคู่'].map(t => (
+                      <button key={t} onClick={() => setCollectDispatchForm(f => ({ ...f, task_type: t }))}
+                        className={`py-2 rounded-xl text-xs font-medium transition-colors ${collectDispatchForm.task_type === t ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+
+                  {collectDispatchForm.task_type !== 'สินค้ายืม' && (
+                    <div className="mb-4">
+                      <label className="block text-gray-400 text-xs mb-1.5">ยอดเงินเชื่อที่ต้องเก็บ (บาท)</label>
+                      <input type="number" min="0" value={collectDispatchForm.debt_amount}
+                        onChange={e => setCollectDispatchForm(f => ({ ...f, debt_amount: e.target.value }))}
+                        className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                    </div>
+                  )}
+
+                  {collectDispatchForm.task_type !== 'เงินเชื่อ' && (
+                    <div className="mb-4">
+                      <label className="block text-gray-400 text-xs mb-1.5">สินค้าหมุนเวียนที่ต้องเก็บคืน (ตรวจสอบให้ตรงกับที่ลูกค้าถืออยู่จริง)</label>
+                      <div className="space-y-2">
+                        {products.filter(p => p.type === 'หมุนเวียน').map(p => (
+                          <div key={p.sku} className="flex items-center justify-between gap-2 bg-gray-800 rounded-xl px-3 py-2">
+                            <span className="text-gray-300 text-sm flex-1 truncate">{p.name}</span>
+                            <input type="number" min="0" value={collectDispatchForm.itemsQty[p.sku] || ''}
+                              onChange={e => setCollectDispatchForm(f => ({ ...f, itemsQty: { ...f.itemsQty, [p.sku]: e.target.value } }))}
+                              placeholder="0"
+                              className="w-16 bg-gray-900 text-white text-sm text-center px-2 py-1.5 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500" />
+                          </div>
+                        ))}
+                        {products.filter(p => p.type === 'หมุนเวียน').length === 0 && (
+                          <div className="text-gray-500 text-xs">ยังไม่มีสินค้าประเภทหมุนเวียนในร้าน</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <label className="block text-gray-400 text-xs mb-1.5">พนักงานที่จะไปเก็บ</label>
+                  <div className="grid grid-cols-2 gap-2 mb-4">
+                    {staff.map(s => (
+                      <button key={s.staff_id}
+                        onClick={() => setCollectDispatchForm(f => ({ ...f, staff_id: s.staff_id, staff_name: s.name, staff_line_id: s.line_id || '' }))}
+                        className={`p-3 rounded-xl border text-sm text-left transition-colors ${collectDispatchForm.staff_id === s.staff_id ? 'bg-orange-900/40 border-orange-600 text-orange-200' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}`}>
+                        <div className="font-medium">{s.name}</div>
+                        <div className="text-xs mt-0.5 text-gray-500">{s.role}</div>
+                        {!s.line_id && <div className="text-xs text-yellow-500 mt-0.5">⚠️ ไม่มี LINE ID</div>}
+                      </button>
+                    ))}
+                    {staff.length === 0 && (
+                      <div className="col-span-2 bg-gray-800 rounded-xl p-3 text-center text-sm text-yellow-400">
+                        ยังไม่มีพนักงาน —{' '}
+                        <button onClick={() => { setShowCollectDispatch(false); setTab('settings'); }} className="underline">เพิ่มพนักงาน</button>
+                      </div>
+                    )}
+                  </div>
+
+                  <label className="block text-gray-400 text-xs mb-1.5">หมายเหตุ (ไม่บังคับ)</label>
+                  <input value={collectDispatchForm.notes}
+                    onChange={e => setCollectDispatchForm(f => ({ ...f, notes: e.target.value }))}
+                    placeholder="เช่น นัดลูกค้าไว้ช่วงบ่าย"
+                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 mb-4" />
+
+                  <div className="flex gap-3">
+                    <button onClick={() => setShowCollectDispatch(false)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-colors text-sm">ยกเลิก</button>
+                    <button onClick={submitCollectDispatch} disabled={collectDispatching || !collectDispatchForm.staff_id}
+                      className="flex-[2] bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm">
+                      {collectDispatching ? 'กำลังส่งงาน...' : '📤 ส่งงาน'}
                     </button>
                   </div>
                 </div>
@@ -3214,7 +3592,7 @@ export default function POSPage() {
                             <button onClick={() => deleteContact(c)} className="text-xs bg-gray-700 hover:bg-red-700 text-gray-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors">ลบ</button>
                           </div>
                         </div>
-                        {(c.maps_1 || c.maps_2 || c.debt > 0) && (
+                        {(c.maps_1 || c.maps_2 || c.debt > 0 || c.cylinders > 0) && (
                           <div className="flex gap-2 mt-2.5 ml-9 flex-wrap">
                             {c.maps_1 && <a href={c.maps_1} target="_blank" rel="noreferrer" className="text-xs bg-gray-700 hover:bg-green-800 text-gray-300 hover:text-green-300 px-3 py-1.5 rounded-lg transition-colors">🗺️ ที่อยู่ 1</a>}
                             {c.maps_2 && <a href={c.maps_2} target="_blank" rel="noreferrer" className="text-xs bg-gray-700 hover:bg-green-800 text-gray-300 hover:text-green-300 px-3 py-1.5 rounded-lg transition-colors">🗺️ ที่อยู่ 2</a>}
@@ -3223,6 +3601,9 @@ export default function POSPage() {
                                 <button onClick={() => openDebtHistory(c)} className="text-xs bg-orange-900/50 hover:bg-orange-900 text-orange-400 hover:text-orange-300 px-3 py-1.5 rounded-lg transition-colors">📋 ประวัติหนี้</button>
                                 <button onClick={() => { setDebtCust(c); setDebtAmount(''); setShowDebtModal(true); }} className="text-xs bg-green-800 hover:bg-green-700 text-green-300 hover:text-green-200 px-3 py-1.5 rounded-lg transition-colors">💰 รับชำระ</button>
                               </>
+                            )}
+                            {(c.debt > 0 || c.cylinders > 0) && (
+                              <button onClick={() => openCollectDispatch(c)} className="text-xs bg-orange-800 hover:bg-orange-700 text-orange-200 hover:text-white px-3 py-1.5 rounded-lg transition-colors">📤 ส่งพนักงานไปเก็บ</button>
                             )}
                           </div>
                         )}
@@ -3307,6 +3688,7 @@ export default function POSPage() {
                     { key: 'loans',      label: '🏷️ ยืมสินค้า' },
                     { key: 'topsellers', label: '🏆 สินค้าขายดี' },
                     { key: 'pl',         label: '📈 กำไร-ขาดทุน' },
+                    { key: 'cyclical',   label: '🔄 สินค้าหมุนเวียน' },
                   ].map(r => (
                     <button key={r.key}
                       onClick={() => { setReportType(r.key); fetchReport(r.key, reportDateFrom, reportDateTo); }}
@@ -3673,6 +4055,74 @@ export default function POSPage() {
                   );
                 })()}
 
+                {!reportLoading && reportData?.type === 'cyclical' && (() => {
+                  const s = reportData.summary || {};
+                  return (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        {[
+                          { label: 'เต็มพร้อมขาย', value: s.total_stock || 0, color: 'text-green-400' },
+                          { label: 'อยู่กับลูกค้ารวม', value: s.total_at_customer || 0, color: 'text-orange-400' },
+                          { label: 'เปล่ารอรีฟิล', value: s.total_empty_waiting || 0, color: 'text-gray-300' },
+                          { label: 'ลูกค้าที่ถืออยู่', value: s.customer_count || 0, color: 'text-blue-400' },
+                        ].map(c => (
+                          <div key={c.label} className="bg-gray-800 rounded-xl p-3 text-center">
+                            <div className={`text-lg font-bold ${c.color}`}>{c.value.toLocaleString()}</div>
+                            <div className="text-gray-400 text-xs mt-1">{c.label}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* ภาพรวมสต็อคต่อสินค้าหมุนเวียน */}
+                      <div className="bg-gray-900 rounded-xl overflow-hidden">
+                        <div className="px-3 py-2 border-b border-gray-800 text-gray-400 text-xs font-medium">📦 สต็อคต่อสินค้า</div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead><tr className="border-b border-gray-800">
+                              <th className="text-left text-gray-400 px-3 py-2">สินค้า</th>
+                              <th className="text-right text-gray-400 px-3 py-2">เต็ม</th>
+                              <th className="text-right text-gray-400 px-3 py-2">กับลูกค้า</th>
+                              <th className="text-right text-gray-400 px-3 py-2">เปล่ารอรีฟิล</th>
+                            </tr></thead>
+                            <tbody>
+                              {(reportData.products || []).map(p => (
+                                <tr key={p.sku} className="border-b border-gray-800/50">
+                                  <td className="px-3 py-2 text-white font-medium">{p.name} <span className="text-gray-600">({p.unit})</span></td>
+                                  <td className="px-3 py-2 text-right text-green-400">{p.stock}</td>
+                                  <td className="px-3 py-2 text-right text-orange-400">{p.at_customer}</td>
+                                  <td className="px-3 py-2 text-right text-gray-300">{p.empty_waiting}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {!reportData.products?.length && <div className="text-center text-gray-500 py-8 text-sm">ยังไม่มีสินค้าประเภทหมุนเวียน</div>}
+                      </div>
+
+                      {/* ใครถืออยู่กี่ชิ้น */}
+                      <div className="bg-gray-900 rounded-xl overflow-hidden">
+                        <div className="px-3 py-2 border-b border-gray-800 text-gray-400 text-xs font-medium">👥 ลูกค้าที่ถือสินค้าหมุนเวียนอยู่</div>
+                        <div className="divide-y divide-gray-800">
+                          {(reportData.customers || []).map(c => (
+                            <div key={c.contact_id} className="px-3 py-2.5 flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="text-white text-sm truncate">{c.name}</div>
+                                {c.phone && <div className="text-gray-500 text-xs">{c.phone}</div>}
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-orange-400 font-bold text-sm">{c.cylinders} ชิ้น</span>
+                                <button onClick={() => openCollectDispatch(contacts.find(x => x.contact_id === c.contact_id) || c)}
+                                  className="text-xs bg-orange-800 hover:bg-orange-700 text-orange-200 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">📤 ส่งเก็บ</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {!reportData.customers?.length && <div className="text-center text-gray-500 py-8 text-sm">ไม่มีลูกค้าถือสินค้าหมุนเวียนอยู่ตอนนี้</div>}
+                      </div>
+                    </div>
+                  );
+                })()}
+
               </div>
             </div>
           )}
@@ -3982,21 +4432,37 @@ export default function POSPage() {
                 </div>
               </div>
 
-              {/* สินค้าหมุนเวียน (เช่น ถังแก๊ส) — ถามว่าลูกค้าเอาถังเปล่าเก่ามาคืนกี่ใบ หรือยืมไปเฉยๆ ยังไม่คืน */}
+              {/* สินค้าหมุนเวียน (เช่น ถังแก๊ส/ขวดน้ำ/ถังออกซิเจน) — ค่าเริ่มต้นถือว่าลูกค้านำของเก่ามาแลกครบทุกชิ้น
+                  กดปุ่ม "ยืม" เฉพาะรายการที่ลูกค้าไม่ได้เอาของเก่ามาคืน (ยืมไปก่อน) */}
               {cyclicalCartItems.length > 0 && (
                 <div className="bg-purple-900/20 border border-purple-800/60 rounded-xl p-3 space-y-2">
-                  <label className="block text-purple-300 text-xs font-bold">🔄 สินค้าหมุนเวียน — ถังเก่าที่ลูกค้าเอามาคืน</label>
-                  {cyclicalCartItems.map(item => (
-                    <div key={item.sku} className="flex items-center justify-between gap-2 text-sm">
-                      <span className="text-gray-300 flex-1 min-w-0 truncate">{item.name} (ซื้อ {item.qty})</span>
-                      <input type="number" min="0" value={returnedQty[item.sku] || ''}
-                        onChange={e => setReturnedQty(q => ({ ...q, [item.sku]: e.target.value }))}
-                        placeholder="0"
-                        className="w-20 bg-gray-900 text-white text-right px-2 py-1.5 rounded-lg border border-purple-700/50 focus:outline-none focus:border-purple-500 text-sm"
-                      />
-                    </div>
-                  ))}
-                  <div className="text-purple-400/70 text-xs">เว้นว่าง = ลูกค้ายืมถังไป ยังไม่คืนถังเก่า</div>
+                  <label className="block text-purple-300 text-xs font-bold">🔄 สินค้าหมุนเวียน — ค่าเริ่มต้นคือลูกค้านำของเก่ามาแลกครบ</label>
+                  {cyclicalCartItems.map(item => {
+                    const unit = item.unit || 'ชิ้น';
+                    const isBorrowing = !!borrowingSku[item.sku];
+                    return (
+                      <div key={item.sku} className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2 text-sm">
+                          <span className="text-gray-300 flex-1 min-w-0 truncate">{item.name} (ซื้อ {item.qty})</span>
+                          <button type="button"
+                            onClick={() => setBorrowingSku(s => ({ ...s, [item.sku]: !s[item.sku] }))}
+                            className={`text-xs px-3 py-1.5 rounded-lg shrink-0 transition-colors ${isBorrowing ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                            {isBorrowing ? '🤝 ยืม' : 'แลกครบ'}
+                          </button>
+                        </div>
+                        {isBorrowing && (
+                          <div className="flex items-center justify-end gap-2 text-xs text-gray-400">
+                            <span>จำนวนที่ยืม (ไม่เอา{unit}เก่ามาแลก)</span>
+                            <input type="number" min="0" max={item.qty} value={borrowedQty[item.sku] || ''}
+                              onChange={e => setBorrowedQty(q => ({ ...q, [item.sku]: e.target.value }))}
+                              placeholder="0"
+                              className="w-16 bg-gray-900 text-white text-right px-2 py-1.5 rounded-lg border border-orange-700/50 focus:outline-none focus:border-orange-500 text-sm"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 

@@ -8,12 +8,13 @@
  *   loans      → รายการยืมสินค้า
  *   topsellers → สินค้าขายดี (top 20 by qty + revenue)
  *   pl         → กำไรขาดทุนรายหมวดหมู่
+ *   cyclical   → สถานะสินค้าหมุนเวียน (ถัง/ขวด/ฯลฯ) — ใครถืออยู่กี่ชิ้น + สรุปสต็อค เต็ม/กับลูกค้า/เปล่ารอรีฟิล
  */
 import { createClient } from '@supabase/supabase-js';
 import {
   getAccessToken, readSheet, ensureTabExists,
-  rowToSale, rowToProduct, rowToLoan, rowToOrder,
-  SALE_HEADERS, LOAN_HEADERS, ORDER_HEADERS,
+  rowToSale, rowToProduct, rowToLoan, rowToOrder, rowToContact,
+  SALE_HEADERS, LOAN_HEADERS, ORDER_HEADERS, CONTACT_HEADERS,
 } from '../../../lib/google-pos';
 
 const supabase = createClient(
@@ -297,6 +298,43 @@ export default async function handler(req, res) {
           total_cost: totalCost,
           gross_profit: totalProfit,
           gross_margin: totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 100) : 0,
+        },
+      });
+    }
+
+    // ── สินค้าหมุนเวียน (ถัง/ขวด/ฯลฯ) ────────────────────────────────────────
+    // รวม 2 มุม: (1) ใครถืออยู่กี่ชิ้น — จาก contact.cylinders (บวกจากทั้งขายหน้าร้านและจัดส่ง
+    // ที่อัปเดตฟิลด์เดียวกันนี้อยู่แล้ว) (2) ภาพรวมสต็อคจริงต่อสินค้า — เต็ม/กับลูกค้า/เปล่ารอรีฟิล
+    if (type === 'cyclical') {
+      await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
+      const [custRows, prodRows] = await Promise.all([
+        readSheet(token, sheetId, 'ผู้ติดต่อ!A:W'),
+        readSheet(token, sheetId, 'สินค้า!A:R'),
+      ]);
+
+      const customers = custRows.slice(1)
+        .map(r => rowToContact(r))
+        .filter(c => c.contact_id && (c.cylinders || 0) > 0)
+        .map(c => ({ contact_id: c.contact_id, name: c.name, phone: c.phone, cylinders: c.cylinders }))
+        .sort((a, b) => b.cylinders - a.cylinders);
+
+      const products = prodRows.slice(1)
+        .map(r => rowToProduct(r))
+        .filter(p => p.sku && p.type === 'หมุนเวียน')
+        .map(p => ({ sku: p.sku, name: p.name, unit: p.unit, stock: p.stock, at_customer: p.at_customer, empty_waiting: p.empty_waiting }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'th'));
+
+      return res.json({
+        type: 'cyclical',
+        customers,
+        products,
+        summary: {
+          customer_count: customers.length,
+          total_with_customers: customers.reduce((s, c) => s + c.cylinders, 0),
+          product_types: products.length,
+          total_stock: products.reduce((s, p) => s + p.stock, 0),
+          total_at_customer: products.reduce((s, p) => s + p.at_customer, 0),
+          total_empty_waiting: products.reduce((s, p) => s + p.empty_waiting, 0),
         },
       });
     }
