@@ -455,7 +455,10 @@ export default function POSPage() {
   const [receiveSaving, setReceiveSaving] = useState(false);
   const [receiveHistory, setReceiveHistory] = useState([]);
   const [receiveHistoryLoading, setReceiveHistoryLoading] = useState(false);
-  const [receiveView, setReceiveView] = useState('form'); // 'form' | 'history'
+  const [receiveView, setReceiveView] = useState('form'); // 'form' | 'history' | 'pending'
+  const [pendingReceives, setPendingReceives] = useState([]); // มาจากบอท LINE #รับสินค้า รอตรวจสอบ
+  const [pendingReceivesLoading, setPendingReceivesLoading] = useState(false);
+  const [linkedPendingNo, setLinkedPendingNo] = useState(null); // pending_no ที่กำลังแก้ไขอยู่ในฟอร์ม (ลบออกจากคิวหลังยืนยันสำเร็จ)
 
   // contacts (ลูกค้า / ผู้จำหน่าย)
   const [contacts, setContacts] = useState([]);
@@ -1138,6 +1141,62 @@ export default function POSPage() {
     setReceiveHistoryLoading(false);
   }
 
+  // ── รับสินค้ารอยืนยันจาก LINE (#รับสินค้า → ถ่ายรูปใบส่งของ → OCR) ───────────
+  async function fetchPendingReceives(sid = shopId) {
+    if (!sid) return;
+    setPendingReceivesLoading(true);
+    try {
+      const r = await fetch(`/api/pos/receives-pending?shopId=${sid}`);
+      const d = await r.json();
+      if (d.pending) setPendingReceives(d.pending);
+    } catch {}
+    setPendingReceivesLoading(false);
+  }
+
+  // จับคู่ชื่อสินค้าที่ OCR อ่านมากับสินค้าจริงในระบบ (ชื่อ/คำค้น) — รายการที่จับคู่ไม่ได้ต้องไปเพิ่มสินค้าใหม่ก่อน
+  function loadPendingIntoForm(pending) {
+    const matchedItems = [];
+    const unmatchedNames = [];
+    for (const item of (pending.items || [])) {
+      const q = (item.name || '').toLowerCase().replace(/\s+/g, '');
+      const prod = products.find(p => {
+        const pn = p.name.toLowerCase().replace(/\s+/g, '');
+        const aliases = (p.aliases || '').toLowerCase().split(',').map(a => a.trim().replace(/\s+/g, ''));
+        return q && (pn === q || pn.includes(q) || q.includes(pn) || aliases.some(a => a && (a === q || a.includes(q) || q.includes(a))));
+      });
+      if (prod) {
+        matchedItems.push({ sku: prod.sku, name: prod.name, unit: prod.unit, qty: String(item.qty || ''), unitCost: String(item.unitPrice || ''), hasVat: false });
+      } else {
+        unmatchedNames.push(item.name);
+      }
+    }
+    setReceiveItems(matchedItems);
+    setReceiveSupplierContact(null);
+    setReceiveSupplier(pending.supplier || '');
+    setReceiveSupplierQ(pending.supplier || '');
+    setReceiveNotes(
+      `จากใบส่งของ LINE เลขที่ ${pending.invoice_no || '-'} วันที่ ${pending.invoice_date || '-'}` +
+      (unmatchedNames.length ? ` — ⚠️ ไม่พบสินค้านี้ในระบบ ต้องเพิ่มสินค้าใหม่ก่อน: ${unmatchedNames.join(', ')}` : '')
+    );
+    setLinkedPendingNo(pending.pending_no);
+    setReceiveView('form');
+    if (unmatchedNames.length) showToast(`⚠️ ไม่พบสินค้า ${unmatchedNames.length} รายการในระบบ ดูหมายเหตุในฟอร์ม`);
+  }
+
+  async function rejectPendingReceive(pending) {
+    if (!confirm(`ปฏิเสธรายการรับสินค้านี้จาก "${pending.supplier}"?`)) return;
+    try {
+      const r = await fetch('/api/pos/receives-pending', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, pending_no: pending.pending_no }),
+      });
+      const d = await r.json();
+      if (d.ok) { await fetchPendingReceives(); showToast('ปฏิเสธรายการแล้ว'); }
+      else alert(d.error);
+    } catch (err) { alert(err.message); }
+  }
+
   useEffect(() => {
     if (!configured || !shopId) return;
     if (tab === 'report') { fetchSales(); fetchReport('sales', reportDateFrom, reportDateTo); }
@@ -1294,6 +1353,7 @@ export default function POSPage() {
 
   useEffect(() => {
     if (tab === 'receive' && receiveView === 'history' && shopId) fetchReceiveHistory();
+    if (tab === 'receive' && shopId) fetchPendingReceives();
   }, [tab, receiveView, shopId]);
 
   // ── categories & filter ───────────────────────────────────────────────────
@@ -1769,6 +1829,16 @@ export default function POSPage() {
         setReceiveSupplierQ('');
         setSupplierPrices({});
         setReceiveNotes('');
+        // ถ้ามาจากรายการรอยืนยันของ LINE — ลบออกจากคิวรอ เพราะยืนยันเข้าสต็อคจริงแล้ว
+        if (linkedPendingNo) {
+          const doneNo = linkedPendingNo;
+          setLinkedPendingNo(null);
+          fetch('/api/pos/receives-pending', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ shopId, pending_no: doneNo }),
+          }).then(() => fetchPendingReceives()).catch(() => {});
+        }
       } else {
         alert(d.error);
       }
@@ -2750,9 +2820,13 @@ export default function POSPage() {
             <div className="h-full overflow-y-auto">
               <div className="p-4 max-w-2xl mx-auto">
 
-                {/* toggle form / history */}
-                <div className="flex gap-2 mb-4">
-                  {[{ key:'form', label:'📥 บันทึกรับสินค้า' }, { key:'history', label:'📋 ประวัติ' }].map(v => (
+                {/* toggle form / pending / history */}
+                <div className="flex gap-2 mb-4 flex-wrap">
+                  {[
+                    { key:'form', label:'📥 บันทึกรับสินค้า' },
+                    { key:'pending', label: `🔔 รอยืนยันจาก LINE${pendingReceives.length ? ` (${pendingReceives.length})` : ''}` },
+                    { key:'history', label:'📋 ประวัติ' },
+                  ].map(v => (
                     <button key={v.key} onClick={() => setReceiveView(v.key)}
                       className={`px-4 py-2 rounded-xl text-xs font-medium transition-colors ${
                         receiveView === v.key ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
@@ -2959,6 +3033,49 @@ export default function POSPage() {
                       {receiveSaving ? 'กำลังบันทึก...' : `✅ ยืนยันรับสินค้า ${receiveItems.length} รายการ`}
                     </button>
                   </>
+                ) : receiveView === 'pending' ? (
+                  /* รอยืนยันจาก LINE (#รับสินค้า → ถ่ายรูปใบส่งของ → OCR) */
+                  pendingReceivesLoading ? (
+                    <div className="text-center text-gray-500 py-12 animate-pulse">กำลังโหลด...</div>
+                  ) : pendingReceives.length === 0 ? (
+                    <div className="text-center py-16 text-gray-500">
+                      <div className="text-4xl mb-3">🔔</div>
+                      <p className="text-sm">ไม่มีรายการรอยืนยัน</p>
+                      <p className="text-xs mt-1 text-gray-600">พิมพ์ <span className="text-gray-400">#รับสินค้า</span> ในกลุ่ม LINE แล้วส่งรูปใบส่งของ ระบบจะมาโผล่ที่นี่</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {pendingReceives.map(p => (
+                        <div key={p.pending_no} className="bg-gray-800 rounded-xl p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-gray-400 text-xs font-mono">{p.pending_no}</span>
+                            <span className="text-gray-500 text-xs">{p.created_at}</span>
+                          </div>
+                          <div className="text-white text-sm font-medium mb-1">🏢 {p.supplier}</div>
+                          <div className="text-gray-500 text-xs mb-2">เลขที่ {p.invoice_no} · วันที่ {p.invoice_date}{p.branch ? ` · ${p.branch}` : ''}</div>
+                          {Array.isArray(p.items) && p.items.map((item, j) => (
+                            <div key={j} className="text-gray-400 text-xs flex justify-between">
+                              <span>{item.name} ×{item.qty}</span>
+                              <span>฿{(item.unitPrice || 0).toLocaleString()}/หน่วย</span>
+                            </div>
+                          ))}
+                          {p.image_url && (
+                            <a href={p.image_url} target="_blank" rel="noreferrer" className="text-blue-400 underline text-xs mt-2 inline-block">🖼️ ดูรูปใบส่งของ</a>
+                          )}
+                          <div className="flex gap-2 mt-3">
+                            <button onClick={() => rejectPendingReceive(p)}
+                              className="flex-1 bg-gray-700 hover:bg-red-800 text-gray-300 hover:text-white text-xs font-medium py-2 rounded-lg transition-colors">
+                              ❌ ปฏิเสธ
+                            </button>
+                            <button onClick={() => loadPendingIntoForm(p)}
+                              className="flex-[2] bg-green-700 hover:bg-green-600 text-white text-xs font-bold py-2 rounded-lg transition-colors">
+                              ✅ ตรวจสอบ/ยืนยัน
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
                 ) : (
                   /* ประวัติรับสินค้า */
                   receiveHistoryLoading ? (

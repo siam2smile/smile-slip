@@ -111,6 +111,39 @@ async function isRecentDuplicateImage(hash, shopId) {
   return false;
 }
 
+// Awaiting-receive-photo guard: ผู้ใช้พิมพ์ #รับสินค้า แล้วรอส่งรูปใบส่งของถัดไป (TTL 10 นาที)
+// Redis: SET EX ธรรมดา (ไม่ใช่ NX เพราะต้อง "อ่านค่าคืน" ตอน consume ไม่ใช่แค่เช็คว่ามีอยู่หรือไม่)
+const awaitingReceiveCache = new Map(); // fallback in-memory: userId -> { shopId, branchName, ts }
+async function setAwaitingReceive(userId, shopId, branchName) {
+  const value = JSON.stringify({ shopId, branchName: branchName || '' });
+  if (redis) {
+    try { await redis.set(`awaitrecv:${userId}`, value, { ex: 600 }); return; } catch (e) {
+      console.warn('[Redis] setAwaitingReceive error:', e.message, '— fallback in-memory');
+    }
+  }
+  awaitingReceiveCache.set(userId, { shopId, branchName: branchName || '', ts: Date.now() });
+}
+async function consumeAwaitingReceive(userId) {
+  if (redis) {
+    try {
+      const raw = await redis.get(`awaitrecv:${userId}`);
+      if (raw) await redis.del(`awaitrecv:${userId}`);
+      if (!raw) return null;
+      return typeof raw === 'string' ? JSON.parse(raw) : raw; // upstash SDK บางเวอร์ชัน auto-parse ให้แล้ว
+    } catch (e) {
+      console.warn('[Redis] consumeAwaitingReceive error:', e.message, '— fallback in-memory');
+    }
+  }
+  const now = Date.now();
+  for (const [id, v] of awaitingReceiveCache) {
+    if (now - v.ts > 10 * 60 * 1000) awaitingReceiveCache.delete(id);
+  }
+  const entry = awaitingReceiveCache.get(userId);
+  if (!entry) return null;
+  awaitingReceiveCache.delete(userId);
+  return { shopId: entry.shopId, branchName: entry.branchName };
+}
+
 // ==========================================
 // 2. HELPER FUNCTIONS
 // ==========================================
@@ -1237,6 +1270,83 @@ JSON format:
 }
 
 // ==========================================
+// 3.3 รับสินค้าผ่านรูปถ่ายใน LINE (ใบส่งของ/ใบกำกับภาษีจากผู้จำหน่าย)
+// คนละ schema กับสลิปโอนเงิน — อ่าน ผู้จำหน่าย/เลขที่เอกสาร/รายการสินค้า(ชื่อ,จำนวน,ราคาต่อหน่วย)
+// ==========================================
+async function extractReceiveDataWithGemini(imageBuffer, modelOverride = null) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const modelVersion = modelOverride || process.env.GEMINI_MODEL || 'gemini-3.5-flash';
+  console.log(`[LOG] 🧠 [Gemini รับสินค้า] ใช้โมเดล: ${modelVersion}`);
+
+  const url = `https://generativelanguage.googleapis.com/v1/models/${modelVersion}:generateContent?key=${apiKey}`;
+  const { date: todayThaiDate, year: todayYear } = getThaiDateTime();
+  const todayBuddhistYear = Number(todayYear) + 543;
+  const prompt = `วันนี้คือ ${todayThaiDate} (พ.ศ. ${todayBuddhistYear} / ค.ศ. ${todayYear})
+วิเคราะห์ใบส่งของ/ใบกำกับภาษีจากผู้จำหน่ายในรูปนี้ แล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น:
+{"supplier":"ชื่อผู้จำหน่าย/ร้านค้าที่ออกเอกสาร","invoice_no":"เลขที่เอกสาร หรือ -","invoice_date":"วว/ดด/ปปปป หรือ -","items":[{"name":"ชื่อสินค้า","qty":0,"unitPrice":0.00}]}
+กฎ:
+■ items: แยกทุกรายการสินค้าที่อยู่ในเอกสาร พร้อมจำนวนและราคาต่อหน่วย (ก่อน VAT ถ้าแยกได้ในเอกสาร ไม่งั้นใช้ราคาที่แสดง)
+■ ถ้าเอกสารมีแต่ยอดรวมต่อบรรทัดไม่มีราคาต่อหน่วย ให้คำนวณ unitPrice = ยอดรวมบรรทัด/จำนวน
+■ invoice_date: ปีเป็น พ.ศ. ถ้าปีไม่ชัดให้ยึดปีปัจจุบันข้างบน อย่าเดาปีที่ห่างจากปัจจุบันมาก`;
+
+  const base64Image = imageBuffer.toString('base64');
+  const requestBody = {
+    contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: 'image/jpeg', data: base64Image } }] }]
+  };
+
+  const response = await axios.post(url, requestBody, { headers: { 'Content-Type': 'application/json' } });
+  const rawText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!rawText) throw new Error('โครงสร้างการตอบกลับจาก Gemini API ไม่ถูกต้อง');
+  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('Gemini ไม่ส่ง JSON กลับมา');
+  const parsed = JSON.parse(jsonMatch[0]);
+  if (!Array.isArray(parsed.items)) parsed.items = [];
+  parsed.items = parsed.items.map(i => ({
+    name: i.name || '-',
+    qty: parseFloat(i.qty) || 0,
+    unitPrice: parseFloat(i.unitPrice) || 0,
+  }));
+  console.log(`[LOG] ✨ [Gemini รับสินค้า] ประมวลผลสำเร็จ — ${parsed.items.length} รายการ`);
+  return parsed;
+}
+
+// tab "รับสินค้ารอยืนยัน" ใน POS Sheet ของร้าน (คนละ tab กับ "รับสินค้า" ที่ยืนยันแล้ว — รอแอดมินตรวจก่อนตัดสต็อคจริง)
+const PENDING_RECEIVE_HEADERS = ['เลขที่รอยืนยัน', 'วันที่-เวลา', 'ผู้จำหน่าย (OCR)', 'เลขที่เอกสาร', 'วันที่ในเอกสาร', 'รายการสินค้า (JSON)', 'ลิงก์รูปภาพ', 'สาขา', 'สถานะ'];
+async function ensurePendingReceiveSheet(accessToken, posSheetId) {
+  const metaRes = await axios.get(
+    `https://sheets.googleapis.com/v4/spreadsheets/${posSheetId}?fields=sheets.properties`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  const exists = metaRes.data.sheets?.some(s => s.properties.title === 'รับสินค้ารอยืนยัน');
+  if (exists) return;
+  try {
+    await axios.post(
+      `https://sheets.googleapis.com/v4/spreadsheets/${posSheetId}:batchUpdate`,
+      { requests: [{ addSheet: { properties: { title: 'รับสินค้ารอยืนยัน' } } }] },
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+    );
+  } catch (addErr) {
+    const msg = addErr.response?.data?.error?.message || addErr.message || '';
+    if (!msg.includes('already exists')) throw addErr;
+  }
+  await axios.put(
+    `https://sheets.googleapis.com/v4/spreadsheets/${posSheetId}/values/${encodeURIComponent('รับสินค้ารอยืนยัน!A1:I1')}?valueInputOption=USER_ENTERED`,
+    { values: [PENDING_RECEIVE_HEADERS] },
+    { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+  );
+}
+function makePendingReceiveNo() {
+  return 'PR' + Date.now().toString(36).toUpperCase();
+}
+async function appendPendingReceive(accessToken, posSheetId, row) {
+  await axios.post(
+    `https://sheets.googleapis.com/v4/spreadsheets/${posSheetId}/values/${encodeURIComponent('รับสินค้ารอยืนยัน!A1')}:append?valueInputOption=USER_ENTERED`,
+    { values: [row] },
+    { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+  );
+}
+
+// ==========================================
 // 4. MAIN WEBHOOK ENDPOINT (LINE RECEIVER)
 // ==========================================
 app.post('/webhook', async (req, res) => {
@@ -1371,6 +1481,29 @@ app.post('/webhook', async (req, res) => {
       }
       // ---- End Manual Entry ----
 
+      // ---- #รับสินค้า — พิมพ์คำสั่งนี้แล้วส่งรูปใบส่งของ/ใบกำกับภาษีถัดไป จะถูกอ่านเป็นรายการรับสินค้ารอยืนยัน (ไม่ใช่สลิปโอนเงิน) ----
+      if (text === '#รับสินค้า' || text === '#รับของ') {
+        const senderId = event.source.userId;
+        try {
+          const { data: posConfig } = await supabase
+            .from('pos_configs').select('pos_sheet_id').eq('shop_id', shop.id).maybeSingle();
+          if (!posConfig?.pos_sheet_id) {
+            await replyToLine(replyToken, [{ type: 'text', text: '⚠️ ร้านนี้ยังไม่ได้เปิดใช้งานระบบ POS ค่ะ ตั้งค่าที่หน้า Dashboard → POS ก่อนนะคะ' }]);
+            continue;
+          }
+          await setAwaitingReceive(senderId, shop.id, cmdBranchName);
+          await replyToLine(replyToken, [{
+            type: 'text',
+            text: '📥 ส่งรูปใบส่งของ/ใบกำกับภาษีจากผู้จำหน่ายเข้ามาได้เลยค่ะ (ภายใน 10 นาที)\nระบบจะอ่านรายการสินค้าให้อัตโนมัติ แล้วรอแอดมินกดยืนยันในหน้า Dashboard → รับสินค้า อีกทีก่อนตัดเข้าสต็อคจริงค่ะ',
+          }]);
+        } catch (err) {
+          console.error('[ERROR] #รับสินค้า error:', err.message);
+          try { await replyToLine(replyToken, [{ type: 'text', text: `❌ เกิดข้อผิดพลาด: ${err.message}` }]); } catch(e) {}
+        }
+        continue;
+      }
+      // ---- End #รับสินค้า ----
+
       // ---- #สมัครแอดมิน — ขอเป็นแอดมินร้านผ่านกลุ่ม LINE ----
       if (text === '#สมัครแอดมิน') {
         const senderId = event.source.userId;
@@ -1448,6 +1581,7 @@ app.post('/webhook', async (req, res) => {
           const tier = getTier(shop);
           const helpText = `📋 คำสั่งที่ใช้ได้ (${tier.toUpperCase()})\n\n` +
             `📸 ส่งรูปสลิป → บันทึกอัตโนมัติ\n\n` +
+            `📥 #รับสินค้า แล้วส่งรูปใบส่งของจากผู้จำหน่าย → อ่านรายการสินค้าอัตโนมัติ (ร้านที่เปิด POS เท่านั้น รอแอดมินยืนยันที่ Dashboard ก่อนตัดสต็อค)\n\n` +
             `✍️ คีย์รายการเอง:\n` +
             `  รับ [จำนวน] [หมายเหตุ] (เงินสด)\n` +
             `  รับโอน [จำนวน] [หมายเหตุ]\n` +
@@ -1701,6 +1835,60 @@ app.post('/webhook', async (req, res) => {
           continue;
         }
         const { shop, branchName } = found;
+
+        // STEP 1.5: ถ้าผู้ส่งเพิ่งพิมพ์ #รับสินค้า ไว้ → รูปนี้คือใบส่งของ ไม่ใช่สลิปโอนเงิน แยกไปคนละ flow เลย
+        // (ไม่ตัดเครดิต เพราะเป็นฟีเจอร์ POS ไม่ใช่ระบบสแกนสลิปที่นับเครดิต)
+        const awaitingReceive = event.source.userId ? await consumeAwaitingReceive(event.source.userId) : null;
+        if (awaitingReceive && awaitingReceive.shopId === shop.id) {
+          try {
+            const receiveImageBuffer = await getLineImage(event.message.id);
+            const receiveData = await withRetry(
+              () => extractReceiveDataWithGemini(receiveImageBuffer),
+              () => extractReceiveDataWithGemini(receiveImageBuffer, process.env.GEMINI_MODEL || 'gemini-3.5-flash')
+            );
+
+            const { data: gConfigR } = await supabase
+              .from('shop_google_configs')
+              .select('google_refresh_token, google_folder_id, google_sheet_id')
+              .eq('shop_id', shop.id).maybeSingle();
+            const { data: posConfigR } = await supabase
+              .from('pos_configs').select('pos_sheet_id').eq('shop_id', shop.id).maybeSingle();
+
+            let imageUrl = null;
+            if (gConfigR?.google_refresh_token && gConfigR?.google_folder_id) {
+              const accessTokenR = await getAccessToken(gConfigR.google_refresh_token);
+              const thaiTimeR = getThaiDateTime();
+              const yearFolderId = await getOrCreateDriveFolder(accessTokenR, gConfigR.google_folder_id, thaiTimeR.year);
+              const monthFolderId = await getOrCreateDriveFolder(accessTokenR, yearFolderId, thaiTimeR.monthFolderName);
+              const receiveFolderId = await getOrCreateDriveFolder(accessTokenR, monthFolderId, 'รับสินค้า');
+              const fileName = `receive_${receiveData.supplier || 'unknown'}_${Date.now()}.jpg`;
+              const driveFileId = await uploadToGoogleDrive(receiveImageBuffer, accessTokenR, receiveFolderId, fileName);
+              imageUrl = `https://drive.google.com/open?id=${driveFileId}`;
+
+              if (posConfigR?.pos_sheet_id) {
+                await ensurePendingReceiveSheet(accessTokenR, posConfigR.pos_sheet_id);
+                const nowR = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+                await appendPendingReceive(accessTokenR, posConfigR.pos_sheet_id, [
+                  makePendingReceiveNo(), nowR, receiveData.supplier || '-', receiveData.invoice_no || '-',
+                  receiveData.invoice_date || '-', JSON.stringify(receiveData.items), imageUrl || '',
+                  awaitingReceive.branchName || branchName || '', 'รอตรวจสอบ',
+                ]);
+              }
+            }
+
+            const itemsSummary = receiveData.items.slice(0, 10)
+              .map(i => `• ${i.name} ×${i.qty} @฿${i.unitPrice}`).join('\n');
+            const dashboardUrl = `${process.env.FRONTEND_URL}/pos?userId=${shop.owner_line_id}`;
+            await replyToLine(replyToken, [{
+              type: 'text',
+              text: `📥 อ่านใบส่งของสำเร็จ!\n🏢 ผู้จำหน่าย: ${receiveData.supplier || '-'}\n📄 เลขที่: ${receiveData.invoice_no || '-'}\n\n${itemsSummary || 'ไม่พบรายการสินค้า'}\n\n⚠️ ยังไม่ตัดเข้าสต็อค — เข้าไปตรวจสอบ/ยืนยันที่ Dashboard → รับสินค้า → รอยืนยันจาก LINE\n${dashboardUrl}`,
+            }]);
+          } catch (recvErr) {
+            console.error('[ERROR] รับสินค้าผ่าน LINE error:', recvErr.message);
+            try { await replyToLine(replyToken, [{ type: 'text', text: `❌ อ่านใบส่งของไม่สำเร็จ: ${recvErr.message}` }]); } catch(e) {}
+          }
+          continue;
+        }
 
         // STEP 2: ตรวจสอบเครดิตคงเหลือ (Enterprise/Super ข้าม — ไม่ตัดเครดิต)
         let creditData = null;

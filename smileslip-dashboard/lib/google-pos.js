@@ -534,6 +534,26 @@ export function makeCollectionNo() {
   return `COL${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 }
 
+// tab "รับสินค้ารอยืนยัน" — สร้างจากบอท LINE เมื่อพิมพ์ #รับสินค้า แล้วส่งรูปใบส่งของ (รอแอดมินตรวจสอบ/แก้ไข
+// ก่อนตัดเข้าสต็อคจริงผ่าน /api/pos/receives ปกติ — ไฟล์นี้แค่อ่าน/ลบ ไม่แตะสต็อคเอง)
+export const PENDING_RECEIVE_HEADERS = ['เลขที่รอยืนยัน', 'วันที่-เวลา', 'ผู้จำหน่าย (OCR)', 'เลขที่เอกสาร', 'วันที่ในเอกสาร', 'รายการสินค้า (JSON)', 'ลิงก์รูปภาพ', 'สาขา', 'สถานะ'];
+
+export function rowToPendingReceive(row) {
+  let items = [];
+  try { items = JSON.parse(row[5] || '[]'); } catch {}
+  return {
+    pending_no:    row[0] || '',
+    created_at:    row[1] || '',
+    supplier:      row[2] || '',
+    invoice_no:    row[3] || '',
+    invoice_date:  row[4] || '',
+    items,
+    image_url:     row[6] || '',
+    branch:        row[7] || '',
+    status:        row[8] || 'รอตรวจสอบ',
+  };
+}
+
 export function rowToReceive(row) {
   let items = [];
   try { items = JSON.parse(row[3] || '[]'); } catch {}
