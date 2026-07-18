@@ -965,6 +965,24 @@ export default function POSPage() {
       });
       const d = await r.json();
       if (d.ok) {
+        // บันทึกที่อยู่ที่พิมพ์เองกลับเข้าข้อมูลลูกค้า (ช่องที่ยังว่าง) กันต้องพิมพ์ที่อยู่ซ้ำทุกครั้งที่สั่งจัดส่ง
+        if (delivAddrIdx === 2 && delivAddrCustom.trim() && delivCust.contact_id) {
+          const slot = !delivCust.address_1 ? 'address_1' : !delivCust.address_2 ? 'address_2' : null;
+          if (slot) {
+            try {
+              await fetch('/api/pos/contacts', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  shopId, contact_id: delivCust.contact_id,
+                  [slot]: delivAddrCustom,
+                  [slot === 'address_1' ? 'maps_1' : 'maps_2']: delivMapsCustom,
+                }),
+              });
+              fetchContacts();
+            } catch {}
+          }
+        }
         showToast(`ส่งงานให้ ${delivStaff.name} แล้ว — ${d.order_no}`);
         setShowDelivery(false);
         // ปิดบิลที่ active
@@ -1074,11 +1092,12 @@ export default function POSPage() {
 
   // ลูกค้าที่เลือกไว้ตอนเปิดบิล (newBillCust) หรือระหว่างขาย (creditCustomer) ให้ใช้ตัวเดียวกันต่อ
   // ไม่ต้องเลือกซ้ำตอนกดชำระเงิน/จัดส่ง — ถ้ายังไม่มีเลยค่อยถามตอนนั้น
+  // หมายเหตุ: ขายหน้าร้านใช้ราคากลางเสมอ ไม่ดึงราคาประจำตัวลูกค้ามาใช้ (ราคาประจำตัวใช้เฉพาะตอนเปิดออเดอร์จัดส่งเท่านั้น)
   function openCheckout() {
     if (!creditCustomer) {
       const bill = openBills.find(b => b.id === activeBillId);
       const full = bill?.customer_id ? contacts.find(c => c.contact_id === bill.customer_id) : null;
-      if (full) { setCreditCustomer(full); fetchCustomerPrices(full.contact_id); }
+      if (full) setCreditCustomer(full);
     }
     setReturnedQty({});
     setShowCheckout(true);
@@ -1102,6 +1121,7 @@ export default function POSPage() {
     if (already) {
       setDelivCust(already);
       setDelivStep(2);
+      fetchCustomerPrices(already.contact_id);
     } else {
       setDelivCust(null);
       setDelivStep(1);
@@ -3988,11 +4008,8 @@ export default function POSPage() {
                     <div>
                       <div className="text-white font-bold text-sm">{creditCustomer.name}</div>
                       {creditCustomer.phone && <div className="text-gray-400 text-xs">{creditCustomer.phone}</div>}
-                      {Object.keys(customerPrices).length > 0 && (
-                        <div className="text-green-400 text-xs mt-0.5">💰 ใช้ราคาประจำตัวแล้ว</div>
-                      )}
                     </div>
-                    <button onClick={() => { setCreditCustomer(null); setCustomerPrices({}); }}
+                    <button onClick={() => setCreditCustomer(null)}
                       className="text-gray-500 hover:text-gray-300 text-lg ml-2">✕</button>
                   </div>
                 ) : (
@@ -4015,7 +4032,7 @@ export default function POSPage() {
                         <div className="bg-gray-800 rounded-xl overflow-hidden border border-gray-700">
                           {matches.map((c, i) => (
                             <button key={i} className="w-full text-left px-3 py-2.5 hover:bg-gray-700 text-sm text-gray-200 border-b border-gray-700/50 last:border-0"
-                              onClick={() => { setCreditCustomer(c); setCreditCustomerQ(''); fetchCustomerPrices(c.contact_id); }}>
+                              onClick={() => { setCreditCustomer(c); setCreditCustomerQ(''); }}>
                               <div>{c.name}</div>
                               {c.phone && <div className="text-gray-500 text-xs">{c.phone}</div>}
                             </button>
@@ -4916,7 +4933,7 @@ export default function POSPage() {
                   <div className="space-y-1.5 max-h-64 overflow-y-auto">
                     {delivMatchedCustomers.map(c => (
                       <button key={c.contact_id}
-                        onClick={() => { setDelivCust(c); setDelivStep(2); }}
+                        onClick={() => { setDelivCust(c); setDelivStep(2); fetchCustomerPrices(c.contact_id); }}
                         className="w-full text-left bg-gray-800 hover:bg-gray-700 rounded-xl p-3 transition-colors flex items-center justify-between gap-2">
                         <div>
                           <div className="text-white text-sm font-medium">{c.name}</div>
@@ -4944,6 +4961,9 @@ export default function POSPage() {
                     <div>
                       <div className="text-white font-medium text-sm">{delivCust.name}</div>
                       {delivCust.phone && <div className="text-gray-400 text-xs">{delivCust.phone}</div>}
+                      {Object.keys(customerPrices).length > 0 && (
+                        <div className="text-green-400 text-xs mt-0.5">💰 ใช้ราคาประจำตัวแล้ว</div>
+                      )}
                     </div>
                     <button onClick={() => setDelivStep(1)} className="text-xs text-green-400 underline">เปลี่ยน</button>
                   </div>
