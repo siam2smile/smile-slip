@@ -128,6 +128,15 @@ function openPrintWindow(html) {
   w.document.close();
 }
 
+// แปลงสตริงวันที่ไทย "D/M/พ.ศ. H:mm:ss" (จาก toLocaleString('th-TH')) กลับเป็น Date ค.ศ. — ใช้กรอง วันนี้/เดือนนี้
+function parseThaiOrderDate(str) {
+  if (!str) return null;
+  const datePart = str.split(' ')[0];
+  const [d, m, yBE] = datePart.split('/').map(Number);
+  if (!d || !m || !yBE) return null;
+  return new Date(yBE - 543, m - 1, d);
+}
+
 // ── Map Picker Modal ─────────────────────────────────────────────────────────
 // ใช้ Leaflet + OpenStreetMap (ฟรี ไม่ต้องมี API key)
 // ผู้ใช้คลิกบนแผนที่เพื่อวางหมุดตรงจุดที่ต้องการ
@@ -342,6 +351,7 @@ export default function POSPage() {
   const [products, setProducts] = useState([]);
   const [productsLoading, setProductsLoading] = useState(false);
   const [cart, setCart] = useState([]);
+  const [returnedQty, setReturnedQty] = useState({}); // { sku: qty } ถังเปล่าที่ลูกค้าเอามาคืนตอนซื้อหน้าร้าน (สินค้าหมุนเวียน)
   const [selectedCat, setSelectedCat] = useState('ทั้งหมด');
   const [search, setSearch] = useState('');
 
@@ -509,6 +519,8 @@ export default function POSPage() {
   const [adminsList, setAdminsList] = useState([]); // ใช้ resolve "สร้างโดย" เป็นชื่อคน
   const [cashConfirming, setCashConfirming] = useState(null); // order_no ที่กำลังกดยืนยันรับเงิน
   const [goodsConfirming, setGoodsConfirming] = useState(null); // order_no ที่กำลังกดยืนยันรับของ
+  const [orderStatusFilter, setOrderStatusFilter] = useState('all'); // 'all' | 'pending' | 'delivered'
+  const [orderDateFilter, setOrderDateFilter] = useState('all'); // 'all' | 'today' | 'month'
   const [orderEditForm, setOrderEditForm] = useState({
     customer_name: '', phone: '', address: '', payment_method: '', staff_id: '', notes: '',
   });
@@ -1068,8 +1080,12 @@ export default function POSPage() {
       const full = bill?.customer_id ? contacts.find(c => c.contact_id === bill.customer_id) : null;
       if (full) { setCreditCustomer(full); fetchCustomerPrices(full.contact_id); }
     }
+    setReturnedQty({});
     setShowCheckout(true);
   }
+
+  // รายการในตะกร้าที่เป็นสินค้าหมุนเวียน (เช่น ถังแก๊ส) — ต้องถามว่าลูกค้าเอาถังเปล่าเก่ามาคืนกี่ใบ
+  const cyclicalCartItems = cart.filter(item => products.find(p => p.sku === item.sku)?.type === 'หมุนเวียน');
 
   function openDelivery() {
     const bill = openBills.find(b => b.id === activeBillId);
@@ -1256,12 +1272,17 @@ export default function POSPage() {
     if (!cart.length || checkoutLoading) return;
     setCheckoutLoading(true);
     try {
+      // แนบ returned_qty (ถังเปล่าที่ลูกค้าคืนมา) เข้ากับรายการสินค้าหมุนเวียนในตะกร้า
+      const itemsWithReturns = cart.map(item => {
+        const qty = parseInt(returnedQty[item.sku]) || 0;
+        return qty > 0 ? { ...item, returned_qty: qty } : item;
+      });
       const r = await fetch('/api/pos/sales', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           shopId,
-          items: cart,
+          items: itemsWithReturns,
           discount: cartDiscount,
           payment_method: payMethod,
           cash_received: parseFloat(cashReceived) || cartTotal,
@@ -1307,6 +1328,7 @@ export default function POSPage() {
         setSlipOcrData(null);
         setCreditCustomer(null);
         setCreditCustomerQ('');
+        setReturnedQty({});
         setShowCheckout(false);
         setShowCartDrawer(false);
         setShowBill(true);
@@ -1629,6 +1651,28 @@ export default function POSPage() {
 
   // รีเซ็ตกลับหน้า 1 ทุกครั้งที่เปลี่ยนตัวกรอง/คำค้นหา
   useEffect(() => { setContactPage(1); }, [contactFilter, contactSearch, contactOutstandingOnly]);
+
+  // ตัวกรองออเดอร์จัดส่ง — สถานะ (ค้าง/จัดส่งแล้ว) + วันที่ (วันนี้/เดือนนี้) กันหายากตอนออเดอร์เยอะ
+  const displayOrders = useMemo(() => {
+    let list = orders;
+    if (orderStatusFilter === 'pending') {
+      list = list.filter(o => o.status === 'รอจัดส่ง' || o.status === 'กำลังส่ง');
+    } else if (orderStatusFilter === 'delivered') {
+      list = list.filter(o => o.status === 'ส่งแล้ว');
+    }
+    if (orderDateFilter !== 'all') {
+      const today = new Date();
+      list = list.filter(o => {
+        const od = parseThaiOrderDate(o.created_at);
+        if (!od) return false;
+        if (orderDateFilter === 'today') {
+          return od.getFullYear() === today.getFullYear() && od.getMonth() === today.getMonth() && od.getDate() === today.getDate();
+        }
+        return od.getFullYear() === today.getFullYear() && od.getMonth() === today.getMonth();
+      });
+    }
+    return list;
+  }, [orders, orderStatusFilter, orderDateFilter]);
 
   const contactTotalPages = Math.max(1, Math.ceil(displayContacts.length / CONTACTS_PER_PAGE));
   const pagedContacts = useMemo(() =>
@@ -2771,22 +2815,46 @@ export default function POSPage() {
             <div className="h-full overflow-y-auto">
               <div className="p-4 max-w-3xl mx-auto">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-white font-bold">ออเดอร์จัดส่ง ({orders.length})</h2>
+                  <h2 className="text-white font-bold">ออเดอร์จัดส่ง ({displayOrders.length}{displayOrders.length !== orders.length ? `/${orders.length}` : ''})</h2>
                   <button onClick={() => fetchOrders(shopId)} className="text-xs text-gray-400 hover:text-white bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-700 transition-colors">
                     🔄 รีเฟรช
                   </button>
                 </div>
 
+                <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+                  {[
+                    { v: 'all', label: 'ทั้งหมด' },
+                    { v: 'pending', label: '🕒 ค้างจัดส่ง' },
+                    { v: 'delivered', label: '✅ จัดส่งแล้ว' },
+                  ].map(f => (
+                    <button key={f.v} onClick={() => setOrderStatusFilter(f.v)}
+                      className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${orderStatusFilter === f.v ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                      {f.label}
+                    </button>
+                  ))}
+                  <span className="w-px h-5 bg-gray-700 mx-0.5" />
+                  {[
+                    { v: 'all', label: 'ทุกวันที่' },
+                    { v: 'today', label: '📅 ค้างวันนี้' },
+                    { v: 'month', label: '📅 ค้างเดือนนี้' },
+                  ].map(f => (
+                    <button key={f.v} onClick={() => setOrderDateFilter(f.v)}
+                      className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${orderDateFilter === f.v ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
                 {ordersLoading ? (
                   <div className="text-center text-gray-500 py-12 animate-pulse">กำลังโหลด...</div>
-                ) : orders.length === 0 ? (
+                ) : displayOrders.length === 0 ? (
                   <div className="text-center py-16">
                     <div className="text-5xl mb-3">🚚</div>
-                    <p className="text-gray-400 text-sm">ยังไม่มีออเดอร์จัดส่ง</p>
+                    <p className="text-gray-400 text-sm">{orders.length === 0 ? 'ยังไม่มีออเดอร์จัดส่ง' : 'ไม่พบออเดอร์ตามตัวกรองที่เลือก'}</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {orders.map(order => {
+                    {displayOrders.map(order => {
                       const statusColor = {
                         'รอจัดส่ง': 'bg-yellow-900/60 text-yellow-300',
                         'กำลังส่ง': 'bg-blue-900/60 text-blue-300',
@@ -3893,6 +3961,24 @@ export default function POSPage() {
                   <span className="text-white">฿{cartSubtotal.toLocaleString()}</span>
                 </div>
               </div>
+
+              {/* สินค้าหมุนเวียน (เช่น ถังแก๊ส) — ถามว่าลูกค้าเอาถังเปล่าเก่ามาคืนกี่ใบ หรือยืมไปเฉยๆ ยังไม่คืน */}
+              {cyclicalCartItems.length > 0 && (
+                <div className="bg-purple-900/20 border border-purple-800/60 rounded-xl p-3 space-y-2">
+                  <label className="block text-purple-300 text-xs font-bold">🔄 สินค้าหมุนเวียน — ถังเก่าที่ลูกค้าเอามาคืน</label>
+                  {cyclicalCartItems.map(item => (
+                    <div key={item.sku} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="text-gray-300 flex-1 min-w-0 truncate">{item.name} (ซื้อ {item.qty})</span>
+                      <input type="number" min="0" value={returnedQty[item.sku] || ''}
+                        onChange={e => setReturnedQty(q => ({ ...q, [item.sku]: e.target.value }))}
+                        placeholder="0"
+                        className="w-20 bg-gray-900 text-white text-right px-2 py-1.5 rounded-lg border border-purple-700/50 focus:outline-none focus:border-purple-500 text-sm"
+                      />
+                    </div>
+                  ))}
+                  <div className="text-purple-400/70 text-xs">เว้นว่าง = ลูกค้ายืมถังไป ยังไม่คืนถังเก่า</div>
+                </div>
+              )}
 
               {/* ลูกค้า — ค้นหาลูกค้าเดิมเพื่อดึงราคาประจำตัว หรือพิมพ์ชื่อใหม่เฉยๆ ก็ได้ */}
               <div>

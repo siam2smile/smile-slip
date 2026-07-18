@@ -63,6 +63,20 @@ function buildDeliveryFlex(order, shopId) {
                    payment_method === 'โอนแล้ว'  ? '✅ โอนแล้ว'  : '💵 เก็บเงินปลายทาง';
 
   const footerContents = [];
+  // ปุ่มหลัก: เปิดหน้ายืนยันจัดส่ง (pos-staff) — เข้าด้วย PIN ร้าน แล้วพากดยืนยันจัดส่งออเดอร์นี้ได้ทันที
+  if (order_no && shopId) {
+    footerContents.push({
+      type: 'button',
+      action: {
+        type: 'uri',
+        label: '✅ เปิดหน้ายืนยันจัดส่ง',
+        uri: `${process.env.FRONTEND_URL}/pos-staff?shopId=${shopId}&order_no=${order_no}`,
+      },
+      style: 'primary',
+      color: '#2563eb',
+      height: 'sm',
+    });
+  }
   if (maps_link) {
     footerContents.push({
       type: 'button',

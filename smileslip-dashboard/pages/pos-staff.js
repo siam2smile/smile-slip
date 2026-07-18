@@ -9,7 +9,7 @@ import { useRouter } from 'next/router';
 
 export default function PosStaffPage() {
   const router = useRouter();
-  const { shopId } = router.query;
+  const { shopId, order_no: deepLinkOrderNo } = router.query;
 
   const [step, setStep] = useState('pin'); // 'pin' | 'menu' | 'bills' | 'confirm' | 'deliveries' | 'deliver-confirm'
   const [pin, setPin] = useState('');
@@ -67,10 +67,16 @@ export default function PosStaffPage() {
       });
       const d = await r.json();
       if (d.ok) {
-        setStep('menu');
         fetchBills();
-        fetchOrders();
         fetchProducts();
+        const fetchedOrders = await fetchOrders();
+        // มาจากลิงก์ใน LINE push (มี order_no แนบมา) → พาไปหน้ายืนยันจัดส่งออเดอร์นั้นเลย
+        const target = deepLinkOrderNo ? fetchedOrders.find(o => o.order_no === deepLinkOrderNo) : null;
+        if (target) {
+          openDeliverConfirm(target);
+        } else {
+          setStep(deepLinkOrderNo ? 'deliveries' : 'menu');
+        }
       } else {
         setPinError('PIN ไม่ถูกต้อง');
         setPin('');
@@ -96,14 +102,19 @@ export default function PosStaffPage() {
 
   // ── งานจัดส่ง (delivery) ────────────────────────────────────────────────
   async function fetchOrders() {
-    if (!shopId) return;
+    if (!shopId) return [];
     setOrdersLoading(true);
+    let filtered = [];
     try {
       const r = await fetch(`/api/pos/delivery?shopId=${shopId}`);
       const d = await r.json();
-      if (d.orders) setOrders(d.orders.filter(o => o.status === 'รอจัดส่ง' || o.status === 'กำลังส่ง'));
+      if (d.orders) {
+        filtered = d.orders.filter(o => o.status === 'รอจัดส่ง' || o.status === 'กำลังส่ง');
+        setOrders(filtered);
+      }
     } catch {}
     setOrdersLoading(false);
+    return filtered;
   }
 
   async function fetchProducts() {

@@ -10,7 +10,7 @@
 import { createClient } from '@supabase/supabase-js';
 import {
   getAccessToken, readSheet, appendSheet, updateSheetRow,
-  ensureTabExists, makeBillNo, rowToSale, SALE_HEADERS, rowToProduct,
+  ensureTabExists, makeBillNo, rowToSale, SALE_HEADERS, rowToProduct, CONTACT_HEADERS,
 } from '../../../lib/google-pos';
 
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -227,7 +227,11 @@ export default async function handler(req, res) {
         });
       }
 
-      // 3. ตัดสต็อค / เพิ่ม at_customer (fail-safe)
+      // 3. ตัดสต็อค / แลกถังสินค้าหมุนเวียน (fail-safe)
+      //    สินค้าหมุนเวียน: ขาย 1 ถัง → หัก "เต็ม" (stock) ออก 1 เสมอ (เดิมไม่หัก เป็นบั๊ก)
+      //    ถ้าลูกค้าเอาถังเปล่าเก่ามาคืน (item.returned_qty) → ถังนั้นไม่ได้ค้างอยู่กับลูกค้าเพิ่ม
+      //    (กับลูกค้าสุทธิ = qty - returned_qty) และเพิ่ม "เปล่ารอรีฟิล" ตามจำนวนที่คืนมา
+      let netCylinderDeltaForCustomer = 0;
       try {
         const prodRows = await readSheet(token, sheetId, 'สินค้า!A:R');
         const dataRows = prodRows.slice(1);
@@ -242,14 +246,33 @@ export default async function handler(req, res) {
             // บริการ/ไม่นับสต็อค: ไม่เปลี่ยนแปลงตัวเลขใดๆ
             continue;
           } else if (prodType === 'หมุนเวียน') {
-            existing[11] = (parseFloat(existing[11]) || 0) + item.qty; // at_customer เพิ่ม
+            const returnedQty = parseInt(item.returned_qty) || 0;
+            existing[5]  = Math.max(0, (parseFloat(existing[5]) || 0) - item.qty); // เต็ม (stock) ลด — ออกจากร้านไปกับลูกค้า
+            existing[11] = Math.max(0, (parseFloat(existing[11]) || 0) + item.qty - returnedQty); // กับลูกค้า สุทธิ
+            existing[12] = (parseFloat(existing[12]) || 0) + returnedQty; // เปล่ารอรีฟิล
             existing[9]  = now;
+            netCylinderDeltaForCustomer += item.qty - returnedQty;
           } else {
             existing[5] = Math.max(0, (parseFloat(existing[5]) || 0) - item.qty); // stock ลด
             existing[9] = now;
           }
           await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
           dataRows[idx] = existing;
+        }
+
+        // อัปเดตยอด "ถังอยู่กับลูกค้า" ของผู้ติดต่อ (ถ้าเลือกลูกค้าไว้ตอนขาย)
+        if (customerId && netCylinderDeltaForCustomer !== 0) {
+          await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
+          const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:W');
+          const custDataRows = custRows.slice(1);
+          const custIdx = custDataRows.findIndex(r => r[0] === customerId);
+          if (custIdx !== -1) {
+            const custExisting = [...custDataRows[custIdx]];
+            while (custExisting.length < 23) custExisting.push('');
+            custExisting[14] = Math.max(0, (parseFloat(custExisting[14]) || 0) + netCylinderDeltaForCustomer); // ถังอยู่กับลูกค้า
+            custExisting[19] = now; // updated_at
+            await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
+          }
         }
       } catch (stockErr) {
         console.error('[pos/sales] stock deduct error:', stockErr.message);
