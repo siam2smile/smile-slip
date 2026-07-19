@@ -9,13 +9,14 @@
  *   topsellers → สินค้าขายดี (top 20 by qty + revenue)
  *   pl         → กำไรขาดทุนรายหมวดหมู่
  *   cyclical   → สถานะสินค้าหมุนเวียน (ถัง/ขวด/ฯลฯ) — ใครถืออยู่กี่ชิ้น + สรุปสต็อค เต็ม/กับลูกค้า/เปล่ารอรีฟิล
- *   vat        → ภาษีขาย (จากยอดขาย แยกตามสาขา) vs ภาษีซื้อ (จากรับสินค้า ยังไม่แยกสาขา) + ยอด VAT สุทธิที่ต้องนำส่ง
+ *   vat        → ภาษีขาย (จากยอดขาย แยกตามสาขา) vs ภาษีซื้อ (จากรับสินค้า+รายจ่าย ยังไม่แยกสาขา) + ยอด VAT สุทธิที่ต้องนำส่ง
+ *   expenses   → รายจ่ายที่ไม่เกี่ยวกับสต็อคสินค้า (ค่าเช่า/ค่าน้ำไฟ ฯลฯ) — รายการ + สรุปยอดรวม/VAT
  */
 import { createClient } from '@supabase/supabase-js';
 import {
   getAccessToken, readSheet, ensureTabExists,
-  rowToSale, rowToProduct, rowToLoan, rowToOrder, rowToContact, rowToReceive,
-  SALE_HEADERS, LOAN_HEADERS, ORDER_HEADERS, CONTACT_HEADERS, RECEIVE_HEADERS,
+  rowToSale, rowToProduct, rowToLoan, rowToOrder, rowToContact, rowToReceive, rowToExpense,
+  SALE_HEADERS, LOAN_HEADERS, ORDER_HEADERS, CONTACT_HEADERS, RECEIVE_HEADERS, EXPENSE_HEADERS,
 } from '../../../lib/google-pos';
 
 const supabase = createClient(
@@ -252,12 +253,22 @@ export default async function handler(req, res) {
     }
 
     // ── กำไรขาดทุน (P&L) ──────────────────────────────────────────────────
+    // กำไรขั้นต้น (gross profit) คำนวณจากยอดขาย - ต้นทุนสินค้าต่อหมวดหมู่ ตามเดิม
+    // net_profit หักค่าใช้จ่ายร้าน (จาก tab "รายจ่าย" — ไม่เกี่ยวกับสต็อคสินค้า) ออกเพิ่มด้วย
     if (type === 'pl') {
       await ensureTabExists(token, sheetId, 'ยอดขาย', SALE_HEADERS);
-      const [saleRows, prodRows] = await Promise.all([
+      await ensureTabExists(token, sheetId, 'รายจ่าย', EXPENSE_HEADERS);
+      const [saleRows, prodRows, expenseRows] = await Promise.all([
         readSheet(token, sheetId, 'ยอดขาย!A:R'),
         readSheet(token, sheetId, 'สินค้า!A:R'),
+        readSheet(token, sheetId, 'รายจ่าย!A:L'),
       ]);
+
+      const expenses = expenseRows.slice(1)
+        .map(r => rowToExpense(r))
+        .filter(e => e.expense_no)
+        .filter(e => inRange(e.created_at, from, to));
+      const totalExpenses = expenses.reduce((a, e) => a + e.total, 0);
 
       const costMap = {};
       const catMap = {};
@@ -291,14 +302,19 @@ export default async function handler(req, res) {
       const totalCost    = categories.reduce((a, c) => a + c.cost, 0);
       const totalProfit  = categories.reduce((a, c) => a + c.profit, 0);
 
+      const netProfit = totalProfit - totalExpenses;
       return res.json({
         type: 'pl',
         categories,
+        expenses,
         summary: {
           total_revenue: totalRevenue,
           total_cost: totalCost,
           gross_profit: totalProfit,
           gross_margin: totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 100) : 0,
+          total_expenses: totalExpenses,
+          net_profit: netProfit,
+          net_margin: totalRevenue > 0 ? Math.round((netProfit / totalRevenue) * 100) : 0,
         },
       });
     }
@@ -342,14 +358,16 @@ export default async function handler(req, res) {
 
     // ── รายงาน VAT (ภาษีขาย/ภาษีซื้อ) ────────────────────────────────────────
     // ภาษีขาย (output VAT) มาจากยอดขาย — แยกตามสาขาได้ (คอลัมน์ "สาขา" ของยอดขาย)
-    // ภาษีซื้อ (input VAT) มาจากใบรับสินค้า — ยังไม่มีคอลัมน์สาขาในการรับสินค้า (รับเข้าคลังกลาง
-    // ของร้าน ไม่ได้แยกตามสาขาที่ขาย) จึงรวมเป็นยอดเดียวของทั้งร้าน ไม่แยกสาขาในเวอร์ชันนี้
+    // ภาษีซื้อ (input VAT) รวม 2 แหล่ง: ใบรับสินค้า (ซื้อเข้าสต็อค) + รายจ่าย (ค่าใช้จ่ายร้านที่มี VAT)
+    // ทั้งคู่ยังไม่มีคอลัมน์สาขา (ไม่ได้ผูกกับสาขาที่ขาย) จึงรวมเป็นยอดเดียวของทั้งร้าน ไม่แยกสาขาในเวอร์ชันนี้
     if (type === 'vat') {
       await ensureTabExists(token, sheetId, 'ยอดขาย', SALE_HEADERS);
       await ensureTabExists(token, sheetId, 'รับสินค้า', RECEIVE_HEADERS);
-      const [saleRows, receiveRows] = await Promise.all([
+      await ensureTabExists(token, sheetId, 'รายจ่าย', EXPENSE_HEADERS);
+      const [saleRows, receiveRows, expenseRows] = await Promise.all([
         readSheet(token, sheetId, 'ยอดขาย!A:R'),
         readSheet(token, sheetId, 'รับสินค้า!A:I'),
+        readSheet(token, sheetId, 'รายจ่าย!A:L'),
       ]);
 
       let sales = saleRows.slice(1)
@@ -361,6 +379,11 @@ export default async function handler(req, res) {
         .map(r => rowToReceive(r))
         .filter(r => r.receive_no)
         .filter(r => inRange(r.created_at, from, to));
+
+      let expenses = expenseRows.slice(1)
+        .map(r => rowToExpense(r))
+        .filter(e => e.expense_no)
+        .filter(e => inRange(e.created_at, from, to));
 
       // ── ภาษีขาย แยกตามสาขา ───────────────────────────────────────────────
       const byBranch = {};
@@ -375,22 +398,53 @@ export default async function handler(req, res) {
 
       const outputVatSubtotal = sales.reduce((a, s) => a + s.vat_subtotal, 0);
       const outputVat = sales.reduce((a, s) => a + s.vat_amount, 0);
-      const inputVatSubtotal = receives.reduce((a, r) => a + r.subtotal, 0);
-      const inputVat = receives.reduce((a, r) => a + r.vat_total, 0);
+      const inputVatSubtotalReceives = receives.reduce((a, r) => a + r.subtotal, 0);
+      const inputVatReceives = receives.reduce((a, r) => a + r.vat_total, 0);
+      const inputVatSubtotalExpenses = expenses.reduce((a, e) => a + e.subtotal, 0);
+      const inputVatExpenses = expenses.reduce((a, e) => a + e.vat_amount, 0);
+      const inputVatSubtotal = inputVatSubtotalReceives + inputVatSubtotalExpenses;
+      const inputVat = inputVatReceives + inputVatExpenses;
 
       return res.json({
         type: 'vat',
         branch_breakdown: branchBreakdown,
         sales_with_vat: sales.filter(s => s.vat_amount > 0).reverse(),
         receives_with_vat: receives.filter(r => r.vat_total > 0).reverse(),
+        expenses_with_vat: expenses.filter(e => e.vat_amount > 0).reverse(),
         summary: {
           output_vat_subtotal: Math.round(outputVatSubtotal * 100) / 100,
           output_vat: Math.round(outputVat * 100) / 100,
           input_vat_subtotal: Math.round(inputVatSubtotal * 100) / 100,
           input_vat: Math.round(inputVat * 100) / 100,
+          input_vat_receives: Math.round(inputVatReceives * 100) / 100,
+          input_vat_expenses: Math.round(inputVatExpenses * 100) / 100,
           net_vat_payable: Math.round((outputVat - inputVat) * 100) / 100,
           sales_count: sales.length,
           receives_count: receives.length,
+          expenses_count: expenses.length,
+        },
+      });
+    }
+
+    // ── รายจ่าย (ไม่เกี่ยวกับสต็อคสินค้า) ────────────────────────────────────
+    if (type === 'expenses') {
+      await ensureTabExists(token, sheetId, 'รายจ่าย', EXPENSE_HEADERS);
+      const expenseRows = await readSheet(token, sheetId, 'รายจ่าย!A:L');
+      let expenses = expenseRows.slice(1)
+        .map(r => rowToExpense(r))
+        .filter(e => e.expense_no)
+        .filter(e => inRange(e.created_at, from, to));
+
+      if (branch) expenses = expenses.filter(e => e.branch === branch);
+
+      return res.json({
+        type: 'expenses',
+        expenses: expenses.reverse(),
+        summary: {
+          count: expenses.length,
+          total: expenses.reduce((a, e) => a + e.total, 0),
+          subtotal: expenses.reduce((a, e) => a + e.subtotal, 0),
+          vat: expenses.reduce((a, e) => a + e.vat_amount, 0),
         },
       });
     }

@@ -338,6 +338,37 @@ export const ORDER_HEADERS = [
   'รับของคืนเข้าคลังแล้ว', 'สร้างโดย', 'ชำระเงินเชื่อแล้ว',
 ];
 
+// tab "รายจ่าย" — ค่าใช้จ่ายของร้านที่ไม่เกี่ยวกับสต็อคสินค้า (ค่าเช่า/ค่าน้ำไฟ/ค่าแรง ฯลฯ)
+// คนละระบบกับ "รับสินค้า" (นั่นคือซื้อสินค้าเข้าสต็อค) — vat_type ใช้ชุดค่าเดียวกับสินค้า/รับสินค้า
+export const EXPENSE_HEADERS = [
+  'เลขที่รายจ่าย', 'วันที่-เวลา', 'รายการ/หมวดหมู่', 'จำนวนเงินรวม (บาท)',
+  'ประเภท VAT', 'ยอดก่อน VAT (บาท)', 'ยอด VAT (บาท)', 'วิธีชำระ',
+  'ลิงก์รูปภาพบิล/สลิป', 'หมายเหตุ', 'ผู้บันทึก', 'สาขา',
+];
+
+export function makeExpenseNo() {
+  const now = new Date();
+  const pad = (n, len = 2) => String(n).padStart(len, '0');
+  return `EXP${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+}
+
+export function rowToExpense(row) {
+  return {
+    expense_no: row[0] || '',
+    created_at: row[1] || '',
+    label:      row[2] || '',
+    total:      parseFloat(row[3]) || 0,
+    vat_type:   row[4] || 'ไม่มี VAT',
+    subtotal:   parseFloat(row[5]) || 0,
+    vat_amount: parseFloat(row[6]) || 0,
+    payment_method: row[7] || '',
+    photo_url:  row[8] || '',
+    notes:      row[9] || '',
+    recorded_by: row[10] || '',
+    branch:     row[11] || '',
+  };
+}
+
 // ── Key Generators ────────────────────────────────────────────────────────────
 
 export function makeSKU() {

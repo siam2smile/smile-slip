@@ -475,6 +475,15 @@ export default function POSPage() {
   const [pendingReceivesLoading, setPendingReceivesLoading] = useState(false);
   const [linkedPendingNo, setLinkedPendingNo] = useState(null); // pending_no ที่กำลังแก้ไขอยู่ในฟอร์ม (ลบออกจากคิวหลังยืนยันสำเร็จ)
 
+  // รายจ่าย — ค่าใช้จ่ายร้านที่ไม่เกี่ยวกับสต็อคสินค้า
+  const [expenseForm, setExpenseForm] = useState({ label: '', amount: '', vatType: 'ไม่มี VAT', payment_method: 'เงินสด', notes: '' });
+  const [expensePhotoUrl, setExpensePhotoUrl] = useState('');
+  const [expensePhotoUploading, setExpensePhotoUploading] = useState(false);
+  const [expenseSaving, setExpenseSaving] = useState(false);
+  const [expenseHistory, setExpenseHistory] = useState([]);
+  const [expenseHistoryLoading, setExpenseHistoryLoading] = useState(false);
+  const [expenseSummary, setExpenseSummary] = useState(null);
+
   // contacts (ลูกค้า / ผู้จำหน่าย)
   const [contacts, setContacts] = useState([]);
   const [contactsLoading, setContactsLoading] = useState(false);
@@ -1399,6 +1408,10 @@ export default function POSPage() {
     if (tab === 'receive' && shopId) fetchPendingReceives();
   }, [tab, receiveView, shopId]);
 
+  useEffect(() => {
+    if (tab === 'expenses' && shopId) fetchExpenseHistory();
+  }, [tab, shopId]);
+
   // ── categories & filter ───────────────────────────────────────────────────
   const categories = useMemo(() => {
     const cats = [...new Set(products.map(p => p.category).filter(Boolean))].sort();
@@ -1883,6 +1896,91 @@ export default function POSPage() {
       alert(err.message);
     }
     setReceiveSaving(false);
+  }
+
+  // ── รายจ่าย ────────────────────────────────────────────────────────────────
+  async function fetchExpenseHistory(sid = shopId) {
+    if (!sid) return;
+    setExpenseHistoryLoading(true);
+    try {
+      const r = await fetch(`/api/pos/expenses?shopId=${sid}`);
+      const d = await r.json();
+      setExpenseHistory(d.expenses || []);
+      setExpenseSummary(d.summary || null);
+    } catch {}
+    setExpenseHistoryLoading(false);
+  }
+
+  async function handleExpensePhoto(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setExpensePhotoUploading(true);
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const r = await fetch('/api/pos/upload-photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, imageBase64: base64, mimeType: file.type, folderLabel: 'expense' }),
+      });
+      const d = await r.json();
+      if (d.ok) { setExpensePhotoUrl(d.url); showToast('แนบรูปแล้ว'); }
+      else alert(d.error || 'อัปโหลดรูปไม่สำเร็จ');
+    } catch (err) {
+      alert(err.message);
+    }
+    setExpensePhotoUploading(false);
+  }
+
+  async function submitExpense() {
+    if (!expenseForm.label.trim()) { showToast('กรุณากรอกรายการ/หมวดหมู่'); return; }
+    if (!expenseForm.amount || parseFloat(expenseForm.amount) <= 0) { showToast('กรุณากรอกจำนวนเงิน'); return; }
+    setExpenseSaving(true);
+    try {
+      const r = await fetch('/api/pos/expenses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId,
+          label: expenseForm.label.trim(),
+          amount: expenseForm.amount,
+          vatType: expenseForm.vatType,
+          payment_method: expenseForm.payment_method,
+          photo_url: expensePhotoUrl,
+          notes: expenseForm.notes,
+          recordedBy: shopInfo?.shop_name || '',
+        }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        showToast(`✅ บันทึกรายจ่าย ${d.expenseNo} แล้ว (฿${d.total.toLocaleString()})`);
+        setExpenseForm({ label: '', amount: '', vatType: 'ไม่มี VAT', payment_method: 'เงินสด', notes: '' });
+        setExpensePhotoUrl('');
+        fetchExpenseHistory();
+      } else {
+        alert(d.error);
+      }
+    } catch (err) {
+      alert(err.message);
+    }
+    setExpenseSaving(false);
+  }
+
+  async function deleteExpense(expense_no) {
+    if (!confirm('ลบรายการรายจ่ายนี้?')) return;
+    try {
+      const r = await fetch('/api/pos/expenses', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, expense_no }),
+      });
+      const d = await r.json();
+      if (d.ok) { showToast('ลบแล้ว'); fetchExpenseHistory(); } else alert(d.error);
+    } catch (err) { alert(err.message); }
   }
 
   // ── contacts CRUD ─────────────────────────────────────────────────────────
@@ -2528,6 +2626,7 @@ export default function POSPage() {
             { key: 'contacts', label: '👥 ผู้ติดต่อ' },
             { key: 'products', label: '📦 สินค้า' },
             { key: 'receive',  label: '📥 รับสินค้า' },
+            { key: 'expenses', label: '🧾 รายจ่าย' },
             { key: 'report',   label: '📊 รายงาน' },
             { key: 'settings', label: '⚙️ ตั้งค่า' },
           ].map(t => (
@@ -3156,6 +3255,123 @@ export default function POSPage() {
                     </div>
                   )
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* ══ TAB: รายจ่าย ══════════════════════════════════════════════ */}
+          {tab === 'expenses' && (
+            <div className="h-full overflow-y-auto">
+              <div className="p-4 max-w-xl mx-auto space-y-4">
+                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800 space-y-3">
+                  <h3 className="text-white font-bold">🧾 บันทึกรายจ่าย</h3>
+                  <p className="text-gray-400 text-xs -mt-2">ค่าใช้จ่ายของร้านที่ไม่เกี่ยวกับสต็อคสินค้า เช่น ค่าเช่า ค่าน้ำ-ไฟ ค่าแรง ฯลฯ</p>
+
+                  <div>
+                    <label className="block text-gray-400 text-xs mb-1.5">รายการ/หมวดหมู่</label>
+                    <input type="text" value={expenseForm.label}
+                      onChange={e => setExpenseForm(f => ({ ...f, label: e.target.value }))}
+                      placeholder="เช่น ค่าเช่าร้าน, ค่าน้ำมันรถส่งของ"
+                      className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                  </div>
+
+                  <div>
+                    <label className="block text-gray-400 text-xs mb-1.5">จำนวนเงิน (฿)</label>
+                    <input type="number" value={expenseForm.amount}
+                      onChange={e => setExpenseForm(f => ({ ...f, amount: e.target.value }))}
+                      placeholder="0.00" min="0" step="0.01"
+                      className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                  </div>
+
+                  <div>
+                    <label className="block text-gray-400 text-xs mb-1.5">ราคานี้</label>
+                    <div className="flex gap-1.5">
+                      {['ไม่มี VAT', 'รวม VAT แล้ว', 'ไม่รวม VAT'].map(v => (
+                        <button key={v} type="button" onClick={() => setExpenseForm(f => ({ ...f, vatType: v }))}
+                          className={`flex-1 py-2 rounded-xl text-xs font-medium transition-colors border ${
+                            expenseForm.vatType === v ? 'bg-blue-700 border-blue-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+                          }`}>
+                          {v}
+                        </button>
+                      ))}
+                    </div>
+                    {expenseForm.amount && parseFloat(expenseForm.amount) > 0 && (() => {
+                      const { base, vat } = splitVatAmount(parseFloat(expenseForm.amount) || 0, expenseForm.vatType);
+                      return vat > 0 ? (
+                        <div className="text-gray-500 text-xs mt-1.5">ก่อน VAT ฿{base.toLocaleString(undefined,{minimumFractionDigits:2})} + VAT ฿{vat.toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+                      ) : null;
+                    })()}
+                  </div>
+
+                  <div>
+                    <label className="block text-gray-400 text-xs mb-1.5">วิธีชำระ</label>
+                    <div className="flex gap-1.5">
+                      {['เงินสด', 'โอน'].map(v => (
+                        <button key={v} type="button" onClick={() => setExpenseForm(f => ({ ...f, payment_method: v }))}
+                          className={`flex-1 py-2 rounded-xl text-xs font-medium transition-colors ${
+                            expenseForm.payment_method === v ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                          }`}>
+                          {v}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-gray-400 text-xs mb-1.5">แนบรูปบิล/สลิป (ไม่บังคับ)</label>
+                    <label className="flex items-center justify-center gap-2 border border-dashed border-gray-700 rounded-xl py-4 cursor-pointer hover:border-gray-500 transition-colors">
+                      <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleExpensePhoto} disabled={expensePhotoUploading} />
+                      {expensePhotoUploading ? (
+                        <span className="text-gray-400 text-xs animate-pulse">กำลังอัปโหลด...</span>
+                      ) : expensePhotoUrl ? (
+                        <span className="text-green-400 text-xs">✅ แนบรูปแล้ว — แตะเพื่อเปลี่ยน</span>
+                      ) : (
+                        <span className="text-gray-500 text-xs">📷 แตะเพื่อถ่ายรูป/เลือกรูปบิล-สลิป</span>
+                      )}
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="block text-gray-400 text-xs mb-1.5">หมายเหตุ (ไม่บังคับ)</label>
+                    <input type="text" value={expenseForm.notes}
+                      onChange={e => setExpenseForm(f => ({ ...f, notes: e.target.value }))}
+                      className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                  </div>
+
+                  <button onClick={submitExpense} disabled={expenseSaving}
+                    className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors">
+                    {expenseSaving ? 'กำลังบันทึก...' : '✅ บันทึกรายจ่าย'}
+                  </button>
+                </div>
+
+                {/* ประวัติรายจ่าย */}
+                <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden">
+                  <div className="px-5 py-3 border-b border-gray-800 flex items-center justify-between">
+                    <h3 className="text-white font-bold text-sm">ประวัติรายจ่าย</h3>
+                    {expenseSummary && (
+                      <span className="text-gray-400 text-xs">รวม ฿{expenseSummary.total.toLocaleString(undefined,{minimumFractionDigits:2})} ({expenseSummary.count} รายการ)</span>
+                    )}
+                  </div>
+                  {expenseHistoryLoading && <div className="text-center text-gray-500 py-8 text-sm animate-pulse">กำลังโหลด...</div>}
+                  {!expenseHistoryLoading && (
+                    <div className="divide-y divide-gray-800">
+                      {expenseHistory.map(e => (
+                        <div key={e.expense_no} className="px-5 py-3 flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-white text-sm truncate">{e.label}</div>
+                            <div className="text-gray-500 text-xs">{e.created_at} · {e.payment_method}{e.vat_amount > 0 ? ` · VAT ฿${e.vat_amount.toLocaleString(undefined,{minimumFractionDigits:2})}` : ''}</div>
+                            {e.photo_url && <a href={e.photo_url} target="_blank" rel="noopener noreferrer" className="text-blue-400 text-xs underline">📎 ดูรูปบิล/สลิป</a>}
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-red-400 font-bold text-sm">฿{e.total.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                            <button onClick={() => deleteExpense(e.expense_no)} className="text-gray-500 hover:text-red-400 text-xs">🗑️</button>
+                          </div>
+                        </div>
+                      ))}
+                      {!expenseHistory.length && <div className="text-center text-gray-500 py-8 text-sm">ยังไม่มีรายจ่าย</div>}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -3856,6 +4072,7 @@ export default function POSPage() {
                     { key: 'pl',         label: '📈 กำไร-ขาดทุน' },
                     { key: 'cyclical',   label: '🔄 สินค้าหมุนเวียน' },
                     { key: 'vat',        label: '🧾 ภาษี VAT' },
+                    { key: 'expenses',   label: '💸 รายจ่าย' },
                   ].map(r => (
                     <button key={r.key}
                       onClick={() => { setReportType(r.key); fetchReport(r.key, reportDateFrom, reportDateTo); }}
@@ -4218,6 +4435,17 @@ export default function POSPage() {
                         </div>
                         {!reportData.categories?.length && <div className="text-center text-gray-500 py-8 text-sm">ไม่มีข้อมูล (ต้องใส่ราคาทุนในสินค้าก่อน)</div>}
                       </div>
+
+                      {/* กำไรสุทธิ หลังหักรายจ่ายร้าน (ไม่เกี่ยวกับสต็อค) */}
+                      <div className="bg-gray-900 rounded-xl p-4 flex items-center justify-between">
+                        <div>
+                          <div className="text-white font-bold text-sm">กำไรสุทธิ (หักรายจ่ายร้านแล้ว)</div>
+                          <div className="text-gray-500 text-xs mt-0.5">กำไรขั้นต้น ฿{(s.gross_profit||0).toLocaleString()} − รายจ่าย ฿{(s.total_expenses||0).toLocaleString()}</div>
+                        </div>
+                        <div className={`text-xl font-bold ${(s.net_profit||0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          ฿{(s.net_profit||0).toLocaleString()} <span className="text-xs text-gray-500">({s.net_margin||0}%)</span>
+                        </div>
+                      </div>
                     </div>
                   );
                 })()}
@@ -4338,10 +4566,61 @@ export default function POSPage() {
                         {!reportData.branch_breakdown?.length && <div className="text-center text-gray-500 py-8 text-sm">ไม่มียอดขายที่มี VAT ในช่วงนี้</div>}
                       </div>
 
+                      <div className="bg-gray-900 rounded-xl overflow-hidden">
+                        <div className="px-3 py-2 border-b border-gray-800 text-gray-400 text-xs font-medium">🧮 ที่มาภาษีซื้อ (Input VAT)</div>
+                        <div className="divide-y divide-gray-800 text-xs">
+                          <div className="px-3 py-2.5 flex items-center justify-between">
+                            <span className="text-gray-300">📥 ใบรับสินค้า ({s.receives_count || 0} ใบ)</span>
+                            <span className="text-orange-400 font-medium">฿{(s.input_vat_receives || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</span>
+                          </div>
+                          <div className="px-3 py-2.5 flex items-center justify-between">
+                            <span className="text-gray-300">💸 รายจ่าย ({s.expenses_count || 0} รายการ)</span>
+                            <span className="text-orange-400 font-medium">฿{(s.input_vat_expenses || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</span>
+                          </div>
+                        </div>
+                      </div>
+
                       <p className="text-gray-500 text-xs px-1">
-                        หมายเหตุ: ภาษีซื้อ (จากใบรับสินค้า) ยังไม่แยกตามสาขา เพราะการรับสินค้าเข้าคลังไม่ได้ผูกกับสาขาที่ขายในตอนนี้ —
-                        แสดงเป็นยอดรวมทั้งร้านเท่านั้น (ยอดก่อน VAT ฿{(s.input_vat_subtotal || 0).toLocaleString(undefined, {minimumFractionDigits:2})} จาก {s.receives_count || 0} ใบรับสินค้า)
+                        หมายเหตุ: ภาษีซื้อ (ใบรับสินค้า+รายจ่าย) ยังไม่แยกตามสาขา เพราะยังไม่ได้ผูกกับสาขาที่ขายในตอนนี้ — แสดงเป็นยอดรวมทั้งร้านเท่านั้น
                       </p>
+                    </div>
+                  );
+                })()}
+
+                {/* ── รายจ่าย ── */}
+                {!reportLoading && reportData?.type === 'expenses' && (() => {
+                  const s = reportData.summary || {};
+                  return (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        <div className="bg-gray-800 rounded-xl p-3 text-center">
+                          <div className="text-lg font-bold text-red-400">฿{(s.total || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
+                          <div className="text-gray-400 text-xs mt-1">รายจ่ายรวม ({s.count || 0} รายการ)</div>
+                        </div>
+                        <div className="bg-gray-800 rounded-xl p-3 text-center">
+                          <div className="text-lg font-bold text-gray-300">฿{(s.subtotal || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
+                          <div className="text-gray-400 text-xs mt-1">ยอดก่อน VAT</div>
+                        </div>
+                        <div className="bg-gray-800 rounded-xl p-3 text-center">
+                          <div className="text-lg font-bold text-orange-400">฿{(s.vat || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
+                          <div className="text-gray-400 text-xs mt-1">VAT ที่จ่ายไป</div>
+                        </div>
+                      </div>
+
+                      <div className="bg-gray-900 rounded-xl overflow-hidden">
+                        <div className="divide-y divide-gray-800">
+                          {(reportData.expenses || []).map(e => (
+                            <div key={e.expense_no} className="px-3 py-2.5 flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="text-white text-sm truncate">{e.label}</div>
+                                <div className="text-gray-500 text-xs">{e.created_at} · {e.payment_method}{e.vat_amount > 0 ? ` · VAT ฿${e.vat_amount.toLocaleString(undefined,{minimumFractionDigits:2})}` : ''}</div>
+                              </div>
+                              <span className="text-red-400 font-bold text-sm shrink-0">฿{e.total.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                            </div>
+                          ))}
+                        </div>
+                        {!reportData.expenses?.length && <div className="text-center text-gray-500 py-8 text-sm">ไม่มีรายจ่ายในช่วงนี้</div>}
+                      </div>
                     </div>
                   );
                 })()}
