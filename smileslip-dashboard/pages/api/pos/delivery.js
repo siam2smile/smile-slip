@@ -208,7 +208,7 @@ export default async function handler(req, res) {
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
 
       await appendSheet(token, sheetId, 'ออเดอร์จัดส่ง', [
-        order_no, now, customer_id, customer_name, asText(phone),
+        order_no, asText(now), customer_id, customer_name, asText(phone),
         address, maps_link, JSON.stringify(items), total,
         payment_method, staff_id, staff_name, 'รอจัดส่ง', notes,
         '', '', '', '', '', created_by,
@@ -226,7 +226,7 @@ export default async function handler(req, res) {
             const existing = [...custDataRows[custIdx]];
             while (existing.length < 20) existing.push('');
             existing[13] = (cust.debt || 0) + total; // ยอดค้างชำระ (col N)
-            existing[19] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }); // updated_at
+            existing[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })); // updated_at
             await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, existing);
           }
         } catch (debtErr) {
@@ -246,7 +246,7 @@ export default async function handler(req, res) {
             const existing = [...custDataRows[custIdx]];
             while (existing.length < 20) existing.push('');
             existing[14] = (cust.cylinders || 0) + cylinders_delivered; // ถังอยู่กับลูกค้า (col O)
-            existing[19] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }); // updated_at
+            existing[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })); // updated_at
             await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, existing);
           }
         } catch (cylErr) {
@@ -319,7 +319,7 @@ export default async function handler(req, res) {
               const custExisting = [...custDataRows[custIdx]];
               while (custExisting.length < 23) custExisting.push('');
               custExisting[13] = Math.max(0, (custRow.debt || 0) - orderTotal); // ยอดค้างชำระ
-              custExisting[19] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+              custExisting[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
               await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
             }
           } catch (debtErr) {
@@ -330,7 +330,7 @@ export default async function handler(req, res) {
 
       if (confirm_delivery) {
         existing[12] = 'ส่งแล้ว'; // ใช้ label เดียวกับสถานะที่แอดมินกดเปลี่ยนเองในหน้า pos.js
-        existing[15] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+        existing[15] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
         if (confirmed_by !== undefined) existing[16] = confirmed_by;
 
         // อัปเดตสต็อคสินค้าหมุนเวียนที่ลูกค้าคืนถังเปล่ามา + ลดยอดถังค้างที่ลูกค้า
@@ -351,7 +351,7 @@ export default async function handler(req, res) {
               const prodExisting = [...prodDataRows[pIdx]];
               while (prodExisting.length < 18) prodExisting.push('');
               prodExisting[12] = (prod.empty_waiting || 0) + returnedQty; // เปล่ารอรีฟิล
-              prodExisting[9] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+              prodExisting[9] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
               await updateSheetRow(token, sheetId, 'สินค้า', pIdx + 2, prodExisting);
               prodDataRows[pIdx] = prodExisting;
             }
@@ -371,7 +371,7 @@ export default async function handler(req, res) {
               const custExisting = [...custDataRows[custIdx]];
               while (custExisting.length < 23) custExisting.push('');
               custExisting[14] = Math.max(0, (custRow.cylinders || 0) - returnedTotal); // ถังอยู่กับลูกค้า
-              custExisting[19] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+              custExisting[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
               await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
             }
           } catch (custErr) {

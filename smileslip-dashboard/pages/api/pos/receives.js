@@ -31,6 +31,11 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
+function asText(v) {
+  if (v === '' || v == null) return v;
+  return `'${v}`;
+}
+
 async function getConfig(shopId) {
   const [{ data: pc }, { data: gc }] = await Promise.all([
     supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
@@ -118,7 +123,7 @@ export default async function handler(req, res) {
 
         existing[4] = Math.round(newAvgCost * 100) / 100;  // col E: ราคาทุนเฉลี่ย
         existing[5] = newStock;                              // col F: สต็อค
-        existing[9] = now;                                   // col J: วันที่อัปเดต
+        existing[9] = asText(now);                            // col J: วันที่อัปเดต
 
         // สินค้าหมุนเวียน: รับสินค้าเข้า = ได้ของที่รีฟิล/บรรจุกลับมาแล้ว ต้องหักออกจาก
         // "เปล่ารอรีฟิล" ด้วยเสมอ (เดิมเพิ่มแค่ "เต็ม" อย่างเดียว เปล่าค้างไม่ลดลงเลย)
@@ -139,7 +144,7 @@ export default async function handler(req, res) {
       // บันทึกใบรับสินค้าลง tab "รับสินค้า"
       await appendSheet(token, sheetId, 'รับสินค้า', [
         receiveNo,
-        now,
+        asText(now),
         supplier,
         JSON.stringify(items.map(i => {
           const q = parseFloat(i.qty) || 0;

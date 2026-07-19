@@ -27,6 +27,11 @@ async function getConfig(shopId) {
   };
 }
 
+function asText(v) {
+  if (v === '' || v == null) return v;
+  return `'${v}`;
+}
+
 function parseThaiBEDate(str) {
   // "D/M/YYYY, HH:MM:SS" ที่ YYYY เป็น พ.ศ.
   try {
@@ -97,7 +102,7 @@ export default async function handler(req, res) {
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
 
       await appendSheet(token, sheetId, 'ยืมสินค้า', [
-        loanNo, now, due_date, contact_id, contact_name, contact_phone,
+        loanNo, asText(now), due_date, contact_id, contact_name, contact_phone,
         JSON.stringify(items), notes, 'ยืมอยู่', '', branch,
       ]);
 
@@ -114,7 +119,7 @@ export default async function handler(req, res) {
             const prodType = (existing[10] || 'นับสต็อค') === 'ทั่วไป' ? 'นับสต็อค' : (existing[10] || 'นับสต็อค');
             if (prodType === 'นับสต็อค') {
               existing[5] = Math.max(0, (parseFloat(existing[5]) || 0) - item.qty);
-              existing[9] = now;
+              existing[9] = asText(now);
               await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
               dataRows[idx] = existing;
             }
@@ -142,7 +147,7 @@ export default async function handler(req, res) {
 
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
       existing[8] = 'คืนแล้ว';
-      existing[9] = now;
+      existing[9] = asText(now);
       if (notes) existing[7] = [existing[7], notes].filter(Boolean).join(' | ');
       await updateSheetRow(token, sheetId, 'ยืมสินค้า', idx + 2, existing);
 
@@ -158,7 +163,7 @@ export default async function handler(req, res) {
           const prodType = (pe[10] || 'นับสต็อค') === 'ทั่วไป' ? 'นับสต็อค' : (pe[10] || 'นับสต็อค');
           if (prodType === 'นับสต็อค') {
             pe[5] = (parseFloat(pe[5]) || 0) + item.qty;
-            pe[9] = now;
+            pe[9] = asText(now);
             await updateSheetRow(token, sheetId, 'สินค้า', pIdx + 2, pe);
           }
         }

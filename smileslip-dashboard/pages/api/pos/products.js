@@ -19,6 +19,11 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
+function asText(v) {
+  if (v === '' || v == null) return v;
+  return `'${v}`;
+}
+
 async function getConfig(shopId) {
   const [{ data: pc }, { data: gc }] = await Promise.all([
     supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
@@ -75,7 +80,7 @@ export default async function handler(req, res) {
       const sku = makeSKU();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
       await appendSheet(token, sheetId, 'สินค้า', [
-        sku, name, category, price, cost, stock, unit, aliases, notes, now,
+        sku, name, category, price, cost, stock, unit, aliases, notes, asText(now),
         type, 0, 0,
         product_code, barcode, description, vat_type, is_active ? '1' : '0',
       ]);
@@ -101,7 +106,7 @@ export default async function handler(req, res) {
       if (action === 'receive-back') {
         existing[11] = Math.max(0, (parseFloat(existing[11]) || 0) - qty);
         existing[12] = (parseFloat(existing[12]) || 0) + qty;
-        existing[9]  = now;
+        existing[9]  = asText(now);
         await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
         return res.json({ ok: true });
       }
@@ -110,7 +115,7 @@ export default async function handler(req, res) {
       if (action === 'refill') {
         existing[12] = Math.max(0, (parseFloat(existing[12]) || 0) - qty);
         existing[5]  = (parseFloat(existing[5]) || 0) + qty;
-        existing[9]  = now;
+        existing[9]  = asText(now);
         await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
         return res.json({ ok: true });
       }
@@ -133,7 +138,7 @@ export default async function handler(req, res) {
       if (updates.description   !== undefined) existing[15] = updates.description;
       if (updates.vat_type      !== undefined) existing[16] = updates.vat_type;
       if (updates.is_active     !== undefined) existing[17] = updates.is_active ? '1' : '0';
-      existing[9] = now;
+      existing[9] = asText(now);
 
       await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
       return res.json({ ok: true, sku, stock: parseFloat(existing[5]) || 0 });

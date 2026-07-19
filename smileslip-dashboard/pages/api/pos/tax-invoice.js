@@ -21,6 +21,11 @@ const supabase = createClient(
 
 const VAT_RATE = 0.07;
 
+function asText(v) {
+  if (v === '' || v == null) return v;
+  return `'${v}`;
+}
+
 async function getConfig(shopId) {
   const [{ data: pc }, { data: gc }] = await Promise.all([
     supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
@@ -98,7 +103,7 @@ export default async function handler(req, res) {
       const invoice_no = `INV-${yearBE}-${String(countThisYear + 1).padStart(5, '0')}`;
 
       await appendSheet(token, sheetId, 'ใบกำกับภาษี', [
-        invoice_no, now, ref_bill_no, customer_id,
+        invoice_no, asText(now), ref_bill_no, customer_id,
         buyer_name, buyer_tax_id, buyer_address, buyer_branch,
         JSON.stringify(items), subtotal, vat, total, issued_by,
       ]);

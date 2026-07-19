@@ -164,7 +164,7 @@ export default async function handler(req, res) {
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
 
       await appendSheet(token, sheetId, 'งานเก็บเงิน', [
-        collection_no, now, customer_id, customer_name, asText(phone),
+        collection_no, asText(now), customer_id, customer_name, asText(phone),
         task_type, debt_amount, JSON.stringify(items),
         staff_id, staff_name, 'รอดำเนินการ', notes,
         '', '', '', '', '', '', '', '', created_by,
@@ -200,7 +200,7 @@ export default async function handler(req, res) {
         existing[12] = collected_amount || 0;
         existing[13] = JSON.stringify(collected_items || []);
         existing[14] = slip_url || '';
-        existing[15] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+        existing[15] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
         if (confirmed_by !== undefined) existing[16] = confirmed_by;
         existing[17] = staff_note || '';
 
@@ -222,7 +222,7 @@ export default async function handler(req, res) {
                 while (custExisting.length < 23) custExisting.push('');
                 if (amountCollected > 0) custExisting[13] = Math.max(0, (custRow.debt || 0) - amountCollected);
                 if (totalItemsQty > 0) custExisting[14] = Math.max(0, (custRow.cylinders || 0) - totalItemsQty);
-                custExisting[19] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+                custExisting[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
                 await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
               }
             } catch (custErr) {
@@ -245,7 +245,7 @@ export default async function handler(req, res) {
                 const prodExisting = [...prodDataRows[pIdx]];
                 while (prodExisting.length < 18) prodExisting.push('');
                 prodExisting[12] = (prod.empty_waiting || 0) + qty;
-                prodExisting[9] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+                prodExisting[9] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
                 await updateSheetRow(token, sheetId, 'สินค้า', pIdx + 2, prodExisting);
                 prodDataRows[pIdx] = prodExisting;
               }

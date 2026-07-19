@@ -21,6 +21,11 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
+function asText(v) {
+  if (v === '' || v == null) return v;
+  return `'${v}`;
+}
+
 async function getConfig(shopId) {
   const [{ data: pc }, { data: gc }, { data: sp }] = await Promise.all([
     supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
@@ -165,7 +170,7 @@ export default async function handler(req, res) {
 
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
       existing[11] = 'ชำระแล้ว';
-      existing[14] = now; // paid_at
+      existing[14] = asText(now); // paid_at
       if (patchNotes) existing[10] = [existing[10], patchNotes].filter(Boolean).join(' | ');
       await updateSheetRow(token, sheetId, 'ยอดขาย', idx + 2, existing);
 
@@ -218,7 +223,7 @@ export default async function handler(req, res) {
 
       // 1. บันทึกลง POS Sheets tab "ยอดขาย" (18 คอลัมน์ A-R — เพิ่มยอดก่อน VAT/ยอด VAT ท้ายสุด)
       await appendSheet(token, sheetId, 'ยอดขาย', [
-        billNo, now, JSON.stringify(items),
+        billNo, asText(now), JSON.stringify(items),
         subtotal, discount, total,
         payment_method, cash_received, change,
         cashier, fullNotes, billStatus,
@@ -256,11 +261,11 @@ export default async function handler(req, res) {
             existing[5]  = Math.max(0, (parseFloat(existing[5]) || 0) - item.qty); // เต็ม (stock) ลด — ออกจากร้านไปกับลูกค้า
             existing[11] = Math.max(0, (parseFloat(existing[11]) || 0) + item.qty - returnedQty); // กับลูกค้า สุทธิ
             existing[12] = (parseFloat(existing[12]) || 0) + returnedQty; // เปล่ารอรีฟิล
-            existing[9]  = now;
+            existing[9]  = asText(now);
             netCylinderDeltaForCustomer += item.qty - returnedQty;
           } else {
             existing[5] = Math.max(0, (parseFloat(existing[5]) || 0) - item.qty); // stock ลด
-            existing[9] = now;
+            existing[9] = asText(now);
           }
           await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
           dataRows[idx] = existing;
@@ -276,7 +281,7 @@ export default async function handler(req, res) {
             const custExisting = [...custDataRows[custIdx]];
             while (custExisting.length < 23) custExisting.push('');
             custExisting[14] = Math.max(0, (parseFloat(custExisting[14]) || 0) + netCylinderDeltaForCustomer); // ถังอยู่กับลูกค้า
-            custExisting[19] = now; // updated_at
+            custExisting[19] = asText(now); // updated_at
             await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
           }
         }
