@@ -139,6 +139,7 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
     - **Export Excel เพิ่ม type=expenses/vat** ใน `api/pos/export.js` — พร้อมแก้ range อ่านชีต "ยอดขาย" จาก `A:P` เป็น `A:R` ทุกจุดในไฟล์นี้ด้วย (เดิมพลาดจุดนี้จากตอนทำข้อ 27 เพราะแก้แค่ `reports.js` ไม่ได้ไล่แก้ `export.js` ที่มี logic คล้ายกันแยกไฟล์)
     - **เหตุการณ์ระหว่างทดสอบ: เจอข้อมูลทดสอบเก่าตกค้างในบัญชีหลักจริงของร้าน "D Gas"** — ระหว่างทดสอบ `receives.js`→บัญชีหลัก พบว่ามีแถวทดสอบ 3 แถว (`BILL20260719144503` จากทดสอบ Group F, `BILL20260719142702`/`BILL20260719142740` ชื่อ `TEST-asText-*`) หลงเหลืออยู่ในชีตบัญชีหลักจริงมาตั้งแต่รอบทดสอบก่อนหน้า เพราะตอนนั้นลบแค่แถวใน POS Sheet ไม่รู้ว่า `sales.js` เขียนเข้าบัญชีหลักด้วย (dual-write มีอยู่ก่อนแล้วตั้งแต่ session ก่อนหน้า) — ลบออกจากบัญชีหลักจริงทันทีที่เจอ ยืนยันด้วย `GET /api/shop/analytics` ว่ากลับมาตรง 68 รายการ/19,558 บาทเหมือนเดิม — **บทเรียน: เวลาทดสอบฟีเจอร์ที่มี dual-write (POS Sheet + บัญชีหลัก) ต้องเช็ค/ลบข้อมูลทดสอบจากทั้งสองที่เสมอ ไม่ใช่แค่ที่เดียว** (แถวเก่า `BILL20260718142819` จากข้อ 23 ที่เคย flag ไว้ว่ารอผู้ใช้ตัดสินใจ ไม่ได้แตะเพราะยังไม่ใช่ของเราตัดสินใจ)
     - **ยังไม่ได้ทำ:** อัปเดตหน้า "ช่วยเหลือ" ในเว็บ Dashboard (sidebar) และเมนู `#วิธีใช้งาน` แบบละเอียดของบอทให้พูดถึง `#รายจ่าย` ด้วย (แก้แค่บรรทัดเดียวใน `#ช่วยเหลือ` แล้ว — ยังไม่ได้ไล่แก้จุดอื่นตามข้อควรระวัง #33)
+    - **Deploy production แล้วทั้ง 2 โค้ด (2026-07-19)** — ผู้ใช้ยืนยันให้ deploy ทั้ง dashboard และบอท LINE — `smileslip-dashboard` revision จริง `smileslip-dashboard-00262-gw6` (ข้อความ deploy โชว์ revision เดิมผิดอีกครั้งตามเคย), `smileslip-service` (บอท) revision จริง `smileslip-service-00142-9ph` — ทั้งคู่ traffic pin 100% แล้ว + verified บน production จริงว่า `/api/pos/expenses-pending`, `/api/pos/export?types=expenses`, และบอทบูตสำเร็จ (Redis connected, startup probe ผ่าน) ใช้งานได้ปกติ
 5.5. **[spawn_task ที่แจ้งไว้ 2026-07-19]** พบว่าไฟล์ POS API หลายไฟล์ (`collections.js`, `loans.js`, `delivery.js`, `contacts.js`, `products.js`, `staff-requests.js`, `tax-invoice.js`, `staff.js`, `sales.js`, `receives.js`) เขียนสตริงวันที่ไทยลง Sheets โดยไม่ผ่าน `asText()` เหมือนกับที่เพิ่งเจอบั๊กจริงใน `expenses.js` — ยังไม่ได้ไล่แก้ทั้งหมด (สาเหตุที่ยังดูเหมือนใช้งานได้ปกติในบางไฟล์ อาจเป็นเพราะ column format ของ tab เก่าถูกซ่อมมาแล้วจากเหตุการณ์ก่อนหน้า ไม่ใช่เพราะโค้ดปลอดภัยจริง) — รอทำต่อเป็นงานแยก
 6. **แก้ 5 ข้อจาก punch list ตรวจสอบโค้ดเต็มโปรเจกต์ (commit `e01c927`):**
    - **Stripe webhook idempotency** — เพิ่ม insert `event.id` ลงตาราง `stripe_processed_events` ก่อนประมวลผลทุกครั้ง ถ้า insert ชนซ้ำ (unique violation, code `23505`) แปลว่าเคยประมวลผลไปแล้ว ข้ามได้เลย ถ้า error เป็นแบบอื่น (เช่น ตารางยังไม่ถูกสร้าง) จะ fail-open ทำงานต่อไปเหมือนเดิมกันไม่ให้ checkout พังทั้งระบบ — **สร้างตาราง `stripe_processed_events` แล้ว (verified 2026-07-16 ผ่าน REST query) กันซ้ำได้จริงแล้ว ไม่ fail-open อีกต่อไป**
@@ -186,8 +187,8 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
 
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
-| Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00137-8vb` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00261-56p` |
+| Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00142-9ph` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00262-gw6` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
