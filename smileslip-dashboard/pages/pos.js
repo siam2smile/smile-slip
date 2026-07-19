@@ -50,6 +50,20 @@ function bahtText(amount) {
   return (baht ? spell(baht) : 'ศูนย์') + 'บาท' + (satang ? spell(satang) + 'สตางค์' : 'ถ้วน');
 }
 
+// แยกฐานราคาก่อน VAT / ยอด VAT จากราคาที่กรอกจริง ตาม vatType ('รวม VAT แล้ว'/'ไม่รวม VAT'/'ไม่มี VAT')
+// ใช้ทั้งฝั่งรับสินค้า (unitCost ต่อหน่วย) — ต้องตรงกับ splitVat() ใน api/pos/receives.js เป๊ะ
+function splitVatAmount(unitCost, vatType) {
+  const VAT_RATE = 0.07;
+  if (vatType === 'รวม VAT แล้ว') {
+    const base = unitCost / (1 + VAT_RATE);
+    return { base, vat: unitCost - base };
+  }
+  if (vatType === 'ไม่รวม VAT') {
+    return { base: unitCost, vat: unitCost * VAT_RATE };
+  }
+  return { base: unitCost, vat: 0 };
+}
+
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -448,7 +462,7 @@ export default function POSPage() {
   const [receiveSupplierContact, setReceiveSupplierContact] = useState(null); // ผู้จำหน่ายที่ผูก contact_id จริง
   const [receiveSupplierQ, setReceiveSupplierQ] = useState('');
   const [supplierPrices, setSupplierPrices] = useState({}); // { sku: ราคาต่อหน่วยล่าสุดที่ผู้จำหน่ายรายนี้เคยขายให้ }
-  const [receiveItems, setReceiveItems] = useState([]);   // [{sku,name,qty,unit,unitCost,hasVat}]
+  const [receiveItems, setReceiveItems] = useState([]);   // [{sku,name,qty,unit,unitCost,vatType}]
   const [receiveSearch, setReceiveSearch] = useState('');
   const [receiveCat, setReceiveCat] = useState('ทั้งหมด'); // ตัวกรองหมวดหมู่ตอนเลือกสินค้าเข้าใบรับสินค้า
   const [showReceivePicker, setShowReceivePicker] = useState(false); // เปิด/ปิด รายการสินค้าให้เลือกแบบเบราส์
@@ -1194,7 +1208,7 @@ export default function POSPage() {
         return q && (pn === q || pn.includes(q) || q.includes(pn) || aliases.some(a => a && (a === q || a.includes(q) || q.includes(a))));
       });
       if (prod) {
-        matchedItems.push({ sku: prod.sku, name: prod.name, unit: prod.unit, qty: String(item.qty || ''), unitCost: String(item.unitPrice || ''), hasVat: false });
+        matchedItems.push({ sku: prod.sku, name: prod.name, unit: prod.unit, qty: String(item.qty || ''), unitCost: String(item.unitPrice || ''), vatType: 'ไม่มี VAT' });
       } else {
         unmatchedNames.push(item.name);
       }
@@ -1753,7 +1767,7 @@ export default function POSPage() {
       if (ex) return prev; // มีแล้ว ไม่เพิ่มซ้ำ
       // ถ้าผู้จำหน่ายรายนี้เคยขายสินค้าตัวนี้มาก่อน ใส่ราคาล่าสุดให้อัตโนมัติ
       const lastPrice = supplierPrices[prod.sku];
-      return [...prev, { sku: prod.sku, name: prod.name, unit: prod.unit, qty: '', unitCost: lastPrice != null ? String(lastPrice) : '', hasVat: false }];
+      return [...prev, { sku: prod.sku, name: prod.name, unit: prod.unit, qty: '', unitCost: lastPrice != null ? String(lastPrice) : '', vatType: 'ไม่มี VAT' }];
     });
     setReceiveSearch('');
     showToast(`เพิ่ม "${prod.name}" แล้ว`);
@@ -1767,10 +1781,13 @@ export default function POSPage() {
     setReceiveItems(prev => prev.map(i => i.sku === sku ? { ...i, [field]: value } : i));
   }
 
-  const receiveSubtotal = receiveItems.reduce((sum, i) => sum + (parseFloat(i.qty) || 0) * (parseFloat(i.unitCost) || 0), 0);
+  const receiveSubtotal = receiveItems.reduce((sum, i) => {
+    const { base } = splitVatAmount(parseFloat(i.unitCost) || 0, i.vatType);
+    return sum + (parseFloat(i.qty) || 0) * base;
+  }, 0);
   const receiveVatTotal = receiveItems.reduce((sum, i) => {
-    if (!i.hasVat) return sum;
-    return sum + (parseFloat(i.qty) || 0) * (parseFloat(i.unitCost) || 0) * 0.07;
+    const { vat } = splitVatAmount(parseFloat(i.unitCost) || 0, i.vatType);
+    return sum + (parseFloat(i.qty) || 0) * vat;
   }, 0);
   const receiveTotalCost = receiveSubtotal + receiveVatTotal;
 
@@ -2983,7 +3000,7 @@ export default function POSPage() {
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-gray-400 text-xs mb-1">ราคาต้นทุน/หน่วย ก่อน VAT (฿)</label>
+                                  <label className="block text-gray-400 text-xs mb-1">ราคาต้นทุน/หน่วย (฿)</label>
                                   <input
                                     type="number"
                                     value={item.unitCost}
@@ -2994,19 +3011,31 @@ export default function POSPage() {
                                   />
                                 </div>
                               </div>
-                              <label className="flex items-center gap-2 mt-2 cursor-pointer select-none">
-                                <input type="checkbox" checked={!!item.hasVat}
-                                  onChange={e => updateReceiveItem(item.sku, 'hasVat', e.target.checked)}
-                                  className="w-3.5 h-3.5 accent-green-600" />
-                                <span className="text-gray-400 text-xs">มี VAT 7% (ตามใบกำกับภาษีของผู้จำหน่าย)</span>
-                              </label>
+                              <div className="mt-2">
+                                <div className="text-gray-400 text-xs mb-1">ราคานี้</div>
+                                <div className="flex gap-1.5">
+                                  {['ไม่มี VAT', 'รวม VAT แล้ว', 'ไม่รวม VAT'].map(v => (
+                                    <button key={v} type="button"
+                                      onClick={() => updateReceiveItem(item.sku, 'vatType', v)}
+                                      className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
+                                        (item.vatType || 'ไม่มี VAT') === v
+                                          ? 'bg-blue-700 border-blue-600 text-white'
+                                          : 'bg-gray-600 border-gray-500 text-gray-300 hover:bg-gray-500'
+                                      }`}>
+                                      {v}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
                               {item.qty && item.unitCost && (() => {
-                                const lineSub = (parseFloat(item.qty) || 0) * (parseFloat(item.unitCost) || 0);
-                                const lineVat = item.hasVat ? lineSub * 0.07 : 0;
+                                const { base, vat: unitVat } = splitVatAmount(parseFloat(item.unitCost) || 0, item.vatType);
+                                const qty = parseFloat(item.qty) || 0;
+                                const lineSub = qty * base;
+                                const lineVat = qty * unitVat;
                                 return (
                                   <div className="text-green-400 text-xs mt-1.5">
                                     รวม ฿{(lineSub + lineVat).toLocaleString(undefined, {minimumFractionDigits:2})}
-                                    {item.hasVat && <span className="text-gray-500"> (ก่อน VAT ฿{lineSub.toLocaleString(undefined, {minimumFractionDigits:2})} + VAT ฿{lineVat.toLocaleString(undefined, {minimumFractionDigits:2})})</span>}
+                                    {lineVat > 0 && <span className="text-gray-500"> (ก่อน VAT ฿{lineSub.toLocaleString(undefined, {minimumFractionDigits:2})} + VAT ฿{lineVat.toLocaleString(undefined, {minimumFractionDigits:2})})</span>}
                                   </div>
                                 );
                               })()}

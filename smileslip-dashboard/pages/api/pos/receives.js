@@ -1,12 +1,25 @@
 /**
  * GET  /api/pos/receives?shopId&date&supplierId  → ประวัติรับสินค้า
- * POST /api/pos/receives { shopId, supplierId, supplier, items:[{sku,name,qty,unitCost,unit,hasVat}], notes }
+ * POST /api/pos/receives { shopId, supplierId, supplier, items:[{sku,name,qty,unitCost,unit,vatType}], notes }
  *   → บันทึกการรับสินค้า + อัปเดตสต็อค + คำนวณ weighted average cost ทุกรายการ
- *   → unitCost ถือเป็นราคาก่อน VAT เสมอ ถ้า item.hasVat=true จะคำนวณ VAT 7% เพิ่มให้อัตโนมัติ
+ *   → vatType ต่อรายการ: 'รวม VAT แล้ว' (unitCost รวม VAT แยกกลับออกมา) | 'ไม่รวม VAT' (unitCost ก่อน VAT บวก 7% เพิ่ม)
+ *     | 'ไม่มี VAT' (ไม่มี VAT เลย) — แบบเดียวกับ vat_type ของสินค้า — ต้นทุนถ่วงน้ำหนักคำนวณจากฐานก่อน VAT เสมอ
  *
  * เก็บใน Google Sheets tab "รับสินค้า" (PDPA compliant)
  */
 const VAT_RATE = 0.07;
+
+// แยกฐานราคาก่อน VAT / ยอด VAT จากราคาที่กรอกจริง ตาม vatType ของรายการ
+function splitVat(unitCost, vatType) {
+  if (vatType === 'รวม VAT แล้ว') {
+    const base = unitCost / (1 + VAT_RATE);
+    return { base, vat: unitCost - base };
+  }
+  if (vatType === 'ไม่รวม VAT') {
+    return { base: unitCost, vat: unitCost * VAT_RATE };
+  }
+  return { base: unitCost, vat: 0 }; // ไม่มี VAT
+}
 import { createClient } from '@supabase/supabase-js';
 import {
   getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
@@ -74,16 +87,17 @@ export default async function handler(req, res) {
       let subtotal = 0;   // ยอดก่อน VAT (ต้นทุนถ่วงน้ำหนักของสินค้าคำนวณจากยอดนี้เสมอ)
       let vatTotal = 0;    // ยอด VAT รวมทั้งใบ
 
-      // อัปเดตสต็อค + weighted avg cost ทีละสินค้า (ใช้ราคาก่อน VAT เสมอ — ต้นทุนสินค้าไม่รวม VAT)
+      // อัปเดตสต็อค + weighted avg cost ทีละสินค้า (ต้นทุนถ่วงน้ำหนักคำนวณจากฐานราคาก่อน VAT เสมอ)
       for (const item of items) {
-        const { sku, qty, unitCost, hasVat } = item;
+        const { sku, qty, unitCost, vatType } = item;
         const numQty = parseFloat(qty) || 0;
         const numCost = parseFloat(unitCost) || 0;
         if (!sku || numQty <= 0) continue;
 
-        const lineSubtotal = numQty * numCost;
+        const { base: unitBase, vat: unitVat } = splitVat(numCost, vatType);
+        const lineSubtotal = numQty * unitBase;
         subtotal += lineSubtotal;
-        if (hasVat) vatTotal += lineSubtotal * VAT_RATE;
+        vatTotal += numQty * unitVat;
 
         const idx = prodDataRows.findIndex(r => r[0] === sku);
         if (idx === -1) continue;
@@ -96,11 +110,11 @@ export default async function handler(req, res) {
         const rawType = existing[10] || 'นับสต็อค';
         const prodType = rawType === 'ทั่วไป' ? 'นับสต็อค' : rawType;
 
-        // Weighted average cost: (เก่า × ต้นทุนเก่า + ใหม่ × ต้นทุนใหม่) / (เก่า + ใหม่)
+        // Weighted average cost: (เก่า × ต้นทุนเก่า + ใหม่ × ต้นทุนใหม่ก่อน VAT) / (เก่า + ใหม่)
         const newStock = oldStock + numQty;
         const newAvgCost = newStock > 0
-          ? (oldStock * oldAvgCost + numQty * numCost) / newStock
-          : numCost;
+          ? (oldStock * oldAvgCost + numQty * unitBase) / newStock
+          : unitBase;
 
         existing[4] = Math.round(newAvgCost * 100) / 100;  // col E: ราคาทุนเฉลี่ย
         existing[5] = newStock;                              // col F: สต็อค
@@ -130,11 +144,12 @@ export default async function handler(req, res) {
         JSON.stringify(items.map(i => {
           const q = parseFloat(i.qty) || 0;
           const c = parseFloat(i.unitCost) || 0;
-          const lineSub = q * c;
-          const lineVat = i.hasVat ? lineSub * VAT_RATE : 0;
+          const { base, vat: unitVat } = splitVat(c, i.vatType);
+          const lineSub = q * base;
+          const lineVat = q * unitVat;
           return {
             sku: i.sku, name: i.name, qty: q, unit: i.unit || '', unitCost: c,
-            hasVat: !!i.hasVat,
+            vatType: i.vatType || 'ไม่มี VAT',
             vatAmount: Math.round(lineVat * 100) / 100,
             lineTotal: Math.round((lineSub + lineVat) * 100) / 100,
           };
