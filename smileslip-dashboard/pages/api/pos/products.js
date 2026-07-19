@@ -38,7 +38,7 @@ export default async function handler(req, res) {
 
     // ── GET ──────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'สินค้า!A:R');
+      const rows = await readSheet(token, sheetId, 'สินค้า!A:S');
       let products = rows.slice(1)
         .map((r, i) => ({ ...rowToProduct(r), _row: i + 2 }))
         .filter(p => p.sku && p.name);
@@ -68,7 +68,7 @@ export default async function handler(req, res) {
         unit = 'ชิ้น', aliases = '', notes = '',
         type = 'นับสต็อค',
         product_code = '', barcode = '', description = '',
-        vat_type = 'ไม่มี VAT', is_active = true,
+        vat_type = 'ไม่มี VAT', is_active = true, empty_ceiling = 0,
       } = req.body;
       if (!name) return res.status(400).json({ error: 'ต้องระบุชื่อสินค้า' });
 
@@ -77,7 +77,7 @@ export default async function handler(req, res) {
       await appendSheet(token, sheetId, 'สินค้า', [
         sku, name, category, price, cost, stock, unit, aliases, notes, now,
         type, 0, 0,
-        product_code, barcode, description, vat_type, is_active ? '1' : '0',
+        product_code, barcode, description, vat_type, is_active ? '1' : '0', empty_ceiling || 0,
       ]);
       return res.json({ ok: true, sku, name });
     }
@@ -87,13 +87,13 @@ export default async function handler(req, res) {
       const { sku, action, qty, stockDelta, ...updates } = req.body;
       if (!sku) return res.status(400).json({ error: 'Missing sku' });
 
-      const rows = await readSheet(token, sheetId, 'สินค้า!A:R');
+      const rows = await readSheet(token, sheetId, 'สินค้า!A:S');
       const dataRows = rows.slice(1);
       const idx = dataRows.findIndex(r => r[0] === sku);
       if (idx === -1) return res.status(404).json({ error: `ไม่พบสินค้า ${sku}` });
 
       const existing = [...dataRows[idx]];
-      while (existing.length < 18) existing.push('');
+      while (existing.length < 19) existing.push('');
 
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
 
@@ -133,6 +133,7 @@ export default async function handler(req, res) {
       if (updates.description   !== undefined) existing[15] = updates.description;
       if (updates.vat_type      !== undefined) existing[16] = updates.vat_type;
       if (updates.is_active     !== undefined) existing[17] = updates.is_active ? '1' : '0';
+      if (updates.empty_ceiling !== undefined) existing[18] = updates.empty_ceiling;
       existing[9] = now;
 
       await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
@@ -144,12 +145,12 @@ export default async function handler(req, res) {
       const { sku } = req.body;
       if (!sku) return res.status(400).json({ error: 'Missing sku' });
 
-      const rows = await readSheet(token, sheetId, 'สินค้า!A:R');
+      const rows = await readSheet(token, sheetId, 'สินค้า!A:S');
       const dataRows = rows.slice(1);
       const idx = dataRows.findIndex(r => r[0] === sku);
       if (idx === -1) return res.status(404).json({ error: `ไม่พบสินค้า ${sku}` });
 
-      await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, Array(18).fill(''));
+      await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, Array(19).fill(''));
       return res.json({ ok: true, sku });
     }
 

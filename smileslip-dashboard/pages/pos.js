@@ -11,7 +11,7 @@ const PAY_METHODS = ['เงินสด', 'โอน', 'บัตรเคร�
 const CONTACT_TYPES = ['ผู้จำหน่าย', 'ลูกค้า', 'ทั้งคู่'];
 
 function emptyProdForm() {
-  return { name: '', category: '', price: '', stock: '', unit: 'ชิ้น', aliases: '', notes: '', type: 'นับสต็อค', product_code: '', barcode: '', description: '', vat_type: 'ไม่มี VAT', is_active: true };
+  return { name: '', category: '', price: '', stock: '', unit: 'ชิ้น', aliases: '', notes: '', type: 'นับสต็อค', product_code: '', barcode: '', description: '', vat_type: 'ไม่มี VAT', is_active: true, empty_ceiling: '' };
 }
 function emptyContactForm() {
   return {
@@ -20,6 +20,7 @@ function emptyContactForm() {
     company_name: '', tax_id: '', tax_address: '', tax_branch: '',
     debt: '', cylinders: '', shop_name: '', aliases: '', notes: '',
     person_type: 'บุคคลธรรมดา', contact_person_name: '', contact_person_phone: '',
+    cylinder_limit: '',
   };
 }
 
@@ -72,7 +73,19 @@ function escapeHtml(s) {
 function buildReceiptHtml({ paperSize = '80mm', shopInfo, isTaxInvoice, showVat, docNo, dateStr, buyer, items, subtotal, vat, discount, total, payMethod, cashReceived, change, footer }) {
   const widthMm = paperSize === '58mm' ? 58 : 80;
   const title = isTaxInvoice ? 'ใบกำกับภาษี / ใบเสร็จรับเงิน' : 'ใบเสร็จรับเงิน';
-  const itemRows = (items || []).map(i => `
+  const itemRows = (items || []).map(i => {
+    // สินค้าหมุนเวียน (returned_qty !== undefined) แยกแสดง "แลกเปลี่ยน" vs "ยืม" ต่อรายการ
+    const hasReturnInfo = i.returned_qty !== undefined;
+    const returnedQty = parseInt(i.returned_qty) || 0;
+    const borrowedQty = hasReturnInfo ? Math.max(0, i.qty - returnedQty) : 0;
+    const cyclicalNote = hasReturnInfo
+      ? `<tr><td colspan="3" style="color:#888;font-size:0.9em">${
+          returnedQty > 0 ? `↔️ แลกเปลี่ยน ${returnedQty} ${i.unit || ''}` : ''
+        }${returnedQty > 0 && borrowedQty > 0 ? ' + ' : ''}${
+          borrowedQty > 0 ? `📦 ยืม ${borrowedQty} ${i.unit || ''} (ยังไม่คืน)` : ''
+        }</td></tr>`
+      : '';
+    return `
     <tr>
       <td colspan="3" style="padding-top:4px">${escapeHtml(i.name)}</td>
     </tr>
@@ -80,7 +93,8 @@ function buildReceiptHtml({ paperSize = '80mm', shopInfo, isTaxInvoice, showVat,
       <td style="color:#555">${i.qty} × ${Number(i.price).toLocaleString()}</td>
       <td></td>
       <td style="text-align:right;font-weight:bold">${(i.qty * i.price).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-    </tr>`).join('');
+    </tr>${cyclicalNote}`;
+  }).join('');
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>${title} ${escapeHtml(docNo || '')}</title>
@@ -1168,7 +1182,7 @@ export default function POSPage() {
             } catch {}
           }
         }
-        showToast(`ส่งงานให้ ${delivStaff.name} แล้ว — ${d.order_no}`);
+        showToast(d.warnings?.length ? d.warnings.join(' / ') : `ส่งงานให้ ${delivStaff.name} แล้ว — ${d.order_no}`);
         setShowDelivery(false);
         // ปิดบิลที่ active
         const remaining = openBills.filter(b => b.id !== activeBillId);
@@ -1546,8 +1560,9 @@ export default function POSPage() {
         const isCyclical = products.find(p => p.sku === item.sku)?.type === 'หมุนเวียน';
         if (!isCyclical) return item;
         const borrowed = borrowingSku[item.sku] ? Math.min(item.qty, parseInt(borrowedQty[item.sku]) || 0) : 0;
-        const qty = item.qty - borrowed;
-        return qty > 0 ? { ...item, returned_qty: qty } : item;
+        // returned_qty ใส่เสมอสำหรับสินค้าหมุนเวียน (แม้เป็น 0 ตอนยืมเต็มจำนวน) — ใบเสร็จ/รายงาน
+        // ใช้ presence ของฟิลด์นี้แยกว่ารายการนี้เป็นสินค้าหมุนเวียนหรือไม่ (ไม่ใช่แค่ตอนมีการคืน)
+        return { ...item, returned_qty: Math.max(0, item.qty - borrowed) };
       });
       const r = await fetch('/api/pos/sales', {
         method: 'POST',
@@ -1570,7 +1585,7 @@ export default function POSPage() {
       if (d.ok) {
         setLastBill({
           billNo: d.billNo,
-          items: [...cart],
+          items: itemsWithReturns,
           subtotal: cartSubtotal,
           discount: cartDiscount,
           total: cartTotal,
@@ -1608,6 +1623,7 @@ export default function POSPage() {
         setShowCartDrawer(false);
         setShowBill(true);
         fetchProducts();
+        if (d.warnings?.length) showToast(d.warnings.join(' / '));
       } else {
         alert(d.error || 'เกิดข้อผิดพลาด');
       }
@@ -1701,6 +1717,7 @@ export default function POSPage() {
       description: prod.description || '',
       vat_type: prod.vat_type || 'ไม่มี VAT',
       is_active: prod.is_active !== false,
+      empty_ceiling: prod.empty_ceiling ? String(prod.empty_ceiling) : '',
     });
     setShowProdForm(true);
   }
@@ -1712,6 +1729,7 @@ export default function POSPage() {
       ...prodForm,
       price: parseFloat(prodForm.price) || 0,
       stock: parseFloat(prodForm.stock) || 0,
+      empty_ceiling: parseFloat(prodForm.empty_ceiling) || 0,
     };
     const body = editProd ? { shopId, sku: editProd.sku, ...base } : { shopId, ...base };
     try {
@@ -2073,6 +2091,7 @@ export default function POSPage() {
       person_type:         c.person_type         || 'บุคคลธรรมดา',
       contact_person_name: c.contact_person_name || '',
       contact_person_phone:c.contact_person_phone|| '',
+      cylinder_limit:      c.cylinder_limit > 0 ? c.cylinder_limit : '',
     });
     setShowTaxSection(!!(c.company_name || c.tax_id || c.person_type === 'นิติบุคคล'));
     setShowContactForm(true);
@@ -4485,13 +4504,34 @@ export default function POSPage() {
                                   <td className="px-3 py-2 text-white font-medium">{p.name} <span className="text-gray-600">({p.unit})</span></td>
                                   <td className="px-3 py-2 text-right text-green-400">{p.stock}</td>
                                   <td className="px-3 py-2 text-right text-orange-400">{p.at_customer}</td>
-                                  <td className="px-3 py-2 text-right text-gray-300">{p.empty_waiting}</td>
+                                  <td className={`px-3 py-2 text-right ${p.over_ceiling ? 'text-red-400 font-bold' : 'text-gray-300'}`}>
+                                    {p.empty_waiting}{p.empty_ceiling > 0 ? ` / ${p.empty_ceiling}` : ''}
+                                    {p.over_ceiling && ' ⚠️'}
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
                           </table>
                         </div>
                         {!reportData.products?.length && <div className="text-center text-gray-500 py-8 text-sm">ยังไม่มีสินค้าประเภทหมุนเวียน</div>}
+                      </div>
+
+                      {s.over_ceiling_count > 0 && (
+                        <div className="bg-red-900/20 border border-red-800 rounded-xl p-3 text-red-300 text-xs">
+                          ⚠️ มีสินค้าหมุนเวียน {s.over_ceiling_count} รายการที่เปล่ารอรีฟิลเกินเพดานที่ตั้งไว้ — ควรรีบรีฟิลหรือตรวจสอบว่ามีถังตกค้างผิดปกติ
+                        </div>
+                      )}
+
+                      {/* ต้นทุนรีฟิล vs ซื้อใหม่ (จากใบรับสินค้าในช่วงวันที่เลือกด้านบน) */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-gray-800 rounded-xl p-3 text-center">
+                          <div className="text-lg font-bold text-blue-400">฿{(s.refill_cost || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
+                          <div className="text-gray-400 text-xs mt-1">ต้นทุนรีฟิล (สินค้าหมุนเวียน)</div>
+                        </div>
+                        <div className="bg-gray-800 rounded-xl p-3 text-center">
+                          <div className="text-lg font-bold text-gray-300">฿{(s.new_purchase_cost || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
+                          <div className="text-gray-400 text-xs mt-1">ต้นทุนซื้อสินค้าใหม่</div>
+                        </div>
                       </div>
 
                       {/* ใครถืออยู่กี่ชิ้น */}
@@ -5393,6 +5433,16 @@ export default function POSPage() {
                 </div>
               )}
 
+              {/* ── เพดานเปล่ารอรีฟิล (เฉพาะสินค้าหมุนเวียน) ── */}
+              {prodForm.type === 'หมุนเวียน' && (
+                <div>
+                  <label className="block text-gray-400 text-xs mb-1.5">เพดานเปล่ารอรีฟิล (แจ้งเตือนถ้าเกิน — เว้นว่าง/0 = ไม่ตั้งเพดาน)</label>
+                  <input type="number" value={prodForm.empty_ceiling} onChange={e => setProdForm(f => ({...f, empty_ceiling: e.target.value}))}
+                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    placeholder="0" min="0" />
+                </div>
+              )}
+
               {/* ── รายละเอียดสินค้า ── */}
               <div>
                 <label className="block text-gray-400 text-xs mb-1.5">รายละเอียดสินค้า</label>
@@ -5776,6 +5826,13 @@ export default function POSPage() {
                       type="number" min="0"
                       className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
                       placeholder="0" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-gray-400 text-xs mb-1.5">วงเงินยืมสูงสุด (ชิ้น) — เว้นว่าง/0 = ไม่จำกัด</label>
+                    <input value={contactForm.cylinder_limit} onChange={e => setContactForm(f => ({...f, cylinder_limit: e.target.value}))}
+                      type="number" min="0"
+                      className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                      placeholder="ไม่จำกัด" />
                   </div>
                 </div>
               )}

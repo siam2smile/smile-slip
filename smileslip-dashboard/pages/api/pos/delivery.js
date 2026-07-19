@@ -21,6 +21,7 @@ import { createClient } from '@supabase/supabase-js';
 import {
   getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
   makeOrderNo, rowToOrder, rowToContact, rowToProduct, ORDER_HEADERS, CONTACT_HEADERS,
+  logCyclicalTransaction,
 } from '../../../lib/google-pos';
 
 const supabase = createClient(
@@ -234,24 +235,36 @@ export default async function handler(req, res) {
         }
       }
 
-      // อัปเดตจำนวนถังกับลูกค้า (สินค้าหมุนเวียน)
+      // อัปเดตจำนวนถังกับลูกค้า (สินค้าหมุนเวียน) + เช็ควงเงินยืมสูงสุด (soft warning ไม่บล็อค)
+      const deliveryWarnings = [];
       if (cylinders_delivered > 0 && customer_id) {
         try {
           await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
-          const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:T');
+          const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:X');
           const custDataRows = custRows.slice(1);
           const custIdx = custDataRows.findIndex(r => r[0] === customer_id);
           if (custIdx !== -1) {
             const cust = rowToContact(custDataRows[custIdx]);
             const existing = [...custDataRows[custIdx]];
-            while (existing.length < 20) existing.push('');
-            existing[14] = (cust.cylinders || 0) + cylinders_delivered; // ถังอยู่กับลูกค้า (col O)
+            while (existing.length < 24) existing.push('');
+            const newCylinders = (cust.cylinders || 0) + cylinders_delivered;
+            existing[14] = newCylinders; // ถังอยู่กับลูกค้า (col O)
             existing[19] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }); // updated_at
+            if (cust.cylinder_limit > 0 && newCylinders > cust.cylinder_limit) {
+              deliveryWarnings.push(`⚠️ ลูกค้ายืมสินค้าหมุนเวียนเกินวงเงินที่ตั้งไว้ (${newCylinders}/${cust.cylinder_limit})`);
+            }
             await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, existing);
           }
         } catch (cylErr) {
           console.error('[delivery] update customer cylinders error:', cylErr.message);
         }
+        // audit log — ยืมสินค้าหมุนเวียนไปกับออเดอร์จัดส่งนี้ (รวมเป็นยอดเดียว ไม่แยกราย SKU
+        // เพราะ cylinders_delivered ที่ส่งมาเป็นยอดรวมอยู่แล้ว ไม่ได้แยกต่อสินค้า)
+        await logCyclicalTransaction(token, sheetId, {
+          sku: '', name: 'สินค้าหมุนเวียน (รวม)', source: 'จัดส่ง', action: 'ยืม',
+          qty: cylinders_delivered, customerId: customer_id, customerName: customer_name,
+          performedBy: staff_name || created_by,
+        });
       }
 
       // LINE push หาพนักงาน
@@ -263,7 +276,7 @@ export default async function handler(req, res) {
         await pushLineMessage(staff_line_id, flexMsg);
       }
 
-      return res.json({ ok: true, order_no });
+      return res.json({ ok: true, order_no, warnings: deliveryWarnings });
     }
 
     // ── PATCH — แก้ไขออเดอร์ (สถานะ, พิกัด, หรือรายละเอียดเต็ม เช่น เปลี่ยนผู้ส่ง) ──
@@ -354,6 +367,12 @@ export default async function handler(req, res) {
               prodExisting[9] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
               await updateSheetRow(token, sheetId, 'สินค้า', pIdx + 2, prodExisting);
               prodDataRows[pIdx] = prodExisting;
+
+              await logCyclicalTransaction(token, sheetId, {
+                sku: item.sku, name: item.name || prod.name, source: 'จัดส่ง', action: 'คืน',
+                qty: returnedQty, customerId: cust, customerName: existing[3],
+                performedBy: confirmed_by,
+              });
             }
           } catch (prodErr) {
             console.error('[delivery] update product empty_waiting error:', prodErr.message);

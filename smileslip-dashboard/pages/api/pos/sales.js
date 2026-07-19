@@ -11,7 +11,7 @@ import { createClient } from '@supabase/supabase-js';
 import {
   getAccessToken, readSheet, appendSheet, updateSheetRow,
   ensureTabExists, makeBillNo, rowToSale, SALE_HEADERS, rowToProduct, CONTACT_HEADERS,
-  computeVatBreakdown,
+  computeVatBreakdown, logCyclicalTransaction,
 } from '../../../lib/google-pos';
 
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -210,8 +210,8 @@ export default async function handler(req, res) {
       const isTransferPending = payment_method === 'โอน' && !slipUrl;
       const billStatus = isCredit ? 'ค้างชำระ' : isTransferPending ? 'รอยืนยัน' : 'ชำระแล้ว';
 
-      // อ่านสินค้าไว้ล่วงหน้า — ใช้ทั้งคำนวณ VAT (จาก vat_type ต่อ SKU) และตัดสต็อคด้านล่าง (อ่านครั้งเดียว)
-      const prodRows = await readSheet(token, sheetId, 'สินค้า!A:R');
+      // อ่านสินค้าไว้ล่วงหน้า — ใช้ทั้งคำนวณ VAT (จาก vat_type ต่อ SKU), ตัดสต็อค, และเช็คเพดานเปล่ารอรีฟิล (คอลัมน์ S)
+      const prodRows = await readSheet(token, sheetId, 'สินค้า!A:S');
       const dataRows = prodRows.slice(1);
       const productsForVat = dataRows.map(r => rowToProduct(r));
       const { subtotal: vatSubtotal, vat: vatAmount } = computeVatBreakdown(items, productsForVat);
@@ -240,12 +240,13 @@ export default async function handler(req, res) {
       //    ถ้าลูกค้าเอาถังเปล่าเก่ามาคืน (item.returned_qty) → ถังนั้นไม่ได้ค้างอยู่กับลูกค้าเพิ่ม
       //    (กับลูกค้าสุทธิ = qty - returned_qty) และเพิ่ม "เปล่ารอรีฟิล" ตามจำนวนที่คืนมา
       let netCylinderDeltaForCustomer = 0;
+      const warnings = [];
       try {
         for (const item of items) {
           const idx = dataRows.findIndex(r => r[0] === item.sku);
           if (idx === -1) continue;
           const existing = [...dataRows[idx]];
-          while (existing.length < 18) existing.push('');
+          while (existing.length < 19) existing.push('');
           const rawType  = existing[10] || 'นับสต็อค';
           const prodType = rawType === 'ทั่วไป' ? 'นับสต็อค' : rawType;
           if (prodType === 'ไม่นับสต็อค') {
@@ -253,11 +254,31 @@ export default async function handler(req, res) {
             continue;
           } else if (prodType === 'หมุนเวียน') {
             const returnedQty = parseInt(item.returned_qty) || 0;
+            const netBorrow = item.qty - returnedQty;
             existing[5]  = Math.max(0, (parseFloat(existing[5]) || 0) - item.qty); // เต็ม (stock) ลด — ออกจากร้านไปกับลูกค้า
-            existing[11] = Math.max(0, (parseFloat(existing[11]) || 0) + item.qty - returnedQty); // กับลูกค้า สุทธิ
+            existing[11] = Math.max(0, (parseFloat(existing[11]) || 0) + netBorrow); // กับลูกค้า สุทธิ
             existing[12] = (parseFloat(existing[12]) || 0) + returnedQty; // เปล่ารอรีฟิล
             existing[9]  = now;
-            netCylinderDeltaForCustomer += item.qty - returnedQty;
+            netCylinderDeltaForCustomer += netBorrow;
+
+            // เพดานเปล่ารอรีฟิล — เตือนถ้าเกิน (ไม่บล็อคการขาย)
+            const ceiling = parseFloat(existing[18]) || 0;
+            if (ceiling > 0 && existing[12] > ceiling) {
+              warnings.push(`⚠️ "${item.name}" เปล่ารอรีฟิลเกินเพดาน (${existing[12]}/${ceiling} ${item.unit || ''})`);
+            }
+
+            await logCyclicalTransaction(token, sheetId, {
+              sku: item.sku, name: item.name, source: 'ขายหน้าร้าน',
+              action: returnedQty > 0 ? 'แลกเปลี่ยน' : 'ยืม',
+              qty: returnedQty > 0 ? returnedQty : netBorrow,
+              customerId, customerName, branch, performedBy: cashier,
+            });
+            if (returnedQty > 0 && netBorrow > 0) {
+              await logCyclicalTransaction(token, sheetId, {
+                sku: item.sku, name: item.name, source: 'ขายหน้าร้าน', action: 'ยืม',
+                qty: netBorrow, customerId, customerName, branch, performedBy: cashier,
+              });
+            }
           } else {
             existing[5] = Math.max(0, (parseFloat(existing[5]) || 0) - item.qty); // stock ลด
             existing[9] = now;
@@ -266,17 +287,22 @@ export default async function handler(req, res) {
           dataRows[idx] = existing;
         }
 
-        // อัปเดตยอด "ถังอยู่กับลูกค้า" ของผู้ติดต่อ (ถ้าเลือกลูกค้าไว้ตอนขาย)
+        // อัปเดตยอด "ถังอยู่กับลูกค้า" ของผู้ติดต่อ (ถ้าเลือกลูกค้าไว้ตอนขาย) + เช็ควงเงินยืมสูงสุด (soft warning)
         if (customerId && netCylinderDeltaForCustomer !== 0) {
           await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
-          const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:W');
+          const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:X');
           const custDataRows = custRows.slice(1);
           const custIdx = custDataRows.findIndex(r => r[0] === customerId);
           if (custIdx !== -1) {
             const custExisting = [...custDataRows[custIdx]];
-            while (custExisting.length < 23) custExisting.push('');
-            custExisting[14] = Math.max(0, (parseFloat(custExisting[14]) || 0) + netCylinderDeltaForCustomer); // ถังอยู่กับลูกค้า
+            while (custExisting.length < 24) custExisting.push('');
+            const newCylinders = Math.max(0, (parseFloat(custExisting[14]) || 0) + netCylinderDeltaForCustomer);
+            custExisting[14] = newCylinders; // ถังอยู่กับลูกค้า
             custExisting[19] = now; // updated_at
+            const limit = parseFloat(custExisting[23]) || 0;
+            if (limit > 0 && newCylinders > limit) {
+              warnings.push(`⚠️ ลูกค้ายืมสินค้าหมุนเวียนเกินวงเงินที่ตั้งไว้ (${newCylinders}/${limit})`);
+            }
             await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
           }
         }
@@ -284,7 +310,7 @@ export default async function handler(req, res) {
         console.error('[pos/sales] stock deduct error:', stockErr.message);
       }
 
-      return res.json({ ok: true, billNo, total, change, vatSubtotal, vatAmount });
+      return res.json({ ok: true, billNo, total, change, vatSubtotal, vatAmount, warnings });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });

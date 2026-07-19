@@ -222,11 +222,13 @@ export async function createPosSpreadsheet(accessToken, name, parentId) {
 // ── Header Definitions ────────────────────────────────────────────────────────
 
 // A-M เดิม + N=รหัสผู้ใช้ O=บาร์โค้ด P=รายละเอียด Q=VAT R=สถานะ
+// S=เพดานเปล่ารอรีฟิล เพิ่มท้ายสุด — ใช้เตือนสต็อคเปล่าล้น (เกินเพดาน = ของหมุนเวียนค้างไม่ได้รีฟิลเยอะผิดปกติ)
 export const PRODUCT_HEADERS = [
   'รหัสสินค้า (ระบบ)', 'ชื่อสินค้า', 'หมวดหมู่', 'ราคาขาย (บาท)',
   'ราคาทุนเฉลี่ย (บาท)', 'จำนวนสต็อค', 'หน่วย', 'คำค้น/ชื่ออื่น', 'หมายเหตุ', 'วันที่อัปเดต',
   'ประเภท', 'กับลูกค้า', 'เปล่ารอรีฟิล',
   'รหัสสินค้า (ผู้ใช้)', 'บาร์โค้ด', 'รายละเอียดสินค้า', 'VAT', 'สถานะ',
+  'เพดานเปล่ารอรีฟิล',
 ];
 
 // Q-R (ยอดก่อน VAT/ยอด VAT) เพิ่มท้ายสุด — ไม่แทรกกลาง กันข้อมูลเก่าเลื่อนคอลัมน์ผิด
@@ -307,6 +309,7 @@ export const CONTACT_HEADERS = [
   'ยอดค้าง (บาท)', 'ถังอยู่กับลูกค้า', 'ชื่อร้านค้า',
   'คำค้น/aliases', 'หมายเหตุ', 'วันที่เพิ่ม', 'วันที่อัปเดต',
   'ประเภทบุคคล', 'ชื่อผู้ติดต่อ (นิติบุคคล)', 'เบอร์ผู้ติดต่อ (นิติบุคคล)',
+  'วงเงินยืมสูงสุด (ชิ้น)',
 ];
 
 // รหัสผู้จำหน่าย/ยอดก่อน VAT/ยอด VAT รวม (G-I) เพิ่มท้ายสุด — ผูกกับ contact_id จริงแทน
@@ -367,6 +370,52 @@ export function rowToExpense(row) {
     recorded_by: row[10] || '',
     branch:     row[11] || '',
   };
+}
+
+// tab "บันทึกแลกเปลี่ยน" — audit log รายรายการของการยืม/แลกเปลี่ยน/คืน/รีฟิลสินค้าหมุนเวียน
+// (คนละอย่างกับ tab "รับสินค้า"/"ยอดขาย" ที่บันทึกบิลทั้งใบ — อันนี้บันทึกเฉพาะ "การเคลื่อนไหว
+// ของสินค้าหมุนเวียน" ทีละ SKU ทีละครั้ง เพื่อตรวจสอบย้อนหลังได้ว่าใครยืม/คืน/แลกอะไรไปเมื่อไหร่)
+export const CYCLICAL_LOG_HEADERS = [
+  'เลขที่บันทึก', 'วันที่-เวลา', 'รหัสสินค้า', 'ชื่อสินค้า',
+  'แหล่งที่มา', 'การกระทำ', 'จำนวน', 'รหัสลูกค้า', 'ชื่อลูกค้า', 'สาขา', 'ผู้ทำรายการ',
+];
+
+export function makeCyclicalLogNo() {
+  const now = new Date();
+  const pad = (n, len = 2) => String(n).padStart(len, '0');
+  return `CYC${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}${pad(Math.floor(Math.random() * 100))}`;
+}
+
+export function rowToCyclicalLog(row) {
+  return {
+    log_no:       row[0]  || '',
+    created_at:   row[1]  || '',
+    sku:          row[2]  || '',
+    name:         row[3]  || '',
+    source:       row[4]  || '',
+    action:       row[5]  || '',
+    qty:          parseFloat(row[6]) || 0,
+    customer_id:  row[7]  || '',
+    customer_name:row[8]  || '',
+    branch:       row[9]  || '',
+    performed_by: row[10] || '',
+  };
+}
+
+// source: 'ขายหน้าร้าน'|'จัดส่ง'|'เก็บเงิน/ของ' — action: 'แลกเปลี่ยน'|'ยืม'|'คืน'
+// เรียกใช้แบบ fail-safe (ไม่ throw) กันบันทึก log พังจนกระทบ transaction หลัก
+export async function logCyclicalTransaction(token, sheetId, { sku, name, source, action, qty, customerId, customerName, branch, performedBy }) {
+  if (!qty || qty <= 0) return;
+  try {
+    await ensureTabExists(token, sheetId, 'บันทึกแลกเปลี่ยน', CYCLICAL_LOG_HEADERS);
+    const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+    await appendSheet(token, sheetId, 'บันทึกแลกเปลี่ยน', [
+      makeCyclicalLogNo(), `'${now}`, sku || '', name || '',
+      source || '', action || '', qty, customerId || '', customerName || '', branch || '', performedBy || '',
+    ]);
+  } catch (err) {
+    console.error('[logCyclicalTransaction]', err.message);
+  }
 }
 
 // ── Key Generators ────────────────────────────────────────────────────────────
@@ -434,6 +483,7 @@ export function rowToProduct(row) {
     description:   row[15] || '',
     vat_type:      row[16] || 'ไม่มี VAT',
     is_active:     row[17] !== '0', // default active
+    empty_ceiling: parseFloat(row[18]) || 0, // 0 = ไม่ตั้งเพดาน
   };
 }
 
@@ -505,6 +555,7 @@ export function rowToContact(row) {
     person_type:         row[20] || 'บุคคลธรรมดา',
     contact_person_name: row[21] || '',
     contact_person_phone:row[22] || '',
+    cylinder_limit:      parseFloat(row[23]) || 0, // 0 = ไม่จำกัด
   };
 }
 

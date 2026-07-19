@@ -320,13 +320,16 @@ export default async function handler(req, res) {
     }
 
     // ── สินค้าหมุนเวียน (ถัง/ขวด/ฯลฯ) ────────────────────────────────────────
-    // รวม 2 มุม: (1) ใครถืออยู่กี่ชิ้น — จาก contact.cylinders (บวกจากทั้งขายหน้าร้านและจัดส่ง
-    // ที่อัปเดตฟิลด์เดียวกันนี้อยู่แล้ว) (2) ภาพรวมสต็อคจริงต่อสินค้า — เต็ม/กับลูกค้า/เปล่ารอรีฟิล
+    // รวม 3 มุม: (1) ใครถืออยู่กี่ชิ้น — จาก contact.cylinders (2) ภาพรวมสต็อคจริงต่อสินค้า —
+    // เต็ม/กับลูกค้า/เปล่ารอรีฟิล + เตือนถ้าเปล่ารอรีฟิลเกินเพดานที่ตั้งไว้ (3) ต้นทุนรีฟิล
+    // (รับสินค้าเข้าของ SKU ประเภทหมุนเวียน) แยกจากต้นทุนซื้อสินค้าใหม่ (ประเภทอื่น) ในช่วงวันที่เลือก
     if (type === 'cyclical') {
       await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
-      const [custRows, prodRows] = await Promise.all([
+      await ensureTabExists(token, sheetId, 'รับสินค้า', RECEIVE_HEADERS);
+      const [custRows, prodRows, receiveRows] = await Promise.all([
         readSheet(token, sheetId, 'ผู้ติดต่อ!A:W'),
-        readSheet(token, sheetId, 'สินค้า!A:R'),
+        readSheet(token, sheetId, 'สินค้า!A:S'),
+        readSheet(token, sheetId, 'รับสินค้า!A:I'),
       ]);
 
       const customers = custRows.slice(1)
@@ -335,11 +338,33 @@ export default async function handler(req, res) {
         .map(c => ({ contact_id: c.contact_id, name: c.name, phone: c.phone, cylinders: c.cylinders }))
         .sort((a, b) => b.cylinders - a.cylinders);
 
-      const products = prodRows.slice(1)
-        .map(r => rowToProduct(r))
-        .filter(p => p.sku && p.type === 'หมุนเวียน')
-        .map(p => ({ sku: p.sku, name: p.name, unit: p.unit, stock: p.stock, at_customer: p.at_customer, empty_waiting: p.empty_waiting }))
+      const allProducts = prodRows.slice(1).map(r => rowToProduct(r)).filter(p => p.sku);
+      const cyclicalSkus = new Set(allProducts.filter(p => p.type === 'หมุนเวียน').map(p => p.sku));
+
+      const products = allProducts
+        .filter(p => p.type === 'หมุนเวียน')
+        .map(p => ({
+          sku: p.sku, name: p.name, unit: p.unit, stock: p.stock,
+          at_customer: p.at_customer, empty_waiting: p.empty_waiting,
+          empty_ceiling: p.empty_ceiling,
+          over_ceiling: p.empty_ceiling > 0 && p.empty_waiting > p.empty_ceiling,
+        }))
         .sort((a, b) => a.name.localeCompare(b.name, 'th'));
+
+      // ต้นทุนรีฟิล (สินค้าหมุนเวียน) vs ต้นทุนซื้อสินค้าใหม่ (ประเภทอื่น) จากใบรับสินค้าในช่วงวันที่เลือก
+      const receives = receiveRows.slice(1)
+        .map(r => rowToReceive(r))
+        .filter(r => r.receive_no)
+        .filter(r => inRange(r.created_at, from, to));
+
+      let refillCost = 0, newPurchaseCost = 0;
+      for (const rec of receives) {
+        for (const item of rec.items || []) {
+          const lineBase = (parseFloat(item.qty) || 0) * (parseFloat(item.unitCost) || 0);
+          if (cyclicalSkus.has(item.sku)) refillCost += lineBase;
+          else newPurchaseCost += lineBase;
+        }
+      }
 
       return res.json({
         type: 'cyclical',
@@ -352,6 +377,9 @@ export default async function handler(req, res) {
           total_stock: products.reduce((s, p) => s + p.stock, 0),
           total_at_customer: products.reduce((s, p) => s + p.at_customer, 0),
           total_empty_waiting: products.reduce((s, p) => s + p.empty_waiting, 0),
+          over_ceiling_count: products.filter(p => p.over_ceiling).length,
+          refill_cost: Math.round(refillCost * 100) / 100,
+          new_purchase_cost: Math.round(newPurchaseCost * 100) / 100,
         },
       });
     }

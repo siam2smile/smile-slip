@@ -48,7 +48,7 @@ export default async function handler(req, res) {
 
     // ── GET ──────────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:W');
+      const rows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:X');
       let contacts = rows.slice(1)
         .map((r, i) => ({ ...rowToContact(r), _row: i + 2 }))
         .filter(c => c.contact_id && c.name);
@@ -112,6 +112,7 @@ export default async function handler(req, res) {
         aliases = '', notes = '',
         person_type = 'บุคคลธรรมดา',
         contact_person_name = '', contact_person_phone = '',
+        cylinder_limit = 0,
       } = req.body;
       if (!name) return res.status(400).json({ error: 'ต้องระบุชื่อ' });
 
@@ -122,7 +123,7 @@ export default async function handler(req, res) {
         address_1, maps_1, address_2, maps_2,
         company_name, asText(tax_id), tax_address, tax_branch,
         debt, cylinders, shop_name, aliases, notes, asText(now), asText(now),
-        person_type, contact_person_name, asText(contact_person_phone),
+        person_type, contact_person_name, asText(contact_person_phone), cylinder_limit || 0,
       ]);
       return res.json({ ok: true, contact_id, name });
     }
@@ -132,13 +133,13 @@ export default async function handler(req, res) {
       const { contact_id, ...updates } = req.body;
       if (!contact_id) return res.status(400).json({ error: 'Missing contact_id' });
 
-      const rows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:W');
+      const rows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:X');
       const dataRows = rows.slice(1);
       const idx = dataRows.findIndex(r => r[0] === contact_id);
       if (idx === -1) return res.status(404).json({ error: 'ไม่พบผู้ติดต่อ' });
 
       const existing = [...dataRows[idx]];
-      while (existing.length < 23) existing.push('');
+      while (existing.length < 24) existing.push('');
 
       if (updates.name                !== undefined) existing[1]  = updates.name;
       if (updates.contact_type        !== undefined) existing[2]  = updates.contact_type;
@@ -160,6 +161,7 @@ export default async function handler(req, res) {
       if (updates.person_type         !== undefined) existing[20] = updates.person_type;
       if (updates.contact_person_name !== undefined) existing[21] = updates.contact_person_name;
       if (updates.contact_person_phone!== undefined) existing[22] = asText(updates.contact_person_phone);
+      if (updates.cylinder_limit      !== undefined) existing[23] = updates.cylinder_limit;
       existing[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })); // updated_at
 
       await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', idx + 2, existing);
@@ -171,11 +173,11 @@ export default async function handler(req, res) {
       const { contact_id } = req.body;
       if (!contact_id) return res.status(400).json({ error: 'Missing contact_id' });
 
-      const rows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:W');
+      const rows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:X');
       const idx = rows.slice(1).findIndex(r => r[0] === contact_id);
       if (idx === -1) return res.status(404).json({ error: 'ไม่พบผู้ติดต่อ' });
 
-      await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', idx + 2, Array(23).fill(''));
+      await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', idx + 2, Array(24).fill(''));
       return res.json({ ok: true });
     }
 

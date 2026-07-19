@@ -21,7 +21,7 @@ import { createClient } from '@supabase/supabase-js';
 import {
   getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
   makeCollectionNo, rowToCollection, rowToContact, rowToProduct,
-  COLLECTION_HEADERS, CONTACT_HEADERS,
+  COLLECTION_HEADERS, CONTACT_HEADERS, logCyclicalTransaction,
 } from '../../../lib/google-pos';
 
 const supabase = createClient(
@@ -248,6 +248,12 @@ export default async function handler(req, res) {
                 prodExisting[9] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
                 await updateSheetRow(token, sheetId, 'สินค้า', pIdx + 2, prodExisting);
                 prodDataRows[pIdx] = prodExisting;
+
+                await logCyclicalTransaction(token, sheetId, {
+                  sku: item.sku, name: item.name || prod.name, source: 'เก็บเงิน/ของ', action: 'คืน',
+                  qty, customerId: custId, customerName: existing[3],
+                  performedBy: confirmed_by,
+                });
               }
             } catch (prodErr) {
               console.error('[collections] update product empty_waiting error:', prodErr.message);
