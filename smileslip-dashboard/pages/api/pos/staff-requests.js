@@ -22,6 +22,26 @@ function asText(v) {
   return `'${v}`;
 }
 
+// ส่งลิงก์ "ตั้งรหัส PIN" ให้พนักงานหลังได้รับการอนุมัติ — ลิงก์นี้เองคือตัวยืนยันตัวตน
+async function sendPinSetupLink(lineId, shopId, staffId, staffName) {
+  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  if (!token || !lineId) return;
+  const url = `${process.env.FRONTEND_URL}/pos-staff?shopId=${shopId}&staff_id=${staffId}&setpin=1`;
+  const message = {
+    type: 'text',
+    text: `✅ อนุมัติแล้ว! ตั้งรหัส PIN ส่วนตัวของคุณ${staffName ? ` (${staffName})` : ''}\nใช้ PIN นี้เข้าหน้าพนักงานได้เลย ตั้งได้ที่ลิงก์นี้:\n${url}`,
+  };
+  try {
+    await fetch('https://api.line.me/v2/bot/message/push', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to: lineId, messages: [message] }),
+    });
+  } catch (err) {
+    console.error('[staff-requests] sendPinSetupLink error:', err.message);
+  }
+}
+
 export default async function handler(req, res) {
   const shopId = req.query.shopId || req.body?.shopId;
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
@@ -70,8 +90,9 @@ export default async function handler(req, res) {
         const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
         await appendSheet(token, pc.pos_sheet_id, 'พนักงาน', [
           staff_id, reqRow.display_name || 'พนักงานส่ง', '', reqRow.line_user_id,
-          'พนักงานส่ง', '', asText(now), reqRow.branch_name || '',
+          'พนักงานส่ง', '', asText(now), reqRow.branch_name || '', '',
         ]);
+        sendPinSetupLink(reqRow.line_user_id, shopId, staff_id, reqRow.display_name).catch(() => {});
       } catch (err) {
         console.error('[staff-requests] sync to พนักงาน sheet failed:', err.message);
         return res.status(500).json({ error: 'อนุมัติไม่สำเร็จ: ' + err.message });

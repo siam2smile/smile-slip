@@ -3,20 +3,30 @@
  * เข้าด้วย PIN 4 หลัก → เห็นบิลที่ "รอยืนยัน" → ถ่ายสลิปยืนยัน
  * mobile-first, บุ๊กมาร์กได้ ไม่ต้อง login LINE
  */
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 
 export default function PosStaffPage() {
   const router = useRouter();
-  const { shopId, order_no: deepLinkOrderNo, collection_no: deepLinkCollectionNo } = router.query;
+  const {
+    shopId, order_no: deepLinkOrderNo, collection_no: deepLinkCollectionNo,
+    staff_id: setupStaffId, setpin: setupMode,
+  } = router.query;
 
-  const [step, setStep] = useState('pin'); // 'pin' | 'menu' | 'bills' | 'confirm' | 'deliveries' | 'deliver-confirm' | 'collections' | 'collect-confirm'
+  const [step, setStep] = useState('pin'); // 'pin' | 'setpin' | 'menu' | 'bills' | 'confirm' | 'deliveries' | 'deliver-confirm' | 'collections' | 'collect-confirm'
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState('');
   const [pinLoading, setPinLoading] = useState(false);
   const [shopName, setShopName] = useState('');
   const [staffName, setStaffName] = useState('');
+  const [staffId, setStaffId] = useState(''); // staff_id ของคนที่ login สำเร็จ (ใช้ผูกกับ PIN)
+
+  // ── ตั้งรหัส PIN ครั้งแรก (มาจากลิงก์ที่ส่งทาง LINE หลังได้รับอนุมัติ/แอดมินเพิ่ม) ──────
+  const [newPin, setNewPin] = useState('');
+  const [newPinConfirm, setNewPinConfirm] = useState('');
+  const [newPinError, setNewPinError] = useState('');
+  const [setPinSaving, setSetPinSaving] = useState(false);
 
   const [bills, setBills] = useState([]);
   const [billsLoading, setBillsLoading] = useState(false);
@@ -63,6 +73,37 @@ export default function PosStaffPage() {
     setTimeout(() => setToast(''), 3000);
   }
 
+  // มาจากลิงก์ตั้งรหัส PIN ที่ส่งทาง LINE (staff_id + setpin=1) → ข้ามหน้ากรอก PIN ไปตั้งรหัสใหม่เลย
+  useEffect(() => {
+    if (setupMode && setupStaffId) setStep('setpin');
+  }, [setupMode, setupStaffId]);
+
+  async function submitSetPin() {
+    if (!shopId || !setupStaffId) return;
+    if (!/^\d{4}$/.test(newPin)) { setNewPinError('PIN ต้องเป็นตัวเลข 4 หลัก'); return; }
+    if (newPin !== newPinConfirm) { setNewPinError('รหัสยืนยันไม่ตรงกัน'); return; }
+    setSetPinSaving(true);
+    setNewPinError('');
+    try {
+      const r = await fetch('/api/pos/staff-setpin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, staff_id: setupStaffId, pin: newPin }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        showToast(`✅ ตั้งรหัส PIN สำเร็จ${d.name ? ` — ${d.name}` : ''}`);
+        setNewPin(''); setNewPinConfirm('');
+        setStep('pin');
+      } else {
+        setNewPinError(d.error || 'เกิดข้อผิดพลาด');
+      }
+    } catch (err) {
+      setNewPinError(err.message);
+    }
+    setSetPinSaving(false);
+  }
+
   // ── PIN numpad ────────────────────────────────────────────────────────────
   function pressDigit(d) {
     if (pin.length < 4) setPin(p => p + d);
@@ -81,6 +122,8 @@ export default function PosStaffPage() {
       });
       const d = await r.json();
       if (d.ok) {
+        setStaffName(d.staff?.name || '');
+        setStaffId(d.staff?.staff_id || '');
         fetchBills();
         fetchProducts();
         const fetchedOrders = await fetchOrders();
@@ -419,7 +462,7 @@ export default function PosStaffPage() {
             <div className="text-white font-bold text-sm">🛒 Staff POS</div>
             {shopName && <div className="text-gray-400 text-xs">{shopName}</div>}
           </div>
-          {step !== 'pin' && (
+          {step !== 'pin' && step !== 'setpin' && (
             <button onClick={() => { setStep('pin'); setPin(''); setBills([]); }}
               className="text-gray-400 hover:text-white text-xs border border-gray-700 px-3 py-1.5 rounded-lg">
               ออกจากระบบ
@@ -480,15 +523,45 @@ export default function PosStaffPage() {
             </div>
           )}
 
+          {/* ══ ตั้งรหัส PIN ครั้งแรก (มาจากลิงก์ที่ส่งทาง LINE) ═══════════════════ */}
+          {step === 'setpin' && (
+            <div className="flex flex-col items-center pt-8">
+              <div className="text-4xl mb-4">🔐</div>
+              <h2 className="text-white font-bold text-xl mb-2">ตั้งรหัส PIN ของคุณ</h2>
+              <p className="text-gray-400 text-sm mb-8 text-center px-4">ตั้ง PIN 4 หลักส่วนตัว ใช้เข้าหน้าพนักงานครั้งต่อไปได้เลย</p>
+
+              <div className="w-full max-w-xs space-y-4">
+                <div>
+                  <label className="text-gray-400 text-xs block mb-1.5">PIN ใหม่ (4 หลัก)</label>
+                  <input type="password" inputMode="numeric" maxLength={4} value={newPin}
+                    onChange={e => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    className="w-full bg-gray-800 text-white text-center text-2xl tracking-widest px-4 py-3 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                </div>
+                <div>
+                  <label className="text-gray-400 text-xs block mb-1.5">ยืนยัน PIN อีกครั้ง</label>
+                  <input type="password" inputMode="numeric" maxLength={4} value={newPinConfirm}
+                    onChange={e => setNewPinConfirm(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    className="w-full bg-gray-800 text-white text-center text-2xl tracking-widest px-4 py-3 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                </div>
+
+                {newPinError && <div className="text-red-400 text-sm text-center">{newPinError}</div>}
+
+                <button onClick={submitSetPin} disabled={setPinSaving || newPin.length !== 4 || newPinConfirm.length !== 4}
+                  className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-4 rounded-2xl text-lg transition-colors">
+                  {setPinSaving ? 'กำลังบันทึก...' : '✅ ตั้งรหัส PIN'}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* ══ Menu — เลือกงาน ══════════════════════════════════════════════ */}
           {step === 'menu' && (
             <div className="space-y-3">
-              <div className="mb-2">
-                <label className="text-gray-400 text-xs block mb-1.5">ชื่อพนักงาน (ไม่บังคับ — ใช้บันทึกว่าใครยืนยันงาน)</label>
-                <input value={staffName} onChange={e => setStaffName(e.target.value)}
-                  placeholder="เช่น สมชาย"
-                  className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
-              </div>
+              {staffName && (
+                <div className="mb-2 text-gray-400 text-sm">
+                  👋 สวัสดีคุณ <span className="text-white font-medium">{staffName}</span>
+                </div>
+              )}
               <button onClick={() => setStep('bills')}
                 className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-5 text-left hover:bg-gray-800 transition-colors flex items-center justify-between">
                 <div>

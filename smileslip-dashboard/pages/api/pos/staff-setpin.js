@@ -1,0 +1,48 @@
+/**
+ * POST /api/pos/staff-setpin { shopId, staff_id, pin }
+ * พนักงานตั้ง/เปลี่ยน PIN ของตัวเอง — เข้าถึงหน้านี้ได้จากลิงก์ที่ส่งทาง LINE เท่านั้น
+ * (การมีลิงก์คือการยืนยันตัวตน เหมือน pattern เดียวกับลิงก์ยืนยันงานจัดส่ง/เก็บเงินที่มีอยู่แล้ว)
+ */
+import { createClient } from '@supabase/supabase-js';
+import { getAccessToken, readSheet, updateSheetRow, ensureTabExists, STAFF_HEADERS } from '../../../lib/google-pos';
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
+);
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  const { shopId, staff_id, pin } = req.body || {};
+  if (!shopId || !staff_id || !pin) return res.status(400).json({ error: 'Missing shopId, staff_id, or pin' });
+  if (!/^\d{4}$/.test(String(pin))) return res.status(400).json({ error: 'PIN ต้องเป็นตัวเลข 4 หลัก' });
+
+  try {
+    const { data: pc } = await supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single();
+    const { data: gc } = await supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single();
+    if (!pc?.pos_sheet_id) return res.status(400).json({ error: 'ยังไม่ได้ตั้งค่า POS', notSetup: true });
+    if (!gc?.google_refresh_token) return res.status(400).json({ error: 'ยังไม่ได้เชื่อมต่อ Google', notConnected: true });
+
+    const token = await getAccessToken(gc.google_refresh_token);
+    await ensureTabExists(token, pc.pos_sheet_id, 'พนักงาน', STAFF_HEADERS);
+    const rows = await readSheet(token, pc.pos_sheet_id, 'พนักงาน!A:I');
+    const dataRows = rows.slice(1);
+    const idx = dataRows.findIndex(r => r[0] === staff_id);
+    if (idx === -1) return res.status(404).json({ error: 'ไม่พบพนักงาน' });
+
+    // กัน PIN ชนกันเองในร้านเดียวกัน (แต่ละคนต้องไม่ซ้ำ กันระบบระบุตัวตนผิดคน)
+    const clash = dataRows.find((r, i) => i !== idx && r[0] && r[8] && String(r[8]) === String(pin));
+    if (clash) return res.status(400).json({ error: 'PIN นี้มีคนอื่นใช้อยู่แล้ว กรุณาตั้งรหัสอื่น' });
+
+    const existing = [...dataRows[idx]];
+    while (existing.length < 9) existing.push('');
+    existing[8] = String(pin);
+    await updateSheetRow(token, pc.pos_sheet_id, 'พนักงาน', idx + 2, existing);
+
+    return res.json({ ok: true, name: existing[1] || '' });
+  } catch (err) {
+    console.error('[staff-setpin]', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+}

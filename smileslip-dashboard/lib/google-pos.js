@@ -290,11 +290,11 @@ export const RECEIVE_HEADERS = [
 ];
 
 
-// A           B     C        D          E      F        G
-// สาขา (H) เพิ่มท้ายสุด — ไม่แทรกกลาง กันข้อมูลเก่าเลื่อนคอลัมน์ผิด (ensureTabExists auto-patch
-// header ที่สั้นกว่าให้อยู่แล้ว)
+// A           B     C        D          E      F        G           H       I
+// สาขา (H) + PIN (I) เพิ่มท้ายสุด — ไม่แทรกกลาง กันข้อมูลเก่าเลื่อนคอลัมน์ผิด (ensureTabExists
+// auto-patch header ที่สั้นกว่าให้อยู่แล้ว) — PIN เป็นรหัสส่วนตัวที่พนักงานตั้งเอง (ไม่ใช่ PIN ร้านเดียวใช้ร่วมกันแบบเดิม)
 export const STAFF_HEADERS = [
-  'รหัสพนักงาน', 'ชื่อ', 'เบอร์โทร', 'LINE ID', 'บทบาท', 'หมายเหตุ', 'วันที่เพิ่ม', 'สาขา',
+  'รหัสพนักงาน', 'ชื่อ', 'เบอร์โทร', 'LINE ID', 'บทบาท', 'หมายเหตุ', 'วันที่เพิ่ม', 'สาขา', 'PIN',
 ];
 
 // A          B          C             D           E      F       G         H              I        J         K           L      M       N
@@ -456,6 +456,7 @@ export function rowToStaff(row) {
     notes:       row[5] || '',
     created_at:  row[6] || '',
     branch_name: row[7] || '',
+    has_pin:     !!(row[8] && String(row[8]).trim()),
   };
 }
 

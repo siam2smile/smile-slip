@@ -794,7 +794,9 @@ async function resolveBrandKey(shopId, branchId) {
 
 async function recordAnalytics(shopId, branchId, slipData) {
   try {
-    const now = new Date();
+    // ใช้เวลาไทย (UTC+7) เสมอ — เดิมใช้ new Date() ตรงๆ ซึ่งเป็นเวลา UTC ของเซิร์ฟเวอร์ Cloud Run
+    // ทำให้ hour_of_day/day_of_week เพี้ยนไป 7 ชั่วโมงจากเวลาไทยจริงมาตลอด (Peak Time Heatmap ไม่ตรง)
+    const { raw: now, isoDate: today } = getThaiDateTime();
     // sha256 ชื่อผู้โอน — ย้อนกลับไม่ได้, ไม่เก็บชื่อจริง
     const senderHash = slipData.sender
       ? crypto.createHash('sha256').update(String(slipData.sender)).digest('hex')
@@ -804,7 +806,7 @@ async function recordAnalytics(shopId, branchId, slipData) {
     await supabase.from('slip_analytics').insert({
       shop_id:          shopId,
       branch_id:        branchId || null,
-      slip_date:        now.toISOString().split('T')[0],
+      slip_date:        today,
       hour_of_day:      now.getHours(),
       day_of_week:      now.getDay(),
       week_of_year:     getWeekOfYear(now),
@@ -818,7 +820,6 @@ async function recordAnalytics(shopId, branchId, slipData) {
     });
 
     if (senderHash) {
-      const today = now.toISOString().split('T')[0];
       const { data: existing } = await supabase
         .from('sender_profiles')
         .select('id, total_transactions, first_seen')

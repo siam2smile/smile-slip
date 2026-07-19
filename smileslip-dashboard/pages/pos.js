@@ -383,9 +383,9 @@ export default function POSPage() {
   const [qrImageData, setQrImageData] = useState('');
   const [qrLoading, setQrLoading] = useState(false);
 
-  // POS settings (Staff PIN + PromptPay + Biller ID)
-  const [posConfig, setPosConfig] = useState({ has_pin: false, promptpay_id: '', scb_biller_id: '', receipt_paper_size: '80mm' });
-  const [posSettingsForm, setPosSettingsForm] = useState({ staff_pin: '', promptpay_id: '', scb_biller_id: '' });
+  // POS settings (PromptPay + Biller ID) — Staff PIN เปลี่ยนเป็นรายบุคคลแล้ว ไม่มี PIN ร้านรวมอีกต่อไป
+  const [posConfig, setPosConfig] = useState({ promptpay_id: '', scb_biller_id: '', receipt_paper_size: '80mm' });
+  const [posSettingsForm, setPosSettingsForm] = useState({ promptpay_id: '', scb_biller_id: '' });
   const [settingsSaving, setSettingsSaving] = useState(false);
 
   // ── Multi-table bill management ───────────────────────────────────────────
@@ -647,7 +647,7 @@ export default function POSPage() {
       const d = await r.json();
       if (d.ok !== false) {
         setPosConfig(d);
-        setPosSettingsForm({ staff_pin: '', promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '', receipt_paper_size: d.receipt_paper_size || '80mm' });
+        setPosSettingsForm({ promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '', receipt_paper_size: d.receipt_paper_size || '80mm' });
       }
     } catch {}
   }
@@ -657,7 +657,6 @@ export default function POSPage() {
     setSettingsSaving(true);
     try {
       const body = { shopId };
-      if (posSettingsForm.staff_pin) body.staff_pin = posSettingsForm.staff_pin;
       if (posSettingsForm.promptpay_id !== undefined) body.promptpay_id = posSettingsForm.promptpay_id;
       if (posSettingsForm.scb_biller_id !== undefined) body.scb_biller_id = posSettingsForm.scb_biller_id;
       if (posSettingsForm.receipt_paper_size !== undefined) body.receipt_paper_size = posSettingsForm.receipt_paper_size;
@@ -670,7 +669,6 @@ export default function POSPage() {
       if (d.ok) {
         await fetchPosConfig();
         showToast('บันทึกตั้งค่าแล้ว');
-        setPosSettingsForm(f => ({ ...f, staff_pin: '' }));
       } else {
         alert(d.error);
       }
@@ -810,6 +808,35 @@ export default function POSPage() {
     });
     await fetchStaff();
     showToast('ลบแล้ว');
+  }
+
+  // ส่งลิงก์ตั้ง/เปลี่ยนรหัส PIN ให้พนักงานทาง LINE อีกครั้ง (ไม่ล้าง PIN เดิม — ยังใช้ได้จนกว่าจะตั้งใหม่)
+  async function resendStaffPinLink(s) {
+    try {
+      const r = await fetch('/api/pos/staff', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, staff_id: s.staff_id, resend_pin_link: true }),
+      });
+      const d = await r.json();
+      if (d.ok) showToast(`ส่งลิงก์ตั้ง PIN ให้ ${s.name} แล้ว`);
+      else alert(d.error);
+    } catch (err) { alert(err.message); }
+  }
+
+  // ปิดใช้งาน PIN เดิมทันที — ใช้ตอนพนักงานออกจากงาน กันแอบเข้าระบบด้วย PIN เก่า (ไม่ส่งลิงก์ใหม่ให้)
+  async function revokeStaffPin(s) {
+    if (!confirm(`ปิดใช้งาน PIN ของ "${s.name}" ทันที? (ต้องส่งลิงก์ตั้งรหัสใหม่ถึงจะเข้าระบบได้อีกครั้ง)`)) return;
+    try {
+      const r = await fetch('/api/pos/staff', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, staff_id: s.staff_id, reset_pin: true }),
+      });
+      const d = await r.json();
+      if (d.ok) { await fetchStaff(); showToast(`ปิดใช้งาน PIN ของ ${s.name} แล้ว`); }
+      else alert(d.error);
+    } catch (err) { alert(err.message); }
   }
 
   async function fetchOrders(sid) {
@@ -4248,38 +4275,21 @@ export default function POSPage() {
           {tab === 'settings' && (
             <div className="h-full overflow-y-auto">
               <div className="p-4 max-w-xl mx-auto space-y-6">
-                {/* Staff PIN */}
+                {/* Staff PIN — เปลี่ยนเป็น PIN รายบุคคลแล้ว ตั้ง/รีเซ็ตได้ที่แท็บ "พนักงาน" ด้านล่าง */}
                 <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
-                  <h3 className="text-white font-bold mb-1">🔐 Staff PIN</h3>
-                  <p className="text-gray-400 text-xs mb-4">
-                    พนักงานใช้ PIN นี้เพื่อเข้าหน้ายืนยันการโอนเงิน
-                    {posConfig.has_pin ? ' (ตั้งค่าแล้ว)' : ' (ยังไม่ได้ตั้ง)'}
+                  <h3 className="text-white font-bold mb-1">🔐 หน้าพนักงาน (pos-staff)</h3>
+                  <p className="text-gray-400 text-xs mb-3">
+                    พนักงานแต่ละคนตั้ง PIN ของตัวเองผ่านลิงก์ที่ระบบส่งให้ทาง LINE อัตโนมัติหลังได้รับอนุมัติ/ถูกเพิ่มเข้าระบบ —
+                    ดู/รีเซ็ต PIN รายคนได้ที่รายชื่อพนักงานด้านล่าง
                   </p>
-                  <div>
-                    <label className="block text-gray-400 text-xs mb-1.5">{posConfig.has_pin ? 'เปลี่ยน PIN ใหม่ (4 หลัก)' : 'ตั้ง PIN (4 หลัก)'}</label>
-                    <input
-                      type="password"
-                      inputMode="numeric"
-                      maxLength={4}
-                      value={posSettingsForm.staff_pin}
-                      onChange={e => setPosSettingsForm(f => ({ ...f, staff_pin: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
-                      className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 tracking-widest"
-                      placeholder="เช่น 1234"
-                    />
-                  </div>
-                  {posConfig.has_pin && (
-                    <div className="mt-3">
-                      <a
-                        href={`/pos-staff?shopId=${shopId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 text-green-400 hover:text-green-300 text-xs underline"
-                      >
-                        🔗 เปิดหน้าพนักงาน (pos-staff)
-                      </a>
-                      <p className="text-gray-600 text-xs mt-1">บุ๊กมาร์กลิงก์นี้บนมือถือพนักงาน</p>
-                    </div>
-                  )}
+                  <a
+                    href={`/pos-staff?shopId=${shopId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-green-400 hover:text-green-300 text-xs underline"
+                  >
+                    🔗 เปิดหน้าพนักงาน (pos-staff)
+                  </a>
                 </div>
 
                 {/* Table names */}
@@ -4384,10 +4394,27 @@ export default function POSPage() {
                                 <span className="text-yellow-500">⚠️ ยังไม่มี LINE ID</span>
                               )}
                             </div>
+                            <div className="text-xs mt-0.5">
+                              {s.has_pin ? (
+                                <span className="text-green-400">🔐 ตั้ง PIN แล้ว</span>
+                              ) : (
+                                <span className="text-yellow-500">⚠️ ยังไม่ได้ตั้ง PIN</span>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex gap-1.5 shrink-0">
-                            <button onClick={() => { setEditStaff(s); setStaffForm({ name: s.name, phone: s.phone, line_id: s.line_id, role: s.role, notes: s.notes }); setShowStaffForm(true); }} className="text-xs bg-gray-700 hover:bg-blue-700 text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">แก้ไข</button>
-                            <button onClick={() => deleteStaffMember(s)} className="text-xs bg-gray-700 hover:bg-red-700 text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">ลบ</button>
+                          <div className="flex flex-col gap-1.5 shrink-0 items-end">
+                            <div className="flex gap-1.5">
+                              <button onClick={() => { setEditStaff(s); setStaffForm({ name: s.name, phone: s.phone, line_id: s.line_id, role: s.role, notes: s.notes }); setShowStaffForm(true); }} className="text-xs bg-gray-700 hover:bg-blue-700 text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">แก้ไข</button>
+                              <button onClick={() => deleteStaffMember(s)} className="text-xs bg-gray-700 hover:bg-red-700 text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">ลบ</button>
+                            </div>
+                            <div className="flex gap-1.5">
+                              {s.line_id && (
+                                <button onClick={() => resendStaffPinLink(s)} className="text-xs bg-gray-700 hover:bg-purple-800 text-gray-300 hover:text-purple-200 px-2.5 py-1.5 rounded-lg transition-colors">📨 ส่งลิงก์ตั้ง PIN</button>
+                              )}
+                              {s.has_pin && (
+                                <button onClick={() => revokeStaffPin(s)} className="text-xs bg-gray-700 hover:bg-red-800 text-gray-300 hover:text-red-200 px-2.5 py-1.5 rounded-lg transition-colors">🚫 ปิดใช้งาน PIN</button>
+                              )}
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -5938,7 +5965,8 @@ export default function POSPage() {
                 </div>
                 {loanItemQ.length > 0 && (() => {
                   const q = loanItemQ.toLowerCase();
-                  const matches = (products || []).filter(p => (p.name || '').toLowerCase().includes(q)).slice(0, 5);
+                  // ไม่รวมสินค้าประเภทหมุนเวียน — มีระบบแลกเปลี่ยน/เก็บคืนของตัวเองแยกต่างหากแล้ว (ยืมผ่านหน้านี้จะไม่ตัดสต็อคเลย)
+                  const matches = (products || []).filter(p => p.type !== 'หมุนเวียน' && (p.name || '').toLowerCase().includes(q)).slice(0, 5);
                   return matches.length > 0 ? (
                     <div className="bg-gray-800 rounded-xl overflow-hidden border border-gray-700 mb-2">
                       {matches.map((p, i) => (

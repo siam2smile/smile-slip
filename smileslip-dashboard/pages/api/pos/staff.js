@@ -1,7 +1,10 @@
 /**
  * GET    /api/pos/staff?shopId          → รายชื่อพนักงาน/คนส่ง
  * POST   /api/pos/staff { shopId, name, phone, line_id, role, notes }
- * PATCH  /api/pos/staff { shopId, staff_id, ...fields }
+ *   → ถ้ามี line_id จะส่งลิงก์ "ตั้งรหัส PIN" ให้พนักงานทาง LINE ทันที
+ * PATCH  /api/pos/staff { shopId, staff_id, ...fields, reset_pin, resend_pin_link }
+ *   → reset_pin: true = ล้าง PIN เดิมทิ้ง (กันพนักงานที่ออกจากงานแล้วแอบเข้า)
+ *   → resend_pin_link: true = ส่งลิงก์ตั้งรหัส PIN ใหม่อีกครั้ง (ต้องมี line_id อยู่แล้ว)
  * DELETE /api/pos/staff { shopId, staff_id }
  */
 import { createClient } from '@supabase/supabase-js';
@@ -19,6 +22,27 @@ const supabase = createClient(
 function asText(v) {
   if (v === '' || v == null) return v;
   return `'${v}`;
+}
+
+// ส่งลิงก์ "ตั้งรหัส PIN" ให้พนักงานทาง LINE — ลิงก์นี้เองคือตัวยืนยันตัวตน (ส่งหาแค่ line_id
+// เจ้าของ PIN เท่านั้น) เหมือน pattern เดียวกับลิงก์ยืนยันงานจัดส่ง/เก็บเงินที่มีอยู่แล้ว
+async function sendPinSetupLink(lineId, shopId, staffId, staffName) {
+  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  if (!token || !lineId) return;
+  const url = `${process.env.FRONTEND_URL}/pos-staff?shopId=${shopId}&staff_id=${staffId}&setpin=1`;
+  const message = {
+    type: 'text',
+    text: `🔐 ตั้งรหัส PIN ส่วนตัวของคุณ${staffName ? ` (${staffName})` : ''}\nใช้ PIN นี้เข้าหน้าพนักงานแทนรหัสเดิมของร้าน ตั้งได้ที่ลิงก์นี้เลยค่ะ:\n${url}`,
+  };
+  try {
+    await fetch('https://api.line.me/v2/bot/message/push', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to: lineId, messages: [message] }),
+    });
+  } catch (err) {
+    console.error('[staff] sendPinSetupLink error:', err.message);
+  }
 }
 
 async function getConfig(shopId) {
@@ -41,7 +65,7 @@ export default async function handler(req, res) {
 
     // ── GET ─────────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'พนักงาน!A:H');
+      const rows = await readSheet(token, sheetId, 'พนักงาน!A:I');
       const staff = rows.slice(1)
         .map((r, i) => ({ ...rowToStaff(r), _row: i + 2 }))
         .filter(s => s.staff_id && s.name);
@@ -56,31 +80,41 @@ export default async function handler(req, res) {
       const staff_id = makeStaffId();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
       await appendSheet(token, sheetId, 'พนักงาน', [
-        staff_id, name, asText(phone), line_id, role, notes, asText(now), branch_name,
+        staff_id, name, asText(phone), line_id, role, notes, asText(now), branch_name, '',
       ]);
+      if (line_id) sendPinSetupLink(line_id, shopId, staff_id, name).catch(() => {});
       return res.json({ ok: true, staff_id, name });
     }
 
     // ── PATCH ────────────────────────────────────────────────────────────────
     if (req.method === 'PATCH') {
-      const { staff_id, name, phone, line_id, role, notes, branch_name } = req.body;
+      const { staff_id, name, phone, line_id, role, notes, branch_name, reset_pin, resend_pin_link } = req.body;
       if (!staff_id) return res.status(400).json({ error: 'Missing staff_id' });
 
-      const rows = await readSheet(token, sheetId, 'พนักงาน!A:H');
+      const rows = await readSheet(token, sheetId, 'พนักงาน!A:I');
       const dataRows = rows.slice(1);
       const idx = dataRows.findIndex(r => r[0] === staff_id);
       if (idx === -1) return res.status(404).json({ error: 'ไม่พบพนักงาน' });
 
       const existing = [...dataRows[idx]];
-      while (existing.length < 8) existing.push('');
+      while (existing.length < 9) existing.push('');
       if (name        !== undefined) existing[1] = name;
       if (phone       !== undefined) existing[2] = asText(phone);
       if (line_id     !== undefined) existing[3] = line_id;
       if (role        !== undefined) existing[4] = role;
       if (notes       !== undefined) existing[5] = notes;
       if (branch_name !== undefined) existing[7] = branch_name;
+      // รีเซ็ต PIN — กันพนักงานที่ออกจากงานแล้วแอบใช้ PIN เดิมเข้าระบบ ต้องตั้งใหม่ถึงจะเข้าได้
+      if (reset_pin) existing[8] = '';
 
       await updateSheetRow(token, sheetId, 'พนักงาน', idx + 2, existing);
+
+      if (resend_pin_link) {
+        const lineIdForPush = line_id !== undefined ? line_id : existing[3];
+        const nameForPush = name !== undefined ? name : existing[1];
+        if (lineIdForPush) sendPinSetupLink(lineIdForPush, shopId, staff_id, nameForPush).catch(() => {});
+      }
+
       return res.json({ ok: true, staff_id });
     }
 
@@ -89,11 +123,11 @@ export default async function handler(req, res) {
       const { staff_id } = req.body;
       if (!staff_id) return res.status(400).json({ error: 'Missing staff_id' });
 
-      const rows = await readSheet(token, sheetId, 'พนักงาน!A:H');
+      const rows = await readSheet(token, sheetId, 'พนักงาน!A:I');
       const idx = rows.slice(1).findIndex(r => r[0] === staff_id);
       if (idx === -1) return res.status(404).json({ error: 'ไม่พบพนักงาน' });
 
-      await updateSheetRow(token, sheetId, 'พนักงาน', idx + 2, Array(8).fill(''));
+      await updateSheetRow(token, sheetId, 'พนักงาน', idx + 2, Array(9).fill(''));
       return res.json({ ok: true });
     }
 

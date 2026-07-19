@@ -1,6 +1,7 @@
 /**
  * GET  /api/pos/pos-config?shopId=xxx  → อ่านการตั้งค่า POS
- * PATCH /api/pos/pos-config { shopId, staff_pin, promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, receipt_paper_size }
+ * PATCH /api/pos/pos-config { shopId, promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, receipt_paper_size }
+ * (staff_pin ร้านเดียวใช้ร่วมกันแบบเดิมยกเลิกไปแล้ว — ดู api/pos/staff.js + staff-setpin.js สำหรับ PIN รายบุคคล)
  */
 import { createClient } from '@supabase/supabase-js';
 
@@ -16,7 +17,7 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const { data, error } = await supabase
       .from('pos_configs')
-      .select('staff_pin, promptpay_id, kbank_api_key, scb_api_key, scb_biller_id')
+      .select('promptpay_id, kbank_api_key, scb_api_key, scb_biller_id')
       .eq('shop_id', shopId)
       .single();
 
@@ -26,7 +27,7 @@ export default async function handler(req, res) {
 
     // แยก query ต่างหาก + กันพัง — คอลัมน์นี้ต้องรัน ALTER TABLE ด้วยมือก่อนถึงจะมีจริง
     // (ดู CLAUDE.md ต้องทำด้วยมือ) ถ้ายังไม่มีคอลัมน์ ให้ fallback เป็น '80mm' เงียบๆ
-    // แทนที่จะทำให้ทั้ง endpoint พังจนตั้งค่า staff_pin/promptpay เดิมใช้ไม่ได้ไปด้วย
+    // แทนที่จะทำให้ทั้ง endpoint พังจนตั้งค่า promptpay เดิมใช้ไม่ได้ไปด้วย
     let receipt_paper_size = '80mm';
     try {
       const { data: rd } = await supabase
@@ -36,7 +37,6 @@ export default async function handler(req, res) {
 
     return res.json({
       ok: true,
-      has_pin: !!(data?.staff_pin),
       promptpay_id: data?.promptpay_id || '',
       has_kbank: !!(data?.kbank_api_key),
       has_scb: !!(data?.scb_api_key),
@@ -46,10 +46,9 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'PATCH') {
-    const { staff_pin, promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, receipt_paper_size } = req.body;
+    const { promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, receipt_paper_size } = req.body;
 
     const updates = {};
-    if (staff_pin !== undefined)    updates.staff_pin    = staff_pin || null;
     if (promptpay_id !== undefined) updates.promptpay_id = promptpay_id || null;
     if (kbank_api_key !== undefined) updates.kbank_api_key = kbank_api_key || null;
     if (scb_api_key !== undefined)  updates.scb_api_key  = scb_api_key || null;
