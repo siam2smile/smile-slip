@@ -48,13 +48,21 @@ async function canonicalizeViaGemini(rawNames) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0, maxOutputTokens: 512 },
+        // maxOutputTokens ต้องสูงพอสำหรับ "thinking token" ภายในของโมเดล (gemini-3.5-flash เผื่อ
+        // token คิดก่อนตอบเสมอ แม้งานจะเล็กมาก — ทดสอบจริงพบว่า 512 ตัดจบก่อนได้ JSON ครบ)
+        generationConfig: { temperature: 0, maxOutputTokens: 4096 },
       }),
     });
     const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    // รวมทุก part เข้าด้วยกัน — Gemini บางครั้งแบ่งเอาต์พุตเป็นหลาย part ในคำตอบเดียว
+    // (เจอจริงตอน debug: part แรกมีแค่ "```json" ส่วน JSON จริงอยู่ใน part ถัดไป)
+    const parts = data?.candidates?.[0]?.content?.parts || [];
+    const text = parts.map(p => p.text || '').join('');
     const match = text.match(/\[[\s\S]*\]/);
-    if (!match) return {};
+    if (!match) {
+      console.error('[market-price] Gemini ไม่ตอบ JSON ที่ใช้ได้ — finishReason:', data?.candidates?.[0]?.finishReason, 'text:', text.slice(0, 200));
+      return {};
+    }
     const parsed = JSON.parse(match[0]);
     const out = {};
     for (const p of parsed) {
