@@ -497,6 +497,9 @@ export default function POSPage() {
   const [expenseHistory, setExpenseHistory] = useState([]);
   const [expenseHistoryLoading, setExpenseHistoryLoading] = useState(false);
   const [expenseSummary, setExpenseSummary] = useState(null);
+  const [pendingExpenses, setPendingExpenses] = useState([]); // มาจากบอท LINE #รายจ่าย รอตรวจสอบ
+  const [pendingExpensesLoading, setPendingExpensesLoading] = useState(false);
+  const [linkedExpensePendingNo, setLinkedExpensePendingNo] = useState(null);
 
   // contacts (ลูกค้า / ผู้จำหน่าย)
   const [contacts, setContacts] = useState([]);
@@ -1423,7 +1426,7 @@ export default function POSPage() {
   }, [tab, receiveView, shopId]);
 
   useEffect(() => {
-    if (tab === 'expenses' && shopId) fetchExpenseHistory();
+    if (tab === 'expenses' && shopId) { fetchExpenseHistory(); fetchPendingExpenses(); }
   }, [tab, shopId]);
 
   // ── categories & filter ───────────────────────────────────────────────────
@@ -1982,6 +1985,16 @@ export default function POSPage() {
         setExpenseForm({ label: '', amount: '', vatType: 'ไม่มี VAT', payment_method: 'เงินสด', notes: '' });
         setExpensePhotoUrl('');
         fetchExpenseHistory();
+        // ถ้ามาจากรายการรอยืนยันของ LINE — ลบออกจากคิวรอ เพราะบันทึกจริงแล้ว
+        if (linkedExpensePendingNo) {
+          const doneNo = linkedExpensePendingNo;
+          setLinkedExpensePendingNo(null);
+          fetch('/api/pos/expenses-pending', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ shopId, pending_no: doneNo }),
+          }).then(() => fetchPendingExpenses()).catch(() => {});
+        }
       } else {
         alert(d.error);
       }
@@ -2001,6 +2014,45 @@ export default function POSPage() {
       });
       const d = await r.json();
       if (d.ok) { showToast('ลบแล้ว'); fetchExpenseHistory(); } else alert(d.error);
+    } catch (err) { alert(err.message); }
+  }
+
+  // รอยืนยันจาก LINE (#รายจ่าย → ถ่ายรูปบิล → OCR)
+  async function fetchPendingExpenses(sid = shopId) {
+    if (!sid) return;
+    setPendingExpensesLoading(true);
+    try {
+      const r = await fetch(`/api/pos/expenses-pending?shopId=${sid}`);
+      const d = await r.json();
+      if (d.pending) setPendingExpenses(d.pending);
+    } catch {}
+    setPendingExpensesLoading(false);
+  }
+
+  function loadPendingExpenseIntoForm(pending) {
+    setExpenseForm({
+      label: pending.label || '',
+      amount: pending.amount ? String(pending.amount) : '',
+      vatType: pending.vat_type || 'ไม่มี VAT',
+      payment_method: 'เงินสด',
+      notes: `จากบิล LINE เลขที่ ${pending.invoice_no || '-'} วันที่ ${pending.invoice_date || '-'}${pending.vendor && pending.vendor !== '-' ? ` — ผู้รับเงิน: ${pending.vendor}` : ''}`,
+    });
+    setExpensePhotoUrl(pending.image_url || '');
+    setLinkedExpensePendingNo(pending.pending_no);
+    showToast('โหลดข้อมูลจาก LINE เข้าฟอร์มแล้ว — ตรวจสอบก่อนกดบันทึก');
+  }
+
+  async function rejectPendingExpense(pending) {
+    if (!confirm(`ปฏิเสธรายการรายจ่ายนี้ "${pending.label}"?`)) return;
+    try {
+      const r = await fetch('/api/pos/expenses-pending', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, pending_no: pending.pending_no }),
+      });
+      const d = await r.json();
+      if (d.ok) { await fetchPendingExpenses(); showToast('ปฏิเสธรายการแล้ว'); }
+      else alert(d.error);
     } catch (err) { alert(err.message); }
   }
 
@@ -3285,6 +3337,46 @@ export default function POSPage() {
           {tab === 'expenses' && (
             <div className="h-full overflow-y-auto">
               <div className="p-4 max-w-xl mx-auto space-y-4">
+                {/* รอยืนยันจาก LINE (#รายจ่าย → ถ่ายรูปบิล → OCR) */}
+                {(pendingExpensesLoading || pendingExpenses.length > 0) && (
+                  <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden">
+                    <div className="px-5 py-3 border-b border-gray-800">
+                      <h3 className="text-white font-bold text-sm">🔔 รอยืนยันจาก LINE{pendingExpenses.length ? ` (${pendingExpenses.length})` : ''}</h3>
+                      <p className="text-gray-500 text-xs mt-0.5">พิมพ์ <span className="text-gray-400">#รายจ่าย</span> ในกลุ่ม LINE แล้วส่งรูปบิล ระบบจะมาโผล่ที่นี่</p>
+                    </div>
+                    {pendingExpensesLoading ? (
+                      <div className="text-center text-gray-500 py-8 animate-pulse">กำลังโหลด...</div>
+                    ) : (
+                      <div className="p-4 space-y-3">
+                        {pendingExpenses.map(p => (
+                          <div key={p.pending_no} className="bg-gray-800 rounded-xl p-4">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-gray-400 text-xs font-mono">{p.pending_no}</span>
+                              <span className="text-gray-500 text-xs">{p.created_at}</span>
+                            </div>
+                            <div className="text-white text-sm font-medium mb-1">📝 {p.label}</div>
+                            <div className="text-gray-500 text-xs mb-1">ผู้รับเงิน: {p.vendor} · {p.vat_type}</div>
+                            <div className="text-green-400 text-sm font-bold mb-2">฿{p.amount.toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+                            {p.image_url && (
+                              <a href={p.image_url} target="_blank" rel="noreferrer" className="text-blue-400 underline text-xs mb-2 inline-block">🖼️ ดูรูปบิล</a>
+                            )}
+                            <div className="flex gap-2 mt-1">
+                              <button onClick={() => rejectPendingExpense(p)}
+                                className="flex-1 bg-gray-700 hover:bg-red-800 text-gray-300 hover:text-white text-xs font-medium py-2 rounded-lg transition-colors">
+                                ❌ ปฏิเสธ
+                              </button>
+                              <button onClick={() => loadPendingExpenseIntoForm(p)}
+                                className="flex-[2] bg-green-700 hover:bg-green-600 text-white text-xs font-bold py-2 rounded-lg transition-colors">
+                                ✅ ตรวจสอบ/ยืนยัน
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800 space-y-3">
                   <h3 className="text-white font-bold">🧾 บันทึกรายจ่าย</h3>
                   <p className="text-gray-400 text-xs -mt-2">ค่าใช้จ่ายของร้านที่ไม่เกี่ยวกับสต็อคสินค้า เช่น ค่าเช่า ค่าน้ำ-ไฟ ค่าแรง ฯลฯ</p>

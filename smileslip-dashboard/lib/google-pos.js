@@ -668,6 +668,25 @@ export function rowToPendingReceive(row) {
   };
 }
 
+// tab "รายจ่ายรอยืนยัน" — มาจากบอท LINE #รายจ่าย (คนละ tab กับ "รายจ่าย" ที่ยืนยันแล้ว)
+export const PENDING_EXPENSE_HEADERS = ['เลขที่รอยืนยัน', 'วันที่-เวลา', 'รายการ/หมวดหมู่ (OCR)', 'ผู้รับเงิน (OCR)', 'จำนวนเงิน (OCR)', 'ประเภท VAT (OCR)', 'เลขที่เอกสาร', 'วันที่ในเอกสาร', 'ลิงก์รูปภาพ', 'สาขา', 'สถานะ'];
+
+export function rowToPendingExpense(row) {
+  return {
+    pending_no:   row[0]  || '',
+    created_at:   row[1]  || '',
+    label:        row[2]  || '',
+    vendor:       row[3]  || '',
+    amount:       parseFloat(row[4]) || 0,
+    vat_type:     row[5]  || 'ไม่มี VAT',
+    invoice_no:   row[6]  || '',
+    invoice_date: row[7]  || '',
+    image_url:    row[8]  || '',
+    branch:       row[9]  || '',
+    status:       row[10] || 'รอตรวจสอบ',
+  };
+}
+
 export function rowToReceive(row) {
   let items = [];
   try { items = JSON.parse(row[3] || '[]'); } catch {}

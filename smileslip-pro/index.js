@@ -144,6 +144,39 @@ async function consumeAwaitingReceive(userId) {
   return { shopId: entry.shopId, branchName: entry.branchName };
 }
 
+// Awaiting-expense-photo guard: ผู้ใช้พิมพ์ #รายจ่าย แล้วรอส่งรูปบิล/สลิปค่าใช้จ่ายถัดไป (TTL 10 นาที)
+// คนละ key/คนละ cache จาก awaitingReceive เจตนาแยกกันชัดเจน — กันสับสนว่ารูปถัดไปคือรับสินค้าหรือรายจ่าย
+const awaitingExpenseCache = new Map(); // fallback in-memory: userId -> { shopId, branchName, ts }
+async function setAwaitingExpense(userId, shopId, branchName) {
+  const value = JSON.stringify({ shopId, branchName: branchName || '' });
+  if (redis) {
+    try { await redis.set(`awaitexp:${userId}`, value, { ex: 600 }); return; } catch (e) {
+      console.warn('[Redis] setAwaitingExpense error:', e.message, '— fallback in-memory');
+    }
+  }
+  awaitingExpenseCache.set(userId, { shopId, branchName: branchName || '', ts: Date.now() });
+}
+async function consumeAwaitingExpense(userId) {
+  if (redis) {
+    try {
+      const raw = await redis.get(`awaitexp:${userId}`);
+      if (raw) await redis.del(`awaitexp:${userId}`);
+      if (!raw) return null;
+      return typeof raw === 'string' ? JSON.parse(raw) : raw;
+    } catch (e) {
+      console.warn('[Redis] consumeAwaitingExpense error:', e.message, '— fallback in-memory');
+    }
+  }
+  const now = Date.now();
+  for (const [id, v] of awaitingExpenseCache) {
+    if (now - v.ts > 10 * 60 * 1000) awaitingExpenseCache.delete(id);
+  }
+  const entry = awaitingExpenseCache.get(userId);
+  if (!entry) return null;
+  awaitingExpenseCache.delete(userId);
+  return { shopId: entry.shopId, branchName: entry.branchName };
+}
+
 // ==========================================
 // 2. HELPER FUNCTIONS
 // ==========================================
@@ -1348,6 +1381,86 @@ async function appendPendingReceive(accessToken, posSheetId, row) {
 }
 
 // ==========================================
+// 3.4 รายจ่ายผ่านรูปถ่ายใน LINE (บิล/สลิปค่าใช้จ่ายที่ไม่เกี่ยวกับสต็อคสินค้า เช่น ค่าเช่า/ค่าน้ำไฟ)
+// คนละ schema กับรับสินค้า — ไม่มีรายการสินค้าเป็นชิ้นๆ มีแค่ยอดรวมก้อนเดียว + ประเภท VAT
+// ==========================================
+async function extractExpenseDataWithGemini(imageBuffer, modelOverride = null) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const modelVersion = modelOverride || process.env.GEMINI_MODEL || 'gemini-3.5-flash';
+  console.log(`[LOG] 🧠 [Gemini รายจ่าย] ใช้โมเดล: ${modelVersion}`);
+
+  const url = `https://generativelanguage.googleapis.com/v1/models/${modelVersion}:generateContent?key=${apiKey}`;
+  const { date: todayThaiDate, year: todayYear } = getThaiDateTime();
+  const todayBuddhistYear = Number(todayYear) + 543;
+  const prompt = `วันนี้คือ ${todayThaiDate} (พ.ศ. ${todayBuddhistYear} / ค.ศ. ${todayYear})
+วิเคราะห์บิล/ใบเสร็จ/สลิปค่าใช้จ่ายของร้านในรูปนี้ (เช่น ค่าเช่า ค่าน้ำ-ไฟ ค่าแรง ค่าซ่อม ฯลฯ — ไม่ใช่รายการสินค้าซื้อเข้าสต็อค)
+ตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น:
+{"label":"รายการ/หมวดหมู่ค่าใช้จ่ายโดยสรุป","vendor":"ชื่อผู้รับเงิน/ร้านค้าที่ออกบิล หรือ -","amount":0.00,"vatType":"รวม VAT แล้ว หรือ ไม่รวม VAT หรือ ไม่มี VAT","invoice_no":"เลขที่เอกสาร หรือ -","invoice_date":"วว/ดด/ปปปป หรือ -"}
+กฎ:
+■ amount: ยอดรวมสุทธิที่ต้องจ่ายจริงตามเอกสาร
+■ vatType: ถ้าเอกสารระบุ VAT/ภาษีมูลค่าเพิ่มแยกไว้ชัดเจนว่ารวมอยู่ในยอดแล้ว ให้ตอบ "รวม VAT แล้ว", ถ้าแยกยอดก่อน VAT กับ VAT ให้ต้องบวกเพิ่มเอง ให้ตอบ "ไม่รวม VAT", ถ้าไม่มี VAT ในเอกสารเลยให้ตอบ "ไม่มี VAT"
+■ invoice_date: ปีเป็น พ.ศ. ถ้าปีไม่ชัดให้ยึดปีปัจจุบันข้างบน อย่าเดาปีที่ห่างจากปัจจุบันมาก`;
+
+  const base64Image = imageBuffer.toString('base64');
+  const requestBody = {
+    contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: 'image/jpeg', data: base64Image } }] }]
+  };
+
+  const response = await axios.post(url, requestBody, { headers: { 'Content-Type': 'application/json' } });
+  const rawText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!rawText) throw new Error('โครงสร้างการตอบกลับจาก Gemini API ไม่ถูกต้อง');
+  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('Gemini ไม่ส่ง JSON กลับมา');
+  const parsed = JSON.parse(jsonMatch[0]);
+  const validVatTypes = ['รวม VAT แล้ว', 'ไม่รวม VAT', 'ไม่มี VAT'];
+  console.log(`[LOG] ✨ [Gemini รายจ่าย] ประมวลผลสำเร็จ — ฿${parsed.amount || 0}`);
+  return {
+    label: parsed.label || '-',
+    vendor: parsed.vendor || '-',
+    amount: parseFloat(parsed.amount) || 0,
+    vatType: validVatTypes.includes(parsed.vatType) ? parsed.vatType : 'ไม่มี VAT',
+    invoice_no: parsed.invoice_no || '-',
+    invoice_date: parsed.invoice_date || '-',
+  };
+}
+
+// tab "รายจ่ายรอยืนยัน" ใน POS Sheet ของร้าน — คนละ tab กับ "รายจ่าย" ที่ยืนยันแล้ว รอแอดมินตรวจก่อนบันทึกจริง
+const PENDING_EXPENSE_HEADERS = ['เลขที่รอยืนยัน', 'วันที่-เวลา', 'รายการ/หมวดหมู่ (OCR)', 'ผู้รับเงิน (OCR)', 'จำนวนเงิน (OCR)', 'ประเภท VAT (OCR)', 'เลขที่เอกสาร', 'วันที่ในเอกสาร', 'ลิงก์รูปภาพ', 'สาขา', 'สถานะ'];
+async function ensurePendingExpenseSheet(accessToken, posSheetId) {
+  const metaRes = await axios.get(
+    `https://sheets.googleapis.com/v4/spreadsheets/${posSheetId}?fields=sheets.properties`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  const exists = metaRes.data.sheets?.some(s => s.properties.title === 'รายจ่ายรอยืนยัน');
+  if (exists) return;
+  try {
+    await axios.post(
+      `https://sheets.googleapis.com/v4/spreadsheets/${posSheetId}:batchUpdate`,
+      { requests: [{ addSheet: { properties: { title: 'รายจ่ายรอยืนยัน' } } }] },
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+    );
+  } catch (addErr) {
+    const msg = addErr.response?.data?.error?.message || addErr.message || '';
+    if (!msg.includes('already exists')) throw addErr;
+  }
+  await axios.put(
+    `https://sheets.googleapis.com/v4/spreadsheets/${posSheetId}/values/${encodeURIComponent('รายจ่ายรอยืนยัน!A1:K1')}?valueInputOption=USER_ENTERED`,
+    { values: [PENDING_EXPENSE_HEADERS] },
+    { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+  );
+}
+function makePendingExpenseNo() {
+  return 'PE' + Date.now().toString(36).toUpperCase();
+}
+async function appendPendingExpense(accessToken, posSheetId, row) {
+  await axios.post(
+    `https://sheets.googleapis.com/v4/spreadsheets/${posSheetId}/values/${encodeURIComponent('รายจ่ายรอยืนยัน!A1')}:append?valueInputOption=USER_ENTERED`,
+    { values: [row] },
+    { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+  );
+}
+
+// ==========================================
 // 4. MAIN WEBHOOK ENDPOINT (LINE RECEIVER)
 // ==========================================
 app.post('/webhook', async (req, res) => {
@@ -1505,6 +1618,29 @@ app.post('/webhook', async (req, res) => {
       }
       // ---- End #รับสินค้า ----
 
+      // ---- #รายจ่าย — พิมพ์คำสั่งนี้แล้วส่งรูปบิล/สลิปค่าใช้จ่ายถัดไป (ไม่เกี่ยวกับสต็อคสินค้า เช่น ค่าเช่า/ค่าน้ำไฟ) ----
+      if (text === '#รายจ่าย' || text === '#ค่าใช้จ่าย') {
+        const senderId = event.source.userId;
+        try {
+          const { data: posConfig } = await supabase
+            .from('pos_configs').select('pos_sheet_id').eq('shop_id', shop.id).maybeSingle();
+          if (!posConfig?.pos_sheet_id) {
+            await replyToLine(replyToken, [{ type: 'text', text: '⚠️ ร้านนี้ยังไม่ได้เปิดใช้งานระบบ POS ค่ะ ตั้งค่าที่หน้า Dashboard → POS ก่อนนะคะ' }]);
+            continue;
+          }
+          await setAwaitingExpense(senderId, shop.id, cmdBranchName);
+          await replyToLine(replyToken, [{
+            type: 'text',
+            text: '🧾 ส่งรูปบิล/ใบเสร็จ/สลิปค่าใช้จ่ายเข้ามาได้เลยค่ะ (ภายใน 10 นาที) — สำหรับค่าใช้จ่ายที่ไม่เกี่ยวกับสต็อคสินค้า เช่น ค่าเช่า ค่าน้ำ-ไฟ ค่าแรง\nระบบจะอ่านยอด/VAT ให้อัตโนมัติ แล้วรอแอดมินกดยืนยันในหน้า Dashboard → รายจ่าย อีกทีก่อนบันทึกจริงค่ะ\n\n(ถ้าเป็นใบส่งของ/ใบกำกับภาษีที่ซื้อสินค้าเข้าสต็อค ให้ใช้ #รับสินค้า แทนนะคะ)',
+          }]);
+        } catch (err) {
+          console.error('[ERROR] #รายจ่าย error:', err.message);
+          try { await replyToLine(replyToken, [{ type: 'text', text: `❌ เกิดข้อผิดพลาด: ${err.message}` }]); } catch(e) {}
+        }
+        continue;
+      }
+      // ---- End #รายจ่าย ----
+
       // ---- #สมัครแอดมิน — ขอเป็นแอดมินร้านผ่านกลุ่ม LINE ----
       if (text === '#สมัครแอดมิน') {
         const senderId = event.source.userId;
@@ -1583,6 +1719,7 @@ app.post('/webhook', async (req, res) => {
           const helpText = `📋 คำสั่งที่ใช้ได้ (${tier.toUpperCase()})\n\n` +
             `📸 ส่งรูปสลิป → บันทึกอัตโนมัติ\n\n` +
             `📥 #รับสินค้า แล้วส่งรูปใบส่งของจากผู้จำหน่าย → อ่านรายการสินค้าอัตโนมัติ (ร้านที่เปิด POS เท่านั้น รอแอดมินยืนยันที่ Dashboard ก่อนตัดสต็อค)\n\n` +
+            `🧾 #รายจ่าย แล้วส่งรูปบิล/ใบเสร็จค่าใช้จ่าย (ค่าเช่า/ค่าน้ำ-ไฟ ฯลฯ ไม่เกี่ยวกับสต็อค) → อ่านยอด/VAT อัตโนมัติ (ร้านที่เปิด POS เท่านั้น รอแอดมินยืนยันที่ Dashboard ก่อนบันทึกจริง)\n\n` +
             `✍️ คีย์รายการเอง:\n` +
             `  รับ [จำนวน] [หมายเหตุ] (เงินสด)\n` +
             `  รับโอน [จำนวน] [หมายเหตุ]\n` +
@@ -1887,6 +2024,59 @@ app.post('/webhook', async (req, res) => {
           } catch (recvErr) {
             console.error('[ERROR] รับสินค้าผ่าน LINE error:', recvErr.message);
             try { await replyToLine(replyToken, [{ type: 'text', text: `❌ อ่านใบส่งของไม่สำเร็จ: ${recvErr.message}` }]); } catch(e) {}
+          }
+          continue;
+        }
+
+        // STEP 1.6: ถ้าผู้ส่งเพิ่งพิมพ์ #รายจ่าย ไว้ → รูปนี้คือบิล/ใบเสร็จค่าใช้จ่าย ไม่ใช่สลิปโอนเงิน แยกไปคนละ flow
+        // (ไม่ตัดเครดิต เหมือน #รับสินค้า เพราะเป็นฟีเจอร์ POS ไม่ใช่ระบบสแกนสลิปที่นับเครดิต)
+        const awaitingExpense = event.source.userId ? await consumeAwaitingExpense(event.source.userId) : null;
+        if (awaitingExpense && awaitingExpense.shopId === shop.id) {
+          try {
+            const expenseImageBuffer = await getLineImage(event.message.id);
+            const expenseData = await withRetry(
+              () => extractExpenseDataWithGemini(expenseImageBuffer),
+              () => extractExpenseDataWithGemini(expenseImageBuffer, process.env.GEMINI_MODEL || 'gemini-3.5-flash')
+            );
+
+            const { data: gConfigE } = await supabase
+              .from('shop_google_configs')
+              .select('google_refresh_token, google_folder_id, google_sheet_id')
+              .eq('shop_id', shop.id).maybeSingle();
+            const { data: posConfigE } = await supabase
+              .from('pos_configs').select('pos_sheet_id').eq('shop_id', shop.id).maybeSingle();
+
+            let imageUrlE = null;
+            if (gConfigE?.google_refresh_token && gConfigE?.google_folder_id) {
+              const accessTokenE = await getAccessToken(gConfigE.google_refresh_token);
+              const thaiTimeE = getThaiDateTime();
+              const yearFolderIdE = await getOrCreateDriveFolder(accessTokenE, gConfigE.google_folder_id, thaiTimeE.year);
+              const monthFolderIdE = await getOrCreateDriveFolder(accessTokenE, yearFolderIdE, thaiTimeE.monthFolderName);
+              const expenseFolderId = await getOrCreateDriveFolder(accessTokenE, monthFolderIdE, 'รายจ่าย');
+              const fileNameE = `expense_${expenseData.label || 'unknown'}_${Date.now()}.jpg`;
+              const driveFileIdE = await uploadToGoogleDrive(expenseImageBuffer, accessTokenE, expenseFolderId, fileNameE);
+              imageUrlE = `https://drive.google.com/open?id=${driveFileIdE}`;
+
+              if (posConfigE?.pos_sheet_id) {
+                await ensurePendingExpenseSheet(accessTokenE, posConfigE.pos_sheet_id);
+                const nowE = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+                await appendPendingExpense(accessTokenE, posConfigE.pos_sheet_id, [
+                  makePendingExpenseNo(), nowE, expenseData.label || '-', expenseData.vendor || '-',
+                  expenseData.amount || 0, expenseData.vatType || 'ไม่มี VAT',
+                  expenseData.invoice_no || '-', expenseData.invoice_date || '-', imageUrlE || '',
+                  awaitingExpense.branchName || branchName || '', 'รอตรวจสอบ',
+                ]);
+              }
+            }
+
+            const dashboardUrlE = `${process.env.FRONTEND_URL}/pos?userId=${shop.owner_line_id}`;
+            await replyToLine(replyToken, [{
+              type: 'text',
+              text: `🧾 อ่านบิลค่าใช้จ่ายสำเร็จ!\n📝 รายการ: ${expenseData.label || '-'}\n🏢 ผู้รับเงิน: ${expenseData.vendor || '-'}\n💰 ยอด: ฿${(expenseData.amount || 0).toLocaleString()}\n\n⚠️ ยังไม่บันทึกเป็นรายจ่ายจริง — เข้าไปตรวจสอบ/ยืนยันที่ Dashboard → รายจ่าย → รอยืนยันจาก LINE\n${dashboardUrlE}`,
+            }]);
+          } catch (expErr) {
+            console.error('[ERROR] รายจ่ายผ่าน LINE error:', expErr.message);
+            try { await replyToLine(replyToken, [{ type: 'text', text: `❌ อ่านบิลค่าใช้จ่ายไม่สำเร็จ: ${expErr.message}` }]); } catch(e) {}
           }
           continue;
         }
