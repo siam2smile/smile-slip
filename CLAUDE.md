@@ -717,6 +717,11 @@ gcloud builds list --region asia-southeast1 --limit=5
 
 > **หมายเหตุ (2026-06-12):** ตรวจสอบจาก CSV export แล้ว — `invoice_requests`, `slip_analytics`, `sender_profiles`, `shop_usage_daily` มีอยู่แล้วทั้งหมด มีแค่ `admin_settings` ที่ยังไม่มี
 
+**เพิ่มคอลัมน์ vat_registered ใน pos_configs (ก่อนใช้ toggle "ร้านนี้จดทะเบียน VAT" ในหน้าตั้งค่า POS — เพิ่ม 2026-07-19, ยังไม่ได้รัน):**
+```sql
+ALTER TABLE pos_configs ADD COLUMN IF NOT EXISTS vat_registered boolean DEFAULT false;
+```
+
 **เพิ่มคอลัมน์ receipt_paper_size ใน pos_configs (ก่อนใช้ตั้งค่าขนาดกระดาษเครื่องพิมพ์ใบเสร็จ — เพิ่ม 2026-07-17, ✅ รันแล้ว 2026-07-18 ยืนยันด้วยการ PATCH/GET จริงว่าค่าบันทึกถาวรถูกต้อง):**
 ```sql
 ALTER TABLE pos_configs ADD COLUMN IF NOT EXISTS receipt_paper_size text DEFAULT '80mm';

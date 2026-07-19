@@ -1,6 +1,6 @@
 /**
  * GET  /api/pos/pos-config?shopId=xxx  → อ่านการตั้งค่า POS
- * PATCH /api/pos/pos-config { shopId, promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, receipt_paper_size }
+ * PATCH /api/pos/pos-config { shopId, promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, receipt_paper_size, vat_registered }
  * (staff_pin ร้านเดียวใช้ร่วมกันแบบเดิมยกเลิกไปแล้ว — ดู api/pos/staff.js + staff-setpin.js สำหรับ PIN รายบุคคล)
  */
 import { createClient } from '@supabase/supabase-js';
@@ -25,14 +25,16 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: error.message });
     }
 
-    // แยก query ต่างหาก + กันพัง — คอลัมน์นี้ต้องรัน ALTER TABLE ด้วยมือก่อนถึงจะมีจริง
-    // (ดู CLAUDE.md ต้องทำด้วยมือ) ถ้ายังไม่มีคอลัมน์ ให้ fallback เป็น '80mm' เงียบๆ
+    // แยก query ต่างหาก + กันพัง — คอลัมน์เหล่านี้ต้องรัน ALTER TABLE ด้วยมือก่อนถึงจะมีจริง
+    // (ดู CLAUDE.md ต้องทำด้วยมือ) ถ้ายังไม่มีคอลัมน์ ให้ fallback เงียบๆ
     // แทนที่จะทำให้ทั้ง endpoint พังจนตั้งค่า promptpay เดิมใช้ไม่ได้ไปด้วย
     let receipt_paper_size = '80mm';
+    let vat_registered = false;
     try {
       const { data: rd } = await supabase
-        .from('pos_configs').select('receipt_paper_size').eq('shop_id', shopId).single();
+        .from('pos_configs').select('receipt_paper_size, vat_registered').eq('shop_id', shopId).single();
       if (rd?.receipt_paper_size) receipt_paper_size = rd.receipt_paper_size;
+      vat_registered = !!rd?.vat_registered;
     } catch {}
 
     return res.json({
@@ -42,11 +44,12 @@ export default async function handler(req, res) {
       has_scb: !!(data?.scb_api_key),
       scb_biller_id: data?.scb_biller_id || '',
       receipt_paper_size,
+      vat_registered,
     });
   }
 
   if (req.method === 'PATCH') {
-    const { promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, receipt_paper_size } = req.body;
+    const { promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, receipt_paper_size, vat_registered } = req.body;
 
     const updates = {};
     if (promptpay_id !== undefined) updates.promptpay_id = promptpay_id || null;
@@ -59,11 +62,16 @@ export default async function handler(req, res) {
       if (error) return res.status(500).json({ error: error.message });
     }
 
-    // แยกอัปเดตคอลัมน์นี้ต่างหาก + กันพัง — ถ้ายังไม่ได้รัน ALTER TABLE (ดู CLAUDE.md)
-    // จะ error เงียบๆ ไม่ทำให้ staff_pin/promptpay ด้านบนเซฟไม่ได้ไปด้วย
+    // แยกอัปเดตคอลัมน์เหล่านี้ต่างหาก + กันพัง — ถ้ายังไม่ได้รัน ALTER TABLE (ดู CLAUDE.md)
+    // จะ error เงียบๆ ไม่ทำให้การตั้งค่าอื่นด้านบนเซฟไม่ได้ไปด้วย
     if (receipt_paper_size !== undefined) {
       try {
         await supabase.from('pos_configs').update({ receipt_paper_size: receipt_paper_size || '80mm' }).eq('shop_id', shopId);
+      } catch {}
+    }
+    if (vat_registered !== undefined) {
+      try {
+        await supabase.from('pos_configs').update({ vat_registered: !!vat_registered }).eq('shop_id', shopId);
       } catch {}
     }
 

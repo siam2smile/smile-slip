@@ -11,6 +11,7 @@ import { createClient } from '@supabase/supabase-js';
 import {
   getAccessToken, readSheet, appendSheet, updateSheetRow,
   ensureTabExists, makeBillNo, rowToSale, SALE_HEADERS, rowToProduct, CONTACT_HEADERS,
+  computeVatBreakdown,
 } from '../../../lib/google-pos';
 
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -119,7 +120,7 @@ export default async function handler(req, res) {
     // ── GET ──────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
       // A:P (16 คอลัมน์เต็ม) — เดิมอ่านแค่ A:L ทำให้รหัส/ชื่อลูกค้า (คอลัมน์ M/N) ไม่เคยถูกอ่านเลย
-      const rows = await readSheet(token, sheetId, 'ยอดขาย!A:P');
+      const rows = await readSheet(token, sheetId, 'ยอดขาย!A:R');
       let sales = rows.slice(1).map(r => rowToSale(r)).filter(s => s.bill_no);
 
       if (req.query.date) {
@@ -153,13 +154,13 @@ export default async function handler(req, res) {
       const { bill_no, notes: patchNotes = '' } = req.body;
       if (!bill_no) return res.status(400).json({ error: 'Missing bill_no' });
 
-      const rows = await readSheet(token, sheetId, 'ยอดขาย!A:P');
+      const rows = await readSheet(token, sheetId, 'ยอดขาย!A:R');
       const dataRows = rows.slice(1);
       const idx = dataRows.findIndex(r => r[0] === bill_no);
       if (idx === -1) return res.status(404).json({ error: 'ไม่พบบิล' });
 
       const existing = [...dataRows[idx]];
-      while (existing.length < 16) existing.push('');
+      while (existing.length < 18) existing.push('');
       if (existing[11] === 'ชำระแล้ว') return res.status(400).json({ error: 'ชำระแล้ว' });
 
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
@@ -209,13 +210,20 @@ export default async function handler(req, res) {
       const isTransferPending = payment_method === 'โอน' && !slipUrl;
       const billStatus = isCredit ? 'ค้างชำระ' : isTransferPending ? 'รอยืนยัน' : 'ชำระแล้ว';
 
-      // 1. บันทึกลง POS Sheets tab "ยอดขาย" (16 คอลัมน์ A-P)
+      // อ่านสินค้าไว้ล่วงหน้า — ใช้ทั้งคำนวณ VAT (จาก vat_type ต่อ SKU) และตัดสต็อคด้านล่าง (อ่านครั้งเดียว)
+      const prodRows = await readSheet(token, sheetId, 'สินค้า!A:R');
+      const dataRows = prodRows.slice(1);
+      const productsForVat = dataRows.map(r => rowToProduct(r));
+      const { subtotal: vatSubtotal, vat: vatAmount } = computeVatBreakdown(items, productsForVat);
+
+      // 1. บันทึกลง POS Sheets tab "ยอดขาย" (18 คอลัมน์ A-R — เพิ่มยอดก่อน VAT/ยอด VAT ท้ายสุด)
       await appendSheet(token, sheetId, 'ยอดขาย', [
         billNo, now, JSON.stringify(items),
         subtotal, discount, total,
         payment_method, cash_received, change,
         cashier, fullNotes, billStatus,
         customerId, customerName, '', branch,
+        vatSubtotal, vatAmount,
       ]);
 
       // 2. บันทึกลง Main shop Sheets เฉพาะเมื่อชำระแล้ว (ไม่บันทึกถ้าค้างชำระ/รอยืนยัน)
@@ -233,8 +241,6 @@ export default async function handler(req, res) {
       //    (กับลูกค้าสุทธิ = qty - returned_qty) และเพิ่ม "เปล่ารอรีฟิล" ตามจำนวนที่คืนมา
       let netCylinderDeltaForCustomer = 0;
       try {
-        const prodRows = await readSheet(token, sheetId, 'สินค้า!A:R');
-        const dataRows = prodRows.slice(1);
         for (const item of items) {
           const idx = dataRows.findIndex(r => r[0] === item.sku);
           if (idx === -1) continue;
@@ -278,7 +284,7 @@ export default async function handler(req, res) {
         console.error('[pos/sales] stock deduct error:', stockErr.message);
       }
 
-      return res.json({ ok: true, billNo, total, change });
+      return res.json({ ok: true, billNo, total, change, vatSubtotal, vatAmount });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });

@@ -229,11 +229,40 @@ export const PRODUCT_HEADERS = [
   'รหัสสินค้า (ผู้ใช้)', 'บาร์โค้ด', 'รายละเอียดสินค้า', 'VAT', 'สถานะ',
 ];
 
+// Q-R (ยอดก่อน VAT/ยอด VAT) เพิ่มท้ายสุด — ไม่แทรกกลาง กันข้อมูลเก่าเลื่อนคอลัมน์ผิด
+// คำนวณจาก vat_type ของสินค้าแต่ละชิ้น (ไม่รวมผลของส่วนลดบิล — เหมือน pattern เดียวกับใบกำกับภาษี)
 export const SALE_HEADERS = [
   'เลขบิล', 'วันที่-เวลา', 'รายการสินค้า (JSON)', 'ยอดรวมก่อนลด',
   'ส่วนลด', 'ยอดสุทธิ', 'วิธีชำระ', 'เงินรับ', 'เงินทอน', 'ผู้ขาย', 'หมายเหตุ', 'สถานะ',
-  'รหัสลูกค้า', 'ชื่อลูกค้า', 'วันที่ชำระ', 'สาขา',
+  'รหัสลูกค้า', 'ชื่อลูกค้า', 'วันที่ชำระ', 'สาขา', 'ยอดก่อน VAT (บาท)', 'ยอด VAT (บาท)',
 ];
+
+// คำนวณ VAT รวมของรายการสินค้าจาก vat_type ต่อ SKU — ใช้ร่วมกันทั้งขายหน้าร้าน/ใบกำกับภาษี/รายงาน VAT
+// products: array ที่ผ่าน rowToProduct() มาแล้ว
+const VAT_RATE = 0.07;
+export function computeVatBreakdown(items, products) {
+  let subtotal = 0, vat = 0;
+  for (const item of items || []) {
+    const qty = parseFloat(item.qty) || 0;
+    const price = parseFloat(item.price) || 0;
+    const lineTotal = qty * price;
+    const prod = item.sku ? products.find(p => p.sku === item.sku) : null;
+    const vatType = prod?.vat_type || 'ไม่มี VAT';
+    if (vatType === 'รวม VAT แล้ว') {
+      const base = lineTotal / (1 + VAT_RATE);
+      subtotal += base;
+      vat += lineTotal - base;
+    } else if (vatType === 'ไม่รวม VAT') {
+      subtotal += lineTotal;
+      vat += lineTotal * VAT_RATE;
+    } else {
+      subtotal += lineTotal; // ไม่มี VAT
+    }
+  }
+  subtotal = Math.round(subtotal * 100) / 100;
+  vat = Math.round(vat * 100) / 100;
+  return { subtotal, vat, total: Math.round((subtotal + vat) * 100) / 100 };
+}
 
 // tab "ยืมสินค้า"
 export const LOAN_HEADERS = [
@@ -397,6 +426,8 @@ export function rowToSale(row) {
     customer_name:  row[13] || '',
     paid_at:        row[14] || '',
     branch:         row[15] || '',
+    vat_subtotal:   parseFloat(row[16]) || 0,
+    vat_amount:     parseFloat(row[17]) || 0,
   };
 }
 

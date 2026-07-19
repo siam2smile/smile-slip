@@ -55,7 +55,7 @@ function escapeHtml(s) {
 }
 
 // paperSize: '58mm' | '80mm' — isTaxInvoice: true เมื่อพิมพ์ใบกำกับภาษีเต็มรูปแบบ (มีข้อมูลผู้ซื้อ + แยก VAT)
-function buildReceiptHtml({ paperSize = '80mm', shopInfo, isTaxInvoice, docNo, dateStr, buyer, items, subtotal, vat, discount, total, payMethod, cashReceived, change, footer }) {
+function buildReceiptHtml({ paperSize = '80mm', shopInfo, isTaxInvoice, showVat, docNo, dateStr, buyer, items, subtotal, vat, discount, total, payMethod, cashReceived, change, footer }) {
   const widthMm = paperSize === '58mm' ? 58 : 80;
   const title = isTaxInvoice ? 'ใบกำกับภาษี / ใบเสร็จรับเงิน' : 'ใบเสร็จรับเงิน';
   const itemRows = (items || []).map(i => `
@@ -105,10 +105,11 @@ function buildReceiptHtml({ paperSize = '80mm', shopInfo, isTaxInvoice, docNo, d
   <table>${itemRows}</table>
   <div class="line"></div>
   <table class="totals">
-    ${isTaxInvoice ? `
-      <tr><td>ยอดก่อน VAT</td><td style="text-align:right">${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
-      <tr><td>ภาษีมูลค่าเพิ่ม 7%</td><td style="text-align:right">${vat.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
-    ` : (discount > 0 ? `<tr><td>ส่วนลด</td><td style="text-align:right">-${discount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>` : '')}
+    ${discount > 0 ? `<tr><td>ส่วนลด</td><td style="text-align:right">-${discount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>` : ''}
+    ${(isTaxInvoice || (showVat && vat > 0)) ? `
+      <tr><td>ยอดก่อน VAT</td><td style="text-align:right">${(subtotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+      <tr><td>ภาษีมูลค่าเพิ่ม 7%</td><td style="text-align:right">${(vat || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+    ` : ''}
     <tr class="grand"><td>ยอดรวมสุทธิ</td><td style="text-align:right">${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
     ${payMethod ? `<tr><td colspan="2">วิธีชำระ: ${escapeHtml(payMethod)}</td></tr>` : ''}
     ${cashReceived > 0 ? `<tr><td>รับเงิน</td><td style="text-align:right">${cashReceived.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>` : ''}
@@ -384,8 +385,8 @@ export default function POSPage() {
   const [qrLoading, setQrLoading] = useState(false);
 
   // POS settings (PromptPay + Biller ID) — Staff PIN เปลี่ยนเป็นรายบุคคลแล้ว ไม่มี PIN ร้านรวมอีกต่อไป
-  const [posConfig, setPosConfig] = useState({ promptpay_id: '', scb_biller_id: '', receipt_paper_size: '80mm' });
-  const [posSettingsForm, setPosSettingsForm] = useState({ promptpay_id: '', scb_biller_id: '' });
+  const [posConfig, setPosConfig] = useState({ promptpay_id: '', scb_biller_id: '', receipt_paper_size: '80mm', vat_registered: false });
+  const [posSettingsForm, setPosSettingsForm] = useState({ promptpay_id: '', scb_biller_id: '', vat_registered: false });
   const [settingsSaving, setSettingsSaving] = useState(false);
 
   // ── Multi-table bill management ───────────────────────────────────────────
@@ -647,7 +648,7 @@ export default function POSPage() {
       const d = await r.json();
       if (d.ok !== false) {
         setPosConfig(d);
-        setPosSettingsForm({ promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '', receipt_paper_size: d.receipt_paper_size || '80mm' });
+        setPosSettingsForm({ promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '', receipt_paper_size: d.receipt_paper_size || '80mm', vat_registered: !!d.vat_registered });
       }
     } catch {}
   }
@@ -660,6 +661,7 @@ export default function POSPage() {
       if (posSettingsForm.promptpay_id !== undefined) body.promptpay_id = posSettingsForm.promptpay_id;
       if (posSettingsForm.scb_biller_id !== undefined) body.scb_biller_id = posSettingsForm.scb_biller_id;
       if (posSettingsForm.receipt_paper_size !== undefined) body.receipt_paper_size = posSettingsForm.receipt_paper_size;
+      body.vat_registered = !!posSettingsForm.vat_registered;
       const r = await fetch('/api/pos/pos-config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -1552,6 +1554,8 @@ export default function POSPage() {
           change: cartChange,
           time: new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' }),
           billName: openBills.find(b => b.id === activeBillId)?.name || '',
+          vatSubtotal: d.vatSubtotal || 0,
+          vatAmount: d.vatAmount || 0,
         });
         // ปิดบิลที่ checkout เสร็จ + สลับไปบิลถัดไป (ถ้ามี)
         const remaining = openBills.filter(b => b.id !== activeBillId);
@@ -1592,10 +1596,12 @@ export default function POSPage() {
       paperSize: posConfig.receipt_paper_size || '80mm',
       shopInfo,
       isTaxInvoice: false,
+      showVat: !!posConfig.vat_registered,
       docNo: bill.billNo,
       dateStr: new Date().toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' }) + ' ' + bill.time,
       items: bill.items,
-      subtotal: bill.subtotal,
+      subtotal: bill.vatSubtotal || bill.subtotal,
+      vat: bill.vatAmount || 0,
       discount: bill.discount,
       total: bill.total,
       payMethod: bill.payMethod,
@@ -1639,20 +1645,7 @@ export default function POSPage() {
       });
       const d = await r.json();
       if (d.ok) {
-        const html = buildReceiptHtml({
-          paperSize: posConfig.receipt_paper_size || '80mm',
-          shopInfo,
-          isTaxInvoice: true,
-          docNo: d.invoice_no,
-          dateStr: d.issued_at,
-          buyer: { name: taxInvoiceForm.buyer_name, tax_id: taxInvoiceForm.buyer_tax_id, address: taxInvoiceForm.buyer_address, branch: taxInvoiceForm.buyer_branch },
-          items: lastBill.items,
-          subtotal: d.subtotal,
-          vat: d.vat,
-          total: d.total,
-          payMethod: lastBill.payMethod,
-        });
-        openPrintWindow(html);
+        window.open(`/api/pos/tax-invoice-pdf?shopId=${shopId}&invoice_no=${encodeURIComponent(d.invoice_no)}`, '_blank');
         setShowTaxInvoiceForm(false);
         showToast(`ออกใบกำกับภาษี ${d.invoice_no} แล้ว`);
       } else {
@@ -4458,6 +4451,30 @@ export default function POSPage() {
                       className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
                       placeholder="เช่น 050556501923609"
                     />
+                  </div>
+                </div>
+
+                {/* ร้านจด VAT */}
+                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
+                  <h3 className="text-white font-bold mb-1">🧾 ร้านนี้จดทะเบียน VAT</h3>
+                  <p className="text-gray-400 text-xs mb-4">
+                    เปิดไว้ถ้าร้านจดทะเบียนภาษีมูลค่าเพิ่ม — ใบเสร็จขายหน้าร้านทุกใบจะแสดงยอดก่อน VAT/VAT 7% แยกให้อัตโนมัติตามประเภท VAT ของสินค้าแต่ละชิ้น
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button"
+                      onClick={() => setPosSettingsForm(f => ({ ...f, vat_registered: true }))}
+                      className={`py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                        posSettingsForm.vat_registered ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                      }`}>
+                      ✅ จด VAT
+                    </button>
+                    <button type="button"
+                      onClick={() => setPosSettingsForm(f => ({ ...f, vat_registered: false }))}
+                      className={`py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                        !posSettingsForm.vat_registered ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                      }`}>
+                      ไม่จด VAT
+                    </button>
                   </div>
                 </div>
 
