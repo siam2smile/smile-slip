@@ -457,7 +457,7 @@ export default function POSPage() {
   const [expandedCredit, setExpandedCredit] = useState(null);
   const [expandedLoan, setExpandedLoan] = useState(null);
   const [showExportModal, setShowExportModal] = useState(false);
-  const [exportTypes, setExportTypes] = useState(['sales', 'inventory', 'credit', 'loans', 'topsellers', 'pl']);
+  const [exportTypes, setExportTypes] = useState(['sales', 'inventory', 'credit', 'loans', 'topsellers', 'pl', 'expenses', 'vat']);
   const [exportLoading, setExportLoading] = useState(false);
 
   // loans management
@@ -6589,6 +6589,8 @@ export default function POSPage() {
                 { key: 'loans',      label: '🏷️ ยืมสินค้า' },
                 { key: 'topsellers', label: '🏆 สินค้าขายดี' },
                 { key: 'pl',         label: '📈 กำไร-ขาดทุน' },
+                { key: 'expenses',   label: '🧾 รายจ่าย' },
+                { key: 'vat',        label: '📋 ภาษี VAT' },
               ].map(r => (
                 <label key={r.key} className="flex items-center gap-3 cursor-pointer py-1">
                   <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${exportTypes.includes(r.key) ? 'bg-green-600 border-green-600' : 'border-gray-600'}`}
