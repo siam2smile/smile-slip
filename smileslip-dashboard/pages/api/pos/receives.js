@@ -9,6 +9,11 @@
  * 1. POS Sheets tab "รับสินค้า" — รายละเอียด (รายการสินค้า, VAT breakdown, ผู้จำหน่าย ฯลฯ)
  * 2. Main shop Sheets (sheet ปี) — รายจ่ายเข้าบัญชีหลัก (ให้แสดงใน Dashboard Ledger/Analytics/#กำไรขาดทุน)
  *    หมวดหมู่ "ซื้อสินค้าเข้าสต็อค (POS)" แยกจากรายจ่ายทั่วไป ให้ดูออกว่าเป็นต้นทุนขายไม่ใช่ค่าใช้จ่ายดำเนินงาน
+ *
+ * + Verified Market Price Index / Procurement Fraud Detection (v1 retail-only, lib/market-price.js):
+ *   ทุกครั้งที่รับสินค้าเข้า เทียบราคาที่ซื้อจริงกับราคากลางอำเภอ/จังหวัด ถ้าแพงผิดปกติจะคืน `warnings`
+ *   กลับไปด้วย + บันทึก procurement_alerts — นับเข้าตารางกลางนิรนาม (anonymous_market_prices) เฉพาะ
+ *   ตอนมี photoUrl แนบมาด้วยเท่านั้น (verified data filter) ต้องรัน SQL ก่อนถึงจะทำงานจริง (ดู CLAUDE.md)
  */
 const VAT_RATE = 0.07;
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -29,6 +34,7 @@ import {
   getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
   makeReceiveNo, rowToReceive, rowToProduct, RECEIVE_HEADERS,
 } from '../../../lib/google-pos';
+import { getShopDistrictProvince, checkProcurementFraud, insertAnonymousMarketPrices } from '../../../lib/market-price';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -112,7 +118,7 @@ export default async function handler(req, res) {
 
     // ── GET ─────────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'รับสินค้า!A:I');
+      const rows = await readSheet(token, sheetId, 'รับสินค้า!A:J');
       let receives = rows.slice(1)
         .map((r, i) => ({ ...rowToReceive(r), _row: i + 2 }))
         .filter(r => r.receive_no);
@@ -132,7 +138,7 @@ export default async function handler(req, res) {
 
     // ── POST ─────────────────────────────────────────────────────────────────
     if (req.method === 'POST') {
-      const { supplierId = '', supplier = '', items = [], notes = '', branch = '' } = req.body;
+      const { supplierId = '', supplier = '', items = [], notes = '', branch = '', photoUrl = '' } = req.body;
       if (!items.length) return res.status(400).json({ error: 'ต้องมีรายการสินค้าอย่างน้อย 1 รายการ' });
 
       // อ่านข้อมูลสินค้าทั้งหมดเพื่อคำนวณ weighted avg cost — ต้องอ่านเต็ม A:R (18 คอลัมน์)
@@ -147,6 +153,7 @@ export default async function handler(req, res) {
       let vatTotal = 0;    // ยอด VAT รวมทั้งใบ
 
       // อัปเดตสต็อค + weighted avg cost ทีละสินค้า (ต้นทุนถ่วงน้ำหนักคำนวณจากฐานราคาก่อน VAT เสมอ)
+      const itemsForMarket = []; // เก็บไว้ใช้ตรวจราคาตลาด/บันทึกดัชนีราคากลางหลังบันทึกสำเร็จ
       for (const item of items) {
         const { sku, qty, unitCost, vatType } = item;
         const numQty = parseFloat(qty) || 0;
@@ -157,6 +164,7 @@ export default async function handler(req, res) {
         const lineSubtotal = numQty * unitBase;
         subtotal += lineSubtotal;
         vatTotal += numQty * unitVat;
+        itemsForMarket.push({ name: item.name, unit: item.unit || '', unitBase });
 
         const idx = prodDataRows.findIndex(r => r[0] === sku);
         if (idx === -1) continue;
@@ -218,13 +226,33 @@ export default async function handler(req, res) {
         supplierId,
         roundedSubtotal,
         roundedVat,
+        photoUrl,
       ]);
 
       await writeReceiveToMainSheets(token, mainSheetId, {
         total: grandTotal, supplier, notes, shopName, branchName: branch || branchName,
       });
 
-      return res.json({ ok: true, receiveNo, subtotal: roundedSubtotal, vatTotal: roundedVat, totalCost: grandTotal, itemCount: items.length });
+      // Market Price Index + Procurement Fraud Detection (v1 retail-only, fail-safe เสมอ)
+      // — ดูรายละเอียดการตัดสินใจ/สิ่งที่ยังไม่ชัวร์ใน CLAUDE.md ข้อ 30
+      let warnings = [];
+      try {
+        const { district, province } = await getShopDistrictProvince(shopId);
+        if (district && province && itemsForMarket.length) {
+          warnings = await checkProcurementFraud({
+            shopId, branchName: branch || branchName, receiveDocNo: receiveNo,
+            items: itemsForMarket, district, province,
+          });
+          // นับเข้าตารางกลางนิรนามเฉพาะตอนมีรูปแนบเป็นหลักฐาน (verified data filter)
+          if (photoUrl) {
+            await insertAnonymousMarketPrices({ shopId, items: itemsForMarket, district, province, priceType: 'retail' });
+          }
+        }
+      } catch (marketErr) {
+        console.error('[pos/receives] market-price error:', marketErr.message);
+      }
+
+      return res.json({ ok: true, receiveNo, subtotal: roundedSubtotal, vatTotal: roundedVat, totalCost: grandTotal, itemCount: items.length, warnings });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });

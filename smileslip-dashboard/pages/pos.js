@@ -481,6 +481,8 @@ export default function POSPage() {
   const [receiveCat, setReceiveCat] = useState('ทั้งหมด'); // ตัวกรองหมวดหมู่ตอนเลือกสินค้าเข้าใบรับสินค้า
   const [showReceivePicker, setShowReceivePicker] = useState(false); // เปิด/ปิด รายการสินค้าให้เลือกแบบเบราส์
   const [receiveNotes, setReceiveNotes] = useState('');
+  const [receivePhotoUrl, setReceivePhotoUrl] = useState(''); // รูปบิล/ใบส่งของ — ใช้เป็นหลักฐานสำหรับดัชนีราคากลาง
+  const [receivePhotoUploading, setReceivePhotoUploading] = useState(false);
   const [receiveSaving, setReceiveSaving] = useState(false);
   const [receiveHistory, setReceiveHistory] = useState([]);
   const [receiveHistoryLoading, setReceiveHistoryLoading] = useState(false);
@@ -1247,6 +1249,7 @@ export default function POSPage() {
       `จากใบส่งของ LINE เลขที่ ${pending.invoice_no || '-'} วันที่ ${pending.invoice_date || '-'}` +
       (unmatchedNames.length ? ` — ⚠️ ไม่พบสินค้านี้ในระบบ ต้องเพิ่มสินค้าใหม่ก่อน: ${unmatchedNames.join(', ')}` : '')
     );
+    setReceivePhotoUrl(pending.image_url || '');
     setLinkedPendingNo(pending.pending_no);
     setReceiveView('form');
     if (unmatchedNames.length) showToast(`⚠️ ไม่พบสินค้า ${unmatchedNames.length} รายการในระบบ ดูหมายเหตุในฟอร์ม`);
@@ -1890,6 +1893,7 @@ export default function POSPage() {
           items: validItems,
           notes: receiveNotes,
           branch: selectedBranch?.branch_name || '',
+          photoUrl: receivePhotoUrl,
         }),
       });
       const d = await r.json();
@@ -1902,6 +1906,8 @@ export default function POSPage() {
         setReceiveSupplierQ('');
         setSupplierPrices({});
         setReceiveNotes('');
+        setReceivePhotoUrl('');
+        if (d.warnings?.length) setTimeout(() => showToast(d.warnings.join(' / ')), 3200);
         // ถ้ามาจากรายการรอยืนยันของ LINE — ลบออกจากคิวรอ เพราะยืนยันเข้าสต็อคจริงแล้ว
         if (linkedPendingNo) {
           const doneNo = linkedPendingNo;
@@ -1957,6 +1963,31 @@ export default function POSPage() {
       alert(err.message);
     }
     setExpensePhotoUploading(false);
+  }
+
+  async function handleReceivePhoto(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setReceivePhotoUploading(true);
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const r = await fetch('/api/pos/upload-photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, imageBase64: base64, mimeType: file.type, folderLabel: 'receive' }),
+      });
+      const d = await r.json();
+      if (d.ok) { setReceivePhotoUrl(d.url); showToast('แนบรูปแล้ว'); }
+      else alert(d.error || 'อัปโหลดรูปไม่สำเร็จ');
+    } catch (err) {
+      alert(err.message);
+    }
+    setReceivePhotoUploading(false);
   }
 
   async function submitExpense() {
@@ -2417,6 +2448,16 @@ export default function POSPage() {
     setReportLoading(true);
     setReportData(null);
     try {
+      // ราคาผิดปกติ/ทุจริตจัดซื้อ — คนละ endpoint จาก /api/pos/reports (คนละตารางข้อมูล)
+      if (type === 'fraud') {
+        const params = new URLSearchParams({ shopId });
+        if (statusF && statusF !== 'ทั้งหมด') params.set('status', statusF);
+        const r = await fetch(`/api/pos/procurement-alerts?${params}`);
+        const d = await r.json();
+        setReportData({ type: 'fraud', alerts: d.alerts || [], notSetup: d.notSetup });
+        setReportLoading(false);
+        return;
+      }
       const params = new URLSearchParams({ shopId, type, dateFrom, dateTo });
       if (branch) params.set('branch', branch);
       if (statusF && statusF !== 'ทั้งหมด') params.set('status', statusF);
@@ -2426,6 +2467,18 @@ export default function POSPage() {
       else setReportData(d);
     } catch (e) { showToast('❌ ' + e.message); }
     setReportLoading(false);
+  }
+
+  async function updateProcurementAlertStatus(id, status) {
+    try {
+      const r = await fetch('/api/pos/procurement-alerts', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, id, status }),
+      });
+      const d = await r.json();
+      if (d.ok) { showToast('อัปเดตสถานะแล้ว'); fetchReport('fraud'); } else alert(d.error);
+    } catch (err) { alert(err.message); }
   }
 
   // source: 'pos' (ขายเชื่อหน้าร้าน) หรือ 'delivery' (ออเดอร์จัดส่งค้างจ่าย) — คนละ endpoint กัน
@@ -3234,6 +3287,21 @@ export default function POSPage() {
                       ) : (
                         <div className="text-center text-gray-600 text-sm py-4">ค้นหาสินค้าด้านบนเพื่อเพิ่มในใบรับสินค้า</div>
                       )}
+                    </div>
+
+                    {/* แนบรูปบิล/ใบส่งของ */}
+                    <div className="bg-gray-800 rounded-xl p-4 mb-4">
+                      <label className="block text-gray-400 text-xs mb-2 font-medium">แนบรูปบิล/ใบส่งของ (ไม่บังคับ — แต่แนะนำให้แนบเพื่อความน่าเชื่อถือของข้อมูล)</label>
+                      <label className="flex items-center justify-center gap-2 border border-dashed border-gray-600 rounded-xl py-3 cursor-pointer hover:border-gray-500 transition-colors">
+                        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleReceivePhoto} disabled={receivePhotoUploading} />
+                        {receivePhotoUploading ? (
+                          <span className="text-gray-400 text-xs animate-pulse">กำลังอัปโหลด...</span>
+                        ) : receivePhotoUrl ? (
+                          <span className="text-green-400 text-xs">✅ แนบรูปแล้ว — แตะเพื่อเปลี่ยน</span>
+                        ) : (
+                          <span className="text-gray-500 text-xs">📷 แตะเพื่อถ่ายรูป/เลือกรูปบิล-ใบส่งของ</span>
+                        )}
+                      </label>
                     </div>
 
                     {/* หมายเหตุ */}
@@ -4187,6 +4255,7 @@ export default function POSPage() {
                     { key: 'cyclical',   label: '🔄 สินค้าหมุนเวียน' },
                     { key: 'vat',        label: '🧾 ภาษี VAT' },
                     { key: 'expenses',   label: '💸 รายจ่าย' },
+                    { key: 'fraud',      label: '🚩 ราคาผิดปกติ' },
                   ].map(r => (
                     <button key={r.key}
                       onClick={() => { setReportType(r.key); fetchReport(r.key, reportDateFrom, reportDateTo); }}
@@ -4755,6 +4824,61 @@ export default function POSPage() {
                           ))}
                         </div>
                         {!reportData.expenses?.length && <div className="text-center text-gray-500 py-8 text-sm">ไม่มีรายจ่ายในช่วงนี้</div>}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* ── ราคาผิดปกติ / จับทุจริตจัดซื้อ ── */}
+                {!reportLoading && reportData?.type === 'fraud' && (() => {
+                  const alerts = reportData.alerts || [];
+                  return (
+                    <div className="space-y-4">
+                      <p className="text-gray-500 text-xs px-1">
+                        เทียบราคาที่ซื้อจริงตอนรับสินค้ากับราคากลางอำเภอ/จังหวัด (จากข้อมูลนิรนามของร้านอื่นในระบบ) —
+                        ขึ้นเตือนถ้าซื้อแพงกว่าราคากลางเกิน 20% เพื่อช่วยตรวจสอบพนักงานจัดซื้อ
+                      </p>
+                      {reportData.notSetup && (
+                        <div className="bg-yellow-900/20 border border-yellow-800 rounded-xl p-3 text-yellow-300 text-xs">
+                          ⚠️ ฟีเจอร์นี้ยังไม่พร้อมใช้งาน (รอตั้งค่าฐานข้อมูลฝั่งระบบ)
+                        </div>
+                      )}
+                      <div className="bg-gray-900 rounded-xl overflow-hidden">
+                        <div className="divide-y divide-gray-800">
+                          {alerts.map(a => (
+                            <div key={a.id} className="px-4 py-3">
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <span className="text-white text-sm font-medium">🚩 {a.item_name}</span>
+                                <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                  a.status === 'pending' ? 'bg-red-900/50 text-red-300' :
+                                  a.status === 'investigated' ? 'bg-yellow-900/50 text-yellow-300' : 'bg-green-900/50 text-green-300'
+                                }`}>
+                                  {a.status === 'pending' ? 'รอตรวจสอบ' : a.status === 'investigated' ? 'กำลังตรวจสอบ' : 'จบเรื่องแล้ว'}
+                                </span>
+                              </div>
+                              <div className="text-gray-500 text-xs mb-2">
+                                {a.branch_name ? `${a.branch_name} · ` : ''}{a.receive_doc_no} · {new Date(a.created_at).toLocaleDateString('th-TH')}
+                              </div>
+                              <div className="text-xs text-gray-300 mb-2">
+                                ซื้อ ฿{a.submitted_price.toLocaleString()} เทียบราคากลาง ฿{a.market_median_price.toLocaleString()}
+                                <span className="text-red-400 font-bold"> (+{a.deviation_percentage}%)</span>
+                              </div>
+                              {a.status === 'pending' && (
+                                <div className="flex gap-2">
+                                  <button onClick={() => updateProcurementAlertStatus(a.id, 'investigated')}
+                                    className="flex-1 bg-yellow-800 hover:bg-yellow-700 text-yellow-100 text-xs font-medium py-1.5 rounded-lg transition-colors">🔍 กำลังตรวจสอบ</button>
+                                  <button onClick={() => updateProcurementAlertStatus(a.id, 'resolved')}
+                                    className="flex-1 bg-green-800 hover:bg-green-700 text-green-100 text-xs font-medium py-1.5 rounded-lg transition-colors">✅ จบเรื่องแล้ว</button>
+                                </div>
+                              )}
+                              {a.status === 'investigated' && (
+                                <button onClick={() => updateProcurementAlertStatus(a.id, 'resolved')}
+                                  className="w-full bg-green-800 hover:bg-green-700 text-green-100 text-xs font-medium py-1.5 rounded-lg transition-colors">✅ จบเรื่องแล้ว</button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        {!alerts.length && !reportData.notSetup && <div className="text-center text-gray-500 py-8 text-sm">ยังไม่มีรายการราคาผิดปกติ</div>}
                       </div>
                     </div>
                   );

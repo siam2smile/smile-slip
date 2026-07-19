@@ -98,6 +98,14 @@ export default async function handler(req, res) {
 
     if (insertError) throw insertError;
 
+    // แยกอัปเดต district/province ต่างหาก + กันพัง — ถ้ายังไม่ได้รัน ALTER TABLE (ดู CLAUDE.md)
+    // จะ error เงียบๆ ไม่ทำให้การสมัครสมาชิกหลักล้มเหลวไปด้วย (แบบเดียวกับ pattern receipt_paper_size/vat_registered)
+    if (district || province) {
+      try {
+        await supabase.from('shop_profiles').update({ district: district || null, province: province || null }).eq('id', newShop.id);
+      } catch {}
+    }
+
     // เครดิตเริ่มต้น 20 แผ่น (ถ้ามี referral จะได้โบนัสเพิ่มอีก 30 หลัง Google connect)
     await supabase.from('shop_credits').insert([{ shop_id: newShop.id, balance_credits: 20 }]);
 

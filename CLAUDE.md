@@ -2,7 +2,7 @@
 
 โปรเจกต์ของ Vespa / Siam Global Network Enterprise
 ภาษาหลักในโค้ดและ comment: **ไทย**
-อัปเดตล่าสุด: 2026-07-19 (แก้บั๊กสาขาไม่ถูกส่งเข้าบัญชีหลัก + เชื่อมรับสินค้าเข้าบัญชีหลัก + รับรายจ่ายผ่าน LINE + export VAT/รายจ่าย — ดูข้อ 29 ในหัวข้อ "เหตุการณ์และบั๊กที่แก้แล้ว")
+อัปเดตล่าสุด: 2026-07-19 (Verified Market Price Index v1 + Procurement Fraud Detection — ดูข้อ 30 ในหัวข้อ "เหตุการณ์และบั๊กที่แก้แล้ว", **ต้องรัน SQL ก่อนใช้งานได้จริง**)
 
 ---
 
@@ -140,6 +140,19 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
     - **เหตุการณ์ระหว่างทดสอบ: เจอข้อมูลทดสอบเก่าตกค้างในบัญชีหลักจริงของร้าน "D Gas"** — ระหว่างทดสอบ `receives.js`→บัญชีหลัก พบว่ามีแถวทดสอบ 3 แถว (`BILL20260719144503` จากทดสอบ Group F, `BILL20260719142702`/`BILL20260719142740` ชื่อ `TEST-asText-*`) หลงเหลืออยู่ในชีตบัญชีหลักจริงมาตั้งแต่รอบทดสอบก่อนหน้า เพราะตอนนั้นลบแค่แถวใน POS Sheet ไม่รู้ว่า `sales.js` เขียนเข้าบัญชีหลักด้วย (dual-write มีอยู่ก่อนแล้วตั้งแต่ session ก่อนหน้า) — ลบออกจากบัญชีหลักจริงทันทีที่เจอ ยืนยันด้วย `GET /api/shop/analytics` ว่ากลับมาตรง 68 รายการ/19,558 บาทเหมือนเดิม — **บทเรียน: เวลาทดสอบฟีเจอร์ที่มี dual-write (POS Sheet + บัญชีหลัก) ต้องเช็ค/ลบข้อมูลทดสอบจากทั้งสองที่เสมอ ไม่ใช่แค่ที่เดียว** (แถวเก่า `BILL20260718142819` จากข้อ 23 ที่เคย flag ไว้ว่ารอผู้ใช้ตัดสินใจ ไม่ได้แตะเพราะยังไม่ใช่ของเราตัดสินใจ)
     - **ยังไม่ได้ทำ:** อัปเดตหน้า "ช่วยเหลือ" ในเว็บ Dashboard (sidebar) และเมนู `#วิธีใช้งาน` แบบละเอียดของบอทให้พูดถึง `#รายจ่าย` ด้วย (แก้แค่บรรทัดเดียวใน `#ช่วยเหลือ` แล้ว — ยังไม่ได้ไล่แก้จุดอื่นตามข้อควรระวัง #33)
     - **Deploy production แล้วทั้ง 2 โค้ด (2026-07-19)** — ผู้ใช้ยืนยันให้ deploy ทั้ง dashboard และบอท LINE — `smileslip-dashboard` revision จริง `smileslip-dashboard-00262-gw6` (ข้อความ deploy โชว์ revision เดิมผิดอีกครั้งตามเคย), `smileslip-service` (บอท) revision จริง `smileslip-service-00142-9ph` — ทั้งคู่ traffic pin 100% แล้ว + verified บน production จริงว่า `/api/pos/expenses-pending`, `/api/pos/export?types=expenses`, และบอทบูตสำเร็จ (Redis connected, startup probe ผ่าน) ใช้งานได้ปกติ
+30. **Verified Hyper-Local Market Price Index + Procurement Fraud Detection (v1 retail-only) — ผู้ใช้ส่งสเปกมาจากไฟล์ `ระบบงานเก้บข้อมุลราคาสินค้า แนวทางวิเคราะห์.txt` ขอให้วิเคราะห์ความเป็นไปได้ก่อน แล้วให้ "ทำเลย" หลังคุยรายละเอียดกัน — ยังไม่ได้รัน SQL/ทดสอบจบ end-to-end จริง (รอ SQL):**
+    - **สเปกเดิม:** ดักจับราคาจากใบรับสินค้า → ดัชนีราคากลางระดับอำเภอนิรนาม 100% (เก็บสถิติใน Supabase เท่านั้น ข้อมูลจริง/รูปอยู่ใน Sheets/Drive ลูกค้า) + จับทุจริตพนักงานจัดซื้อ (เทียบราคาจริงกับราคากลาง) + แยกชั้นราคาส่ง/ปลีกพร้อม KYB approval สำหรับร้านค้าส่ง — ผู้ใช้เสนอ 3 แนวทางขายข้อมูล (subscription feature / ขายบทวิเคราะห์ B2B / ใช้เป็นท่อโฆษณา) **ห้ามขาย raw data เด็ดขาด**
+    - **ตัดสินใจ scope v1 (ตามคำแนะนำที่ให้ไปและผู้ใช้ตอบรับ):** ทำแค่ **ราคาปลีก + จับทุจริตจัดซื้อ** ก่อน — **ตัด KYB/แยกราคาส่ง/wholesale gating ออกทั้งหมด ยกไป v2** (ยังไม่มี `business_type`/`is_wholesale_verified` ในโค้ด/schema ตามที่ตัดสินใจ)
+    - **เจอช่องว่างจริงระหว่างสเปกกับโค้ด 3 จุด (แก้แล้วทั้งหมด):**
+      1. **ไม่มีฟิลด์รูปภาพใน `api/pos/receives.js` เลย** — ทั้งฟอร์มเว็บและตอนยืนยันจากคิว LINE (`รับสินค้ารอยืนยัน` มี `image_url` จริงแต่ไม่เคย thread ต่อเข้าฟอร์ม) แก้โดยเพิ่มคอลัมน์ J `ลิงก์รูปภาพหลักฐาน` ใน `RECEIVE_HEADERS`, เพิ่มปุ่มแนบรูปในฟอร์มรับสินค้าเว็บเอง (reuse `/api/pos/upload-photo`), และ `loadPendingIntoForm()` ดึง `pending.image_url` มาใส่ `receivePhotoUrl` อัตโนมัติเมื่อกด "ตรวจสอบ/ยืนยัน" จากคิว LINE
+      2. **`shop_profiles.address` เก็บรวมเป็นสตริงเดียว** (`register.js` เดิม concat `ต.X อ.Y จ.Z` ทิ้ง ไม่แยกคอลัมน์) ทั้งที่ฟอร์มสมัครมีแยก province/district จริงตั้งแต่ frontend — ตรวจ Supabase จริงพบว่ามีแค่ 4 ร้านทั้งระบบ ทุกแถวแมตช์ regex `อ\.(.+)\s+จ\.(.+)` ครบ 100% เขียน `scripts/backfill-district-province.js` (one-off, ยังไม่ได้รัน) + แก้ `register.js` ให้เขียน `district`/`province` แยกคอลัมน์ให้ร้านใหม่ทันที (แยก update ต่างหากจาก insert หลัก แบบ defensive pattern เดียวกับ `receipt_paper_size`/`vat_registered` กัน insert หลักพังถ้ายังไม่รัน SQL) — **known gap:** ถ้าร้านแก้ `address` เองทีหลังผ่านหน้า Settings (`update-profile.js` ยังเป็น free-text address เดียว ไม่มีช่อง district/province แยก) จะไม่ sync กับ district/province อัตโนมัติ ยังไม่ได้ทำหน้า Settings ให้แก้แยกได้
+      3. **canonical_name ต้องคำนวณตอนยืนยันจริง ไม่ใช่ตอน OCR** — เพราะแอดมินอาจแก้ชื่อ/เพิ่มรายการเองก่อนกดยืนยัน (มี gate คนกลางตั้งใจกันข้อมูล OCR ผิดอยู่แล้ว) — ทำ `canonicalizeItems()` เรียก Gemini **แบบ text-only ไม่ใช่รูป** (ถูกกว่า OCR มาก) **1 call ต่อทั้งใบรับสินค้า ไม่ใช่ต่อ SKU** ที่ `api/pos/receives.js` ตอนยืนยันจริง พร้อมเช็คแคช `canonical_name_cache` (global ไม่ผูก shop_id เพราะต้องรวมชื่อข้ามร้าน) ก่อนเสมอ — ผู้ใช้ถามว่าจะเพิ่มค่าใช้จ่ายไหม ตอบไปว่าเพิ่มจริงแต่น้อยมาก + แนะนำแคชแล้วผู้ใช้รับทราบ
+    - **ตัดสินใจสำคัญที่ deviate จากสเปกตรงตัว (ต้องบอกผู้ใช้ไว้ชัดเจนแล้ว):** สเปกบอกห้ามเก็บอะไรที่ระบุตัวตนร้านค้าในตารางกลางเด็ดขาด แต่กฎ "ต้องมี ≥5 ร้านต่ออำเภอ" ทำไม่ได้เลยถ้าไม่รู้เลยว่าแต่ละแถวมาจากร้านไหน (นับ distinct ไม่ได้) — แก้โดยเพิ่ม **`shop_hash`** (sha256 ทางเดียวของ `shopId + MARKET_HASH_SALT`) ใน `anonymous_market_prices` ใช้แค่ `COUNT(DISTINCT shop_hash)` เท่านั้น ห้าม join กลับ `shop_profiles` และห้ามคืนค่าออกไปใน API ใดๆ — เป็น pattern เดียวกับ `sender_hash` ที่มีอยู่แล้วจริงใน `slip_analytics`/`sender_profiles` (ไม่ใช่ของใหม่ที่คิดเอง) — เพิ่ม `MARKET_HASH_SALT` (random 32-byte hex) ใน `smileslip-dashboard/.env` แล้ว (ยังไม่ deploy)
+    - **⚠️ รอทนาย/กฎหมายก่อนเปิดใช้จริงในวงกว้าง (บอกผู้ใช้ไว้แล้วในแชท ยังไม่มีคำตอบ):** การรวบรวม+กระจายสัญญาณราคาข้ามคู่แข่งในพื้นที่เดียวกัน แม้จะนิรนามและมีเกณฑ์ 5 ร้าน บางเขตอำนาจถือเป็นประเด็น anti-trust/price-signaling ได้ — Claude ให้ความเห็นทางเทคนิคได้เท่านั้น ไม่ใช่ผู้ตัดสินความถูกต้องทางกฎหมาย **ห้ามเปิดฟีเจอร์นี้ให้ลูกค้าใช้งานจริงในวงกว้างจนกว่าจะมีทนาย/ที่ปรึกษากฎหมายยืนยัน**
+    - **สถาปัตยกรรมที่ทำแล้ว:** `lib/market-price.js` (ใหม่ — `canonicalizeItems`, `hashShopId`, `insertAnonymousMarketPrices`, `checkProcurementFraud`, `getShopDistrictProvince` — ทุกฟังก์ชัน fail-safe ไม่ throw ออกนอกไฟล์) เรียกจาก `api/pos/receives.js` หลังบันทึกรับสินค้าสำเร็จเท่านั้น (ไม่กระทบ core flow ถ้า error) — `api/pos/procurement-alerts.js` (ใหม่ GET/PATCH) + แท็บ "🚩 ราคาผิดปกติ" ในหน้ารายงาน POS (`pos.js`) ให้แอดมินดู/เปลี่ยนสถานะ red flag
+    - **ทดสอบแล้ว:** ยิง `POST /api/pos/receives` จริงกับ "D Gas" ก่อนรัน SQL ยืนยันว่า core receiving ยังทำงานปกติ (`ok:true`) ไม่พังแม้ตารางกลางยังไม่มีอยู่จริง (fail-safe ทำงานถูกต้อง) — **ยังไม่ได้ทดสอบ end-to-end จริงของ canonicalization/fraud-detection/market-price insert เพราะต้องรอผู้ใช้รัน SQL ก่อน** (ดู "ต้องทำด้วยมือ")
+    - **ต้องทำด้วยมือก่อนใช้งานได้จริง:** (1) รัน SQL 4 ก้อนใน "ต้องทำด้วยมือ — Supabase SQL" ด้านล่าง (2) รัน `node scripts/backfill-district-province.js` ครั้งเดียวหลังรัน ALTER TABLE (3) deploy dashboard ใหม่ให้ `MARKET_HASH_SALT` มีผล (4) ทดสอบ end-to-end อีกรอบหลังทำครบ ก่อนบอกว่าใช้งานได้จริง
+    - **ยังไม่ได้ทำ (v2/นอกสโคปรอบนี้):** KYB/wholesale gating ทั้งหมด, หน้า approve เอกสารยืนยันธุรกิจ, แยกเก็บเอกสาร KYB คนละที่จาก Google Drive ลูกค้า (ต้องเป็นพื้นที่บริษัทเอง), หน้า Settings ให้แก้ district/province แยกจาก address, โมเดลขายข้อมูล B2B/โฆษณา (แนวทางที่ 2-3 ที่ผู้ใช้เสนอ — ยังเป็นแค่แนวคิด ไม่ได้เริ่มสร้าง)
 5.5. **[spawn_task ที่แจ้งไว้ 2026-07-19]** พบว่าไฟล์ POS API หลายไฟล์ (`collections.js`, `loans.js`, `delivery.js`, `contacts.js`, `products.js`, `staff-requests.js`, `tax-invoice.js`, `staff.js`, `sales.js`, `receives.js`) เขียนสตริงวันที่ไทยลง Sheets โดยไม่ผ่าน `asText()` เหมือนกับที่เพิ่งเจอบั๊กจริงใน `expenses.js` — ยังไม่ได้ไล่แก้ทั้งหมด (สาเหตุที่ยังดูเหมือนใช้งานได้ปกติในบางไฟล์ อาจเป็นเพราะ column format ของ tab เก่าถูกซ่อมมาแล้วจากเหตุการณ์ก่อนหน้า ไม่ใช่เพราะโค้ดปลอดภัยจริง) — รอทำต่อเป็นงานแยก
 6. **แก้ 5 ข้อจาก punch list ตรวจสอบโค้ดเต็มโปรเจกต์ (commit `e01c927`):**
    - **Stripe webhook idempotency** — เพิ่ม insert `event.id` ลงตาราง `stripe_processed_events` ก่อนประมวลผลทุกครั้ง ถ้า insert ชนซ้ำ (unique violation, code `23505`) แปลว่าเคยประมวลผลไปแล้ว ข้ามได้เลย ถ้า error เป็นแบบอื่น (เช่น ตารางยังไม่ถูกสร้าง) จะ fail-open ทำงานต่อไปเหมือนเดิมกันไม่ให้ checkout พังทั้งระบบ — **สร้างตาราง `stripe_processed_events` แล้ว (verified 2026-07-16 ผ่าน REST query) กันซ้ำได้จริงแล้ว ไม่ fail-open อีกต่อไป**
@@ -809,6 +822,58 @@ CREATE TABLE IF NOT EXISTS branch_role_requests (
   status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
   created_at timestamptz DEFAULT now(),
   approved_at timestamptz
+);
+```
+
+**Verified Hyper-Local Market Price Index + Procurement Fraud Detection (v1 retail-only — เพิ่ม 2026-07-19, ยังไม่ได้รัน):**
+ต้องรันก่อนใช้ฟีเจอร์ดัชนีราคากลาง/จับทุจริตจัดซื้อ — ดูรายละเอียดการตัดสินใจ/สิ่งที่ยังไม่ชัวร์ทั้งหมดในข้อ 30 ของหัวข้อ "เหตุการณ์และบั๊กที่แก้แล้ว"
+```sql
+-- 1. เพิ่ม district/province แยกคอลัมน์ใน shop_profiles (เดิมเก็บรวมในสตริง address เดียว
+--    ทำให้ query ตามอำเภอ/จังหวัดไม่ได้) — ต้อง backfill ร้านเก่าด้วย (สคริปต์แยกต่างหาก ไม่ใช่ SQL)
+ALTER TABLE shop_profiles
+  ADD COLUMN IF NOT EXISTS district text,
+  ADD COLUMN IF NOT EXISTS province text;
+
+-- 2. แคชชื่อสินค้ามาตรฐาน (canonical name) — ใช้ร่วมกันทุกร้าน (ไม่ผูก shop_id) เพราะ
+--    เป้าหมายคือรวมชื่อสินค้าจากร้านต่างๆ ให้เป็นมาตรฐานเดียวกันข้ามร้าน
+CREATE TABLE IF NOT EXISTS canonical_name_cache (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  raw_name_normalized text NOT NULL UNIQUE,
+  canonical_name text NOT NULL,
+  category text NOT NULL,
+  created_at timestamptz DEFAULT now()
+);
+
+-- 3. ตารางกลางสถิติราคานิรนาม — shop_hash เป็น sha256(shop_id + salt ลับ) ใช้แค่นับ
+--    COUNT(DISTINCT shop_hash) เพื่อกฎ "5 ร้านขึ้นไป" เท่านั้น ห้าม join กลับ shop_profiles
+--    และห้ามคืนค่า shop_hash ออกไปใน API ใดๆ เด็ดขาด (ดูเหตุผลในข้อ 30)
+CREATE TABLE IF NOT EXISTS anonymous_market_prices (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  item_name text NOT NULL,
+  category text NOT NULL,
+  unit_price numeric NOT NULL,
+  uom text,
+  district text NOT NULL,
+  province text NOT NULL,
+  price_type text NOT NULL DEFAULT 'retail' CHECK (price_type IN ('wholesale', 'retail')),
+  shop_hash text NOT NULL,
+  logged_month date NOT NULL,
+  created_at timestamptz DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_market_prices_lookup ON anonymous_market_prices(item_name, district, province, price_type);
+
+-- 4. ประวัติ Red Flag ทุจริตจัดซื้อ (ผูก shop_id ตรงๆ ได้ เพราะเป็นข้อมูลของร้านตัวเอง ไม่ใช่ตารางกลาง)
+CREATE TABLE IF NOT EXISTS procurement_alerts (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  shop_id uuid NOT NULL REFERENCES shop_profiles(id) ON DELETE CASCADE,
+  branch_name text,
+  receive_doc_no text,
+  item_name text NOT NULL,
+  submitted_price numeric NOT NULL,
+  market_median_price numeric NOT NULL,
+  deviation_percentage numeric NOT NULL,
+  status text DEFAULT 'pending' CHECK (status IN ('pending', 'investigated', 'resolved')),
+  created_at timestamptz DEFAULT now()
 );
 ```
 

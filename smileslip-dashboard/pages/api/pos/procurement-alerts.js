@@ -1,0 +1,43 @@
+/**
+ * GET   /api/pos/procurement-alerts?shopId&status  → รายการ red flag ราคาผิดปกติ (จับทุจริตจัดซื้อ)
+ * PATCH /api/pos/procurement-alerts { shopId, id, status }  → เปลี่ยนสถานะ (investigated/resolved)
+ *
+ * ข้อมูลมาจาก lib/market-price.js (checkProcurementFraud) ที่เรียกจาก api/pos/receives.js
+ * ทุกครั้งที่รับสินค้าเข้า — เทียบราคาที่ซื้อจริงกับราคากลางอำเภอ/จังหวัด
+ */
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
+);
+
+export default async function handler(req, res) {
+  const shopId = req.query.shopId || req.body?.shopId;
+  if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
+
+  try {
+    if (req.method === 'GET') {
+      let query = supabase.from('procurement_alerts').select('*').eq('shop_id', shopId).order('created_at', { ascending: false });
+      if (req.query.status && req.query.status !== 'ทั้งหมด') query = query.eq('status', req.query.status);
+      const { data, error } = await query;
+      if (error) throw error;
+      return res.json({ alerts: data || [] });
+    }
+
+    if (req.method === 'PATCH') {
+      const { id, status } = req.body;
+      if (!id || !status) return res.status(400).json({ error: 'Missing id/status' });
+      const { error } = await supabase.from('procurement_alerts').update({ status }).eq('id', id).eq('shop_id', shopId);
+      if (error) throw error;
+      return res.json({ ok: true });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    console.error('[pos/procurement-alerts]', err.message);
+    // ตารางอาจยังไม่ถูกสร้าง (รอผู้ใช้รัน SQL) — คืนรายการว่างแทนการ error กันหน้าเว็บพัง
+    if (req.method === 'GET') return res.json({ alerts: [], notSetup: true });
+    return res.status(500).json({ error: err.message });
+  }
+}
