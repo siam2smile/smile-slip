@@ -3855,6 +3855,7 @@ export default function POSPage() {
                     { key: 'topsellers', label: '🏆 สินค้าขายดี' },
                     { key: 'pl',         label: '📈 กำไร-ขาดทุน' },
                     { key: 'cyclical',   label: '🔄 สินค้าหมุนเวียน' },
+                    { key: 'vat',        label: '🧾 ภาษี VAT' },
                   ].map(r => (
                     <button key={r.key}
                       onClick={() => { setReportType(r.key); fetchReport(r.key, reportDateFrom, reportDateTo); }}
@@ -4285,6 +4286,62 @@ export default function POSPage() {
                         </div>
                         {!reportData.customers?.length && <div className="text-center text-gray-500 py-8 text-sm">ไม่มีลูกค้าถือสินค้าหมุนเวียนอยู่ตอนนี้</div>}
                       </div>
+                    </div>
+                  );
+                })()}
+
+                {/* ── ภาษี VAT (ขาย vs ซื้อ) ── */}
+                {!reportLoading && reportData?.type === 'vat' && (() => {
+                  const s = reportData.summary || {};
+                  const netPayable = s.net_vat_payable || 0;
+                  return (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        <div className="bg-gray-800 rounded-xl p-3 text-center">
+                          <div className="text-lg font-bold text-green-400">฿{(s.output_vat || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
+                          <div className="text-gray-400 text-xs mt-1">ภาษีขาย (Output VAT)</div>
+                        </div>
+                        <div className="bg-gray-800 rounded-xl p-3 text-center">
+                          <div className="text-lg font-bold text-orange-400">฿{(s.input_vat || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
+                          <div className="text-gray-400 text-xs mt-1">ภาษีซื้อ (Input VAT)</div>
+                        </div>
+                        <div className="bg-gray-800 rounded-xl p-3 text-center">
+                          <div className={`text-lg font-bold ${netPayable >= 0 ? 'text-red-400' : 'text-green-400'}`}>
+                            {netPayable >= 0 ? '฿' : '-฿'}{Math.abs(netPayable).toLocaleString(undefined, {minimumFractionDigits:2})}
+                          </div>
+                          <div className="text-gray-400 text-xs mt-1">{netPayable >= 0 ? 'VAT ที่ต้องนำส่ง' : 'VAT ขอคืนได้'}</div>
+                        </div>
+                      </div>
+
+                      <div className="bg-gray-900 rounded-xl overflow-hidden">
+                        <div className="px-3 py-2 border-b border-gray-800 text-gray-400 text-xs font-medium">🏪 ภาษีขายแยกตามสาขา</div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead><tr className="border-b border-gray-800">
+                              <th className="text-left text-gray-400 px-3 py-2">สาขา</th>
+                              <th className="text-right text-gray-400 px-3 py-2">จำนวนบิล</th>
+                              <th className="text-right text-gray-400 px-3 py-2">ยอดก่อน VAT</th>
+                              <th className="text-right text-gray-400 px-3 py-2">VAT</th>
+                            </tr></thead>
+                            <tbody>
+                              {(reportData.branch_breakdown || []).map(b => (
+                                <tr key={b.branch} className="border-b border-gray-800/50">
+                                  <td className="px-3 py-2 text-white font-medium">{b.branch}</td>
+                                  <td className="px-3 py-2 text-right text-gray-300">{b.sales_count}</td>
+                                  <td className="px-3 py-2 text-right text-gray-300">฿{b.sales_subtotal.toLocaleString(undefined, {minimumFractionDigits:2})}</td>
+                                  <td className="px-3 py-2 text-right text-green-400">฿{b.sales_vat.toLocaleString(undefined, {minimumFractionDigits:2})}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {!reportData.branch_breakdown?.length && <div className="text-center text-gray-500 py-8 text-sm">ไม่มียอดขายที่มี VAT ในช่วงนี้</div>}
+                      </div>
+
+                      <p className="text-gray-500 text-xs px-1">
+                        หมายเหตุ: ภาษีซื้อ (จากใบรับสินค้า) ยังไม่แยกตามสาขา เพราะการรับสินค้าเข้าคลังไม่ได้ผูกกับสาขาที่ขายในตอนนี้ —
+                        แสดงเป็นยอดรวมทั้งร้านเท่านั้น (ยอดก่อน VAT ฿{(s.input_vat_subtotal || 0).toLocaleString(undefined, {minimumFractionDigits:2})} จาก {s.receives_count || 0} ใบรับสินค้า)
+                      </p>
                     </div>
                   );
                 })()}

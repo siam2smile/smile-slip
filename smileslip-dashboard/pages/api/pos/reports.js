@@ -9,12 +9,13 @@
  *   topsellers → สินค้าขายดี (top 20 by qty + revenue)
  *   pl         → กำไรขาดทุนรายหมวดหมู่
  *   cyclical   → สถานะสินค้าหมุนเวียน (ถัง/ขวด/ฯลฯ) — ใครถืออยู่กี่ชิ้น + สรุปสต็อค เต็ม/กับลูกค้า/เปล่ารอรีฟิล
+ *   vat        → ภาษีขาย (จากยอดขาย แยกตามสาขา) vs ภาษีซื้อ (จากรับสินค้า ยังไม่แยกสาขา) + ยอด VAT สุทธิที่ต้องนำส่ง
  */
 import { createClient } from '@supabase/supabase-js';
 import {
   getAccessToken, readSheet, ensureTabExists,
-  rowToSale, rowToProduct, rowToLoan, rowToOrder, rowToContact,
-  SALE_HEADERS, LOAN_HEADERS, ORDER_HEADERS, CONTACT_HEADERS,
+  rowToSale, rowToProduct, rowToLoan, rowToOrder, rowToContact, rowToReceive,
+  SALE_HEADERS, LOAN_HEADERS, ORDER_HEADERS, CONTACT_HEADERS, RECEIVE_HEADERS,
 } from '../../../lib/google-pos';
 
 const supabase = createClient(
@@ -94,7 +95,7 @@ export default async function handler(req, res) {
     // ── ยอดขาย (bank-statement format) ────────────────────────────────────
     if (type === 'sales') {
       await ensureTabExists(token, sheetId, 'ยอดขาย', SALE_HEADERS);
-      const saleRows = await readSheet(token, sheetId, 'ยอดขาย!A:P');
+      const saleRows = await readSheet(token, sheetId, 'ยอดขาย!A:R');
       let sales = saleRows.slice(1).map(r => rowToSale(r)).filter(s => s.bill_no);
 
       if (branch) sales = sales.filter(s => s.branch === branch || (!s.branch && branch === branchName));
@@ -129,7 +130,7 @@ export default async function handler(req, res) {
     // ทำให้ยอดค้างจากฝั่งจัดส่งไม่โผล่ในรายงานนี้เลย (พึ่งพา contact.debt แยกไปคนละทาง)
     if (type === 'credit') {
       await ensureTabExists(token, sheetId, 'ยอดขาย', SALE_HEADERS);
-      const saleRows = await readSheet(token, sheetId, 'ยอดขาย!A:P');
+      const saleRows = await readSheet(token, sheetId, 'ยอดขาย!A:R');
       let posCredits = saleRows.slice(1)
         .map(r => rowToSale(r))
         .filter(s => s.bill_no && s.payment_method === 'เชื่อ')
@@ -208,7 +209,7 @@ export default async function handler(req, res) {
     // ── สินค้าขายดี (Top Sellers) ─────────────────────────────────────────
     if (type === 'topsellers') {
       await ensureTabExists(token, sheetId, 'ยอดขาย', SALE_HEADERS);
-      const saleRows = await readSheet(token, sheetId, 'ยอดขาย!A:P');
+      const saleRows = await readSheet(token, sheetId, 'ยอดขาย!A:R');
       const sales = saleRows.slice(1)
         .map(r => rowToSale(r))
         .filter(s => s.bill_no && s.status !== 'ยกเลิก')
@@ -254,7 +255,7 @@ export default async function handler(req, res) {
     if (type === 'pl') {
       await ensureTabExists(token, sheetId, 'ยอดขาย', SALE_HEADERS);
       const [saleRows, prodRows] = await Promise.all([
-        readSheet(token, sheetId, 'ยอดขาย!A:P'),
+        readSheet(token, sheetId, 'ยอดขาย!A:R'),
         readSheet(token, sheetId, 'สินค้า!A:R'),
       ]);
 
@@ -335,6 +336,61 @@ export default async function handler(req, res) {
           total_stock: products.reduce((s, p) => s + p.stock, 0),
           total_at_customer: products.reduce((s, p) => s + p.at_customer, 0),
           total_empty_waiting: products.reduce((s, p) => s + p.empty_waiting, 0),
+        },
+      });
+    }
+
+    // ── รายงาน VAT (ภาษีขาย/ภาษีซื้อ) ────────────────────────────────────────
+    // ภาษีขาย (output VAT) มาจากยอดขาย — แยกตามสาขาได้ (คอลัมน์ "สาขา" ของยอดขาย)
+    // ภาษีซื้อ (input VAT) มาจากใบรับสินค้า — ยังไม่มีคอลัมน์สาขาในการรับสินค้า (รับเข้าคลังกลาง
+    // ของร้าน ไม่ได้แยกตามสาขาที่ขาย) จึงรวมเป็นยอดเดียวของทั้งร้าน ไม่แยกสาขาในเวอร์ชันนี้
+    if (type === 'vat') {
+      await ensureTabExists(token, sheetId, 'ยอดขาย', SALE_HEADERS);
+      await ensureTabExists(token, sheetId, 'รับสินค้า', RECEIVE_HEADERS);
+      const [saleRows, receiveRows] = await Promise.all([
+        readSheet(token, sheetId, 'ยอดขาย!A:R'),
+        readSheet(token, sheetId, 'รับสินค้า!A:I'),
+      ]);
+
+      let sales = saleRows.slice(1)
+        .map(r => rowToSale(r))
+        .filter(s => s.bill_no && s.status !== 'ยกเลิก' && s.status !== 'ค้างชำระ')
+        .filter(s => inRange(s.created_at, from, to));
+
+      let receives = receiveRows.slice(1)
+        .map(r => rowToReceive(r))
+        .filter(r => r.receive_no)
+        .filter(r => inRange(r.created_at, from, to));
+
+      // ── ภาษีขาย แยกตามสาขา ───────────────────────────────────────────────
+      const byBranch = {};
+      for (const s of sales) {
+        const key = s.branch || branchName || 'ไม่ระบุสาขา';
+        if (!byBranch[key]) byBranch[key] = { branch: key, sales_subtotal: 0, sales_vat: 0, sales_count: 0 };
+        byBranch[key].sales_subtotal += s.vat_subtotal;
+        byBranch[key].sales_vat += s.vat_amount;
+        byBranch[key].sales_count += 1;
+      }
+      const branchBreakdown = Object.values(byBranch).sort((a, b) => b.sales_vat - a.sales_vat);
+
+      const outputVatSubtotal = sales.reduce((a, s) => a + s.vat_subtotal, 0);
+      const outputVat = sales.reduce((a, s) => a + s.vat_amount, 0);
+      const inputVatSubtotal = receives.reduce((a, r) => a + r.subtotal, 0);
+      const inputVat = receives.reduce((a, r) => a + r.vat_total, 0);
+
+      return res.json({
+        type: 'vat',
+        branch_breakdown: branchBreakdown,
+        sales_with_vat: sales.filter(s => s.vat_amount > 0).reverse(),
+        receives_with_vat: receives.filter(r => r.vat_total > 0).reverse(),
+        summary: {
+          output_vat_subtotal: Math.round(outputVatSubtotal * 100) / 100,
+          output_vat: Math.round(outputVat * 100) / 100,
+          input_vat_subtotal: Math.round(inputVatSubtotal * 100) / 100,
+          input_vat: Math.round(inputVat * 100) / 100,
+          net_vat_payable: Math.round((outputVat - inputVat) * 100) / 100,
+          sales_count: sales.length,
+          receives_count: receives.length,
         },
       });
     }
