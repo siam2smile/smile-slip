@@ -1579,6 +1579,7 @@ export default function POSPage() {
           slipUrl: slipDriveUrl || '',
           slipSender: slipOcrData?.sender || '',
           slipRefNo: slipOcrData?.refNo || '',
+          branch: selectedBranch?.branch_name || '',
         }),
       });
       const d = await r.json();
@@ -1885,6 +1886,7 @@ export default function POSPage() {
           supplier: receiveSupplierContact?.name || receiveSupplier,
           items: validItems,
           notes: receiveNotes,
+          branch: selectedBranch?.branch_name || '',
         }),
       });
       const d = await r.json();
@@ -1971,6 +1973,7 @@ export default function POSPage() {
           photo_url: expensePhotoUrl,
           notes: expenseForm.notes,
           recordedBy: shopInfo?.shop_name || '',
+          branch: selectedBranch?.branch_name || '',
         }),
       });
       const d = await r.json();

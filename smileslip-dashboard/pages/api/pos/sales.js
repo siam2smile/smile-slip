@@ -227,10 +227,12 @@ export default async function handler(req, res) {
       ]);
 
       // 2. บันทึกลง Main shop Sheets เฉพาะเมื่อชำระแล้ว (ไม่บันทึกถ้าค้างชำระ/รอยืนยัน)
+      // branch (สาขาที่เลือกไว้ในหน้า POS) ต้องมาก่อน branchName (ค่า default ของร้าน) เสมอ
+      // ไม่งั้นยอดขายทุกสาขาจะถูกนับรวมเป็นสาขาเดียวกันหมดในบัญชีหลัก/กราฟวิเคราะห์
       if (!isTransferPending && !isCredit) {
         await writeToMainSheets(token, mainSheetId, {
           billNo, items, total, payMethod: payment_method,
-          customerName, notes, shopName, branchName,
+          customerName, notes, shopName, branchName: branch || branchName,
           slipUrl, slipSender, slipRefNo,
         });
       }

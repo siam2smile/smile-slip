@@ -1,13 +1,17 @@
 /**
  * GET  /api/pos/receives?shopId&date&supplierId  → ประวัติรับสินค้า
- * POST /api/pos/receives { shopId, supplierId, supplier, items:[{sku,name,qty,unitCost,unit,vatType}], notes }
+ * POST /api/pos/receives { shopId, supplierId, supplier, items:[{sku,name,qty,unitCost,unit,vatType}], notes, branch }
  *   → บันทึกการรับสินค้า + อัปเดตสต็อค + คำนวณ weighted average cost ทุกรายการ
  *   → vatType ต่อรายการ: 'รวม VAT แล้ว' (unitCost รวม VAT แยกกลับออกมา) | 'ไม่รวม VAT' (unitCost ก่อน VAT บวก 7% เพิ่ม)
  *     | 'ไม่มี VAT' (ไม่มี VAT เลย) — แบบเดียวกับ vat_type ของสินค้า — ต้นทุนถ่วงน้ำหนักคำนวณจากฐานก่อน VAT เสมอ
  *
- * เก็บใน Google Sheets tab "รับสินค้า" (PDPA compliant)
+ * ข้อมูลเก็บสองที่ (แบบเดียวกับ sales.js/expenses.js):
+ * 1. POS Sheets tab "รับสินค้า" — รายละเอียด (รายการสินค้า, VAT breakdown, ผู้จำหน่าย ฯลฯ)
+ * 2. Main shop Sheets (sheet ปี) — รายจ่ายเข้าบัญชีหลัก (ให้แสดงใน Dashboard Ledger/Analytics/#กำไรขาดทุน)
+ *    หมวดหมู่ "ซื้อสินค้าเข้าสต็อค (POS)" แยกจากรายจ่ายทั่วไป ให้ดูออกว่าเป็นต้นทุนขายไม่ใช่ค่าใช้จ่ายดำเนินงาน
  */
 const VAT_RATE = 0.07;
+const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 
 // แยกฐานราคาก่อน VAT / ยอด VAT จากราคาที่กรอกจริง ตาม vatType ของรายการ
 function splitVat(unitCost, vatType) {
@@ -32,13 +36,68 @@ const supabase = createClient(
 );
 
 async function getConfig(shopId) {
-  const [{ data: pc }, { data: gc }] = await Promise.all([
+  const [{ data: pc }, { data: gc }, { data: sp }] = await Promise.all([
     supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
-    supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single(),
+    supabase.from('shop_google_configs').select('google_refresh_token, google_sheet_id').eq('shop_id', shopId).single(),
+    supabase.from('shop_profiles').select('shop_name, branch_name').eq('id', shopId).single(),
   ]);
   if (!pc?.pos_sheet_id) throw Object.assign(new Error('ยังไม่ได้ตั้งค่า POS'), { notSetup: true });
   if (!gc?.google_refresh_token) throw Object.assign(new Error('ยังไม่ได้เชื่อมต่อ Google'), { notConnected: true });
-  return { sheetId: pc.pos_sheet_id, token: await getAccessToken(gc.google_refresh_token) };
+  return {
+    sheetId: pc.pos_sheet_id,
+    mainSheetId: gc.google_sheet_id || null,
+    shopName: sp?.shop_name || '',
+    branchName: sp?.branch_name || '',
+    token: await getAccessToken(gc.google_refresh_token),
+  };
+}
+
+// เขียนต้นทุนรับสินค้าลง Sheets บัญชีหลัก (tab ปี ค.ศ.) ด้วย เพื่อให้แสดงในหน้ากราฟวิเคราะห์/Ledger ของ
+// Dashboard และนับรวมใน #กำไรขาดทุน ของบอท LINE เหมือนกับที่ยอดขาย/รายจ่าย POS ทำอยู่แล้ว
+async function writeReceiveToMainSheets(token, mainSheetId, { total, supplier, notes, shopName, branchName }) {
+  if (!mainSheetId) return;
+  try {
+    const now = new Date();
+    const year = now.getFullYear().toString();
+    const thaiLocale = { timeZone: 'Asia/Bangkok' };
+    const thaiDate = now.toLocaleDateString('th-TH', { ...thaiLocale, day: '2-digit', month: '2-digit', year: 'numeric' });
+    const thaiTime = now.toLocaleTimeString('th-TH', thaiLocale);
+    const todayISO = now.toLocaleDateString('en-CA', thaiLocale);
+
+    const metaRes = await fetch(`${SHEETS_BASE}/${mainSheetId}`, { headers: { Authorization: `Bearer ${token}` } });
+    const meta = await metaRes.json();
+    const yearTabExists = meta.sheets?.some(s => s.properties.title === year);
+    if (!yearTabExists) {
+      await fetch(`${SHEETS_BASE}/${mainSheetId}:batchUpdate`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requests: [{ addSheet: { properties: { title: year } } }] }),
+      });
+      const mainHeaders = [
+        'วันที่สลิป','เวลา','ประเภท (รายรับ/รายจ่าย)','จำนวนเงิน (บาท)',
+        'ผู้โอน','ผู้รับ','หมายเหตุ','ลิงก์สลิป (Drive)','วันที่บันทึก (recorded_at)',
+        'ชื่อสาขา','เลขอ้างอิง/Hash','เลขภาษี','ชื่อผู้เสียภาษี','ยอดภาษี (บาท)',
+        'ที่อยู่ผู้เสียภาษี','หมวดหมู่','วิธีรับ-จ่าย (โอน/เงินสด)','ผู้บันทึก',
+      ];
+      await appendSheet(token, mainSheetId, year, mainHeaders);
+    }
+
+    const noteText = ['รับสินค้าเข้าสต็อค POS', notes].filter(Boolean).join(' | ');
+
+    await appendSheet(token, mainSheetId, year, [
+      thaiDate, thaiTime, 'รายจ่าย', total,
+      shopName,               // E ผู้โอน (ฝั่งจ่าย)
+      supplier || '-',        // F ผู้รับ (ผู้จำหน่าย)
+      noteText,               // G หมายเหตุ
+      '', todayISO, branchName || shopName,
+      '', '', '', '', '',     // K-O เลขอ้างอิง/ภาษี — ไม่เกี่ยวกับรับสินค้านี้
+      'ซื้อสินค้าเข้าสต็อค (POS)', // P หมวดหมู่ — แยกจากรายจ่ายทั่วไปให้ดูออกว่าเป็นต้นทุนขาย
+      'เงินสด',               // Q วิธีรับ-จ่าย — ไม่ได้เก็บวิธีชำระตอนรับสินค้า ใส่ค่า default
+      '',                     // R ผู้บันทึก
+    ]);
+  } catch (err) {
+    console.error('[pos/receives] writeReceiveToMainSheets error:', err.message);
+  }
 }
 
 export default async function handler(req, res) {
@@ -46,7 +105,7 @@ export default async function handler(req, res) {
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
 
   try {
-    const { sheetId, token } = await getConfig(shopId);
+    const { sheetId, mainSheetId, shopName, branchName, token } = await getConfig(shopId);
 
     // ตรวจว่ามี tab "รับสินค้า" ไหม (บัญชีเก่าอาจยังไม่มี)
     await ensureTabExists(token, sheetId, 'รับสินค้า', RECEIVE_HEADERS);
@@ -73,7 +132,7 @@ export default async function handler(req, res) {
 
     // ── POST ─────────────────────────────────────────────────────────────────
     if (req.method === 'POST') {
-      const { supplierId = '', supplier = '', items = [], notes = '' } = req.body;
+      const { supplierId = '', supplier = '', items = [], notes = '', branch = '' } = req.body;
       if (!items.length) return res.status(400).json({ error: 'ต้องมีรายการสินค้าอย่างน้อย 1 รายการ' });
 
       // อ่านข้อมูลสินค้าทั้งหมดเพื่อคำนวณ weighted avg cost — ต้องอ่านเต็ม A:R (18 คอลัมน์)
@@ -160,6 +219,10 @@ export default async function handler(req, res) {
         roundedSubtotal,
         roundedVat,
       ]);
+
+      await writeReceiveToMainSheets(token, mainSheetId, {
+        total: grandTotal, supplier, notes, shopName, branchName: branch || branchName,
+      });
 
       return res.json({ ok: true, receiveNo, subtotal: roundedSubtotal, vatTotal: roundedVat, totalCost: grandTotal, itemCount: items.length });
     }

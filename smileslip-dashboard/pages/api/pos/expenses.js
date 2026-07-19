@@ -160,8 +160,11 @@ export default async function handler(req, res) {
         photo_url, notes, recordedBy, branch,
       ]);
 
+      // branch (สาขาที่เลือกไว้ในหน้า POS) ต้องมาก่อน branchName (ค่า default ของร้าน) เสมอ —
+      // ไม่งั้นรายจ่ายทุกสาขาจะถูกนับรวมเป็นสาขาเดียวกันหมดในบัญชีหลัก/กราฟวิเคราะห์
       await writeExpenseToMainSheets(token, mainSheetId, {
-        total: numAmount, label: label.trim(), payment_method, notes, shopName, branchName, recordedBy,
+        total: numAmount, label: label.trim(), payment_method, notes, shopName,
+        branchName: branch || branchName, recordedBy,
       });
 
       return res.json({ ok: true, expenseNo, subtotal, vatAmount, total: numAmount });
