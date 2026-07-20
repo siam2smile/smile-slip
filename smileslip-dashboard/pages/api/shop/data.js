@@ -26,6 +26,18 @@ export default async function handler(req, res) {
     supabase.from('shop_bank_accounts').select('*').eq('shop_id', profile.id),
   ]);
 
+  // แยก query สถานะ trial ต่างหาก (คนละคอลัมน์ใหม่ trial_started_at/trial_ends_at/status —
+  // ถ้ายังไม่ได้รัน SQL เพิ่มคอลัมน์ ให้ error เงียบๆ ไม่ทำให้ endpoint หลักพังทั้งอัน เหมือน
+  // pattern district/province ใน register.js)
+  try {
+    const { data: trialInfo, error: trialErr } = await supabase
+      .from('shop_profiles')
+      .select('status, trial_started_at, trial_ends_at')
+      .eq('id', profile.id)
+      .maybeSingle();
+    if (!trialErr && trialInfo) Object.assign(profile, trialInfo);
+  } catch { /* ตารางยังไม่มีคอลัมน์นี้ — ถือว่าไม่มี trial lock เลย (ปลอดภัยกว่า) */ }
+
   return res.status(200).json({
     profile,
     credits: creditRow.data?.balance_credits ?? 0,

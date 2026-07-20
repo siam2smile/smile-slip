@@ -106,6 +106,18 @@ export default async function handler(req, res) {
       } catch {}
     }
 
+    // ตั้งค่า trial 30 วันสำหรับร้านใหม่เท่านั้น (ร้านเก่าก่อนหน้านี้จะไม่มีค่านี้เลย = ยกเว้นตลอดไป
+    // ตามที่ผู้ใช้ตัดสินใจไว้ — ดู CLAUDE.md เรื่อง 30-Day Free Trial) — แยก update ต่างหากกันพัง
+    // เหมือน district/province ถ้ายังไม่ได้รัน SQL เพิ่มคอลัมน์
+    try {
+      const trialStart = new Date();
+      const trialEnd = new Date(trialStart.getTime() + 30 * 24 * 60 * 60 * 1000);
+      await supabase.from('shop_profiles').update({
+        trial_started_at: trialStart.toISOString(),
+        trial_ends_at: trialEnd.toISOString(),
+      }).eq('id', newShop.id);
+    } catch {}
+
     // เครดิตเริ่มต้น 20 แผ่น (ถ้ามี referral จะได้โบนัสเพิ่มอีก 30 หลัง Google connect)
     await supabase.from('shop_credits').insert([{ shop_id: newShop.id, balance_credits: 20 }]);
 

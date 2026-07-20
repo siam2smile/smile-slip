@@ -18,6 +18,8 @@
  * } → อัปเดตสถานะ/พิกัด/รายละเอียด
  */
 import { createClient } from '@supabase/supabase-js';
+import { blockIfTrialExpired } from '../../../lib/shop-access';
+import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import {
   getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
   makeOrderNo, rowToOrder, rowToContact, rowToProduct, ORDER_HEADERS, CONTACT_HEADERS,
@@ -37,13 +39,14 @@ function asText(v) {
 }
 
 async function getConfig(shopId) {
-  const [{ data: pc }, { data: gc }] = await Promise.all([
+  const [{ data: pc }, { data: gc }, { data: sp }] = await Promise.all([
     supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
     supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single(),
+    supabase.from('shop_profiles').select('subscription_tier').eq('id', shopId).maybeSingle(),
   ]);
   if (!pc?.pos_sheet_id) throw Object.assign(new Error('ยังไม่ได้ตั้งค่า POS'), { notSetup: true });
   if (!gc?.google_refresh_token) throw Object.assign(new Error('ยังไม่ได้เชื่อมต่อ Google'), { notConnected: true });
-  return { sheetId: pc.pos_sheet_id, token: await getAccessToken(gc.google_refresh_token) };
+  return { sheetId: pc.pos_sheet_id, tier: sp?.subscription_tier || 'normal', token: await getAccessToken(gc.google_refresh_token) };
 }
 
 // ── LINE Flex Message สำหรับพนักงานส่ง ─────────────────────────────────────
@@ -172,8 +175,12 @@ export default async function handler(req, res) {
   const shopId = req.query.shopId || req.body?.shopId;
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
 
+  // เขียนไม่ได้ถ้าทดลองใช้ 30 วันหมดอายุแล้ว (อ่าน/GET ยังทำได้ปกติเสมอ)
+  if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
+
+
   try {
-    const { sheetId, token } = await getConfig(shopId);
+    const { sheetId, tier, token } = await getConfig(shopId);
     await ensureTabExists(token, sheetId, 'ออเดอร์จัดส่ง', ORDER_HEADERS);
 
     // ── GET — รายการออเดอร์ ─────────────────────────────────────────────────
@@ -204,6 +211,9 @@ export default async function handler(req, res) {
 
       if (!customer_name) return res.status(400).json({ error: 'ต้องระบุชื่อลูกค้า' });
       if (!items.length) return res.status(400).json({ error: 'ต้องมีสินค้าอย่างน้อย 1 รายการ' });
+      if (payment_method === 'ค้างจ่าย' && !hasFeature(tier, 'credit_ar')) {
+        return res.status(403).json({ error: upgradeMessage('credit_ar'), featureLocked: true });
+      }
 
       const order_no = makeOrderNo();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });

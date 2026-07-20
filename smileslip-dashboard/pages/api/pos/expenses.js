@@ -11,6 +11,7 @@
  * 2. Main shop Sheets (sheet ปี) — รายจ่ายเข้าบัญชีหลัก (ให้แสดงใน Dashboard Ledger/Analytics/#กำไรขาดทุน)
  */
 import { createClient } from '@supabase/supabase-js';
+import { blockIfTrialExpired } from '../../../lib/shop-access';
 import {
   getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
   makeExpenseNo, rowToExpense, EXPENSE_HEADERS,
@@ -111,6 +112,10 @@ async function writeExpenseToMainSheets(token, mainSheetId, { total, label, paym
 export default async function handler(req, res) {
   const shopId = req.query.shopId || req.body?.shopId;
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
+
+  // เขียนไม่ได้ถ้าทดลองใช้ 30 วันหมดอายุแล้ว (อ่าน/GET ยังทำได้ปกติเสมอ)
+  if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
+
 
   try {
     const { sheetId, mainSheetId, shopName, branchName, token } = await getConfig(shopId);

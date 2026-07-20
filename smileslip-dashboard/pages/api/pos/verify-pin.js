@@ -5,6 +5,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { getAccessToken, readSheet, ensureTabExists, rowToStaff, STAFF_HEADERS } from '../../../lib/google-pos';
+import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -47,6 +48,12 @@ export default async function handler(req, res) {
   }
 
   try {
+    // แอปพนักงานส่งของ (pos-staff.js) ล็อกที่ Shop Pro ตาม feature gating matrix — advance ขึ้นไปใช้ได้
+    const { data: sp } = await supabase.from('shop_profiles').select('subscription_tier').eq('id', shopId).maybeSingle();
+    if (sp && !hasFeature(sp.subscription_tier, 'delivery_staff_app')) {
+      return res.status(403).json({ error: upgradeMessage('delivery_staff_app'), featureLocked: true });
+    }
+
     const { data: pc } = await supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single();
     const { data: gc } = await supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single();
     if (!pc?.pos_sheet_id) return res.status(400).json({ error: 'ยังไม่ได้ตั้งค่า POS', notSetup: true });

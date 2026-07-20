@@ -68,25 +68,26 @@ export default function PricingPage() {
     {
       id: 'normal',
       name: 'Starter',
-      target: 'ร้านค้าที่เพิ่งเริ่มต้น',
+      target: 'ทดลองใช้งานจริงก่อนตัดสินใจ',
       monthlyPrice: 0,
       yearlyPrice: 0,
       priceIdMonthly: null,
       priceIdYearly: null,
       icon: <CheckCircle className="text-slate-400" size={32} />,
       color: 'bg-slate-50 border-slate-200',
-      btnText: 'ใช้งานฟรี',
+      btnText: 'เริ่มทดลองใช้ฟรี',
       btnColor: 'bg-slate-200 text-slate-700 cursor-default',
-      badge: null,
+      badge: 'ทดลอง 30 วัน',
+      badgeColor: 'bg-slate-500 text-white',
       features: [
-        '🤖 AI อ่านสลิปอัตโนมัติ',
-        '📊 บันทึก Google Sheet อัตโนมัติ',
-        '📁 รูปสลิปใน Google Drive',
+        '🎁 ใช้งานได้เต็มรูปแบบ 30 วัน ไม่ต้องผูกบัตร',
+        '🤖 AI อ่านสลิปอัตโนมัติ + POS ขายหน้าร้าน',
+        '🔄 สต็อกสินค้าหมุนเวียน / 🚚 แอปพนักงานส่งของ / 💳 ระบบเงินเชื่อ',
+        '📊 บันทึก Google Sheet + รูปสลิปใน Google Drive อัตโนมัติ',
         '🔒 ตรวจจับสลิปซ้ำ',
-        '🎁 50 แผ่นแรกฟรี (ไม่หมดอายุ)',
         '📝 คีย์รายการเองได้เสมอ',
       ],
-      note: 'หมดเครดิตแล้ว → Bot หยุด แต่คีย์เองได้',
+      note: 'ครบ 30 วัน → ต้องอัปเกรดแพ็กเกจเพื่อสแกนสลิป/ใช้ POS ต่อ (ข้อมูลเดิมไม่หายแม้แต่บรรทัดเดียว)',
     },
     {
       id: 'pro',
@@ -103,12 +104,13 @@ export default function PricingPage() {
       badge: 'ยอดนิยม',
       badgeColor: 'bg-amber-400 text-white',
       features: [
-        '✅ ทุกอย่างใน Starter',
+        '✅ ทุกอย่างใน Starter (ยกเว้น 3 ข้อด้านล่าง)',
         '🔓 200 สลิป/เดือน รวมในราคา',
         '📅 #สรุปวันนี้ / #สรุปเดือน',
         '💰 #กำไรขาดทุน',
         '🔔 แจ้งเจ้าของส่วนตัวทันที',
         '📈 กราฟรายรับ-รายจ่าย',
+        '⚠️ ไม่รวม: สต็อกหมุนเวียน / แอปพนักงานส่งของ / ระบบเงินเชื่อ — อัปเกรด Advance เพื่อปลดล็อก',
       ],
       note: '฿199 = เวลาที่ประหยัดได้ 2-3 ชม./วัน',
     },
@@ -127,6 +129,7 @@ export default function PricingPage() {
       badge: null,
       features: [
         '✅ ทุกอย่างใน Pro',
+        '🔓 ปลดล็อก สต็อกหมุนเวียน / แอปพนักงานส่งของ / ระบบเงินเชื่อ',
         '🔓 500 สลิป/เดือน รวมในราคา',
         '🏢 รองรับสูงสุด 5 สาขา',
         '🛡️ ป้องกันสลิปซ้ำข้ามสาขา',
@@ -214,7 +217,7 @@ export default function PricingPage() {
           </div>
         )}
         <div className="inline-flex items-center gap-2 bg-white/10 text-blue-200 text-xs font-medium px-4 py-2 rounded-full mb-4">
-          <Sparkles size={12}/> 50 สลิปแรกฟรี — ไม่ต้องใส่บัตรเครดิต
+          <Sparkles size={12}/> ทดลองใช้ฟรีเต็มรูปแบบ 30 วัน — ไม่ต้องใส่บัตรเครดิต
         </div>
         <h1 className="text-3xl md:text-5xl font-black mb-3">เลือกแพ็กเกจที่ใช่</h1>
         <p className="text-blue-300 text-sm mb-8">ยิ่งสะดวก ยิ่งคุ้ม — เหมือนเปลี่ยนจากต้มน้ำเองมาใช้ไมโครเวฟ</p>
@@ -269,7 +272,10 @@ export default function PricingPage() {
                 {/* ราคา */}
                 <div className="mb-4">
                   {plan.monthlyPrice === 0 ? (
-                    <span className="text-3xl font-black text-slate-800">ฟรี</span>
+                    <>
+                      <span className="text-3xl font-black text-slate-800">ฟรี</span>
+                      <div className="text-[10px] text-slate-400 mt-1">นาน 30 วัน จากนั้นเลือกแพ็กเกจเพื่อใช้ต่อ</div>
+                    </>
                   ) : (() => {
                     const basePrice = isYearly ? plan.yearlyPrice : plan.monthlyPrice;
                     const finalPrice = promotion ? Math.round(basePrice * (1 - promotion.discountPercent / 100)) : basePrice;

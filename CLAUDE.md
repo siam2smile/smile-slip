@@ -2,7 +2,7 @@
 
 โปรเจกต์ของ Vespa / Siam Global Network Enterprise
 ภาษาหลักในโค้ดและ comment: **ไทย**
-อัปเดตล่าสุด: 2026-07-20 (ทำฟีดแบ็กครบ 11/11 ข้อจากผู้ใช้ — bills sidebar, ใบกำกับภาษี+ผู้ติดต่อ, ตัวกรองเก็บเงิน/ของ, หมวดหมู่รายจ่าย+กราฟ, ส่วนลด+พิมพ์สลิปจัดส่ง, สรุปยอดบัญชี, แก้บั๊กอัลบั้มรูป LINE, ระบบ multi-admin (`company_admins`, ทดสอบ end-to-end ครบแล้ว), อัปเกรดหน้าบัญชี→ภาษีเป็นรายงานภาษีซื้อ-ขายเต็มรูปแบบ+export Excel/PDF — ดูข้อ 32 ในหัวข้อ "เหตุการณ์และบั๊กที่แก้แล้ว" — **deploy production แล้วทั้งหมด revision `smileslip-dashboard-00267-zkh`, `smileslip-service-00144-crw`**)
+อัปเดตล่าสุด: 2026-07-20 (Phase 1-3 ของสเปก "30-Day Free Trial + Package Tier & Feature Gating Matrix": แก้บั๊ก 4 ข้อ (เงินเชื่อไม่อัปเดตยอดค้าง/งานเก็บเงินข้ามขั้นยืนยัน/สต็อคหมุนเวียนไม่อัปเดตตอนจัดส่ง/พนักงานไม่โชว์สาขา), ลดขั้นตอนสมัคร (ตัดกรอกบัญชีธนาคารออก), ระบบทดลองใช้ฟรี 30 วันแบบล็อกอัตโนมัติ (ร้านเก่ายกเว้นตลอดไป), ตารางสิทธิ์ฟีเจอร์ตาม tier (`lib/tier-features.js` — Shop Pro ล็อก 3 ฟีเจอร์ที่ trial ฟรีใช้ได้โดยเจตนา), Day-25 LINE nudge, ปรับ copy หน้าราคา — ดูข้อ 33 ในหัวข้อ "เหตุการณ์และบั๊กที่แก้แล้ว" — **โค้ด commit/push แล้ว รอ deploy + รอผู้ใช้รัน SQL คอลัมน์ trial ก่อนฟีเจอร์ล็อกจะมีผลจริง**)
 
 ---
 
@@ -205,6 +205,29 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
    - **`api/shop/branches.js`** เพิ่มการเช็คจำนวนสาขาปัจจุบันเทียบ `MAX_BRANCHES` ตาม tier ก่อน insert (เดิมกันแค่ฝั่ง client เท่านั้น ยิง API ตรงเพิ่มเกิน limit ได้) — ต้องตรงกับ `MAX_BRANCHES` ใน `smileslip-pro/index.js` เสมอถ้าจะแก้ค่า limit ในอนาคต
    - ลบ `StampSVG()` dead code ใน `pages/invoice/request.js` ออกแล้ว (ยืนยันซ้ำว่าไม่มีที่เรียกใช้ที่ไหนก่อนลบ)
    - **ยังไม่ทำ:** ข้อ KBank/SCB auto-confirm webhook (`api/banking/kbank-notify.js`, `scb-notify.js`) ยังเป็น scaffolding 0% เหมือนเดิม — ต้องมี API credential จริงจากธนาคารก่อนถึงจะเขียนต่อได้ (รอผู้ใช้ติดต่อธนาคารขอ credential)
+
+33. **30-Day Free Trial Lock Mechanism + Package Tier & Feature Gating Matrix — ผู้ใช้ส่งสเปกมาขอทำ 4 บั๊ก + ปรับแพ็กเกจ + gating matrix "ให้เสร็จแล้วดีพลอย" ก่อนเริ่มฟีเจอร์ที่เหลือจากไฟล์ก่อนหน้า:**
+    - **แก้บั๊ก 4 ข้อที่ผู้ใช้แจ้งมา (ทุกข้อเจอ root cause จริงจากการอ่านโค้ด ไม่ใช่แค่เดา):**
+      1. **ขายเชื่อไม่อัปเดตยอดค้างชำระของผู้ติดต่อ** — `api/pos/sales.js` ไม่เคยเขียน `custExisting[13]` (debt) เลยทั้งตอนขายเชื่อ (POST) และตอนรับชำระ/ยกเลิกบิล (PATCH) — แก้ทั้งสองจุด: POST บวกยอดเชื่อเข้า debt, PATCH ลบยอดกลับลงตอนบิลถูกยกเลิก/แก้ไข
+      2. **งานเก็บเงิน/ของ ขึ้นว่า "เสร็จแล้ว" ก่อนแอดมินยืนยันรับจริง** — หน้ารายงานเดิมเช็คแค่ `status !== 'รอดำเนินการ'` ไม่ได้แยกชั้น "พนักงานรายงานว่าเก็บได้" ออกจากชั้น "แอดมินยืนยันรับเงิน/ของเข้าร้านแล้ว" จริง — เพิ่ม `isFullyDone` เช็คทั้งสองชั้นถูกต้อง
+      3. **สต็อคสินค้าหมุนเวียนไม่อัปเดตหลังยืนยันจัดส่ง** — `api/pos/delivery.js` `confirm_delivery` ไม่เคยอัปเดต `stock`/`at_customer` เลย (อัปเดตแค่ `empty_waiting` และเฉพาะตอนมีการคืนเท่านั้น) กับคำนวณถังลูกค้าผิด (ลบตรงๆ ไม่บวกยอดที่ยืมไปก่อน) — เขียนใหม่ให้ตรรกะตรงกับ `sales.js` (checkout หน้าร้าน) เป๊ะ
+      4. **`pos-staff.js` ไม่โชว์ชื่อสาขาของพนักงาน** — `verify-pin.js` มี `branch_name` อยู่แล้วใน `rowToStaff()` แต่ไม่เคยส่งกลับในตัวตนพนักงาน — เพิ่ม field เดียว + โชว์ในหน้า header ฝั่งพนักงาน
+    - **ลดขั้นตอนสมัครสมาชิก (item 11)** — ตัดฟอร์มกรอกบัญชีธนาคารออกจาก Step 3 ทั้งหมด (ฟอร์มสมัครสมาชิกเดิม step 2 → 3 ขั้นตอน เหลือ 3 ขั้น: ธุรกิจ/ที่อยู่/ตั้งรหัสผ่าน) — ตรวจสอบแล้วว่า `api/register.js` เขียนบัญชีธนาคารแบบ conditional (`if (bankName && accountNumber)`) อยู่แล้ว จึงตัดออกได้โดยไม่กระทบ backend เลย ร้านเพิ่มบัญชีธนาคารทีหลังได้ผ่านหน้า Settings ตามปกติ
+    - **30-Day Free Trial Lock Mechanism:**
+      - Starter ไม่ใช่ freemium ถาวรอีกต่อไป แต่เป็น "ทดลองใช้ฟรีเต็มรูปแบบ 30 วัน" (ไม่ต้องผูกบัตร ใช้ POS/บอทสแกนสลิปได้เต็มรูปแบบระหว่างทดลอง) — เพิ่มคอลัมน์ `trial_started_at`/`trial_ends_at`/`status` (default `'active'`)/`trial_day25_notified` ใน `shop_profiles` (SQL ยังไม่ได้รัน ดู "ต้องทำด้วยมือ" ด้านล่าง)
+      - **ร้านเก่าก่อนหน้านี้ทั้งหมดได้รับการยกเว้นตลอดไปตามที่ผู้ใช้ตัดสินใจ** ("ยกเว้นร้านเก่า ไม่ต้องนับ trial ย้อนหลัง") — กลไกคือร้านเก่าจะไม่มี `trial_started_at`/`trial_ends_at` เลย (เป็น NULL ตลอดไป เพราะ `api/register.js` เป็นจุดเดียวที่ตั้งค่านี้ และรันแค่ตอนสมัครใหม่เท่านั้น) ทุก query/cron ที่เช็ค trial กรองด้วย `.not('trial_ends_at','is',null)` เสมอ จึงไม่มีทางแตะร้านเก่าโดยไม่ตั้งใจ
+      - `lib/shop-access.js` (ใหม่) — `blockIfTrialExpired(req,res,shopId)` เรียกที่ต้นทุก endpoint POS ที่เขียนข้อมูล (`sales.js`,`delivery.js`,`collections.js`,`products.js`,`contacts.js`,`expenses.js`,`receives.js` ฯลฯ รวม 15 ไฟล์ — GET ยังอ่านได้ปกติเสมอไม่ถูกบล็อก) — **fail-safe เสมอ**: ถ้าคอลัมน์ `status` ยังไม่ถูกสร้างหรือ query error ใดๆ ถือว่า "เขียนได้" (ไม่ล็อกผิดคนโดยไม่ตั้งใจ ยอมรับความเสี่ยงฝั่งนี้มากกว่า)
+      - `smileslip-pro/index.js` STEP 1.9 (ก่อน STEP 2 ตรวจเครดิต) เช็ค `shop.status === 'trial_expired'` แล้วตอบข้อความเตือนแทนสแกน OCR (ข้อมูลเดิมใน Sheets/Drive ไม่ถูกแตะเลย) — `shop` มาจาก `findShopBySource()` ที่ `select('*')` อยู่แล้ว จึงไม่ต้อง query เพิ่ม
+      - **`api/cron/expire-trials.js` (ใหม่, dashboard)** — cron รายวันเช็คร้านที่ `trial_ends_at` หมดแล้วและยังไม่มี `stripe_subscription_id` จริง → ตั้ง `status='trial_expired'` — Stripe webhook (`webhooks/stripe.js`) รีเซ็ต `status='active'` ทันทีเมื่อสมัครสมาชิกจริงสำเร็จ (แยก `.update()` ต่างหากจากการอัปเดต tier หลัก กันพังกันคนละเรื่อง)
+      - **Day-25 LINE nudge (`/cron/trial-day25-nudge`, ใหม่, บอท)** — แจ้งเตือนร้านที่เหลือเวลา ≤5 วันก่อนหมดทดลอง (วันที่ 25/30) พร้อมสรุปการใช้งานช่วงทดลอง (จำนวนรายการ/รายรับ-รายจ่ายสะสม อ่านจาก Sheets แบบ best-effort) + ปุ่มลิงก์อัปเกรด — กันส่งซ้ำด้วย `trial_day25_notified`
+    - **Package Tier & Feature Gating Matrix (`lib/tier-features.js`, ใหม่)** — `hasFeature(tier, feature)`:
+      - **3 ฟีเจอร์ล็อกเฉพาะ Shop Pro (`pro`) เท่านั้น** — สต็อกสินค้าหมุนเวียน (`cyclical_stock`), แอปพนักงานส่งของ (`delivery_staff_app`), ระบบเงินเชื่อ/ลูกหนี้ (`credit_ar`) — **Starter (trial ฟรี) และ Advance ขึ้นไปใช้ได้ปกติ มีแค่ Shop Pro (แพ็กเกจเสียเงินที่ถูกที่สุด) เท่านั้นที่ไม่มีสามข้อนี้** — เป็นกลไก upsell ที่ตั้งใจ (ตัดสินใจแล้วตามสเปกผู้ใช้ ไม่ใช่บั๊ก) เพื่อดันให้ร้านที่เคยใช้ครบตอน trial อัปเกรดเป็น Advance แทนที่จะหยุดแค่ Shop Pro
+      - `vat_report` ต้อง business+ (ตรงกับที่ `tax-report.js` เช็คอยู่แล้วเดิม), `market_price_index` ต้อง enterprise (และยังต้องรอ `MARKET_PRICE_FEATURE_LIVE` ด้วย)
+      - **ผู้ใช้ยืนยันให้ล็อกทันทีทุกร้าน Shop Pro ที่มีอยู่แล้ว** ("ตอนนี้ไม่มีบัญชีจริงแม้แต่อันเดียว ฉันทดลองหมดเลย") — ไม่ต้อง grandfather ร้านที่มีอยู่สำหรับ gating นี้ (ต่างจาก trial lock ที่ grandfather ร้านเก่า)
+      - Enforce ฝั่ง backend ที่ทุก write endpoint ที่เกี่ยวข้อง (`sales.js` เชื่อ, `delivery.js` ค้างจ่าย, `collections.js` ทั้งหมด, `products.js`/`verify-pin.js` หมุนเวียน/แอปพนักงาน) — **`products.js` PATCH บล็อกเฉพาะตอน "เปลี่ยนประเภทเป็นหมุนเวียนใหม่" เท่านั้น** (เทียบ `existing[10] !== 'หมุนเวียน'` ก่อนบล็อก) ไม่บล็อกการแก้ไขฟิลด์อื่นของสินค้าหมุนเวียนที่มีอยู่แล้ว (กันไม่ให้ shop ที่เคยสร้างสินค้าหมุนเวียนไว้ตอน tier สูงกว่าแล้วโดน error ตอนแก้ราคา/ชื่อทีหลัง)
+      - Enforce ฝั่ง UI ที่ `pos.js` — ซ่อนตัวเลือก "เชื่อ"/"ค้างจ่าย" ในหน้าชำระเงิน/สร้างออเดอร์จัดส่ง, ซ่อนตัวเลือกประเภทสินค้า "หมุนเวียน" ในฟอร์มเพิ่มสินค้า, ซ่อนทั้งแท็บ "เก็บเงิน/ของ" และปุ่ม "ส่งพนักงานไปเก็บ" ทั้งหมด สำหรับ Shop Pro
+    - **ปรับ copy หน้า `pricing.js`** — เปลี่ยนข้อความ "50 สลิปแรกฟรี" เป็น "ทดลองใช้ฟรีเต็มรูปแบบ 30 วัน" ทั้ง hero banner และการ์ด Starter, เพิ่มคำเตือนชัดเจนใน Shop Pro ว่า "⚠️ ไม่รวม: สต็อกหมุนเวียน/แอปพนักงานส่งของ/ระบบเงินเชื่อ" และใน Advance ว่า "🔓 ปลดล็อก..." กันลูกค้าสับสน/ประหลาดใจตอนซื้อ
+    - **สถานะ ณ ตอนนี้:** โค้ดทั้งหมด build ผ่าน (`npx next build` / `node -c index.js`) แล้ว **ยังไม่ได้รัน SQL เพิ่มคอลัมน์ trial ใน production** (ดู "ต้องทำด้วยมือ" ด้านล่าง) — ทุกจุดออกแบบ fail-safe ไว้แล้ว ก่อนรัน SQL ระบบจะทำงานเหมือนเดิมทุกประการ (ไม่มีร้านไหนถูกล็อกโดยไม่ตั้งใจ) ฟีเจอร์ trial-lock จะเริ่มมีผลจริงก็ต่อเมื่อรัน SQL แล้วเท่านั้น — ส่วน feature gating matrix (ล็อก Shop Pro 3 ฟีเจอร์) มีผลทันทีไม่ต้องรอ SQL เพราะใช้แค่ `subscription_tier` ที่มีอยู่แล้ว
 
 **ข้อควรระวังใหม่ที่เพิ่มจากเหตุการณ์นี้:**
 - **Git identity ของเครื่องนี้ตั้งแบบ repo-local เท่านั้น** (`user.name=Vespa`, `user.email=six.papigod@gmail.com`) ไม่ใช่ global — ถ้าย้ายเครื่อง/ไดร์อีกต้องตั้งใหม่
@@ -921,7 +944,7 @@ CREATE TABLE IF NOT EXISTS procurement_alerts (
 );
 ```
 
-**สร้าง company_admins table (ก่อนใช้ระบบ multi-admin ของ `/admin` — เพิ่ม 2026-07-20, ยังไม่ได้รัน):**
+**สร้าง company_admins table (ก่อนใช้ระบบ multi-admin ของ `/admin` — เพิ่ม 2026-07-20, ✅ รันแล้ว 2026-07-20 ทดสอบ end-to-end ครบทุก path):**
 ก่อนรัน SQL นี้ `/admin` ยังใช้ได้ตามปกติผ่านรหัสฉุกเฉิน (`ADMIN_PASSWORD`) เหมือนเดิมทุกประการ — โค้ดเช็ค
 error จาก Supabase ก่อนเสมอ ถ้าตารางนี้ยังไม่มีจะ fallback เป็นรหัสฉุกเฉินอย่างเดียวไม่พังอะไร (ทดสอบแล้วจริง)
 ```sql
@@ -940,6 +963,23 @@ CREATE TABLE IF NOT EXISTS company_admins (
 วิธีเริ่มใช้งานหลังรัน SQL: เข้า `/admin` ด้วยรหัสฉุกเฉินเดิมตามปกติ (`ADMIN_PASSWORD`) — ระบบจะเช็คว่ายังไม่มี
 แอดมินในตารางนี้เลยแล้วขึ้นหน้า "ตั้งบัญชีเจ้าของระบบคนแรก" อัตโนมัติทันที ไม่ต้องทำอะไรเพิ่มเอง
 
+**เพิ่มคอลัมน์ trial + feature-gating ใน shop_profiles (ก่อนระบบ "ทดลองใช้ฟรี 30 วัน" จะเริ่มล็อกร้านที่หมดเวลาได้จริง — เพิ่ม 2026-07-20, ยังไม่ได้รัน):**
+ก่อนรัน SQL นี้ ทุกอย่างทำงานเหมือนเดิมทุกประการ — `lib/shop-access.js`/`api/cron/expire-trials.js`/
+`api/cron/trial-day25-nudge` (บอท) เช็ค error จาก Supabase ก่อนเสมอแล้ว fail-safe เป็น "ไม่ล็อกใคร" ถ้า
+คอลัมน์เหล่านี้ยังไม่มี (ทดสอบแล้วจริงว่าไม่ error/ไม่ล็อกผิดคน) — ร้านเก่าทั้งหมดจะไม่มีค่า
+`trial_started_at`/`trial_ends_at` เลยแม้หลังรัน SQL แล้ว (เพราะ `api/register.js` ตั้งค่านี้แค่ตอนสมัคร
+ใหม่เท่านั้น) จึงได้รับการยกเว้นจาก trial lock ตลอดไปตามที่ตัดสินใจไว้ ไม่ต้องทำอะไรเพิ่มสำหรับร้านเก่า
+```sql
+ALTER TABLE shop_profiles
+  ADD COLUMN IF NOT EXISTS trial_started_at timestamptz,
+  ADD COLUMN IF NOT EXISTS trial_ends_at timestamptz,
+  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS trial_day25_notified boolean NOT NULL DEFAULT false;
+```
+หลังรันแล้วต้องสร้าง Cloud Scheduler job เพิ่มด้วย (region `asia-southeast1`, service `smileslip-service`):
+- `smileslip-expire-trials` → `POST {dashboard_url}/api/cron/expire-trials` ทุกวัน พร้อม header `x-cron-secret`
+- `smileslip-trial-day25-nudge` → `POST {bot_url}/cron/trial-day25-nudge` ทุกวัน พร้อม header `x-cron-secret`
+
 ### ต้องทำด้วยมือ (ไม่ใช่โค้ด)
 - [x] **สร้าง admin_settings table** ใน Supabase — มีแล้ว มีข้อมูลอยู่จริง (verified 2026-06-28 ผ่าน REST query)
 - [x] **เพิ่ม Google OAuth redirect URI** สำหรับ admin + **กด "เชื่อมต่อ Google"** — เสร็จแล้ว (admin_settings มี `admin_invoice_sheet_id` แปลว่า connect สำเร็จแล้ว) — verified 2026-06-28
@@ -950,6 +990,8 @@ CREATE TABLE IF NOT EXISTS company_admins (
 - [x] **Vision API Budget Alert** — ทำแล้ว (2026-06-12)
 - [x] **เพิ่ม `subscription_expires_at`, `stripe_billed_tier`, `stripe_period_end`, `google_bonus_granted` columns** ใน `shop_profiles` — ทำแล้ว 2026-06-27/28
 - [ ] **ไลน์ออฟฟิเชียลอื่น (ไม่ใช่บอทนี้)** — ผู้ใช้ถามว่า Claude แก้ Rich Menu/ข้อความตอบกลับอัตโนมัติของ LINE OA อื่นได้ไหม — ทำไม่ได้เพราะต้อง login LINE Official Account Manager ด้วยบัญชีผู้ใช้เอง (ห้ามกรอก credential ให้) ผู้ใช้ต้องอัปโหลดรูป/ใส่ข้อความเองหลัง Claude ออกแบบ/เขียนให้
+- [ ] **รัน SQL คอลัมน์ trial (`trial_started_at`/`trial_ends_at`/`status`/`trial_day25_notified`) ใน `shop_profiles`** — ดู SQL ด้านบน — ต้องรันก่อนระบบ 30-Day Free Trial Lock จะเริ่มล็อกร้านที่หมดเวลาได้จริง (ก่อนรัน โค้ดทำงานปกติทุกอย่าง ไม่ล็อกใคร)
+- [ ] **สร้าง Cloud Scheduler jobs `smileslip-expire-trials` + `smileslip-trial-day25-nudge`** — ดูรายละเอียด endpoint ด้านบน (ต้องรัน SQL ก่อนถึงจะมีผล)
 
 ---
 

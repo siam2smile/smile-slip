@@ -145,7 +145,7 @@ export default function PosStaffPage() {
           setStep((deepLinkOrderNo || deepLinkCollectionNo) ? (deepLinkOrderNo ? 'deliveries' : 'collections') : 'menu');
         }
       } else {
-        setPinError('PIN ไม่ถูกต้อง');
+        setPinError(d.featureLocked ? (d.error || 'แพ็กเกจนี้ไม่รองรับแอปพนักงานส่งของ') : 'PIN ไม่ถูกต้อง');
         setPin('');
       }
     } catch {

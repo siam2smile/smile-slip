@@ -6,6 +6,7 @@
  * ทุกครั้งที่รับสินค้าเข้า — เทียบราคาที่ซื้อจริงกับราคากลางอำเภอ/จังหวัด
  */
 import { createClient } from '@supabase/supabase-js';
+import { blockIfTrialExpired } from '../../../lib/shop-access';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -15,6 +16,10 @@ const supabase = createClient(
 export default async function handler(req, res) {
   const shopId = req.query.shopId || req.body?.shopId;
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
+
+  // เขียนไม่ได้ถ้าทดลองใช้ 30 วันหมดอายุแล้ว (อ่าน/GET ยังทำได้ปกติเสมอ)
+  if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
+
 
   try {
     if (req.method === 'GET') {

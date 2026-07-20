@@ -9,6 +9,7 @@
  * GET /api/pos/tax-invoice?shopId&invoice_no=xxx → ดึงใบเดียว (สำหรับพิมพ์ซ้ำ)
  */
 import { createClient } from '@supabase/supabase-js';
+import { blockIfTrialExpired } from '../../../lib/shop-access';
 import {
   getAccessToken, readSheet, appendSheet, ensureTabExists,
   rowToTaxInvoice, rowToProduct, TAX_INVOICE_HEADERS,
@@ -34,6 +35,10 @@ async function getConfig(shopId) {
 export default async function handler(req, res) {
   const shopId = req.query.shopId || req.body?.shopId;
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
+
+  // เขียนไม่ได้ถ้าทดลองใช้ 30 วันหมดอายุแล้ว (อ่าน/GET ยังทำได้ปกติเสมอ)
+  if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
+
 
   try {
     const { sheetId, token } = await getConfig(shopId);

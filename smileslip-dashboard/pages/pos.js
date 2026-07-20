@@ -6,6 +6,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { MARKET_PRICE_FEATURE_LIVE } from '../lib/market-price-flag';
+import { hasFeature } from '../lib/tier-features';
 
 const UNITS = ['ชิ้น', 'อัน', 'กล่อง', 'แพ็ก', 'ขวด', 'ถัง', 'ถุง', 'กก.', 'กรัม', 'ลิตร', 'มล.', 'เมตร', 'คู่', 'ชุด', 'โหล', 'แผ่น', 'มัด', 'หัว', 'ลูก', 'ท่อน', 'แท่ง', 'ห่อ', 'เส้น', 'จาน', 'ชาม', 'แก้ว'];
 const PAY_METHODS = ['เงินสด', 'โอน', 'บัตรเครดิต', 'QR Code', 'เชื่อ'];
@@ -2707,6 +2708,34 @@ export default function POSPage() {
     );
   }
 
+  // ── trial expired lock screen (30-Day Free Trial Lock Mechanism) ──────────
+  // ข้อมูลของร้านยังอยู่ครบใน Google Sheets/Drive เสมอ — หน้านี้แค่บล็อกการใช้งานต่อ
+  // (ฝั่ง API ก็บล็อกการเขียนซ้ำอีกชั้นแล้วผ่าน lib/shop-access.js กันคนข้าม UI ยิง API ตรง)
+  if (shopInfo?.status === 'trial_expired') {
+    return (
+      <>
+        <Head><title>หมดระยะทดลองใช้ — Smile Slip Pro</title></Head>
+        <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
+          <div className="bg-gray-900 rounded-2xl p-8 max-w-md w-full text-center">
+            <div className="text-5xl mb-4">⏰</div>
+            <h1 className="text-white text-xl font-bold mb-2">หมดระยะเวลาทดลองใช้ฟรี 30 วันแล้ว</h1>
+            <p className="text-gray-400 text-sm mb-6">
+              อัปเกรดแพ็กเกจเพื่อใช้งานระบบขายหน้าร้านต่อได้ทันที<br/>
+              ข้อมูลเดิมของร้านยังอยู่ครบใน Google Sheets/Drive ไม่มีการสูญหายแต่อย่างใด
+            </p>
+            <a href={`/pricing?userId=${userId}`}
+              className="block w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl transition-colors">
+              🚀 อัปเกรดแพ็กเกจ
+            </a>
+            <a href={`/dashboard?userId=${userId}`} className="block mt-4 text-gray-500 text-sm hover:text-gray-300 transition-colors">
+              ← กลับ Dashboard
+            </a>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   // ── branch selection screen ───────────────────────────────────────────────
   if (showBranchSelect) {
     return (
@@ -2789,7 +2818,7 @@ export default function POSPage() {
           {[
             { key: 'sell',     label: '💰 ขาย' },
             { key: 'orders',   label: '🚚 ออเดอร์' },
-            { key: 'collections', label: '🧾 เก็บเงิน/ของ' },
+            ...(hasFeature(shopInfo?.subscription_tier, 'credit_ar') ? [{ key: 'collections', label: '🧾 เก็บเงิน/ของ' }] : []),
             { key: 'contacts', label: '👥 ผู้ติดต่อ' },
             { key: 'products', label: '📦 สินค้า' },
             { key: 'receive',  label: '📥 รับสินค้า' },
@@ -4362,7 +4391,7 @@ export default function POSPage() {
                                 <button onClick={() => { setDebtCust(c); setDebtAmount(''); setShowDebtModal(true); }} className="text-xs bg-green-800 hover:bg-green-700 text-green-300 hover:text-green-200 px-3 py-1.5 rounded-lg transition-colors">💰 รับชำระ</button>
                               </>
                             )}
-                            {(c.debt > 0 || c.cylinders > 0) && (
+                            {(c.debt > 0 || c.cylinders > 0) && hasFeature(shopInfo?.subscription_tier, 'credit_ar') && (
                               <button onClick={() => openCollectDispatch(c)} className="text-xs bg-orange-800 hover:bg-orange-700 text-orange-200 hover:text-white px-3 py-1.5 rounded-lg transition-colors">📤 ส่งพนักงานไปเก็บ</button>
                             )}
                           </div>
@@ -4908,8 +4937,10 @@ export default function POSPage() {
                               </div>
                               <div className="flex items-center gap-2 shrink-0">
                                 <span className="text-orange-400 font-bold text-sm">{c.cylinders} ชิ้น</span>
-                                <button onClick={() => openCollectDispatch(contacts.find(x => x.contact_id === c.contact_id) || c)}
-                                  className="text-xs bg-orange-800 hover:bg-orange-700 text-orange-200 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">📤 ส่งเก็บ</button>
+                                {hasFeature(shopInfo?.subscription_tier, 'credit_ar') && (
+                                  <button onClick={() => openCollectDispatch(contacts.find(x => x.contact_id === c.contact_id) || c)}
+                                    className="text-xs bg-orange-800 hover:bg-orange-700 text-orange-200 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">📤 ส่งเก็บ</button>
+                                )}
                               </div>
                             </div>
                           ))}
@@ -5552,7 +5583,7 @@ export default function POSPage() {
               <div>
                 <label className="block text-gray-400 text-xs mb-1.5">วิธีชำระ</label>
                 <div className="grid grid-cols-4 gap-2">
-                  {PAY_METHODS.map(m => (
+                  {PAY_METHODS.filter(m => m !== 'เชื่อ' || hasFeature(shopInfo?.subscription_tier, 'credit_ar')).map(m => (
                     <button key={m} onClick={() => setPayMethod(m)}
                       className={`py-2 rounded-xl text-xs font-medium transition-colors ${
                         payMethod === m ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
@@ -5792,7 +5823,9 @@ export default function POSPage() {
                   {[
                     { v: 'ไม่นับสต็อค', label: '🛠️', sub: 'ไม่นับสต็อค', desc: 'บริการ' },
                     { v: 'นับสต็อค',    label: '📦', sub: 'นับสต็อค',    desc: 'สินค้าทั่วไป' },
-                    { v: 'หมุนเวียน',  label: '🔄', sub: 'หมุนเวียน',  desc: 'ถัง/กล่อง' },
+                    ...(hasFeature(shopInfo?.subscription_tier, 'cyclical_stock')
+                      ? [{ v: 'หมุนเวียน', label: '🔄', sub: 'หมุนเวียน', desc: 'ถัง/กล่อง' }]
+                      : []),
                   ].map(opt => (
                     <button key={opt.v} type="button" onClick={() => setProdForm(f => ({ ...f, type: opt.v }))}
                       className={`flex-1 py-2 px-1 rounded-xl text-xs font-medium transition-colors border flex flex-col items-center gap-0.5 ${
@@ -6555,7 +6588,7 @@ export default function POSPage() {
                   <div>
                     <label className="text-gray-400 text-xs block mb-2">💳 วิธีชำระเงิน</label>
                     <div className="grid grid-cols-3 gap-2">
-                      {['เก็บปลายทาง', 'โอนแล้ว', 'ค้างจ่าย'].map(pm => (
+                      {['เก็บปลายทาง', 'โอนแล้ว', ...(hasFeature(shopInfo?.subscription_tier, 'credit_ar') ? ['ค้างจ่าย'] : [])].map(pm => (
                         <button key={pm} onClick={() => setDelivPayment(pm)}
                           className={`py-2.5 rounded-xl text-xs font-medium transition-colors ${delivPayment === pm ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
                           {pm}

@@ -2088,6 +2088,18 @@ app.post('/webhook', async (req, res) => {
           continue;
         }
 
+        // STEP 1.9: ล็อกการสแกนสลิปถ้าทดลองใช้ฟรี 30 วันหมดอายุแล้ว (30-Day Free Trial Lock Mechanism —
+        // เพิ่ม 2026-07-20) — shop มาจาก findShopBySource() ที่ select('*') ไว้แล้ว จึงมี status ติดมา
+        // เลยโดยไม่ต้อง query เพิ่ม ถ้าคอลัมน์ยังไม่ถูกสร้าง (รอรัน SQL) shop.status จะเป็น undefined
+        // ซึ่งไม่ตรงกับ 'trial_expired' อยู่แล้ว จึงไม่ล็อกใครโดยไม่ตั้งใจ (fail-safe)
+        if (shop.status === 'trial_expired') {
+          await replyToLine(replyToken, [{
+            type: 'text',
+            text: `⚠️ ระยะเวลาทดลองใช้ฟรี 30 วันของร้าน ${shop.shop_name} หมดอายุแล้ว\nกรุณาอัปเกรดแพ็กเกจเพื่อสแกนสลิปต่อได้ที่ ${process.env.FRONTEND_URL || ''}/pricing\n(ข้อมูลเดิมของร้านยังอยู่ครบใน Google Sheets/Drive ไม่มีการสูญหาย)`,
+          }]);
+          continue;
+        }
+
         // STEP 2: ตรวจสอบเครดิตคงเหลือ (Enterprise/Super ข้าม — ไม่ตัดเครดิต)
         let creditData = null;
         if (!isUnlimited(shop)) {
@@ -2533,6 +2545,148 @@ app.post('/cron/weekly-summary', async (req, res) => {
 
   console.log(`[CRON-WEEKLY] เสร็จสิ้น: ส่ง=${sent} ข้าม=${skipped} ล้มเหลว=${failed}`);
   return res.json({ sent, skipped, failed, period: periodLabel });
+});
+
+// ════ TRIAL DAY-25 NUDGE CRON (30-Day Free Trial Lock Mechanism — เพิ่ม 2026-07-20) ════
+// เรียกโดย Cloud Scheduler ทุกวัน — เตือนร้านที่ทดลองใช้เหลือ ≤5 วันก่อนหมดอายุ (วันที่ 25/30)
+// พร้อมสรุปการใช้งานช่วงทดลอง + ลิงก์อัปเกรด — ส่งครั้งเดียวต่อร้าน (กันด้วย trial_day25_notified)
+app.post('/cron/trial-day25-nudge', async (req, res) => {
+  const secret = req.headers['x-cron-secret'] || req.query.secret;
+  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+    console.warn('[CRON-TRIAL25] Unauthorized — secret ไม่ตรง');
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+
+  const today = getThaiDateTime();
+  const year = today.year;
+  const nowMs = Date.now();
+  const fiveDaysMs = 5 * 24 * 60 * 60 * 1000;
+
+  console.log(`[CRON-TRIAL25] 🔔 เริ่มตรวจร้านที่ทดลองใช้ใกล้หมดอายุ`);
+
+  // ร้านที่ยังทดลองอยู่ (มี trial_ends_at ตั้งไว้ ยังไม่หมดอายุ ยังไม่เคยแจ้งเตือน)
+  // ถ้าคอลัมน์ trial_ends_at/trial_day25_notified ยังไม่ถูกสร้าง (รอรัน SQL) query จะ error
+  // → catch แล้วจบเงียบๆ ไม่ throw ออกไป (fail-safe เหมือน cron อื่นที่พึ่งพา schema ใหม่)
+  let shops;
+  try {
+    const { data, error } = await supabase
+      .from('shop_profiles')
+      .select('id, owner_line_id, shop_name, subscription_tier, trial_started_at, trial_ends_at')
+      .not('trial_ends_at', 'is', null)
+      .is('stripe_subscription_id', null)
+      .neq('status', 'trial_expired')
+      .or('trial_day25_notified.is.null,trial_day25_notified.eq.false');
+    if (error) throw error;
+    shops = data;
+  } catch (err) {
+    console.warn('[CRON-TRIAL25] ข้าม — คอลัมน์ trial ยังไม่พร้อม (รอรัน SQL):', err.message);
+    return res.json({ sent: 0, skipped: 0, failed: 0, note: 'trial columns not ready' });
+  }
+
+  if (!shops?.length) {
+    console.log('[CRON-TRIAL25] ไม่พบร้านที่ทดลองใช้อยู่');
+    return res.json({ sent: 0, skipped: 0, failed: 0 });
+  }
+
+  // เฉพาะร้านที่เหลือเวลา ≤5 วันก่อนหมดอายุ (และยังไม่หมดอายุไปแล้ว)
+  const dueShops = shops.filter(s => {
+    const endsMs = new Date(s.trial_ends_at).getTime();
+    const remaining = endsMs - nowMs;
+    return remaining > 0 && remaining <= fiveDaysMs;
+  });
+
+  if (!dueShops.length) {
+    console.log('[CRON-TRIAL25] ยังไม่มีร้านที่ถึงรอบแจ้งเตือน (เหลือ >5 วัน)');
+    return res.json({ sent: 0, skipped: 0, failed: 0 });
+  }
+
+  const shopIds = dueShops.map(s => s.id);
+  const { data: configs } = await supabase
+    .from('shop_google_configs')
+    .select('shop_id, google_refresh_token, google_sheet_id')
+    .in('shop_id', shopIds);
+  const configMap = {};
+  for (const c of (configs || [])) configMap[c.shop_id] = c;
+
+  let sent = 0, skipped = 0, failed = 0;
+
+  for (const shop of dueShops) {
+    if (!shop.owner_line_id) { skipped++; continue; }
+    const cfg = configMap[shop.id];
+    const daysLeft = Math.max(0, Math.ceil((new Date(shop.trial_ends_at).getTime() - nowMs) / (24 * 60 * 60 * 1000)));
+
+    try {
+      // สรุปการใช้งานช่วงทดลอง (best-effort — ถ้ายังไม่เชื่อม Google/อ่านชีตไม่ได้ ก็ยังส่งข้อความเตือนได้อยู่)
+      let usageText = null;
+      if (cfg?.google_refresh_token && cfg?.google_sheet_id && shop.trial_started_at) {
+        try {
+          const tokenRes = await axios.post('https://oauth2.googleapis.com/token', {
+            refresh_token: cfg.google_refresh_token,
+            client_id: process.env.GOOGLE_CLIENT_ID,
+            client_secret: process.env.GOOGLE_CLIENT_SECRET,
+            grant_type: 'refresh_token',
+          });
+          const accessToken = tokenRes.data.access_token;
+          const startIso = new Date(shop.trial_started_at).toISOString().split('T')[0];
+          const summary = await readSheetSummary(
+            accessToken, cfg.google_sheet_id,
+            (recordedAt) => recordedAt >= startIso, null, year
+          );
+          const totalTx = summary.countIncome + summary.countExpense;
+          if (totalTx > 0) {
+            usageText = `\n\n📊 สรุปการใช้งานช่วงทดลอง:\n• บันทึกรายการแล้ว ${totalTx} รายการ\n• รายรับรวม ฿${summary.totalIncome.toLocaleString('th-TH')}\n• รายจ่ายรวม ฿${summary.totalExpense.toLocaleString('th-TH')}`;
+          }
+        } catch (sumErr) {
+          console.warn(`[CRON-TRIAL25] อ่านสรุปการใช้งานของ ${shop.shop_name} ไม่ได้ (ไม่กระทบการแจ้งเตือน):`, sumErr.message);
+        }
+      }
+
+      const pricingUrl = `${process.env.FRONTEND_URL || ''}/pricing?userId=${shop.owner_line_id}`;
+      const flexMsg = {
+        type: 'flex',
+        altText: `⏳ ทดลองใช้ฟรีร้าน ${shop.shop_name} เหลืออีก ${daysLeft} วัน`,
+        contents: {
+          type: 'bubble', size: 'kilo',
+          header: {
+            type: 'box', layout: 'vertical', backgroundColor: '#7c2d12', paddingAll: 'md',
+            contents: [
+              { type: 'text', text: '⏳ ทดลองใช้ฟรีใกล้หมดอายุ', weight: 'bold', color: '#ffffff', size: 'sm', wrap: true },
+              { type: 'text', text: shop.shop_name || '', color: '#fdba74', size: 'xs', margin: 'xs' },
+            ],
+          },
+          body: {
+            type: 'box', layout: 'vertical', spacing: 'md', paddingAll: 'lg',
+            contents: [
+              { type: 'text', text: `เหลืออีก ${daysLeft} วัน ระบบจะล็อกการสแกนสลิป/ใช้งาน POS ชั่วคราว`, size: 'sm', color: '#334155', wrap: true },
+              { type: 'text', text: 'ข้อมูลเดิมทั้งหมดจะยังอยู่ครบใน Google Sheets/Drive ของร้านเสมอ ไม่มีการสูญหาย', size: 'xs', color: '#94a3b8', wrap: true, margin: 'md' },
+              ...(usageText ? [{ type: 'text', text: usageText.trim(), size: 'xs', color: '#475569', wrap: true, margin: 'md' }] : []),
+            ],
+          },
+          footer: {
+            type: 'box', layout: 'vertical', paddingAll: 'md',
+            contents: [{ type: 'button', action: { type: 'uri', label: 'อัปเกรดแพ็กเกจตอนนี้', uri: pricingUrl }, style: 'primary', color: '#EA580C', height: 'sm' }],
+          },
+        },
+      };
+
+      await pushToOwner(shop.owner_line_id, [flexMsg]);
+
+      try {
+        await supabase.from('shop_profiles').update({ trial_day25_notified: true }).eq('id', shop.id);
+      } catch (flagErr) {
+        console.warn(`[CRON-TRIAL25] ตั้งค่า trial_day25_notified ของ ${shop.shop_name} ไม่สำเร็จ (จะแจ้งเตือนซ้ำรอบถัดไป):`, flagErr.message);
+      }
+
+      sent++;
+      console.log(`[CRON-TRIAL25] ✅ แจ้งเตือน ${shop.shop_name} สำเร็จ (เหลือ ${daysLeft} วัน)`);
+    } catch (err) {
+      console.error(`[CRON-TRIAL25] ❌ แจ้งเตือน ${shop.shop_name} ล้มเหลว:`, err.message);
+      failed++;
+    }
+  }
+
+  console.log(`[CRON-TRIAL25] เสร็จสิ้น: ส่ง=${sent} ข้าม=${skipped} ล้มเหลว=${failed}`);
+  return res.json({ sent, skipped, failed });
 });
 
 const PORT = process.env.PORT || 8080;

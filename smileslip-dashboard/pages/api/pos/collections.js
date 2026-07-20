@@ -18,6 +18,8 @@
  * } → อัปเดตสถานะ/ผลลัพธ์
  */
 import { createClient } from '@supabase/supabase-js';
+import { blockIfTrialExpired } from '../../../lib/shop-access';
+import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import {
   getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
   makeCollectionNo, rowToCollection, rowToContact, rowToProduct,
@@ -36,13 +38,14 @@ function asText(v) {
 }
 
 async function getConfig(shopId) {
-  const [{ data: pc }, { data: gc }] = await Promise.all([
+  const [{ data: pc }, { data: gc }, { data: sp }] = await Promise.all([
     supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
     supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single(),
+    supabase.from('shop_profiles').select('subscription_tier').eq('id', shopId).maybeSingle(),
   ]);
   if (!pc?.pos_sheet_id) throw Object.assign(new Error('ยังไม่ได้ตั้งค่า POS'), { notSetup: true });
   if (!gc?.google_refresh_token) throw Object.assign(new Error('ยังไม่ได้เชื่อมต่อ Google'), { notConnected: true });
-  return { sheetId: pc.pos_sheet_id, token: await getAccessToken(gc.google_refresh_token) };
+  return { sheetId: pc.pos_sheet_id, tier: sp?.subscription_tier || 'normal', token: await getAccessToken(gc.google_refresh_token) };
 }
 
 // ── LINE Flex Message สำหรับพนักงานที่ถูกส่งไปเก็บเงิน/ของ ─────────────────────
@@ -129,8 +132,12 @@ export default async function handler(req, res) {
   const shopId = req.query.shopId || req.body?.shopId;
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
 
+  // เขียนไม่ได้ถ้าทดลองใช้ 30 วันหมดอายุแล้ว (อ่าน/GET ยังทำได้ปกติเสมอ)
+  if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
+
+
   try {
-    const { sheetId, token } = await getConfig(shopId);
+    const { sheetId, tier, token } = await getConfig(shopId);
     await ensureTabExists(token, sheetId, 'งานเก็บเงิน', COLLECTION_HEADERS);
 
     // ── GET — รายการงาน ────────────────────────────────────────────────────
@@ -158,6 +165,10 @@ export default async function handler(req, res) {
       } = req.body;
 
       if (!customer_name) return res.status(400).json({ error: 'ต้องระบุลูกค้า' });
+      // ฟีเจอร์นี้เป็นส่วนขยายของทั้งระบบเงินเชื่อและสต็อคหมุนเวียน (ล็อกเหมือนกันที่ Shop Pro)
+      if (!hasFeature(tier, 'credit_ar') || !hasFeature(tier, 'cyclical_stock')) {
+        return res.status(403).json({ error: upgradeMessage('credit_ar'), featureLocked: true });
+      }
       if (!staff_id) return res.status(400).json({ error: 'ต้องเลือกพนักงาน' });
 
       const collection_no = makeCollectionNo();

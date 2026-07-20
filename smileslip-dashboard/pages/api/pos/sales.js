@@ -8,6 +8,8 @@
  * 2. Main shop Sheets (sheet ปี) — รายรับเข้าบัญชีหลัก (ให้แสดงใน Dashboard Ledger)
  */
 import { createClient } from '@supabase/supabase-js';
+import { blockIfTrialExpired } from '../../../lib/shop-access';
+import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import {
   getAccessToken, readSheet, appendSheet, updateSheetRow,
   ensureTabExists, makeBillNo, rowToSale, SALE_HEADERS, rowToProduct, CONTACT_HEADERS,
@@ -25,7 +27,7 @@ async function getConfig(shopId) {
   const [{ data: pc }, { data: gc }, { data: sp }] = await Promise.all([
     supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
     supabase.from('shop_google_configs').select('google_refresh_token, google_sheet_id').eq('shop_id', shopId).single(),
-    supabase.from('shop_profiles').select('shop_name, branch_name').eq('id', shopId).single(),
+    supabase.from('shop_profiles').select('shop_name, branch_name, subscription_tier').eq('id', shopId).single(),
   ]);
   if (!pc?.pos_sheet_id) throw Object.assign(new Error('ยังไม่ได้ตั้งค่า POS'), { notSetup: true });
   if (!gc?.google_refresh_token) throw Object.assign(new Error('ยังไม่ได้เชื่อมต่อ Google'), { notConnected: true });
@@ -34,6 +36,7 @@ async function getConfig(shopId) {
     mainSheetId: gc.google_sheet_id || null,
     shopName: sp?.shop_name || '',
     branchName: sp?.branch_name || '',
+    tier: sp?.subscription_tier || 'normal',
     token: await getAccessToken(gc.google_refresh_token),
   };
 }
@@ -111,8 +114,12 @@ export default async function handler(req, res) {
   const shopId = req.query.shopId || req.body?.shopId;
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
 
+  // เขียนไม่ได้ถ้าทดลองใช้ 30 วันหมดอายุแล้ว (อ่าน/GET ยังทำได้ปกติเสมอ)
+  if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
+
+
   try {
-    const { sheetId, mainSheetId, token, shopName, branchName } = await getConfig(shopId);
+    const { sheetId, mainSheetId, token, shopName, branchName, tier } = await getConfig(shopId);
 
     // ตรวจว่ามี tab "ยอดขาย" ไหม (บัญชีเก่าอาจยังไม่มีหรือชื่อผิด)
     await ensureTabExists(token, sheetId, 'ยอดขาย', SALE_HEADERS);
@@ -211,6 +218,9 @@ export default async function handler(req, res) {
       } = req.body;
       if (!items.length) return res.status(400).json({ error: 'ไม่มีรายการสินค้า' });
       if (payment_method === 'เชื่อ' && !customerName) return res.status(400).json({ error: 'ต้องระบุลูกค้าสำหรับการขายเชื่อ' });
+      if (payment_method === 'เชื่อ' && !hasFeature(tier, 'credit_ar')) {
+        return res.status(403).json({ error: upgradeMessage('credit_ar'), featureLocked: true });
+      }
 
       const subtotal = items.reduce((sum, i) => sum + i.price * i.qty, 0);
       const total = Math.max(0, subtotal - discount);

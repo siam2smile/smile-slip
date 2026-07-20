@@ -9,6 +9,8 @@
  * Schema 18 columns A-R (เพิ่ม 2026-07-06: product_code, barcode, description, vat_type, is_active)
  */
 import { createClient } from '@supabase/supabase-js';
+import { blockIfTrialExpired } from '../../../lib/shop-access';
+import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import {
   getAccessToken, readSheet, appendSheet, updateSheetRow,
   makeSKU, rowToProduct,
@@ -20,21 +22,26 @@ const supabase = createClient(
 );
 
 async function getConfig(shopId) {
-  const [{ data: pc }, { data: gc }] = await Promise.all([
+  const [{ data: pc }, { data: gc }, { data: sp }] = await Promise.all([
     supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
     supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single(),
+    supabase.from('shop_profiles').select('subscription_tier').eq('id', shopId).maybeSingle(),
   ]);
   if (!pc?.pos_sheet_id) throw Object.assign(new Error('ยังไม่ได้ตั้งค่า POS'), { notSetup: true });
   if (!gc?.google_refresh_token) throw Object.assign(new Error('ยังไม่ได้เชื่อมต่อ Google'), { notConnected: true });
-  return { sheetId: pc.pos_sheet_id, token: await getAccessToken(gc.google_refresh_token) };
+  return { sheetId: pc.pos_sheet_id, tier: sp?.subscription_tier || 'normal', token: await getAccessToken(gc.google_refresh_token) };
 }
 
 export default async function handler(req, res) {
   const shopId = req.query.shopId || req.body?.shopId;
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
 
+  // เขียนไม่ได้ถ้าทดลองใช้ 30 วันหมดอายุแล้ว (อ่าน/GET ยังทำได้ปกติเสมอ)
+  if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
+
+
   try {
-    const { sheetId, token } = await getConfig(shopId);
+    const { sheetId, tier, token } = await getConfig(shopId);
 
     // ── GET ──────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
@@ -71,6 +78,9 @@ export default async function handler(req, res) {
         vat_type = 'ไม่มี VAT', is_active = true, empty_ceiling = 0,
       } = req.body;
       if (!name) return res.status(400).json({ error: 'ต้องระบุชื่อสินค้า' });
+      if (type === 'หมุนเวียน' && !hasFeature(tier, 'cyclical_stock')) {
+        return res.status(403).json({ error: upgradeMessage('cyclical_stock'), featureLocked: true });
+      }
 
       const sku = makeSKU();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
@@ -94,6 +104,12 @@ export default async function handler(req, res) {
 
       const existing = [...dataRows[idx]];
       while (existing.length < 19) existing.push('');
+
+      // บล็อคเฉพาะตอน "เปลี่ยนประเภทเป็นหมุนเวียนใหม่" (จากประเภทอื่น) — สินค้าที่เป็นหมุนเวียนอยู่แล้ว
+      // (สร้างไว้ตั้งแต่ก่อนถูกล็อค/ตอน tier สูงกว่า) แก้ไขฟิลด์อื่นได้ตามปกติไม่ถูกบล็อค
+      if (updates.type === 'หมุนเวียน' && existing[10] !== 'หมุนเวียน' && !hasFeature(tier, 'cyclical_stock')) {
+        return res.status(403).json({ error: upgradeMessage('cyclical_stock'), featureLocked: true });
+      }
 
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
 

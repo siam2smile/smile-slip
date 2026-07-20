@@ -148,6 +148,11 @@ export default async function handler(req, res) {
         await supabase.from('shop_profiles')
           .update({ subscription_tier: item.plan, stripe_billed_tier: item.plan, stripe_period_end: periodEnd })
           .eq('id', shopId);
+        // ปลดล็อกทันทีถ้าร้านนี้เคย trial_expired มาก่อน (ไม่ต้องรอ cron รอบถัดไป) — แยก update
+        // ต่างหากกันพัง เผื่อคอลัมน์ status ยังไม่ถูกสร้าง (ไม่ให้กระทบการอัปเดต tier หลักด้านบน)
+        try {
+          await supabase.from('shop_profiles').update({ status: 'active' }).eq('id', shopId);
+        } catch (e) { console.warn('[Stripe] reset trial status failed (non-fatal):', e.message); }
         // เพิ่มเครดิตทันที — ไม่รอ invoice.payment_succeeded เพราะ event อาจ fire ก่อน customer_id ถูกบันทึก
         if (item.monthlyCredits > 0) {
           const newBalance = await addCreditsToShop(shopId, item.monthlyCredits);
