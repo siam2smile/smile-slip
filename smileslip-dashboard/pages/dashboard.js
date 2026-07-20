@@ -100,6 +100,7 @@ export default function Dashboard() {
   const [taxReportLoading, setTaxReportLoading] = useState(false);
   const [taxReportYear, setTaxReportYear] = useState(new Date().getFullYear().toString());
   const [taxReportMonth, setTaxReportMonth] = useState('');
+  const [taxReportBranch, setTaxReportBranch] = useState('');
   const [taxExpandedId, setTaxExpandedId] = useState(null);
 
   // Ledger pagination + date filter
@@ -341,10 +342,10 @@ export default function Dashboard() {
     setMarketingLoading(false);
   };
 
-  const fetchTaxReport = async (shopId, year, month) => {
+  const fetchTaxReport = async (shopId, year, month, branch = taxReportBranch) => {
     setTaxReportLoading(true);
     try {
-      const url = `/api/sheets/tax-report?shopId=${shopId}&year=${year}${month ? `&month=${month}` : ''}`;
+      const url = `/api/sheets/tax-report?shopId=${shopId}&year=${year}${month ? `&month=${month}` : ''}${branch ? `&branch=${encodeURIComponent(branch)}` : ''}`;
       const res = await fetch(url);
       const data = await res.json();
       setTaxReport(data.error ? { error: data.error } : data);
@@ -2210,17 +2211,36 @@ export default function Dashboard() {
                                   <option key={m} value={m}>{['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'][i]}</option>
                                 ))}
                               </select>
-                              <button onClick={() => fetchTaxReport(shopInfo.id, taxReportYear, taxReportMonth)}
+                              {branches.length > 0 && (
+                                <select value={taxReportBranch} onChange={e => setTaxReportBranch(e.target.value)}
+                                  className="border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-medium focus:outline-none bg-white">
+                                  <option value="">ทุกสาขา (รวม)</option>
+                                  {branches.map(b => <option key={b.id} value={b.branch_name}>{b.branch_name}</option>)}
+                                </select>
+                              )}
+                              <button onClick={() => fetchTaxReport(shopInfo.id, taxReportYear, taxReportMonth, taxReportBranch)}
                                 disabled={taxReportLoading}
                                 className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs px-4 py-1.5 rounded-xl transition-all">
                                 {taxReportLoading ? 'กำลังโหลด...' : 'ดูรายงาน'}
                               </button>
                               {taxReport && !taxReport.error && taxReport.totalRows > 0 && (
-                                <a href={`/api/sheets/tax-report?shopId=${shopInfo.id}&year=${taxReportYear}${taxReportMonth ? `&month=${taxReportMonth}` : ''}&format=csv`}
-                                  download
-                                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-1.5 rounded-xl transition-all flex items-center gap-1.5">
-                                  ⬇ Export CSV
-                                </a>
+                                <>
+                                  <a href={`/api/sheets/tax-report?shopId=${shopInfo.id}&year=${taxReportYear}${taxReportMonth ? `&month=${taxReportMonth}` : ''}${taxReportBranch ? `&branch=${encodeURIComponent(taxReportBranch)}` : ''}&format=csv`}
+                                    download
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-1.5 rounded-xl transition-all flex items-center gap-1.5">
+                                    ⬇ CSV
+                                  </a>
+                                  <a href={`/api/sheets/tax-report?shopId=${shopInfo.id}&year=${taxReportYear}${taxReportMonth ? `&month=${taxReportMonth}` : ''}${taxReportBranch ? `&branch=${encodeURIComponent(taxReportBranch)}` : ''}&format=xlsx`}
+                                    download
+                                    className="bg-green-700 hover:bg-green-800 text-white font-bold text-xs px-4 py-1.5 rounded-xl transition-all flex items-center gap-1.5">
+                                    ⬇ Excel
+                                  </a>
+                                  <a href={`/api/sheets/tax-report?shopId=${shopInfo.id}&year=${taxReportYear}${taxReportMonth ? `&month=${taxReportMonth}` : ''}${taxReportBranch ? `&branch=${encodeURIComponent(taxReportBranch)}` : ''}&format=pdf`}
+                                    target="_blank" rel="noreferrer"
+                                    className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-4 py-1.5 rounded-xl transition-all flex items-center gap-1.5">
+                                    ⬇ PDF
+                                  </a>
+                                </>
                               )}
                             </div>
                           </div>
@@ -2229,20 +2249,53 @@ export default function Dashboard() {
                           )}
                           {taxReport && !taxReport.error && (
                             <>
-                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
-                                <div className="bg-indigo-50 rounded-xl p-3 text-center">
-                                  <p className="text-xs text-indigo-500 font-medium">ภาษีรวมทั้งหมด</p>
-                                  <p className="text-lg font-black text-indigo-700 mt-0.5">฿{taxReport.grandTotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3">
+                                <div className="bg-emerald-50 rounded-xl p-3 text-center">
+                                  <p className="text-xs text-emerald-600 font-medium">ภาษีขาย (Output VAT)</p>
+                                  <p className="text-lg font-black text-emerald-700 mt-0.5">฿{(taxReport.salesVat ?? 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
+                                  <p className="text-[10px] text-emerald-500 mt-0.5">{taxReport.salesCount || 0} รายการ</p>
                                 </div>
-                                <div className="bg-slate-50 rounded-xl p-3 text-center">
-                                  <p className="text-xs text-slate-500 font-medium">รายการที่มีภาษี</p>
-                                  <p className="text-lg font-black text-slate-700 mt-0.5">{taxReport.totalRows} รายการ</p>
+                                <div className="bg-rose-50 rounded-xl p-3 text-center">
+                                  <p className="text-xs text-rose-600 font-medium">ภาษีซื้อ (Input VAT)</p>
+                                  <p className="text-lg font-black text-rose-700 mt-0.5">฿{(taxReport.purchaseVat ?? 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
+                                  <p className="text-[10px] text-rose-500 mt-0.5">{taxReport.purchaseCount || 0} รายการ</p>
                                 </div>
-                                <div className="bg-slate-50 rounded-xl p-3 text-center col-span-2 sm:col-span-1">
-                                  <p className="text-xs text-slate-500 font-medium">จำนวนผู้ขาย</p>
-                                  <p className="text-lg font-black text-slate-700 mt-0.5">{taxReport.summary?.length || 0} ราย</p>
+                                <div className={`rounded-xl p-3 text-center col-span-2 sm:col-span-1 ${(taxReport.netVat ?? 0) >= 0 ? 'bg-indigo-50' : 'bg-amber-50'}`}>
+                                  <p className={`text-xs font-medium ${(taxReport.netVat ?? 0) >= 0 ? 'text-indigo-600' : 'text-amber-600'}`}>
+                                    {(taxReport.netVat ?? 0) >= 0 ? 'ภาษีที่ต้องนำส่ง' : 'ภาษีที่ขอคืนได้'}
+                                  </p>
+                                  <p className={`text-lg font-black mt-0.5 ${(taxReport.netVat ?? 0) >= 0 ? 'text-indigo-700' : 'text-amber-700'}`}>
+                                    ฿{Math.abs(taxReport.netVat ?? 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}
+                                  </p>
                                 </div>
                               </div>
+
+                              {taxReport.branchBreakdown?.length > 1 && (
+                                <div className="mb-5 border border-slate-100 rounded-xl overflow-hidden">
+                                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider px-3 pt-3 pb-2">แยกตามสาขา</p>
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="text-slate-400 border-b border-slate-100">
+                                        <th className="text-left font-medium px-3 pb-2">สาขา</th>
+                                        <th className="text-right font-medium px-3 pb-2">ภาษีขาย</th>
+                                        <th className="text-right font-medium px-3 pb-2">ภาษีซื้อ</th>
+                                        <th className="text-right font-medium px-3 pb-2">สุทธิ</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {taxReport.branchBreakdown.map((b, i) => (
+                                        <tr key={i} className="border-b border-slate-50 last:border-0">
+                                          <td className="px-3 py-1.5 text-slate-700 font-medium">{b.branch}</td>
+                                          <td className="px-3 py-1.5 text-right text-emerald-600">฿{b.salesVat.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                                          <td className="px-3 py-1.5 text-right text-rose-500">฿{b.purchaseVat.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                                          <td className={`px-3 py-1.5 text-right font-bold ${b.netVat >= 0 ? 'text-indigo-600' : 'text-amber-600'}`}>฿{Math.abs(b.netVat).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+
                               {taxReport.summary?.length > 0 ? (
                                 <div className="space-y-2">
                                   <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">สรุปตามผู้ขาย/ผู้ให้บริการ</p>
