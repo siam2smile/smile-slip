@@ -2,7 +2,7 @@
 
 โปรเจกต์ของ Vespa / Siam Global Network Enterprise
 ภาษาหลักในโค้ดและ comment: **ไทย**
-อัปเดตล่าสุด: 2026-07-20 (Phase 1-3 ของสเปก "30-Day Free Trial + Package Tier & Feature Gating Matrix": แก้บั๊ก 4 ข้อ (เงินเชื่อไม่อัปเดตยอดค้าง/งานเก็บเงินข้ามขั้นยืนยัน/สต็อคหมุนเวียนไม่อัปเดตตอนจัดส่ง/พนักงานไม่โชว์สาขา), ลดขั้นตอนสมัคร (ตัดกรอกบัญชีธนาคารออก), ระบบทดลองใช้ฟรี 30 วันแบบล็อกอัตโนมัติ (ร้านเก่ายกเว้นตลอดไป), ตารางสิทธิ์ฟีเจอร์ตาม tier (`lib/tier-features.js` — Shop Pro ล็อก 3 ฟีเจอร์ที่ trial ฟรีใช้ได้โดยเจตนา), Day-25 LINE nudge, ปรับ copy หน้าราคา — ดูข้อ 33 ในหัวข้อ "เหตุการณ์และบั๊กที่แก้แล้ว" — **โค้ด commit/push แล้ว รอ deploy + รอผู้ใช้รัน SQL คอลัมน์ trial ก่อนฟีเจอร์ล็อกจะมีผลจริง**)
+อัปเดตล่าสุด: 2026-07-20 (Phase 1-3 ของสเปก "30-Day Free Trial + Package Tier & Feature Gating Matrix": แก้บั๊ก 4 ข้อ (เงินเชื่อไม่อัปเดตยอดค้าง/งานเก็บเงินข้ามขั้นยืนยัน/สต็อคหมุนเวียนไม่อัปเดตตอนจัดส่ง/พนักงานไม่โชว์สาขา), ลดขั้นตอนสมัคร (ตัดกรอกบัญชีธนาคารออก), ระบบทดลองใช้ฟรี 30 วันแบบล็อกอัตโนมัติ (ร้านเก่ายกเว้นตลอดไป), ตารางสิทธิ์ฟีเจอร์ตาม tier (`lib/tier-features.js` — Shop Pro ล็อก 3 ฟีเจอร์ที่ trial ฟรีใช้ได้โดยเจตนา), Day-25 LINE nudge, ปรับ copy หน้าราคา — ดูข้อ 33 ในหัวข้อ "เหตุการณ์และบั๊กที่แก้แล้ว" — **deploy production แล้วทั้งหมด revision `smileslip-dashboard-00268-slt`, `smileslip-service-00145-zlx` — รอผู้ใช้รัน SQL คอลัมน์ trial ก่อน trial-lock จะเริ่มมีผลจริง (feature gating matrix มีผลแล้วตอนนี้)**)
 
 ---
 
@@ -227,7 +227,8 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
       - Enforce ฝั่ง backend ที่ทุก write endpoint ที่เกี่ยวข้อง (`sales.js` เชื่อ, `delivery.js` ค้างจ่าย, `collections.js` ทั้งหมด, `products.js`/`verify-pin.js` หมุนเวียน/แอปพนักงาน) — **`products.js` PATCH บล็อกเฉพาะตอน "เปลี่ยนประเภทเป็นหมุนเวียนใหม่" เท่านั้น** (เทียบ `existing[10] !== 'หมุนเวียน'` ก่อนบล็อก) ไม่บล็อกการแก้ไขฟิลด์อื่นของสินค้าหมุนเวียนที่มีอยู่แล้ว (กันไม่ให้ shop ที่เคยสร้างสินค้าหมุนเวียนไว้ตอน tier สูงกว่าแล้วโดน error ตอนแก้ราคา/ชื่อทีหลัง)
       - Enforce ฝั่ง UI ที่ `pos.js` — ซ่อนตัวเลือก "เชื่อ"/"ค้างจ่าย" ในหน้าชำระเงิน/สร้างออเดอร์จัดส่ง, ซ่อนตัวเลือกประเภทสินค้า "หมุนเวียน" ในฟอร์มเพิ่มสินค้า, ซ่อนทั้งแท็บ "เก็บเงิน/ของ" และปุ่ม "ส่งพนักงานไปเก็บ" ทั้งหมด สำหรับ Shop Pro
     - **ปรับ copy หน้า `pricing.js`** — เปลี่ยนข้อความ "50 สลิปแรกฟรี" เป็น "ทดลองใช้ฟรีเต็มรูปแบบ 30 วัน" ทั้ง hero banner และการ์ด Starter, เพิ่มคำเตือนชัดเจนใน Shop Pro ว่า "⚠️ ไม่รวม: สต็อกหมุนเวียน/แอปพนักงานส่งของ/ระบบเงินเชื่อ" และใน Advance ว่า "🔓 ปลดล็อก..." กันลูกค้าสับสน/ประหลาดใจตอนซื้อ
-    - **สถานะ ณ ตอนนี้:** โค้ดทั้งหมด build ผ่าน (`npx next build` / `node -c index.js`) แล้ว **ยังไม่ได้รัน SQL เพิ่มคอลัมน์ trial ใน production** (ดู "ต้องทำด้วยมือ" ด้านล่าง) — ทุกจุดออกแบบ fail-safe ไว้แล้ว ก่อนรัน SQL ระบบจะทำงานเหมือนเดิมทุกประการ (ไม่มีร้านไหนถูกล็อกโดยไม่ตั้งใจ) ฟีเจอร์ trial-lock จะเริ่มมีผลจริงก็ต่อเมื่อรัน SQL แล้วเท่านั้น — ส่วน feature gating matrix (ล็อก Shop Pro 3 ฟีเจอร์) มีผลทันทีไม่ต้องรอ SQL เพราะใช้แค่ `subscription_tier` ที่มีอยู่แล้ว
+    - **Deploy production แล้ว (2026-07-20)** — bot revision จริง `smileslip-service-00145-zlx`, dashboard revision จริง `smileslip-dashboard-00268-slt` (ข้อความ deploy โชว์ revision เดิมผิดอีกตามเคยทั้งคู่ เช็คด้วย `gcloud run revisions list` แล้ว pin traffic เองเหมือนทุกครั้ง) — verified: บอท boot สำเร็จ (Redis connected), หน้า `/pricing` โชว์ copy ทดลองใช้ 30 วัน + คำเตือน Shop Pro ใหม่ถูกต้องบน production จริง, endpoint `/cron/trial-day25-nudge` มีอยู่จริงและปฏิเสธ request ไม่มี secret ถูกต้อง (401)
+    - **ยังไม่ได้รัน SQL เพิ่มคอลัมน์ trial ใน production** (ดู "ต้องทำด้วยมือ" ด้านล่าง) — ทุกจุดออกแบบ fail-safe ไว้แล้ว ก่อนรัน SQL ระบบจะทำงานเหมือนเดิมทุกประการ (ไม่มีร้านไหนถูกล็อกโดยไม่ตั้งใจ) ฟีเจอร์ trial-lock จะเริ่มมีผลจริงก็ต่อเมื่อรัน SQL แล้วเท่านั้น (และต้องสร้าง Cloud Scheduler jobs เพิ่มด้วย) — ส่วน feature gating matrix (ล็อก Shop Pro 3 ฟีเจอร์) มีผลทันทีบน production แล้วตอนนี้ ไม่ต้องรอ SQL เพราะใช้แค่ `subscription_tier` ที่มีอยู่แล้ว
 
 **ข้อควรระวังใหม่ที่เพิ่มจากเหตุการณ์นี้:**
 - **Git identity ของเครื่องนี้ตั้งแบบ repo-local เท่านั้น** (`user.name=Vespa`, `user.email=six.papigod@gmail.com`) ไม่ใช่ global — ถ้าย้ายเครื่อง/ไดร์อีกต้องตั้งใหม่
@@ -267,8 +268,8 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
 
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
-| Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00144-crw` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00267-zkh` |
+| Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00145-zlx` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00268-slt` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
