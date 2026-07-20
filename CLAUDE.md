@@ -2,7 +2,7 @@
 
 โปรเจกต์ของ Vespa / Siam Global Network Enterprise
 ภาษาหลักในโค้ดและ comment: **ไทย**
-อัปเดตล่าสุด: 2026-07-20 (ทำฟีดแบ็กครบ 11/11 ข้อจากผู้ใช้ — bills sidebar, ใบกำกับภาษี+ผู้ติดต่อ, ตัวกรองเก็บเงิน/ของ, หมวดหมู่รายจ่าย+กราฟ, ส่วนลด+พิมพ์สลิปจัดส่ง, สรุปยอดบัญชี, แก้บั๊กอัลบั้มรูป LINE, ระบบ multi-admin (`company_admins`, ทดสอบ end-to-end ครบแล้ว), อัปเกรดหน้าบัญชี→ภาษีเป็นรายงานภาษีซื้อ-ขายเต็มรูปแบบ+export Excel/PDF — ดูข้อ 32 ในหัวข้อ "เหตุการณ์และบั๊กที่แก้แล้ว" — **ข้อ 32 ยังไม่ได้ deploy**)
+อัปเดตล่าสุด: 2026-07-20 (ทำฟีดแบ็กครบ 11/11 ข้อจากผู้ใช้ — bills sidebar, ใบกำกับภาษี+ผู้ติดต่อ, ตัวกรองเก็บเงิน/ของ, หมวดหมู่รายจ่าย+กราฟ, ส่วนลด+พิมพ์สลิปจัดส่ง, สรุปยอดบัญชี, แก้บั๊กอัลบั้มรูป LINE, ระบบ multi-admin (`company_admins`, ทดสอบ end-to-end ครบแล้ว), อัปเกรดหน้าบัญชี→ภาษีเป็นรายงานภาษีซื้อ-ขายเต็มรูปแบบ+export Excel/PDF — ดูข้อ 32 ในหัวข้อ "เหตุการณ์และบั๊กที่แก้แล้ว" — **deploy production แล้วทั้งหมด revision `smileslip-dashboard-00267-zkh`, `smileslip-service-00144-crw`**)
 
 ---
 
@@ -196,6 +196,7 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
       - **เจอบั๊กจริงระหว่างทดสอบ (สำคัญ ควรจำไว้ใช้ที่อื่นด้วย):** `supabase.from(table).select('*', { count: 'exact', head: true })` **คืน `error:null, count:null, status:204` เสมอแม้ตารางนั้นไม่มีอยู่จริงเลยก็ตาม** (พิสูจน์แล้วด้วยการยิงตรงกับชื่อตารางมั่วๆ ก็ได้ผลเหมือนกัน) — ทำให้เช็ค "ตารางมีอยู่จริงไหม/มีกี่แถว" ด้วย `head:true` **ใช้ไม่ได้เลย** ต้องเปลี่ยนเป็น `.select('id', { count: 'exact' })` (ไม่ใส่ `head:true`) ถึงจะได้ `error` (`PGRST205`) กลับมาจริงเวลาตารางไม่มีอยู่ — เจอจากการทดสอบ `needsBootstrap` ตอนตารางยังไม่ถูกสร้าง (ได้ `true` ผิดๆ ทั้งที่ error-check ดูถูกต้องแล้วในโค้ด) แก้ทั้ง 2 จุดใน `login.js`/`admins.js` แล้ว — **ถ้าจะเช็คว่าตาราง Supabase มีอยู่จริงไหมในอนาคต ห้ามใช้ `head:true` เด็ดขาด**
       - **ทดสอบก่อนรัน SQL:** ยิง `curl` ตรงยืนยันว่า legacy login ยังทำงานปกติ 100% แม้ตาราง `company_admins` ยังไม่มีอยู่จริง (`needsBootstrap:false` ถูกต้อง, ไม่ crash)
       - **ผู้ใช้รัน SQL แล้ว (2026-07-20) — ทดสอบ end-to-end ครบทุก path ด้วยบัญชีทดสอบผ่าน curl แล้วลบทิ้งหลังทดสอบ:** (1) legacy login หลังรัน SQL คืน `needsBootstrap:true` ถูกต้อง (2) bootstrap owner คนแรกสำเร็จ ต้องพิสูจน์ด้วย `bootstrapPassword` ตรงเป๊ะ (3) login ด้วยอีเมล/รหัสผ่านที่เพิ่ง bootstrap สำเร็จ (4) bootstrap ซ้ำรอบสองถูกปฏิเสธถูกต้อง (กลายเป็น path "เพิ่มแอดมินปกติ" เพราะมีคนแล้ว ปฏิเสธเพราะไม่มี owner token) (5) owner เพิ่ม staff คนใหม่สำเร็จ (6) staff login สำเร็จ (7) staff เรียก `GET /api/admin/admins` ถูกปฏิเสธถูกต้อง (เฉพาะ owner) (8) staff เปลี่ยนรหัสผ่านตัวเองด้วย current_password ผิดถูกปฏิเสธ ใส่ถูกสำเร็จ (9) owner ระงับตัวเองถูกปฏิเสธ (10) owner ลดสิทธิ์ตัวเอง (owner คนเดียวที่เหลือ) ถูกปฏิเสธ (11) owner ระงับ staff สำเร็จ → staff login ไม่ได้ (12) owner เปิดใช้งาน staff กลับ → staff login ได้ปกติ — **ครบทุก guard rail ตามที่ออกแบบไว้ ทำงานถูกต้อง 100%**
+    - **Deploy production แล้ว (2026-07-20)** — dashboard revision จริง `smileslip-dashboard-00267-zkh` (ข้อความ deploy โชว์ revision เดิมผิดอีกตามเคย) traffic pin 100% แล้ว — verified บน production จริงว่า `/api/admin/login` (legacy + `needsBootstrap`) และ `/api/sheets/tax-report` (แยกภาษีขาย/ซื้อ, ข้อ 8 ส่วนที่เหลือ) ทำงานถูกต้องทั้งคู่
 5.5. **[spawn_task ที่แจ้งไว้ 2026-07-19]** พบว่าไฟล์ POS API หลายไฟล์ (`collections.js`, `loans.js`, `delivery.js`, `contacts.js`, `products.js`, `staff-requests.js`, `tax-invoice.js`, `staff.js`, `sales.js`, `receives.js`) เขียนสตริงวันที่ไทยลง Sheets โดยไม่ผ่าน `asText()` เหมือนกับที่เพิ่งเจอบั๊กจริงใน `expenses.js` — ยังไม่ได้ไล่แก้ทั้งหมด (สาเหตุที่ยังดูเหมือนใช้งานได้ปกติในบางไฟล์ อาจเป็นเพราะ column format ของ tab เก่าถูกซ่อมมาแล้วจากเหตุการณ์ก่อนหน้า ไม่ใช่เพราะโค้ดปลอดภัยจริง) — รอทำต่อเป็นงานแยก
 6. **แก้ 5 ข้อจาก punch list ตรวจสอบโค้ดเต็มโปรเจกต์ (commit `e01c927`):**
    - **Stripe webhook idempotency** — เพิ่ม insert `event.id` ลงตาราง `stripe_processed_events` ก่อนประมวลผลทุกครั้ง ถ้า insert ชนซ้ำ (unique violation, code `23505`) แปลว่าเคยประมวลผลไปแล้ว ข้ามได้เลย ถ้า error เป็นแบบอื่น (เช่น ตารางยังไม่ถูกสร้าง) จะ fail-open ทำงานต่อไปเหมือนเดิมกันไม่ให้ checkout พังทั้งระบบ — **สร้างตาราง `stripe_processed_events` แล้ว (verified 2026-07-16 ผ่าน REST query) กันซ้ำได้จริงแล้ว ไม่ fail-open อีกต่อไป**
@@ -244,7 +245,7 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
 | Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00144-crw` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00266-2w8` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00267-zkh` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
