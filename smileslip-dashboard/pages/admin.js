@@ -22,11 +22,27 @@ const TIER_CREDITS = { normal: 0, pro: 200, advance: 500, business: 1000, enterp
 
 export default function AdminDashboard() {
   const [isAdmin, setIsAdmin] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
   const tokenRef = useRef('');
+
+  // ── Multi-admin identity (2026-07-20) ──
+  const [currentAdmin, setCurrentAdmin] = useState(null); // { id, email, display_name, role } — null ถ้าเข้าด้วยรหัสฉุกเฉิน
+  const [isLegacyAdmin, setIsLegacyAdmin] = useState(false);
+  const [needsBootstrap, setNeedsBootstrap] = useState(false);
+  const [bootstrapForm, setBootstrapForm] = useState({ email: '', password: '', display_name: '' });
+  const [bootstrapSaving, setBootstrapSaving] = useState(false);
+  const [bootstrapError, setBootstrapError] = useState('');
+  const [companyAdmins, setCompanyAdmins] = useState([]);
+  const [companyAdminsLoading, setCompanyAdminsLoading] = useState(false);
+  const [showAddCompanyAdmin, setShowAddCompanyAdmin] = useState(false);
+  const [newCompanyAdminForm, setNewCompanyAdminForm] = useState({ email: '', password: '', display_name: '', role: 'staff' });
+  const [newCompanyAdminSaving, setNewCompanyAdminSaving] = useState(false);
+  const [myPasswordForm, setMyPasswordForm] = useState({ current_password: '', new_password: '' });
+  const [myPasswordSaving, setMyPasswordSaving] = useState(false);
 
   const [shops, setShops] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -65,7 +81,15 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     const token = sessionStorage.getItem('admin_token');
-    if (token) { tokenRef.current = token; setIsAdmin(true); fetchData(token); fetchInvoices(token); fetchAdminSettings(token); fetchPromotion(token); fetchTestimonials(token); fetchDeliveryStats(token); }
+    if (token) {
+      tokenRef.current = token; setIsAdmin(true);
+      let identity = {};
+      try { identity = JSON.parse(sessionStorage.getItem('admin_identity') || '{}'); } catch {}
+      setCurrentAdmin(identity.admin || null);
+      setIsLegacyAdmin(!!identity.legacy);
+      fetchData(token); fetchInvoices(token); fetchAdminSettings(token); fetchPromotion(token); fetchTestimonials(token); fetchDeliveryStats(token);
+      if (identity.admin?.role === 'owner') fetchCompanyAdmins(token);
+    }
 
     // ตรวจสอบ query param หลัง Google OAuth callback
     const params = new URLSearchParams(window.location.search);
@@ -206,26 +230,94 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/login', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ email: loginEmail.trim() || undefined, password }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       sessionStorage.setItem('admin_token', data.token);
+      sessionStorage.setItem('admin_identity', JSON.stringify({ admin: data.admin || null, legacy: !!data.legacy }));
       tokenRef.current = data.token;
       setIsAdmin(true);
+      setCurrentAdmin(data.admin || null);
+      setIsLegacyAdmin(!!data.legacy);
+      setNeedsBootstrap(!!data.needsBootstrap);
       fetchData(data.token);
       fetchInvoices(data.token);
       fetchAdminSettings(data.token);
       fetchPromotion(data.token);
       fetchTestimonials(data.token);
+      if (data.admin?.role === 'owner') fetchCompanyAdmins(data.token);
     } catch (err) { setLoginError(err.message); }
     setLoginLoading(false);
   };
 
   const handleLogout = () => {
     sessionStorage.removeItem('admin_token');
+    sessionStorage.removeItem('admin_identity');
     tokenRef.current = '';
     setIsAdmin(false); setShops([]);
+    setCurrentAdmin(null); setIsLegacyAdmin(false); setNeedsBootstrap(false); setCompanyAdmins([]);
+  };
+
+  // ── Multi-admin management (2026-07-20) ──
+  const fetchCompanyAdmins = async (token) => {
+    setCompanyAdminsLoading(true);
+    try {
+      const res = await fetch('/api/admin/admins', { headers: { 'x-admin-token': token || tokenRef.current } });
+      const d = await res.json();
+      if (res.ok) setCompanyAdmins(d.admins || []);
+    } catch {}
+    setCompanyAdminsLoading(false);
+  };
+
+  const handleBootstrap = async (e) => {
+    e.preventDefault();
+    setBootstrapSaving(true); setBootstrapError('');
+    try {
+      const res = await fetch('/api/admin/admins', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...bootstrapForm, bootstrapPassword: password }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error);
+      alert('ตั้งบัญชีเจ้าของระบบสำเร็จแล้ว! กรุณาเข้าสู่ระบบใหม่ด้วยอีเมล/รหัสผ่านที่เพิ่งตั้งไว้');
+      handleLogout();
+    } catch (err) { setBootstrapError(err.message); }
+    setBootstrapSaving(false);
+  };
+
+  const handleAddCompanyAdmin = async (e) => {
+    e.preventDefault();
+    setNewCompanyAdminSaving(true);
+    try {
+      const res = await fetch('/api/admin/admins', { method: 'POST', headers: adminHeader(), body: JSON.stringify(newCompanyAdminForm) });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error);
+      setShowAddCompanyAdmin(false);
+      setNewCompanyAdminForm({ email: '', password: '', display_name: '', role: 'staff' });
+      fetchCompanyAdmins();
+    } catch (err) { alert(err.message); }
+    setNewCompanyAdminSaving(false);
+  };
+
+  const updateCompanyAdmin = async (id, patch) => {
+    try {
+      const res = await fetch('/api/admin/admins', { method: 'PATCH', headers: adminHeader(), body: JSON.stringify({ id, ...patch }) });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error);
+      fetchCompanyAdmins();
+      return true;
+    } catch (err) { alert(err.message); return false; }
+  };
+
+  const handleChangeMyPassword = async (e) => {
+    e.preventDefault();
+    if (!currentAdmin) return;
+    setMyPasswordSaving(true);
+    try {
+      const ok = await updateCompanyAdmin(currentAdmin.id, myPasswordForm);
+      if (ok) { alert('เปลี่ยนรหัสผ่านสำเร็จ'); setMyPasswordForm({ current_password: '', new_password: '' }); }
+    } finally { setMyPasswordSaving(false); }
   };
 
   // ── Fetch data ──
@@ -399,8 +491,11 @@ export default function AdminDashboard() {
         <p className="text-slate-500 text-center text-xs mb-8 uppercase tracking-widest">Authorized Personnel Only</p>
         {loginError && <div className="bg-rose-500/10 border border-rose-500/30 text-rose-400 text-sm font-bold p-3 rounded-xl mb-5 text-center">{loginError}</div>}
         <form onSubmit={handleLogin} className="space-y-4">
+          <input type="email" placeholder="อีเมลแอดมิน (เว้นว่างถ้าใช้รหัสฉุกเฉิน)"
+            className="w-full bg-slate-950 border border-slate-700 rounded-xl py-3.5 px-5 text-white outline-none focus:border-indigo-500 transition-colors"
+            value={loginEmail} onChange={e => setLoginEmail(e.target.value)}/>
           <div className="relative">
-            <input type={showPw ? 'text' : 'password'} required placeholder="••••••••"
+            <input type={showPw ? 'text' : 'password'} required placeholder="รหัสผ่าน"
               className="w-full bg-slate-950 border border-slate-700 rounded-xl py-3.5 px-5 text-white outline-none focus:border-indigo-500 transition-colors pr-12"
               value={password} onChange={e => setPassword(e.target.value)}/>
             <button type="button" onClick={() => setShowPw(!showPw)}
@@ -411,6 +506,44 @@ export default function AdminDashboard() {
           <button type="submit" disabled={loginLoading}
             className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-3.5 rounded-xl transition-colors disabled:opacity-50">
             {loginLoading ? 'กำลังตรวจสอบ...' : 'เข้าสู่ระบบ'}
+          </button>
+          <p className="text-slate-600 text-[11px] text-center">เว้นช่องอีเมลว่างไว้ = เข้าด้วยรหัสผ่านฉุกเฉินของทั้งบริษัท</p>
+        </form>
+      </div>
+    </div>
+  );
+
+  // ════ BOOTSTRAP: ตั้งบัญชีเจ้าของระบบคนแรก (เข้าด้วยรหัสฉุกเฉินแต่ยังไม่มีบัญชีแอดมินส่วนตัวเลย) ════
+  if (needsBootstrap) return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 font-sans">
+      <Head><title>ตั้งค่าบัญชีแอดมินคนแรก | Smile Slip Pro</title></Head>
+      <div className="max-w-sm w-full bg-slate-900 p-10 rounded-3xl shadow-2xl border border-slate-800 relative">
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-t-3xl"/>
+        <div className="flex justify-center mb-6">
+          <div className="w-16 h-16 bg-slate-950 rounded-2xl flex items-center justify-center border border-slate-700">
+            <ShieldCheck size={28} className="text-emerald-400"/>
+          </div>
+        </div>
+        <h1 className="text-xl font-black text-white text-center mb-1">ตั้งบัญชีเจ้าของระบบคนแรก</h1>
+        <p className="text-slate-500 text-center text-xs mb-6">ยังไม่มีบัญชีแอดมินส่วนตัวในระบบ — ตั้งอีเมล/รหัสผ่านของคุณเองแทนการใช้รหัสฉุกเฉินร่วมกันทั้งบริษัท</p>
+        {bootstrapError && <div className="bg-rose-500/10 border border-rose-500/30 text-rose-400 text-sm font-bold p-3 rounded-xl mb-5 text-center">{bootstrapError}</div>}
+        <form onSubmit={handleBootstrap} className="space-y-3">
+          <input type="text" placeholder="ชื่อที่แสดง (เช่น ชื่อเจ้าของร้าน)" required
+            className="w-full bg-slate-950 border border-slate-700 rounded-xl py-3 px-4 text-white text-sm outline-none focus:border-emerald-500"
+            value={bootstrapForm.display_name} onChange={e => setBootstrapForm(f => ({ ...f, display_name: e.target.value }))}/>
+          <input type="email" placeholder="อีเมล" required
+            className="w-full bg-slate-950 border border-slate-700 rounded-xl py-3 px-4 text-white text-sm outline-none focus:border-emerald-500"
+            value={bootstrapForm.email} onChange={e => setBootstrapForm(f => ({ ...f, email: e.target.value }))}/>
+          <input type="password" placeholder="ตั้งรหัสผ่าน (อย่างน้อย 8 ตัวอักษร)" required minLength={8}
+            className="w-full bg-slate-950 border border-slate-700 rounded-xl py-3 px-4 text-white text-sm outline-none focus:border-emerald-500"
+            value={bootstrapForm.password} onChange={e => setBootstrapForm(f => ({ ...f, password: e.target.value }))}/>
+          <button type="submit" disabled={bootstrapSaving}
+            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3.5 rounded-xl transition-colors disabled:opacity-50">
+            {bootstrapSaving ? 'กำลังบันทึก...' : 'ตั้งบัญชีเจ้าของระบบ'}
+          </button>
+          <button type="button" onClick={() => setNeedsBootstrap(false)}
+            className="w-full text-slate-500 hover:text-slate-300 text-xs py-2 transition-colors">
+            ข้ามไปก่อน (ใช้รหัสฉุกเฉินต่อ)
           </button>
         </form>
       </div>
@@ -427,7 +560,16 @@ export default function AdminDashboard() {
         <div className="flex items-center gap-3">
           <ShieldCheck size={20} className="text-indigo-400"/>
           <span className="font-black text-sm tracking-tight">SMILE SLIP <span className="text-indigo-400">ADMIN</span></span>
-          <span className="text-[10px] text-slate-600 hidden md:block">Internal Operations Panel</span>
+          {currentAdmin ? (
+            <span className="text-[10px] text-slate-500 hidden md:flex items-center gap-1.5">
+              {currentAdmin.display_name || currentAdmin.email}
+              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${currentAdmin.role === 'owner' ? 'bg-indigo-900/60 text-indigo-300' : 'bg-slate-800 text-slate-400'}`}>
+                {currentAdmin.role === 'owner' ? 'เจ้าของระบบ' : 'แอดมิน'}
+              </span>
+            </span>
+          ) : (
+            <span className="text-[10px] text-amber-500/80 hidden md:block">⚠️ เข้าด้วยรหัสฉุกเฉิน (ไม่มีตัวตน)</span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => { fetchData(); fetchInvoices(); }} className="p-2 text-slate-500 hover:text-white transition-colors rounded-lg hover:bg-slate-800" title="รีเฟรช">
@@ -448,6 +590,7 @@ export default function AdminDashboard() {
             { id: 'shops',    label: 'ร้านค้า', icon: <Users size={14}/> },
             { id: 'invoices', label: `ใบแจ้งหนี้ / ภาษี${invoices.filter(i=>i.status==='pending').length > 0 ? ` (${invoices.filter(i=>i.status==='pending').length})` : ''}`, icon: <FileText size={14}/> },
             { id: 'settings', label: 'ตั้งค่า', icon: <Settings size={14}/> },
+            ...(currentAdmin ? [{ id: 'admins', label: 'แอดมิน', icon: <Shield size={14}/> }] : []),
           ].map(t => (
             <button key={t.id} onClick={() => setActiveTab(t.id)}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black transition-all ${activeTab === t.id ? 'bg-indigo-600 text-white' : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'}`}>
@@ -643,6 +786,106 @@ export default function AdminDashboard() {
                 <p className="text-[10px] text-slate-600">ตั้งค่าใน .env: EMAIL_USER, EMAIL_PASS (Gmail App Password)</p>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ════ ADMINS TAB (multi-admin, 2026-07-20) ════ */}
+        {activeTab === 'admins' && currentAdmin && (
+          <div className="space-y-6 max-w-xl">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+              <h3 className="text-sm font-black text-white mb-1 flex items-center gap-2">
+                <KeyRound size={14} className="text-indigo-400"/> เปลี่ยนรหัสผ่านของฉัน
+              </h3>
+              <p className="text-xs text-slate-500 mb-4">{currentAdmin.email}</p>
+              <form onSubmit={handleChangeMyPassword} className="space-y-3">
+                <input type="password" required placeholder="รหัสผ่านปัจจุบัน"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2.5 px-4 text-white text-sm outline-none focus:border-indigo-500"
+                  value={myPasswordForm.current_password} onChange={e => setMyPasswordForm(f => ({ ...f, current_password: e.target.value }))}/>
+                <input type="password" required minLength={8} placeholder="รหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2.5 px-4 text-white text-sm outline-none focus:border-indigo-500"
+                  value={myPasswordForm.new_password} onChange={e => setMyPasswordForm(f => ({ ...f, new_password: e.target.value }))}/>
+                <button type="submit" disabled={myPasswordSaving}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition-all disabled:opacity-50">
+                  {myPasswordSaving ? 'กำลังบันทึก...' : 'เปลี่ยนรหัสผ่าน'}
+                </button>
+              </form>
+            </div>
+
+            {currentAdmin.role === 'owner' && (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-black text-white flex items-center gap-2">
+                    <Shield size={14} className="text-indigo-400"/> จัดการแอดมิน ({companyAdmins.length})
+                  </h3>
+                  <button onClick={() => setShowAddCompanyAdmin(v => !v)}
+                    className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition-all">
+                    <UserPlus size={13}/> เพิ่มแอดมิน
+                  </button>
+                </div>
+
+                {showAddCompanyAdmin && (
+                  <form onSubmit={handleAddCompanyAdmin} className="bg-slate-800 rounded-xl p-4 space-y-2.5 mb-4">
+                    <input type="text" required placeholder="ชื่อที่แสดง"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg py-2 px-3 text-white text-sm outline-none focus:border-indigo-500"
+                      value={newCompanyAdminForm.display_name} onChange={e => setNewCompanyAdminForm(f => ({ ...f, display_name: e.target.value }))}/>
+                    <input type="email" required placeholder="อีเมล"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg py-2 px-3 text-white text-sm outline-none focus:border-indigo-500"
+                      value={newCompanyAdminForm.email} onChange={e => setNewCompanyAdminForm(f => ({ ...f, email: e.target.value }))}/>
+                    <input type="password" required minLength={8} placeholder="รหัสผ่าน (อย่างน้อย 8 ตัวอักษร)"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg py-2 px-3 text-white text-sm outline-none focus:border-indigo-500"
+                      value={newCompanyAdminForm.password} onChange={e => setNewCompanyAdminForm(f => ({ ...f, password: e.target.value }))}/>
+                    <div className="flex gap-2">
+                      {['staff', 'owner'].map(r => (
+                        <button key={r} type="button" onClick={() => setNewCompanyAdminForm(f => ({ ...f, role: r }))}
+                          className={`flex-1 py-2 rounded-lg text-xs font-bold transition-colors ${newCompanyAdminForm.role === r ? 'bg-indigo-600 text-white' : 'bg-slate-950 text-slate-400 border border-slate-700'}`}>
+                          {r === 'owner' ? 'เจ้าของระบบ' : 'แอดมิน'}
+                        </button>
+                      ))}
+                    </div>
+                    <button type="submit" disabled={newCompanyAdminSaving}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 rounded-lg transition-all disabled:opacity-50">
+                      {newCompanyAdminSaving ? 'กำลังบันทึก...' : 'สร้างบัญชี'}
+                    </button>
+                  </form>
+                )}
+
+                {companyAdminsLoading ? (
+                  <div className="text-center text-slate-600 text-xs py-6">กำลังโหลด...</div>
+                ) : companyAdmins.length === 0 ? (
+                  <div className="text-center text-slate-600 text-xs py-6">ยังไม่มีแอดมินในระบบ</div>
+                ) : (
+                  <div className="space-y-2">
+                    {companyAdmins.map(a => (
+                      <div key={a.id} className="bg-slate-800 rounded-xl p-3 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-white text-sm font-bold truncate flex items-center gap-1.5">
+                            {a.display_name || a.email}
+                            {a.id === currentAdmin.id && <span className="text-[9px] text-slate-500">(ฉัน)</span>}
+                          </div>
+                          <div className="text-slate-500 text-[11px] truncate">{a.email}</div>
+                          <div className="text-slate-600 text-[10px]">{a.last_login_at ? `เข้าใช้ล่าสุด ${new Date(a.last_login_at).toLocaleString('th-TH')}` : 'ยังไม่เคย login'}</div>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className={`px-2 py-1 rounded text-[10px] font-bold ${a.role === 'owner' ? 'bg-indigo-900/60 text-indigo-300' : 'bg-slate-700 text-slate-300'}`}>
+                            {a.role === 'owner' ? 'เจ้าของระบบ' : 'แอดมิน'}
+                          </span>
+                          <button onClick={() => updateCompanyAdmin(a.id, { role: a.role === 'owner' ? 'staff' : 'owner' })}
+                            title="สลับสิทธิ์" className="text-[10px] px-2 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors">
+                            สลับสิทธิ์
+                          </button>
+                          {a.id !== currentAdmin.id && (
+                            <button onClick={() => updateCompanyAdmin(a.id, { status: a.status === 'active' ? 'disabled' : 'active' })}
+                              className={`text-[10px] px-2 py-1 rounded-lg transition-colors ${a.status === 'active' ? 'bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white' : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-white'}`}>
+                              {a.status === 'active' ? 'ระงับ' : 'เปิดใช้งาน'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
