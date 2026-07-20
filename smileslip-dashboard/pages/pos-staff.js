@@ -54,6 +54,10 @@ export default function PosStaffPage() {
   const [borrowingSku, setBorrowingSku] = useState({}); // { sku: true } — เปิดโหมดยืมสำหรับ SKU นั้น
   const [borrowedQty, setBorrowedQty] = useState({}); // { sku: จำนวนที่ยืม (ไม่คืนของเก่า) }
   const [deliverConfirming, setDeliverConfirming] = useState(false);
+  // ส่วนลดออเดอร์จัดส่ง — พนักงานปรับราคาต่อชิ้นไม่ได้ แต่กดส่วนลดรวมทั้งบิลได้ (แอดมินตรวจสอบได้ทีหลังถ้าผิดพลาด)
+  const [deliverDiscountType, setDeliverDiscountType] = useState('amount'); // 'amount' | 'percent'
+  const [deliverDiscountValue, setDeliverDiscountValue] = useState('');
+  const [deliverDone, setDeliverDone] = useState(null); // ผลลัพธ์หลังยืนยันจัดส่งสำเร็จ — ใช้แสดงปุ่มพิมพ์สลิป
   const deliverSlipRef = useRef(null);
 
   // ── งานเก็บเงิน/ของ (collections) ────────────────────────────────────────
@@ -194,7 +198,50 @@ export default function PosStaffPage() {
     setDeliverQr('');
     setBorrowingSku({});
     setBorrowedQty({});
+    setDeliverDiscountType('amount');
+    setDeliverDiscountValue('');
+    setDeliverDone(null);
     setStep('deliver-confirm');
+  }
+
+  function printDeliveryReceipt(info) {
+    const w = window.open('', '_blank', 'width=400,height=600');
+    if (!w) { alert('เบราว์เซอร์บล็อกหน้าต่างพิมพ์ — กรุณาอนุญาต popup สำหรับเว็บนี้'); return; }
+    const esc = s => String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const itemRows = (info.order.items || []).map(i => `
+      <tr><td colspan="2" style="padding-top:4px">${esc(i.name)}</td></tr>
+      <tr><td style="color:#555">${i.qty} × ${Number(i.price).toLocaleString()}</td>
+        <td style="text-align:right;font-weight:bold">${(i.qty * i.price).toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
+    `).join('');
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>ใบเสร็จจัดส่ง ${esc(info.order.order_no)}</title>
+    <style>
+      @page { size: 80mm auto; margin: 2mm; }
+      * { box-sizing: border-box; }
+      body { font-family: 'Sarabun','TH Sarabun New',sans-serif; width: 80mm; margin: 0; padding: 0; font-size: 12px; color: #111; }
+      .center { text-align: center; } .bold { font-weight: bold; }
+      .line { border-top: 1px dashed #000; margin: 6px 0; }
+      table { width: 100%; border-collapse: collapse; } td { padding: 1px 0; vertical-align: top; }
+      .grand { font-size: 15px; font-weight: bold; }
+    </style></head>
+    <body onload="window.print()">
+      <div class="center bold">ใบเสร็จรับเงิน (จัดส่ง)</div>
+      <div>เลขที่: ${esc(info.order.order_no)}</div>
+      <div>วันที่: ${esc(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }))}</div>
+      <div class="line"></div>
+      <div class="bold">ลูกค้า: ${esc(info.order.customer_name)}</div>
+      ${info.order.phone ? `<div>โทร ${esc(info.order.phone)}</div>` : ''}
+      <div class="line"></div>
+      <table>${itemRows}</table>
+      <div class="line"></div>
+      <table>
+        ${info.discountAmount > 0 ? `<tr><td>ส่วนลด</td><td style="text-align:right">-${info.discountAmount.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>` : ''}
+        <tr class="grand"><td>ยอดรวมสุทธิ</td><td style="text-align:right">${info.finalTotal.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
+        <tr><td colspan="2">วิธีชำระ: ${esc(info.payMethod === 'เก็บปลายทาง' ? 'เงินสด' : info.payMethod === 'โอนแล้ว' ? 'โอน' : 'ค้างจ่าย')}</td></tr>
+      </table>
+      <div class="line"></div>
+      <div class="center">ขอบคุณที่ใช้บริการ</div>
+    </body></html>`;
+    w.document.open(); w.document.write(html); w.document.close();
   }
 
   // ── งานเก็บเงิน/ของ (collections) ────────────────────────────────────────
@@ -291,7 +338,7 @@ export default function PosStaffPage() {
     if (!selectedOrder || !shopId) return;
     setDeliverQrLoading(true);
     try {
-      const r = await fetch(`/api/pos/promptpay-qr?shopId=${shopId}&amount=${selectedOrder.total}`);
+      const r = await fetch(`/api/pos/promptpay-qr?shopId=${shopId}&amount=${deliverFinalTotal}`);
       const d = await r.json();
       if (d.ok) setDeliverQr(d.qr);
       else alert(d.error || 'สร้าง QR ไม่ได้ — เช็คว่าร้านตั้งค่าพร้อมเพย์ไว้หรือยัง');
@@ -330,6 +377,13 @@ export default function PosStaffPage() {
     return prod?.type === 'หมุนเวียน';
   });
 
+  // ส่วนลดรวมทั้งบิล — แก้ราคาต่อชิ้นไม่ได้ แต่ลดยอดรวมได้ (จำนวนเงินหรือเปอร์เซ็นต์)
+  const deliverOrderTotal = selectedOrder?.total || 0;
+  const deliverDiscountAmount = deliverDiscountType === 'percent'
+    ? Math.round(deliverOrderTotal * (parseFloat(deliverDiscountValue) || 0) / 100 * 100) / 100
+    : (parseFloat(deliverDiscountValue) || 0);
+  const deliverFinalTotal = Math.max(0, Math.round((deliverOrderTotal - deliverDiscountAmount) * 100) / 100);
+
   async function confirmDeliverySubmit() {
     if (!selectedOrder || deliverConfirming) return;
     if (deliverPayMethod === 'โอนแล้ว' && !deliverSlipUrl) {
@@ -351,6 +405,7 @@ export default function PosStaffPage() {
           shopId,
           order_no: selectedOrder.order_no,
           confirm_delivery: true,
+          total: deliverFinalTotal,
           payment_method: deliverPayMethod,
           slip_url: deliverSlipUrl,
           confirmed_by: staffName.trim() || undefined,
@@ -361,8 +416,8 @@ export default function PosStaffPage() {
       if (d.ok) {
         showToast('✅ ยืนยันจัดส่งสำเร็จแล้ว');
         setOrders(prev => prev.filter(o => o.order_no !== selectedOrder.order_no));
-        setSelectedOrder(null);
-        setStep('deliveries');
+        // ไม่เคลียร์ selectedOrder ทันที — เก็บไว้แสดงหน้า "เสร็จสิ้น" พร้อมปุ่มพิมพ์สลิปก่อน
+        setDeliverDone({ order: selectedOrder, finalTotal: deliverFinalTotal, discountAmount: deliverDiscountAmount, payMethod: deliverPayMethod });
       } else {
         alert(d.error || 'เกิดข้อผิดพลาด');
       }
@@ -769,7 +824,29 @@ export default function PosStaffPage() {
           )}
 
           {/* ══ ยืนยันจัดส่งสำเร็จ ══════════════════════════════════════════════ */}
-          {step === 'deliver-confirm' && selectedOrder && (
+          {step === 'deliver-confirm' && selectedOrder && deliverDone && (
+            <div>
+              <div className="bg-green-900/20 border border-green-800 rounded-2xl p-6 text-center mb-5">
+                <div className="text-4xl mb-2">✅</div>
+                <div className="text-white font-bold text-lg">ยืนยันจัดส่งสำเร็จแล้ว</div>
+                <div className="text-gray-400 text-sm mt-1">{deliverDone.order.customer_name}</div>
+                <div className="text-green-400 font-black text-2xl mt-3">฿{deliverDone.finalTotal.toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+                {deliverDone.discountAmount > 0 && (
+                  <div className="text-gray-500 text-xs mt-1">(ลดแล้ว ฿{deliverDone.discountAmount.toLocaleString(undefined,{minimumFractionDigits:2})})</div>
+                )}
+              </div>
+              <button onClick={() => printDeliveryReceipt(deliverDone)}
+                className="w-full bg-blue-700 hover:bg-blue-600 text-white font-bold py-3.5 rounded-2xl mb-3 transition-colors">
+                🖨️ พิมพ์ใบเสร็จ
+              </button>
+              <button onClick={() => { setDeliverDone(null); setSelectedOrder(null); setStep('deliveries'); }}
+                className="w-full bg-gray-800 hover:bg-gray-700 text-gray-200 font-bold py-3.5 rounded-2xl transition-colors">
+                เสร็จสิ้น
+              </button>
+            </div>
+          )}
+
+          {step === 'deliver-confirm' && selectedOrder && !deliverDone && (
             <div>
               <button onClick={() => setStep('deliveries')} className="text-gray-400 hover:text-white text-sm mb-5 flex items-center gap-1">
                 ← กลับ
@@ -787,9 +864,37 @@ export default function PosStaffPage() {
                     </div>
                   ))}
                 </div>
-                <div className="flex justify-between font-bold mt-2 pt-2 border-t border-gray-800">
-                  <span className="text-gray-300 text-sm">รวม</span>
-                  <span className="text-white">฿{selectedOrder.total.toLocaleString()}</span>
+                <div className="flex justify-between text-xs text-gray-500 mt-2 pt-2 border-t border-gray-800">
+                  <span>ยอดก่อนส่วนลด</span>
+                  <span>฿{deliverOrderTotal.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                </div>
+              </div>
+
+              {/* ส่วนลดรวมทั้งบิล — แก้ราคาต่อชิ้นไม่ได้ แต่ลดยอดรวมได้ */}
+              <h3 className="text-white font-bold mb-2">🏷️ ส่วนลด (ถ้ามี)</h3>
+              <div className="flex gap-2 mb-2">
+                {[['amount', '฿ จำนวนเงิน'], ['percent', '% เปอร์เซ็นต์']].map(([v, label]) => (
+                  <button key={v} onClick={() => { setDeliverDiscountType(v); setDeliverQr(''); }}
+                    className={`flex-1 py-2 rounded-xl text-xs font-bold transition-colors ${deliverDiscountType === v ? 'bg-blue-700 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <input type="number" min="0" value={deliverDiscountValue}
+                onChange={e => { setDeliverDiscountValue(e.target.value); setDeliverQr(''); }}
+                placeholder={deliverDiscountType === 'percent' ? '0-100' : '0.00'}
+                className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-blue-500 mb-4" />
+
+              <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800 mb-5">
+                {deliverDiscountAmount > 0 && (
+                  <div className="flex justify-between text-xs text-orange-400 mb-1">
+                    <span>ส่วนลด</span>
+                    <span>-฿{deliverDiscountAmount.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-bold">
+                  <span className="text-gray-300 text-sm">ยอดที่ต้องเก็บจริง</span>
+                  <span className="text-white text-lg">฿{deliverFinalTotal.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
                 </div>
               </div>
 
@@ -810,7 +915,7 @@ export default function PosStaffPage() {
                   {deliverQr ? (
                     <div className="bg-white rounded-2xl p-4 flex flex-col items-center">
                       <img src={deliverQr} alt="QR พร้อมเพย์" className="w-48 h-48" />
-                      <div className="text-gray-700 text-sm font-bold mt-2">฿{selectedOrder.total.toLocaleString()}</div>
+                      <div className="text-gray-700 text-sm font-bold mt-2">฿{deliverFinalTotal.toLocaleString(undefined,{minimumFractionDigits:2})}</div>
                     </div>
                   ) : (
                     <button onClick={loadDeliverQr} disabled={deliverQrLoading}

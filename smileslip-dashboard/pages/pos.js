@@ -9,6 +9,8 @@ import { MARKET_PRICE_FEATURE_LIVE } from '../lib/market-price-flag';
 
 const UNITS = ['ชิ้น', 'อัน', 'กล่อง', 'แพ็ก', 'ขวด', 'ถัง', 'ถุง', 'กก.', 'กรัม', 'ลิตร', 'มล.', 'เมตร', 'คู่', 'ชุด', 'โหล', 'แผ่น', 'มัด', 'หัว', 'ลูก', 'ท่อน', 'แท่ง', 'ห่อ', 'เส้น', 'จาน', 'ชาม', 'แก้ว'];
 const PAY_METHODS = ['เงินสด', 'โอน', 'บัตรเครดิต', 'QR Code', 'เชื่อ'];
+// หมวดหมู่รายจ่ายที่พบบ่อย — กดเลือกแทนพิมพ์เอง (ยังพิมพ์/แก้เพิ่มเองได้เหมือนเดิม ไม่ใช่ dropdown บังคับ)
+const EXPENSE_CATEGORIES = ['ค่าเช่าร้าน', 'ค่าน้ำ', 'ค่าไฟ', 'ค่าน้ำมัน/ขนส่ง', 'เงินเดือนพนักงาน', 'ค่าโทรศัพท์/อินเทอร์เน็ต', 'ค่าซ่อมบำรุง', 'ค่าวัสดุสิ้นเปลือง', 'ค่าการตลาด/โฆษณา'];
 const CONTACT_TYPES = ['ผู้จำหน่าย', 'ลูกค้า', 'ทั้งคู่'];
 
 function emptyProdForm() {
@@ -3537,9 +3539,19 @@ export default function POSPage() {
 
                   <div>
                     <label className="block text-gray-400 text-xs mb-1.5">รายการ/หมวดหมู่</label>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {EXPENSE_CATEGORIES.map(cat => (
+                        <button key={cat} type="button" onClick={() => setExpenseForm(f => ({ ...f, label: cat }))}
+                          className={`text-xs px-3 py-1.5 rounded-full transition-colors ${
+                            expenseForm.label === cat ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                          }`}>
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
                     <input type="text" value={expenseForm.label}
                       onChange={e => setExpenseForm(f => ({ ...f, label: e.target.value }))}
-                      placeholder="เช่น ค่าเช่าร้าน, ค่าน้ำมันรถส่งของ"
+                      placeholder="เช่น ค่าเช่าร้าน, ค่าน้ำมันรถส่งของ หรือกดเลือกจากด้านบน"
                       className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
                   </div>
 
@@ -4923,6 +4935,28 @@ export default function POSPage() {
                           <div className="text-gray-400 text-xs mt-1">VAT ที่จ่ายไป</div>
                         </div>
                       </div>
+
+                      {reportData.category_breakdown?.length > 0 && (() => {
+                        const maxCat = Math.max(...reportData.category_breakdown.map(c => c.total), 1);
+                        return (
+                          <div className="bg-gray-900 rounded-xl p-4">
+                            <h3 className="text-white text-sm font-bold mb-3">📊 รายจ่ายแยกตามหมวดหมู่</h3>
+                            <div className="space-y-2.5">
+                              {reportData.category_breakdown.map(c => (
+                                <div key={c.label}>
+                                  <div className="flex items-center justify-between text-xs mb-1">
+                                    <span className="text-gray-300 truncate">{c.label}</span>
+                                    <span className="text-red-400 font-bold shrink-0 ml-2">฿{c.total.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                                  </div>
+                                  <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                                    <div className="h-full bg-red-500 rounded-full" style={{ width: `${Math.max(3, (c.total / maxCat) * 100)}%` }} />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       <div className="bg-gray-900 rounded-xl overflow-hidden">
                         <div className="divide-y divide-gray-800">

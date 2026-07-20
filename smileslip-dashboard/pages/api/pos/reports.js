@@ -465,9 +465,20 @@ export default async function handler(req, res) {
 
       if (branch) expenses = expenses.filter(e => e.branch === branch);
 
+      // สรุปยอดรวมต่อหมวดหมู่ (label) เรียงมากไปน้อย — ให้เห็นว่ารายจ่ายอะไรเยอะสุด
+      const byCategory = {};
+      for (const e of expenses) {
+        const key = e.label.trim() || 'ไม่ระบุ';
+        byCategory[key] = (byCategory[key] || 0) + e.total;
+      }
+      const categoryBreakdown = Object.entries(byCategory)
+        .map(([label, total]) => ({ label, total: Math.round(total * 100) / 100 }))
+        .sort((a, b) => b.total - a.total);
+
       return res.json({
         type: 'expenses',
         expenses: expenses.reverse(),
+        category_breakdown: categoryBreakdown,
         summary: {
           count: expenses.length,
           total: expenses.reduce((a, e) => a + e.total, 0),
