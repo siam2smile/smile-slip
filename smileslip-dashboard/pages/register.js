@@ -6,11 +6,11 @@ import Link from 'next/link';
 import {
   Store, Phone, MapPin, Mail, Lock, Eye, EyeOff,
   ChevronRight, CheckCircle2, MessageCircle, Building2,
-  Hash, Landmark, CreditCard, ShieldCheck
+  Hash, Landmark, ShieldCheck
 } from 'lucide-react';
-import { PROVINCES, DISTRICTS, BANKS } from '../data/thailand-address';
+import { PROVINCES, DISTRICTS } from '../data/thailand-address';
 
-const STEP_LABELS = ['ข้อมูลธุรกิจ', 'ที่อยู่ & ติดต่อ', 'ธนาคาร & รหัสผ่าน'];
+const STEP_LABELS = ['ข้อมูลธุรกิจ', 'ที่อยู่ & ติดต่อ', 'ตั้งรหัสผ่าน'];
 
 export default function Register() {
   const router = useRouter();
@@ -28,7 +28,6 @@ export default function Register() {
     shopName: '', taxId: '', branch: 'สำนักงานใหญ่',
     phone: '', email: '', password: '', confirmPassword: '',
     addressDetail: '', subDistrict: '', district: '', province: '', postalCode: '',
-    bankName: '', bankAccountName: '', bankAccountNumber: '', bankAccountType: 'ออมทรัพย์'
   });
 
   const { userId, name, ref: referralCode } = router.query;
@@ -286,64 +285,21 @@ export default function Register() {
                     setStep(3);
                   }}
                   className="flex-[2] py-3 bg-blue-900 hover:bg-blue-700 text-white rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all shadow-lg">
-                  ถัดไป: บัญชีธนาคาร <ChevronRight size={18}/>
+                  ถัดไป: ตั้งรหัสผ่าน <ChevronRight size={18}/>
                 </button>
               </div>
             </div>
           )}
 
-          {/* ═══ STEP 3: ธนาคาร + รหัสผ่าน + Consent ═══ */}
+          {/* ═══ STEP 3: รหัสผ่าน + Consent ═══
+              เดิมมีช่องกรอกบัญชีธนาคารร้านอยู่ในหน้านี้ด้วย — เอาออกแล้วตามที่ผู้ใช้ขอ (2026-07-20)
+              เพื่อให้สมัครง่ายที่สุด ลูกค้าไปกรอกบัญชีธนาคารเองทีหลังได้ที่ Dashboard → ตั้งค่า */}
           {step === 3 && (
             <form onSubmit={handleSubmit} className="space-y-5 animate-in fade-in duration-300">
-              {/* Bank Account */}
-              <div>
-                <h2 className="text-lg font-black text-slate-900 flex items-center gap-2 mb-1">
-                  <Landmark size={20} className="text-blue-600"/> บัญชีธนาคารรับเงิน
-                </h2>
-                <p className="text-slate-400 text-xs">สำหรับแสดงใน Dashboard (แก้ไขได้ภายหลัง)</p>
-              </div>
-
-              <div>
-                <label className={labelClass}>ธนาคาร</label>
-                <select className={`${inputClass} cursor-pointer`}
-                  value={formData.bankName} onChange={set('bankName')}>
-                  <option value="">-- เลือกธนาคาร (ถ้ามี) --</option>
-                  {BANKS.map(b => <option key={b} value={b}>{b}</option>)}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={labelClass}>ชื่อบัญชี (ชื่อสำหรับรับเงิน)</label>
-                  <input placeholder="ชื่อ-นามสกุล / ชื่อร้าน"
-                    className={inputClass}
-                    value={formData.bankAccountName} onChange={set('bankAccountName')}/>
-                </div>
-                <div>
-                  <label className={labelClass}>เลขบัญชี</label>
-                  <input placeholder="xxx-x-xxxxx-x" maxLength={20}
-                    className={`${inputClass} font-mono`}
-                    value={formData.bankAccountNumber} onChange={set('bankAccountNumber')}/>
-                </div>
-              </div>
-
-              <div>
-                <label className={labelClass}>ประเภทบัญชี</label>
-                <div className="flex gap-2">
-                  {['ออมทรัพย์', 'กระแสรายวัน'].map(t => (
-                    <button key={t} type="button"
-                      onClick={() => setFormData(prev => ({...prev, bankAccountType: t}))}
-                      className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all border-2 ${formData.bankAccountType === t ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-100 bg-slate-50 text-slate-400'}`}>
-                      {t}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               {/* Password */}
-              <div className="border-t border-slate-100 pt-5">
-                <h3 className="text-sm font-black text-slate-900 flex items-center gap-2 mb-4">
-                  <Lock size={16} className="text-blue-600"/> ตั้งรหัสผ่าน (สำหรับ login ด้วย Email)
+              <div>
+                <h3 className="text-lg font-black text-slate-900 flex items-center gap-2 mb-4">
+                  <Lock size={20} className="text-blue-600"/> ตั้งรหัสผ่าน (สำหรับ login ด้วย Email)
                 </h3>
                 <div className="space-y-3">
                   <div>

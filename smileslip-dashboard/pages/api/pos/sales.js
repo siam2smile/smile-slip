@@ -178,6 +178,25 @@ export default async function handler(req, res) {
         shopName, branchName, slipUrl: '', slipSender: '', slipRefNo: '',
       });
 
+      // ลดยอดค้างชำระของผู้ติดต่อกลับลง (ตอนขายเชื่อเคยบวกยอดนี้ไว้แล้ว — ดู POST ด้านล่าง)
+      if (sale.customer_id) {
+        try {
+          await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
+          const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:X');
+          const custDataRows = custRows.slice(1);
+          const custIdx = custDataRows.findIndex(r => r[0] === sale.customer_id);
+          if (custIdx !== -1) {
+            const custExisting = [...custDataRows[custIdx]];
+            while (custExisting.length < 24) custExisting.push('');
+            custExisting[13] = Math.max(0, (parseFloat(custExisting[13]) || 0) - sale.total); // ยอดค้างชำระ
+            custExisting[19] = now; // updated_at
+            await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
+          }
+        } catch (debtErr) {
+          console.error('[pos/sales] settle credit debt error:', debtErr.message);
+        }
+      }
+
       return res.json({ ok: true });
     }
 
@@ -289,8 +308,10 @@ export default async function handler(req, res) {
           dataRows[idx] = existing;
         }
 
-        // อัปเดตยอด "ถังอยู่กับลูกค้า" ของผู้ติดต่อ (ถ้าเลือกลูกค้าไว้ตอนขาย) + เช็ควงเงินยืมสูงสุด (soft warning)
-        if (customerId && netCylinderDeltaForCustomer !== 0) {
+        // อัปเดตยอด "ถังอยู่กับลูกค้า" + "ยอดค้างชำระ" ของผู้ติดต่อ (ถ้าเลือกลูกค้าไว้ตอนขาย)
+        // isCredit ต้องอัปเดต debt ด้วยเสมอ — เดิมขายเชื่อไม่เคยแตะคอลัมน์นี้เลย (บั๊กจริง: ยอดค้างชำระ
+        // ไม่ขึ้นที่หน้าผู้ติดต่อ/สรุปรวม ทั้งที่บิลถูกบันทึกเป็น "ค้างชำระ" ใน POS Sheets แล้วก็ตาม)
+        if (customerId && (netCylinderDeltaForCustomer !== 0 || isCredit)) {
           await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
           const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:X');
           const custDataRows = custRows.slice(1);
@@ -300,6 +321,9 @@ export default async function handler(req, res) {
             while (custExisting.length < 24) custExisting.push('');
             const newCylinders = Math.max(0, (parseFloat(custExisting[14]) || 0) + netCylinderDeltaForCustomer);
             custExisting[14] = newCylinders; // ถังอยู่กับลูกค้า
+            if (isCredit) {
+              custExisting[13] = (parseFloat(custExisting[13]) || 0) + total; // ยอดค้างชำระ
+            }
             custExisting[19] = now; // updated_at
             const limit = parseFloat(custExisting[23]) || 0;
             if (limit > 0 && newCylinders > limit) {

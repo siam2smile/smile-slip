@@ -346,40 +346,62 @@ export default async function handler(req, res) {
         existing[15] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
         if (confirmed_by !== undefined) existing[16] = confirmed_by;
 
-        // อัปเดตสต็อคสินค้าหมุนเวียนที่ลูกค้าคืนถังเปล่ามา + ลดยอดถังค้างที่ลูกค้า
+        // อัปเดตสต็อคสินค้าหมุนเวียน + ยอดถังอยู่กับลูกค้า — mirror ตรรกะเดียวกับ api/pos/sales.js checkout
+        // เดิมโค้ดนี้ทำงานเฉพาะตอนมี returnedQty>0 (ลูกค้าคืนถังมา) เท่านั้น ทำให้:
+        //   (1) เคสยืมล้วนๆ (returned_qty=0/ไม่ส่งมา) ไม่ถูกนับเป็น "กับลูกค้า" ที่สินค้าเลย (at_customer ค้างเดิม)
+        //   (2) contact.cylinders ถูกลบด้วย returnedTotal ตรงๆ ทั้งที่ไม่เคยถูกบวกเพิ่มตอนส่งของเลยสักครั้ง
+        // แก้โดยไล่ทุกรายการสินค้าหมุนเวียนในออเดอร์เสมอ คำนวณ netBorrow = qty - returnedQty ต่อชิ้น
+        // แล้วอัปเดตทั้งสต็อคสินค้า (เต็ม/กับลูกค้า/เปล่ารอรีฟิล) และยอดถังของลูกค้าด้วยผลสุทธิจริง
         const cust = customer_id !== undefined ? customer_id : existing[2];
-        const returnedTotal = (items || []).reduce((sum, i) => sum + (parseInt(i.returned_qty) || 0), 0);
+        let netCylinderDeltaForCustomer = 0;
 
         if (Array.isArray(items) && items.length) {
           try {
             const prodRows = await readSheet(token, sheetId, 'สินค้า!A:R');
             const prodDataRows = prodRows.slice(1);
             for (const item of items) {
-              const returnedQty = parseInt(item.returned_qty) || 0;
-              if (returnedQty <= 0 || !item.sku) continue;
+              if (!item.sku) continue;
               const pIdx = prodDataRows.findIndex(r => r[0] === item.sku);
               if (pIdx === -1) continue;
               const prod = rowToProduct(prodDataRows[pIdx]);
               if (prod.type !== 'หมุนเวียน') continue;
+
+              const returnedQty = parseInt(item.returned_qty) || 0;
+              const qty = parseInt(item.qty) || 0;
+              const netBorrow = qty - returnedQty;
+
               const prodExisting = [...prodDataRows[pIdx]];
               while (prodExisting.length < 18) prodExisting.push('');
-              prodExisting[12] = (prod.empty_waiting || 0) + returnedQty; // เปล่ารอรีฟิล
-              prodExisting[9] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+              prodExisting[5]  = Math.max(0, (parseFloat(prodExisting[5]) || 0) - qty); // เต็ม — ออกจากร้านไปกับลูกค้า
+              prodExisting[11] = Math.max(0, (parseFloat(prodExisting[11]) || 0) + netBorrow); // กับลูกค้า สุทธิ
+              prodExisting[12] = (parseFloat(prodExisting[12]) || 0) + returnedQty; // เปล่ารอรีฟิล
+              prodExisting[9]  = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
               await updateSheetRow(token, sheetId, 'สินค้า', pIdx + 2, prodExisting);
               prodDataRows[pIdx] = prodExisting;
+              netCylinderDeltaForCustomer += netBorrow;
 
-              await logCyclicalTransaction(token, sheetId, {
-                sku: item.sku, name: item.name || prod.name, source: 'จัดส่ง', action: 'คืน',
-                qty: returnedQty, customerId: cust, customerName: existing[3],
-                performedBy: confirmed_by,
-              });
+              if (returnedQty > 0) {
+                await logCyclicalTransaction(token, sheetId, {
+                  sku: item.sku, name: item.name || prod.name, source: 'จัดส่ง',
+                  action: netBorrow > 0 ? 'แลกเปลี่ยน' : 'คืน',
+                  qty: returnedQty, customerId: cust, customerName: existing[3],
+                  performedBy: confirmed_by,
+                });
+              }
+              if (netBorrow > 0) {
+                await logCyclicalTransaction(token, sheetId, {
+                  sku: item.sku, name: item.name || prod.name, source: 'จัดส่ง', action: 'ยืม',
+                  qty: netBorrow, customerId: cust, customerName: existing[3],
+                  performedBy: confirmed_by,
+                });
+              }
             }
           } catch (prodErr) {
-            console.error('[delivery] update product empty_waiting error:', prodErr.message);
+            console.error('[delivery] update product cyclical stock error:', prodErr.message);
           }
         }
 
-        if (returnedTotal > 0 && cust) {
+        if (netCylinderDeltaForCustomer !== 0 && cust) {
           try {
             await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
             const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:W');
@@ -389,12 +411,12 @@ export default async function handler(req, res) {
               const custRow = rowToContact(custDataRows[custIdx]);
               const custExisting = [...custDataRows[custIdx]];
               while (custExisting.length < 23) custExisting.push('');
-              custExisting[14] = Math.max(0, (custRow.cylinders || 0) - returnedTotal); // ถังอยู่กับลูกค้า
+              custExisting[14] = Math.max(0, (custRow.cylinders || 0) + netCylinderDeltaForCustomer); // ถังอยู่กับลูกค้า
               custExisting[19] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
               await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
             }
           } catch (custErr) {
-            console.error('[delivery] update customer cylinders on return error:', custErr.message);
+            console.error('[delivery] update customer cylinders error:', custErr.message);
           }
         }
       }

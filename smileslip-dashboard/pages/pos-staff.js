@@ -20,6 +20,7 @@ export default function PosStaffPage() {
   const [pinLoading, setPinLoading] = useState(false);
   const [shopName, setShopName] = useState('');
   const [staffName, setStaffName] = useState('');
+  const [staffBranch, setStaffBranch] = useState(''); // สาขาที่พนักงานคนนี้ผูกอยู่ (ตั้งค่าจากตอนอนุมัติ/เพิ่มพนักงาน)
   const [staffId, setStaffId] = useState(''); // staff_id ของคนที่ login สำเร็จ (ใช้ผูกกับ PIN)
 
   // ── ตั้งรหัส PIN ครั้งแรก (มาจากลิงก์ที่ส่งทาง LINE หลังได้รับอนุมัติ/แอดมินเพิ่ม) ──────
@@ -127,6 +128,7 @@ export default function PosStaffPage() {
       const d = await r.json();
       if (d.ok) {
         setStaffName(d.staff?.name || '');
+        setStaffBranch(d.staff?.branch_name || '');
         setStaffId(d.staff?.staff_id || '');
         fetchBills();
         fetchProducts();
@@ -515,7 +517,11 @@ export default function PosStaffPage() {
         <header className="bg-gray-900 border-b border-gray-800 px-5 py-4 flex items-center justify-between shrink-0">
           <div>
             <div className="text-white font-bold text-sm">🛒 Staff POS</div>
-            {shopName && <div className="text-gray-400 text-xs">{shopName}</div>}
+            {shopName && (
+              <div className="text-gray-400 text-xs">
+                {shopName}{staffBranch ? ` · ${staffBranch}` : ''}
+              </div>
+            )}
           </div>
           {step !== 'pin' && step !== 'setpin' && (
             <button onClick={() => { setStep('pin'); setPin(''); setBills([]); }}

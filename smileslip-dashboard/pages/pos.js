@@ -3878,8 +3878,16 @@ export default function POSPage() {
             const now = new Date();
             const startOfWeek = new Date(now); startOfWeek.setDate(now.getDate() - now.getDay()); startOfWeek.setHours(0,0,0,0);
             const displayTasks = collectionTasks.filter(t => {
-              if (collectStatusFilter === 'pending' && t.status !== 'รอดำเนินการ') return false;
-              if (collectStatusFilter === 'done' && t.status === 'รอดำเนินการ') return false;
+              // งานที่พนักงานยืนยัน "เก็บสำเร็จ" แล้ว ยังไม่ถือว่า "เสร็จแล้ว" จนกว่าแอดมินจะกดยืนยัน
+              // รับเงิน/รับของเข้าร้านครบทุกอย่างที่เกี่ยวข้องก่อน (สองชั้นกันเงิน/ของหาย) — เดิมย้ายไปโชว์ว่า
+              // "เสร็จแล้ว" ทันทีที่พนักงานตอบ ทั้งที่แอดมินยังไม่ได้กดยืนยันรับเข้าร้านเลย
+              const isFullyDone = t.status === 'เก็บไม่ได้' || (
+                t.status === 'เก็บสำเร็จ' &&
+                (!(t.collected_amount > 0) || t.cash_received) &&
+                (!(t.collected_items?.length > 0) || t.goods_received)
+              );
+              if (collectStatusFilter === 'pending' && isFullyDone) return false;
+              if (collectStatusFilter === 'done' && !isFullyDone) return false;
               if (collectDateFilter !== 'all') {
                 const d = parseThaiOrderDate(t.created_at);
                 if (!d) return false;

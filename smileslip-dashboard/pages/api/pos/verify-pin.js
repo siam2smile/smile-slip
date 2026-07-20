@@ -64,7 +64,7 @@ export default async function handler(req, res) {
 
     clearFailedAttempts(shopId);
     const staff = rowToStaff(staffRow);
-    return res.json({ ok: true, hasSheet: !!pc.pos_sheet_id, staff: { staff_id: staff.staff_id, name: staff.name, role: staff.role, line_id: staff.line_id } });
+    return res.json({ ok: true, hasSheet: !!pc.pos_sheet_id, staff: { staff_id: staff.staff_id, name: staff.name, role: staff.role, line_id: staff.line_id, branch_name: staff.branch_name } });
   } catch (err) {
     console.error('[verify-pin]', err.message);
     return res.status(500).json({ error: err.message });
