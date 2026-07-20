@@ -431,6 +431,8 @@ export default function POSPage() {
   const [newBillCust, setNewBillCust] = useState(null); // ลูกค้าที่เลือกสำหรับบิลใหม่
   const [newBillCustQ, setNewBillCustQ] = useState(''); // query ค้นหาลูกค้าในโมดัลเปิดบิล
   const [tableNames, setTableNames] = useState([]); // ชื่อโต๊ะที่ตั้งค่าไว้ใน settings
+  const [showBillsSidebar, setShowBillsSidebar] = useState(false); // แผงขยายรายการบิลที่เปิดค้างอยู่ + ค้นหา (เมื่อมีบิลเยอะ)
+  const [billsSidebarQ, setBillsSidebarQ] = useState('');
   const [tableNamesInput, setTableNamesInput] = useState(''); // สำหรับ settings form
 
   function setActiveBillId(id) {
@@ -2819,6 +2821,15 @@ export default function POSPage() {
 
                 {/* ── Bills bar (multi-table) ──────────────────────────── */}
                 <div className="shrink-0 bg-gray-900 border-b border-gray-800 px-3 py-2 flex items-center gap-2 overflow-x-auto scrollbar-hide">
+                  {openBills.length > 3 && (
+                    <button
+                      onClick={() => setShowBillsSidebar(true)}
+                      title="ค้นหา/ดูบิลทั้งหมด"
+                      className="shrink-0 flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold text-blue-300 hover:text-white hover:bg-blue-900/50 border border-blue-800 transition-colors"
+                    >
+                      🔍 ทั้งหมด ({openBills.length})
+                    </button>
+                  )}
                   {openBills.map(bill => {
                     const isActive = bill.id === activeBillId;
                     const itemCount = (bill.items || []).reduce((s, i) => s + i.qty, 0);
@@ -2854,6 +2865,60 @@ export default function POSPage() {
                     <span>บิลใหม่</span>
                   </button>
                 </div>
+
+                {/* ── แผงขยายรายการบิลที่เปิดค้างอยู่ทั้งหมด + ค้นหา (สำหรับตอนมีบิลเยอะหาไม่เจอ) ── */}
+                {showBillsSidebar && (
+                  <div className="fixed inset-0 z-[70] bg-black/60 flex justify-end" onClick={() => setShowBillsSidebar(false)}>
+                    <div className="bg-gray-900 w-full max-w-xs h-full flex flex-col border-l border-gray-800" onClick={e => e.stopPropagation()}>
+                      <div className="p-4 border-b border-gray-800 flex items-center justify-between shrink-0">
+                        <h3 className="text-white font-bold">🪑 บิลที่เปิดอยู่ ({openBills.length})</h3>
+                        <button onClick={() => setShowBillsSidebar(false)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+                      </div>
+                      <div className="p-3 border-b border-gray-800 shrink-0">
+                        <input autoFocus value={billsSidebarQ} onChange={e => setBillsSidebarQ(e.target.value)}
+                          placeholder="ค้นหาชื่อบิล/ชื่อลูกค้า..."
+                          className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                      </div>
+                      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                        {openBills
+                          .filter(b => {
+                            const q = billsSidebarQ.trim().toLowerCase();
+                            if (!q) return true;
+                            return (b.name || '').toLowerCase().includes(q) || (b.customer_name || '').toLowerCase().includes(q);
+                          })
+                          .map(bill => {
+                            const isActive = bill.id === activeBillId;
+                            const itemCount = (bill.items || []).reduce((s, i) => s + i.qty, 0);
+                            const billTotal = (bill.items || []).reduce((s, i) => s + i.price * i.qty, 0);
+                            return (
+                              <div key={bill.id}
+                                onClick={() => { switchBill(bill.id); setShowBillsSidebar(false); setBillsSidebarQ(''); }}
+                                className={`p-3 rounded-xl cursor-pointer border transition-colors flex items-center justify-between gap-2 ${
+                                  isActive ? 'bg-green-600 border-green-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+                                }`}>
+                                <div className="min-w-0">
+                                  <div className="font-bold text-sm truncate">{bill.name}</div>
+                                  {bill.customer_name && <div className="text-xs opacity-70 truncate">{bill.customer_name}</div>}
+                                  <div className="text-xs opacity-70">{itemCount} รายการ</div>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className="font-bold text-sm">฿{billTotal.toLocaleString()}</span>
+                                  <button onClick={(e) => closeBill(bill.id, e)} className="hover:text-red-400 transition-colors">✕</button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        {openBills.filter(b => {
+                          const q = billsSidebarQ.trim().toLowerCase();
+                          if (!q) return true;
+                          return (b.name || '').toLowerCase().includes(q) || (b.customer_name || '').toLowerCase().includes(q);
+                        }).length === 0 && (
+                          <div className="text-center text-gray-500 text-sm py-8">ไม่พบบิลที่ตรงกับคำค้นหา</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* ── ถ้าไม่มีบิลเปิด: empty state ──────────────────── */}
                 {!activeBillId && (
