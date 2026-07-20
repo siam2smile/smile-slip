@@ -34,7 +34,7 @@ import {
   getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
   makeReceiveNo, rowToReceive, rowToProduct, RECEIVE_HEADERS,
 } from '../../../lib/google-pos';
-import { getShopDistrictProvince, checkProcurementFraud, insertAnonymousMarketPrices } from '../../../lib/market-price';
+import { getShopDistrictProvince, checkProcurementFraud, insertAnonymousMarketPrices, MARKET_PRICE_FEATURE_LIVE } from '../../../lib/market-price';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -235,6 +235,10 @@ export default async function handler(req, res) {
 
       // Market Price Index + Procurement Fraud Detection (v1 retail-only, fail-safe เสมอ)
       // — ดูรายละเอียดการตัดสินใจ/สิ่งที่ยังไม่ชัวร์ใน CLAUDE.md ข้อ 30
+      // เก็บข้อมูล/ตรวจ red flag ทำงานเบื้องหลังเสมอไม่ว่า MARKET_PRICE_FEATURE_LIVE จะเป็นอะไร
+      // (รอทนายยืนยันเรื่อง anti-trust ก่อนถึงจะ "เปิด" ให้ลูกค้าเห็นผลลัพธ์ — ข้อมูลต้องสะสมไว้รอ
+      // ระหว่างนี้แล้ว ไม่ใช่เริ่มนับตอนเปิดใช้งานจริง) — ที่ตัดคือแค่ตอนส่ง response กลับ ไม่ส่ง warnings
+      // ออกไปให้ frontend โชว์ toast จนกว่าจะเปิดใช้งานจริง
       let warnings = [];
       try {
         const { district, province } = await getShopDistrictProvince(shopId);
@@ -252,7 +256,7 @@ export default async function handler(req, res) {
         console.error('[pos/receives] market-price error:', marketErr.message);
       }
 
-      return res.json({ ok: true, receiveNo, subtotal: roundedSubtotal, vatTotal: roundedVat, totalCost: grandTotal, itemCount: items.length, warnings });
+      return res.json({ ok: true, receiveNo, subtotal: roundedSubtotal, vatTotal: roundedVat, totalCost: grandTotal, itemCount: items.length, warnings: MARKET_PRICE_FEATURE_LIVE ? warnings : [] });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });

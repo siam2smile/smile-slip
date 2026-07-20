@@ -84,16 +84,24 @@ async function ocrWithGemini(imageBase64, mimeType) {
             { text: prompt },
             { inline_data: { mime_type: mimeType, data: imageBase64 } },
           ]}],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 256 },
+          // maxOutputTokens ต้องสูงพอสำหรับ "thinking token" ภายในของ gemini-3.5-flash เสมอ
+          // (256 เดิมเสี่ยงตัด JSON กลางคันเงียบๆ — พิสูจน์แล้วจริงกับ maxOutputTokens ต่ำแบบเดียวกันใน market-price.js/detectCategory)
+          generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
         }),
       }
     );
     const data = await res.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    // รวมทุก part เข้าด้วยกัน — Gemini บางครั้งแบ่งเอาต์พุตเป็นหลาย part ในคำตอบเดียว
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    const text = parts.map(p => p.text || '').join('');
     const match = text.match(/\{[\s\S]*?\}/);
-    if (!match) return null;
+    if (!match) {
+      console.error('[process-slip] Gemini ไม่ตอบ JSON ที่ใช้ได้ — finishReason:', data.candidates?.[0]?.finishReason, 'text:', text.slice(0, 200));
+      return null;
+    }
     return JSON.parse(match[0]);
-  } catch {
+  } catch (err) {
+    console.error('[process-slip] ocrWithGemini error:', err.message);
     return null;
   }
 }

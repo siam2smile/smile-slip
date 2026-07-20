@@ -599,14 +599,19 @@ ${cats.join(' | ')}
 
 ถ้าไม่แน่ใจให้ตอบ: ${isIncome ? 'รายรับอื่นๆ' : 'อื่นๆ'}`;
 
+    // maxOutputTokens ต้องสูงพอสำหรับ "thinking token" ภายในของ gemini-3.5-flash (เผื่อ token
+    // คิดก่อนตอบเสมอ แม้คำตอบจริงจะสั้นแค่คำเดียว — 32 เดิมน้อยเกินไป ทำให้ finishReason เป็น
+    // MAX_TOKENS ตัดคำตอบก่อนจบ (พิสูจน์แล้วจริงตอนแก้บั๊กเดียวกันใน market-price.js)
     const res = await axios.post(url,
-      { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0, maxOutputTokens: 32 } },
-      { headers: { 'Content-Type': 'application/json' }, timeout: 5000 }
+      { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0, maxOutputTokens: 1024 } },
+      { headers: { 'Content-Type': 'application/json' }, timeout: 8000 }
     );
-    const raw = res.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    // รวมทุก part เข้าด้วยกัน — Gemini บางครั้งแบ่งเอาต์พุตเป็นหลาย part ในคำตอบเดียว
+    const parts = res.data?.candidates?.[0]?.content?.parts || [];
+    const raw = parts.map(p => p.text || '').join('').trim();
     const matched = cats.find(c => raw.includes(c));
     const result  = matched || (isIncome ? 'รายรับอื่นๆ' : 'อื่นๆ');
-    console.log(`[LOG] 🏷️ หมวดหมู่: "${result}" (raw: "${raw}")`);
+    console.log(`[LOG] 🏷️ หมวดหมู่: "${result}" (raw: "${raw}", finishReason: "${res.data?.candidates?.[0]?.finishReason}")`);
     return result;
   } catch (e) {
     console.warn('[WARN] detectCategory ขัดข้อง (ข้าม):', e.message);

@@ -10,7 +10,14 @@
  *   เก็บได้แค่ shop_hash (sha256 ทางเดียว ผูก salt ลับ) ไว้นับ COUNT(DISTINCT) เท่านั้น
  * - นับเข้าตารางกลางเฉพาะรายการที่มีรูปแนบ (verified) เท่านั้น — คีย์มือเปล่าๆ ไม่มีรูปข้าม
  * - เกณฑ์ 5 ร้านขึ้นไปต่ออำเภอ ถึงจะคำนวณราคากลางระดับอำเภอ ไม่พอ fallback ไปจังหวัด
+ *
+ * MARKET_PRICE_FEATURE_LIVE (ดู lib/market-price-flag.js) — สวิตช์เดียวคุมว่า "เปิดให้ลูกค้าเห็นผลลัพธ์"
+ * หรือยัง แยกไฟล์ต่างหากเพื่อให้ pages/pos.js (client) import ได้ตรงๆ โดยไม่ดึงโค้ดฝั่งเซิร์ฟเวอร์ไฟล์นี้
+ * เข้าไปใน client bundle — ฟังก์ชันเก็บข้อมูล/ตรวจ red flag ในไฟล์นี้ทำงานเบื้องหลังเสมอไม่ขึ้นกับ flag นี้
+ * (flag นี้ใช้แค่ตอน response กลับที่ api/pos/receives.js เท่านั้น)
  */
+export { MARKET_PRICE_FEATURE_LIVE } from './market-price-flag';
+
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 

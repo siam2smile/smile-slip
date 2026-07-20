@@ -5,6 +5,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
+import { MARKET_PRICE_FEATURE_LIVE } from '../lib/market-price-flag';
 
 const UNITS = ['ชิ้น', 'อัน', 'กล่อง', 'แพ็ก', 'ขวด', 'ถัง', 'ถุง', 'กก.', 'กรัม', 'ลิตร', 'มล.', 'เมตร', 'คู่', 'ชุด', 'โหล', 'แผ่น', 'มัด', 'หัว', 'ลูก', 'ท่อน', 'แท่ง', 'ห่อ', 'เส้น', 'จาน', 'ชาม', 'แก้ว'];
 const PAY_METHODS = ['เงินสด', 'โอน', 'บัตรเครดิต', 'QR Code', 'เชื่อ'];
@@ -4255,7 +4256,9 @@ export default function POSPage() {
                     { key: 'cyclical',   label: '🔄 สินค้าหมุนเวียน' },
                     { key: 'vat',        label: '🧾 ภาษี VAT' },
                     { key: 'expenses',   label: '💸 รายจ่าย' },
-                    { key: 'fraud',      label: '🚩 ราคาผิดปกติ' },
+                    // ซ่อนแท็บนี้จนกว่าทนายจะยืนยันเรื่อง anti-trust/price-signaling (ดู CLAUDE.md ข้อ 30)
+                    // — ข้อมูลเบื้องหลังยังสะสมอยู่ปกติ แค่ไม่โชว์ให้ร้านเห็นจนกว่า MARKET_PRICE_FEATURE_LIVE เป็น true
+                    ...(MARKET_PRICE_FEATURE_LIVE ? [{ key: 'fraud', label: '🚩 ราคาผิดปกติ' }] : []),
                   ].map(r => (
                     <button key={r.key}
                       onClick={() => { setReportType(r.key); fetchReport(r.key, reportDateFrom, reportDateTo); }}
