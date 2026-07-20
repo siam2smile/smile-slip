@@ -113,6 +113,11 @@ async function isRecentDuplicateImage(hash, shopId) {
 
 // Awaiting-receive-photo guard: ผู้ใช้พิมพ์ #รับสินค้า แล้วรอส่งรูปใบส่งของถัดไป (TTL 10 นาที)
 // Redis: SET EX ธรรมดา (ไม่ใช่ NX เพราะต้อง "อ่านค่าคืน" ตอน consume ไม่ใช่แค่เช็คว่ามีอยู่หรือไม่)
+// PEEK ไม่ลบ (2026-07-20 แก้บั๊ก): เดิม consume-once (อ่านแล้วลบทันที) ทำให้ส่งรูปเป็นอัลบั้มหลายใบ
+// (LINE ส่งเป็นหลาย event แยกกัน) รูปที่ 2 เป็นต้นไปหลุดไปเข้า flow สแกนสลิปปกติ เพราะ state ถูกลบไปแล้ว
+// ตั้งแต่รูปแรก — เปลี่ยนเป็นอ่านอย่างเดียว ปล่อยให้หมดอายุเองตาม TTL 10 นาที (Redis EX / in-memory ts check
+// ด้านล่าง) แทน เพื่อให้ทุกรูปที่ส่งภายใน 10 นาทีถูกจับเข้าคิว "รอตรวจสอบ" ได้ครบ (ยังต้องผ่านแอดมินยืนยันอยู่ดี
+// ก่อนตัดสต็อค/บันทึกจริง จึงไม่เสี่ยงข้อมูลผิดพลาดแม้จะจับรูปเกินจำเป็นในบางเคส)
 const awaitingReceiveCache = new Map(); // fallback in-memory: userId -> { shopId, branchName, ts }
 async function setAwaitingReceive(userId, shopId, branchName) {
   const value = JSON.stringify({ shopId, branchName: branchName || '' });
@@ -127,7 +132,6 @@ async function consumeAwaitingReceive(userId) {
   if (redis) {
     try {
       const raw = await redis.get(`awaitrecv:${userId}`);
-      if (raw) await redis.del(`awaitrecv:${userId}`);
       if (!raw) return null;
       return typeof raw === 'string' ? JSON.parse(raw) : raw; // upstash SDK บางเวอร์ชัน auto-parse ให้แล้ว
     } catch (e) {
@@ -140,12 +144,12 @@ async function consumeAwaitingReceive(userId) {
   }
   const entry = awaitingReceiveCache.get(userId);
   if (!entry) return null;
-  awaitingReceiveCache.delete(userId);
   return { shopId: entry.shopId, branchName: entry.branchName };
 }
 
 // Awaiting-expense-photo guard: ผู้ใช้พิมพ์ #รายจ่าย แล้วรอส่งรูปบิล/สลิปค่าใช้จ่ายถัดไป (TTL 10 นาที)
 // คนละ key/คนละ cache จาก awaitingReceive เจตนาแยกกันชัดเจน — กันสับสนว่ารูปถัดไปคือรับสินค้าหรือรายจ่าย
+// PEEK ไม่ลบ เหตุผลเดียวกับ awaitingReceive ด้านบน (รองรับอัลบั้มหลายรูป)
 const awaitingExpenseCache = new Map(); // fallback in-memory: userId -> { shopId, branchName, ts }
 async function setAwaitingExpense(userId, shopId, branchName) {
   const value = JSON.stringify({ shopId, branchName: branchName || '' });
@@ -160,7 +164,6 @@ async function consumeAwaitingExpense(userId) {
   if (redis) {
     try {
       const raw = await redis.get(`awaitexp:${userId}`);
-      if (raw) await redis.del(`awaitexp:${userId}`);
       if (!raw) return null;
       return typeof raw === 'string' ? JSON.parse(raw) : raw;
     } catch (e) {
@@ -173,7 +176,6 @@ async function consumeAwaitingExpense(userId) {
   }
   const entry = awaitingExpenseCache.get(userId);
   if (!entry) return null;
-  awaitingExpenseCache.delete(userId);
   return { shopId: entry.shopId, branchName: entry.branchName };
 }
 

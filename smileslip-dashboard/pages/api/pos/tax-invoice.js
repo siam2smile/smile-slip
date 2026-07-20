@@ -41,7 +41,7 @@ export default async function handler(req, res) {
 
     // ── GET ──────────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'ใบกำกับภาษี!A:M');
+      const rows = await readSheet(token, sheetId, 'ใบกำกับภาษี!A:N');
       const invoices = rows.slice(1).map(rowToTaxInvoice).filter(v => v.invoice_no).reverse();
 
       if (req.query.invoice_no) {
@@ -55,6 +55,7 @@ export default async function handler(req, res) {
       const {
         ref_bill_no = '', customer_id = '', buyer_name, buyer_tax_id = '',
         buyer_address = '', buyer_branch = 'สำนักงานใหญ่', items = [], issued_by = '',
+        buyer_phone = '',
       } = req.body;
 
       if (!buyer_name) return res.status(400).json({ error: 'ต้องระบุชื่อผู้ซื้อ' });
@@ -100,7 +101,7 @@ export default async function handler(req, res) {
       await appendSheet(token, sheetId, 'ใบกำกับภาษี', [
         invoice_no, now, ref_bill_no, customer_id,
         buyer_name, buyer_tax_id, buyer_address, buyer_branch,
-        JSON.stringify(items), subtotal, vat, total, issued_by,
+        JSON.stringify(items), subtotal, vat, total, issued_by, buyer_phone,
       ]);
 
       return res.json({ ok: true, invoice_no, subtotal, vat, total, issued_at: now });

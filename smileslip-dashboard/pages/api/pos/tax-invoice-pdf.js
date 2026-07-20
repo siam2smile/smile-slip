@@ -26,7 +26,7 @@ export default async function handler(req, res) {
     if (!gc?.google_refresh_token) return res.status(400).json({ error: 'ยังไม่ได้เชื่อมต่อ Google' });
 
     const token = await getAccessToken(gc.google_refresh_token);
-    const rows = await readSheet(token, pc.pos_sheet_id, 'ใบกำกับภาษี!A:M');
+    const rows = await readSheet(token, pc.pos_sheet_id, 'ใบกำกับภาษี!A:N');
     const invoice = rows.slice(1).map(rowToTaxInvoice).find(v => v.invoice_no === invoice_no);
     if (!invoice) return res.status(404).json({ error: 'ไม่พบใบกำกับภาษีนี้' });
 
@@ -41,6 +41,7 @@ export default async function handler(req, res) {
         tax_id: invoice.buyer_tax_id,
         address: invoice.buyer_address,
         branch: invoice.buyer_branch,
+        phone: invoice.buyer_phone,
       },
       items: invoice.items,
       subtotal: invoice.subtotal,

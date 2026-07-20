@@ -278,7 +278,7 @@ export const LOAN_HEADERS = [
 export const TAX_INVOICE_HEADERS = [
   'เลขที่ใบกำกับภาษี', 'วันที่ออก', 'เลขที่บิลอ้างอิง', 'รหัสลูกค้า',
   'ชื่อผู้ซื้อ', 'เลขภาษีผู้ซื้อ', 'ที่อยู่ผู้ซื้อ', 'สาขาผู้ซื้อ',
-  'รายการ (JSON)', 'ยอดก่อน VAT', 'ยอด VAT', 'ยอดรวม', 'ออกโดย',
+  'รายการ (JSON)', 'ยอดก่อน VAT', 'ยอด VAT', 'ยอดรวม', 'ออกโดย', 'เบอร์โทรผู้ซื้อ',
 ];
 
 export function rowToTaxInvoice(row) {
@@ -298,6 +298,7 @@ export function rowToTaxInvoice(row) {
     vat:          parseFloat(row[10]) || 0,
     total:        parseFloat(row[11]) || 0,
     issued_by:    row[12] || '',
+    buyer_phone:  row[13] || '',
   };
 }
 

@@ -398,7 +398,8 @@ export default function POSPage() {
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [lastBill, setLastBill] = useState(null);
   const [showTaxInvoiceForm, setShowTaxInvoiceForm] = useState(false);
-  const [taxInvoiceForm, setTaxInvoiceForm] = useState({ buyer_name: '', buyer_tax_id: '', buyer_address: '', buyer_branch: 'สำนักงานใหญ่' });
+  const [taxInvoiceForm, setTaxInvoiceForm] = useState({ buyer_name: '', buyer_tax_id: '', buyer_address: '', buyer_branch: 'สำนักงานใหญ่', buyer_phone: '', customer_id: '' });
+  const [taxInvoiceContactQ, setTaxInvoiceContactQ] = useState('');
   const [taxInvoiceIssuing, setTaxInvoiceIssuing] = useState(false);
   const [showBill, setShowBill] = useState(false);
   const [showCartDrawer, setShowCartDrawer] = useState(false);
@@ -487,6 +488,8 @@ export default function POSPage() {
   const [receiveSaving, setReceiveSaving] = useState(false);
   const [receiveHistory, setReceiveHistory] = useState([]);
   const [receiveHistoryLoading, setReceiveHistoryLoading] = useState(false);
+  const [receiveHistoryMonth, setReceiveHistoryMonth] = useState('all'); // 'all' | 'YYYY-MM' (ปี ค.ศ.)
+  const [receiveHistoryPage, setReceiveHistoryPage] = useState(0);
   const [receiveView, setReceiveView] = useState('form'); // 'form' | 'history' | 'pending'
   const [pendingReceives, setPendingReceives] = useState([]); // มาจากบอท LINE #รับสินค้า รอตรวจสอบ
   const [pendingReceivesLoading, setPendingReceivesLoading] = useState(false);
@@ -512,7 +515,7 @@ export default function POSPage() {
   const [contactForm, setContactForm] = useState(emptyContactForm());
   const [contactSaving, setContactSaving] = useState(false);
   const [contactFilter, setContactFilter] = useState('ทั้งหมด');
-  const [contactOutstandingOnly, setContactOutstandingOnly] = useState(false); // แสดงเฉพาะที่มียอดค้าง/ถังค้าง
+  const [contactOutstandingOnly, setContactOutstandingOnly] = useState(false); // แสดงเฉพาะที่มียอดค้างชำระ/ค้างสินค้า
   const [showTaxSection, setShowTaxSection] = useState(false);
   const [contactSearch, setContactSearch] = useState('');
   const [contactPage, setContactPage] = useState(1);
@@ -592,7 +595,9 @@ export default function POSPage() {
   const [collectDispatching, setCollectDispatching] = useState(false);
   const [collectionTasks, setCollectionTasks] = useState([]);
   const [collectionTasksLoading, setCollectionTasksLoading] = useState(false);
-  const [collectStatusFilter, setCollectStatusFilter] = useState('all'); // 'all' | 'pending' | 'done'
+  // ค่าเริ่มต้นซ่อนงานที่เสร็จแล้ว (ข้อมูลบันทึกอยู่ในรายงานขายอยู่แล้ว ไม่ต้องค้างโชว์ในนี้ตลอดไป — 2026-07-20)
+  const [collectStatusFilter, setCollectStatusFilter] = useState('pending'); // 'all' | 'pending' | 'done'
+  const [collectDateFilter, setCollectDateFilter] = useState('all'); // 'all' | 'today' | 'week' | 'month'
   const [collectCashConfirming, setCollectCashConfirming] = useState(null);
   const [collectGoodsConfirming, setCollectGoodsConfirming] = useState(null);
 
@@ -1669,8 +1674,25 @@ export default function POSPage() {
       buyer_tax_id: cust?.tax_id || '',
       buyer_address: cust?.tax_address || cust?.address_1 || '',
       buyer_branch: cust?.tax_branch || 'สำนักงานใหญ่',
+      buyer_phone: cust?.phone || '',
+      customer_id: cust?.contact_id || '',
     });
+    setTaxInvoiceContactQ('');
     setShowTaxInvoiceForm(true);
+  }
+
+  // เลือกผู้ติดต่อมาเติมข้อมูลผู้ซื้อในฟอร์มใบกำกับภาษีทั้งชุด
+  function pickTaxInvoiceContact(c) {
+    setTaxInvoiceForm(f => ({
+      ...f,
+      buyer_name: c.company_name || c.name || '',
+      buyer_tax_id: c.tax_id || '',
+      buyer_address: c.tax_address || c.address_1 || '',
+      buyer_branch: c.tax_branch || 'สำนักงานใหญ่',
+      buyer_phone: c.phone || '',
+      customer_id: c.contact_id || '',
+    }));
+    setTaxInvoiceContactQ('');
   }
 
   async function issueTaxInvoice() {
@@ -1685,11 +1707,12 @@ export default function POSPage() {
         body: JSON.stringify({
           shopId,
           ref_bill_no: lastBill.billNo,
-          customer_id: lastBill.customerId || '',
+          customer_id: taxInvoiceForm.customer_id || lastBill.customerId || '',
           buyer_name: taxInvoiceForm.buyer_name.trim(),
           buyer_tax_id: taxInvoiceForm.buyer_tax_id.trim(),
           buyer_address: taxInvoiceForm.buyer_address.trim(),
           buyer_branch: taxInvoiceForm.buyer_branch.trim(),
+          buyer_phone: taxInvoiceForm.buyer_phone.trim(),
           items: lastBill.items,
           issued_by: shopInfo?.shop_name || '',
         }),
@@ -1844,6 +1867,18 @@ export default function POSPage() {
       (qDigits.length > 0 && (c.phone || '').replace(/\D/g, '').includes(qDigits))
     );
   }, [customers, delivCustSearch]);
+
+  // ผู้ติดต่อที่ตรงกับคำค้นหาในฟอร์มออกใบกำกับภาษี — ค้นได้ทั้งชื่อและเบอร์โทร (แบบเดียวกับจุดอื่น)
+  const taxInvoiceMatchedContacts = useMemo(() => {
+    const q = taxInvoiceContactQ.trim().toLowerCase();
+    if (!q) return [];
+    const qDigits = q.replace(/\D/g, '');
+    return contacts.filter(c =>
+      (c.name || '').toLowerCase().includes(q) ||
+      (c.company_name || '').toLowerCase().includes(q) ||
+      (qDigits.length > 0 && (c.phone || '').replace(/\D/g, '').includes(qDigits))
+    ).slice(0, 5);
+  }, [contacts, taxInvoiceContactQ]);
 
   // ผู้จำหน่ายที่ตรงกับคำค้นหาในหน้ารับสินค้า — เทียบเบอร์โทรเฉพาะตัวเลขเหมือนกัน
   const receiveMatchedSuppliers = useMemo(() => {
@@ -3376,27 +3411,77 @@ export default function POSPage() {
                       <div className="text-4xl mb-3">📋</div>
                       <p className="text-sm">ยังไม่มีประวัติรับสินค้า</p>
                     </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {receiveHistory.map((r, i) => (
-                        <div key={r.receive_no || i} className="bg-gray-800 rounded-xl p-4">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-gray-400 text-xs font-mono">{r.receive_no}</span>
-                            <span className="text-green-400 font-bold text-sm">฿{(r.total_cost || 0).toLocaleString()}</span>
+                  ) : (() => {
+                    const THAI_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+                    const withDate = receiveHistory.map(r => ({ ...r, _d: parseThaiOrderDate(r.created_at) }));
+                    const monthKeys = [...new Set(withDate.filter(r => r._d).map(r => `${r._d.getFullYear()}-${String(r._d.getMonth()+1).padStart(2,'0')}`))]
+                      .sort((a, b) => b.localeCompare(a));
+                    const filtered = receiveHistoryMonth === 'all' ? withDate
+                      : withDate.filter(r => r._d && `${r._d.getFullYear()}-${String(r._d.getMonth()+1).padStart(2,'0')}` === receiveHistoryMonth);
+                    const PAGE_SIZE = 20;
+                    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+                    const page = Math.min(receiveHistoryPage, totalPages - 1);
+                    const pageItems = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+                    return (
+                      <>
+                        {monthKeys.length > 0 && (
+                          <div className="flex items-center gap-2 mb-3 flex-wrap">
+                            <select value={receiveHistoryMonth}
+                              onChange={e => { setReceiveHistoryMonth(e.target.value); setReceiveHistoryPage(0); }}
+                              className="bg-gray-800 text-white text-xs px-3 py-2 rounded-lg border border-gray-700 focus:outline-none">
+                              <option value="all">ทุกเดือน ({receiveHistory.length} รายการ)</option>
+                              {monthKeys.map(k => {
+                                const [y, m] = k.split('-');
+                                const count = withDate.filter(r => r._d && `${r._d.getFullYear()}-${String(r._d.getMonth()+1).padStart(2,'0')}` === k).length;
+                                return <option key={k} value={k}>{THAI_MONTHS[Number(m)-1]} {Number(y)+543} ({count} รายการ)</option>;
+                              })}
+                            </select>
                           </div>
-                          {r.supplier && <div className="text-white text-sm font-medium mb-1">🏢 {r.supplier}</div>}
-                          <div className="text-gray-500 text-xs mb-2">{r.created_at}</div>
-                          {Array.isArray(r.items) && r.items.map((item, j) => (
-                            <div key={j} className="text-gray-400 text-xs flex justify-between">
-                              <span>{item.name} ×{item.qty} {item.unit}</span>
-                              <span>฿{(item.unitCost || 0).toLocaleString()}/หน่วย</span>
+                        )}
+                        {filtered.length === 0 ? (
+                          <div className="text-center py-16 text-gray-500">
+                            <div className="text-4xl mb-3">📋</div>
+                            <p className="text-sm">ไม่มีรายการในเดือนที่เลือก</p>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="space-y-3">
+                              {pageItems.map((r, i) => (
+                                <div key={r.receive_no || i} className="bg-gray-800 rounded-xl p-4">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <span className="text-gray-400 text-xs font-mono">{r.receive_no}</span>
+                                    <span className="text-green-400 font-bold text-sm">฿{(r.total_cost || 0).toLocaleString()}</span>
+                                  </div>
+                                  {r.supplier && <div className="text-white text-sm font-medium mb-1">🏢 {r.supplier}</div>}
+                                  <div className="text-gray-500 text-xs mb-2">{r.created_at}</div>
+                                  {Array.isArray(r.items) && r.items.map((item, j) => (
+                                    <div key={j} className="text-gray-400 text-xs flex justify-between">
+                                      <span>{item.name} ×{item.qty} {item.unit}</span>
+                                      <span>฿{(item.unitCost || 0).toLocaleString()}/หน่วย</span>
+                                    </div>
+                                  ))}
+                                  {r.notes && <div className="text-gray-600 text-xs mt-1.5">{r.notes}</div>}
+                                </div>
+                              ))}
                             </div>
-                          ))}
-                          {r.notes && <div className="text-gray-600 text-xs mt-1.5">{r.notes}</div>}
-                        </div>
-                      ))}
-                    </div>
-                  )
+                            {totalPages > 1 && (
+                              <div className="flex items-center justify-center gap-3 mt-4">
+                                <button onClick={() => setReceiveHistoryPage(p => Math.max(0, p - 1))} disabled={page === 0}
+                                  className="text-xs px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed">
+                                  ← ก่อนหน้า
+                                </button>
+                                <span className="text-xs text-gray-500">หน้า {page + 1}/{totalPages}</span>
+                                <button onClick={() => setReceiveHistoryPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}
+                                  className="text-xs px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed">
+                                  ถัดไป →
+                                </button>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </>
+                    );
+                  })()
                 )}
               </div>
             </div>
@@ -3713,9 +3798,22 @@ export default function POSPage() {
 
           {/* ══ TAB: เก็บเงิน/ของ ═══════════════════════════════════════════ */}
           {tab === 'collections' && (() => {
+            const now = new Date();
+            const startOfWeek = new Date(now); startOfWeek.setDate(now.getDate() - now.getDay()); startOfWeek.setHours(0,0,0,0);
             const displayTasks = collectionTasks.filter(t => {
-              if (collectStatusFilter === 'pending') return t.status === 'รอดำเนินการ';
-              if (collectStatusFilter === 'done') return t.status !== 'รอดำเนินการ';
+              if (collectStatusFilter === 'pending' && t.status !== 'รอดำเนินการ') return false;
+              if (collectStatusFilter === 'done' && t.status === 'รอดำเนินการ') return false;
+              if (collectDateFilter !== 'all') {
+                const d = parseThaiOrderDate(t.created_at);
+                if (!d) return false;
+                if (collectDateFilter === 'today') {
+                  if (d.toDateString() !== now.toDateString()) return false;
+                } else if (collectDateFilter === 'week') {
+                  if (d < startOfWeek) return false;
+                } else if (collectDateFilter === 'month') {
+                  if (d.getMonth() !== now.getMonth() || d.getFullYear() !== now.getFullYear()) return false;
+                }
+              }
               return true;
             });
             return (
@@ -3736,6 +3834,18 @@ export default function POSPage() {
                     ].map(f => (
                       <button key={f.v} onClick={() => setCollectStatusFilter(f.v)}
                         className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${collectStatusFilter === f.v ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                        {f.label}
+                      </button>
+                    ))}
+                    <span className="w-px h-5 bg-gray-700 mx-0.5" />
+                    {[
+                      { v: 'all', label: 'ทุกวันที่' },
+                      { v: 'today', label: '📅 วันนี้' },
+                      { v: 'week', label: '📅 สัปดาห์นี้' },
+                      { v: 'month', label: '📅 เดือนนี้' },
+                    ].map(f => (
+                      <button key={f.v} onClick={() => setCollectDateFilter(f.v)}
+                        className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${collectDateFilter === f.v ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
                         {f.label}
                       </button>
                     ))}
@@ -4091,7 +4201,7 @@ export default function POSPage() {
                     className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${
                       contactOutstandingOnly ? 'bg-red-700 text-white' : 'bg-gray-800 text-red-300 hover:bg-gray-700'
                     }`}
-                  >🧾 มียอดค้าง/ถังค้าง</button>
+                  >🧾 ยอดค้างชำระ/ค้างสินค้า</button>
                   {contactSearch && (
                     <span className="px-3 py-1.5 bg-blue-900/40 text-blue-400 text-xs rounded-full">
                       {displayContacts.length} รายการ
@@ -5501,10 +5611,35 @@ export default function POSPage() {
               </div>
               <p className="text-gray-500 text-xs mb-4">อ้างอิงบิล {lastBill.billNo} — ยอด ฿{lastBill.total.toLocaleString()}</p>
               <div className="space-y-3">
+                <div className="relative">
+                  <label className="block text-gray-400 text-xs mb-1.5">🔍 ค้นหาจากผู้ติดต่อ (ชื่อ/เบอร์โทร)</label>
+                  <input value={taxInvoiceContactQ} onChange={e => setTaxInvoiceContactQ(e.target.value)}
+                    placeholder="พิมพ์ชื่อหรือเบอร์โทรเพื่อเลือกผู้ซื้อ..."
+                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-blue-500" />
+                  {taxInvoiceContactQ.trim() && (
+                    <div className="absolute z-10 left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-xl overflow-hidden shadow-xl max-h-48 overflow-y-auto">
+                      {taxInvoiceMatchedContacts.length === 0 ? (
+                        <div className="px-4 py-3 text-gray-500 text-xs">ไม่พบผู้ติดต่อ</div>
+                      ) : taxInvoiceMatchedContacts.map(c => (
+                        <button key={c.contact_id} onClick={() => pickTaxInvoiceContact(c)}
+                          className="w-full text-left px-4 py-2.5 hover:bg-gray-700 transition-colors border-b border-gray-700 last:border-0">
+                          <div className="text-white text-sm">{c.company_name || c.name}</div>
+                          <div className="text-gray-500 text-xs">{c.phone || 'ไม่มีเบอร์'}{c.tax_id ? ` · ${c.tax_id}` : ''}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div>
                   <label className="block text-gray-400 text-xs mb-1.5">ชื่อผู้ซื้อ / บริษัท *</label>
                   <input value={taxInvoiceForm.buyer_name} onChange={e => setTaxInvoiceForm(f => ({ ...f, buyer_name: e.target.value }))}
                     className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                </div>
+                <div>
+                  <label className="block text-gray-400 text-xs mb-1.5">เบอร์โทรศัพท์</label>
+                  <input value={taxInvoiceForm.buyer_phone} onChange={e => setTaxInvoiceForm(f => ({ ...f, buyer_phone: e.target.value }))}
+                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    placeholder="08x-xxx-xxxx" />
                 </div>
                 <div>
                   <label className="block text-gray-400 text-xs mb-1.5">เลขประจำตัวผู้เสียภาษี (13 หลัก) *</label>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import {
@@ -108,6 +108,40 @@ export default function Dashboard() {
   const [ledgerTypeFilter, setLedgerTypeFilter] = useState('all'); // all | income | income-transfer | income-cash | expense | expense-transfer | expense-cash
   const [ledgerBranchFilter, setLedgerBranchFilter] = useState('all');
   const LEDGER_PAGE_SIZE = 20;
+
+  // รายการที่ผ่านตัวกรองปัจจุบัน (วันที่/ประเภท/สาขา) — ใช้ร่วมกันทั้งตารางและการ์ดสรุปยอดรวม
+  const filteredLedgerTx = useMemo(() => {
+    let list = transactions;
+    if (ledgerDate) {
+      list = list.filter(tx => {
+        const d = (tx.date || '').split('/')[0];
+        return d === String(ledgerDate).padStart(2, '0') || d === String(ledgerDate);
+      });
+    }
+    if (ledgerTypeFilter !== 'all') {
+      const [wantType, wantMethod] = ledgerTypeFilter.split('-');
+      const wantTypeLabel = wantType === 'income' ? 'รายรับ' : 'รายจ่าย';
+      list = list.filter(tx => {
+        if (tx.type !== wantTypeLabel) return false;
+        if (!wantMethod) return true;
+        const wantMethodLabel = wantMethod === 'transfer' ? 'โอน' : 'เงินสด';
+        return (tx.method || '-') === wantMethodLabel;
+      });
+    }
+    if (ledgerBranchFilter !== 'all') {
+      list = list.filter(tx => tx.branch === ledgerBranchFilter);
+    }
+    return list;
+  }, [transactions, ledgerDate, ledgerTypeFilter, ledgerBranchFilter]);
+
+  const ledgerTotals = useMemo(() => {
+    let income = 0, expense = 0;
+    for (const tx of filteredLedgerTx) {
+      const amt = Number(tx.amount || 0);
+      if (tx.type === 'รายรับ') income += amt; else if (tx.type === 'รายจ่าย') expense += amt;
+    }
+    return { income, expense, net: income - expense };
+  }, [filteredLedgerTx]);
 
   // Referral
   const [referralInfo, setReferralInfo] = useState(null);
@@ -1997,6 +2031,25 @@ export default function Dashboard() {
                     </button>
                   </div>
 
+                  {ledgerConnected && !loadingTransactions && transactions.length > 0 && (
+                    <div className="grid grid-cols-3 gap-3 mb-5">
+                      <div className="bg-green-50 border border-green-100 rounded-2xl p-4 text-center">
+                        <p className="text-xs text-green-600 font-medium">รายรับรวม</p>
+                        <p className="text-lg sm:text-xl font-black text-green-700 mt-1">฿{ledgerTotals.income.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
+                      </div>
+                      <div className="bg-red-50 border border-red-100 rounded-2xl p-4 text-center">
+                        <p className="text-xs text-red-500 font-medium">รายจ่ายรวม</p>
+                        <p className="text-lg sm:text-xl font-black text-red-600 mt-1">฿{ledgerTotals.expense.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
+                      </div>
+                      <div className={`rounded-2xl p-4 text-center border ${ledgerTotals.net >= 0 ? 'bg-blue-50 border-blue-100' : 'bg-orange-50 border-orange-100'}`}>
+                        <p className={`text-xs font-medium ${ledgerTotals.net >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>กำไร-ขาดทุนสุทธิ</p>
+                        <p className={`text-lg sm:text-xl font-black mt-1 ${ledgerTotals.net >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>
+                          {ledgerTotals.net >= 0 ? '' : '-'}฿{Math.abs(ledgerTotals.net).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left min-w-[640px]">
@@ -2023,26 +2076,7 @@ export default function Dashboard() {
                             </a>
                           </td></tr>
                         ) : (() => {
-                          let filteredTx = transactions;
-                          if (ledgerDate) {
-                            filteredTx = filteredTx.filter(tx => {
-                              const d = (tx.date || '').split('/')[0];
-                              return d === String(ledgerDate).padStart(2,'0') || d === String(ledgerDate);
-                            });
-                          }
-                          if (ledgerTypeFilter !== 'all') {
-                            const [wantType, wantMethod] = ledgerTypeFilter.split('-');
-                            const wantTypeLabel = wantType === 'income' ? 'รายรับ' : 'รายจ่าย';
-                            filteredTx = filteredTx.filter(tx => {
-                              if (tx.type !== wantTypeLabel) return false;
-                              if (!wantMethod) return true;
-                              const wantMethodLabel = wantMethod === 'transfer' ? 'โอน' : 'เงินสด';
-                              return (tx.method || '-') === wantMethodLabel;
-                            });
-                          }
-                          if (ledgerBranchFilter !== 'all') {
-                            filteredTx = filteredTx.filter(tx => tx.branch === ledgerBranchFilter);
-                          }
+                          const filteredTx = filteredLedgerTx;
                           const totalPages = Math.ceil(filteredTx.length / LEDGER_PAGE_SIZE);
                           const pageTx = filteredTx.slice(ledgerPage * LEDGER_PAGE_SIZE, (ledgerPage + 1) * LEDGER_PAGE_SIZE);
                           if (filteredTx.length === 0) return (
