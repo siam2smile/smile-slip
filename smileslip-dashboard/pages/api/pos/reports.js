@@ -17,6 +17,7 @@ import {
   getAccessToken, readSheet, ensureTabExists,
   rowToSale, rowToProduct, rowToLoan, rowToOrder, rowToContact, rowToReceive, rowToExpense,
   SALE_HEADERS, LOAN_HEADERS, ORDER_HEADERS, CONTACT_HEADERS, RECEIVE_HEADERS, EXPENSE_HEADERS,
+  getStaffPermissions,
 } from '../../../lib/google-pos';
 
 const supabase = createClient(
@@ -60,13 +61,25 @@ function inRange(dateStr, from, to) {
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
-  const { shopId, type = 'sales', dateFrom, dateTo, branch, status } = req.query;
+  const { shopId, type = 'sales', dateFrom, dateTo, branch, status, staffId } = req.query;
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
 
   try {
     const { sheetId, token, shopName, branchName } = await getConfig(shopId);
     const from = dateFrom ? new Date(dateFrom) : null;
     const to   = dateTo   ? new Date(dateTo + 'T23:59:59') : null;
+
+    // เรียกจากหน้าพนักงาน (pos-staff.js ส่ง staffId มาด้วย) — ต้องมีสิทธิ์ที่เกี่ยวข้องถึงจะดูได้
+    // เจ้าของร้าน/แอดมิน (pos.js เรียกตรง ไม่ส่ง staffId) ไม่ถูกกระทบเลย
+    if (staffId) {
+      const perms = await getStaffPermissions(token, sheetId, staffId);
+      if ((type === 'sales' || type === 'topsellers') && !perms.perm_view_revenue) {
+        return res.status(403).json({ error: 'ไม่มีสิทธิ์ดูยอดขายรวม' });
+      }
+      if (type === 'pl' && !perms.perm_view_pl) {
+        return res.status(403).json({ error: 'ไม่มีสิทธิ์ดูกำไรขาดทุน' });
+      }
+    }
 
     // ── สินค้าคงเหลือ ──────────────────────────────────────────────────────
     if (type === 'inventory') {

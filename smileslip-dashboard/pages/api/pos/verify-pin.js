@@ -61,7 +61,7 @@ export default async function handler(req, res) {
 
     const token = await getAccessToken(gc.google_refresh_token);
     await ensureTabExists(token, pc.pos_sheet_id, 'พนักงาน', STAFF_HEADERS);
-    const rows = await readSheet(token, pc.pos_sheet_id, 'พนักงาน!A:I');
+    const rows = await readSheet(token, pc.pos_sheet_id, 'พนักงาน!A:M');
     const staffRow = rows.slice(1).find(r => r[0] && r[8] && String(r[8]) === String(pin));
 
     if (!staffRow) {
@@ -71,7 +71,14 @@ export default async function handler(req, res) {
 
     clearFailedAttempts(shopId);
     const staff = rowToStaff(staffRow);
-    return res.json({ ok: true, hasSheet: !!pc.pos_sheet_id, staff: { staff_id: staff.staff_id, name: staff.name, role: staff.role, line_id: staff.line_id, branch_name: staff.branch_name } });
+    return res.json({
+      ok: true, hasSheet: !!pc.pos_sheet_id,
+      staff: {
+        staff_id: staff.staff_id, name: staff.name, role: staff.role, line_id: staff.line_id, branch_name: staff.branch_name,
+        perm_view_revenue: staff.perm_view_revenue, perm_view_pl: staff.perm_view_pl,
+        perm_manage_stock: staff.perm_manage_stock, perm_export_vat: staff.perm_export_vat,
+      },
+    });
   } catch (err) {
     console.error('[verify-pin]', err.message);
     return res.status(500).json({ error: err.message });

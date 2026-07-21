@@ -10,6 +10,7 @@ import {
   getAccessToken, readSheet, ensureTabExists,
   rowToSale, rowToProduct, rowToLoan, rowToExpense, rowToReceive, rowToContact, rowToTaxInvoice,
   SALE_HEADERS, LOAN_HEADERS, EXPENSE_HEADERS, RECEIVE_HEADERS, CONTACT_HEADERS, TAX_INVOICE_HEADERS,
+  getStaffPermissions,
 } from '../../../lib/google-pos';
 import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 
@@ -78,7 +79,7 @@ function fmt(n) { return Number(n || 0).toLocaleString('th-TH', { minimumFractio
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
-  const { shopId, dateFrom, dateTo, branch, types = 'sales,inventory,credit,loans,topsellers,pl,expenses,vat' } = req.query;
+  const { shopId, dateFrom, dateTo, branch, staffId, types = 'sales,inventory,credit,loans,topsellers,pl,expenses,vat' } = req.query;
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
 
   try {
@@ -90,6 +91,13 @@ export default async function handler(req, res) {
     const lockedType = typeList.find(t => GATED_TYPES.has(t) && !hasFeature(tier, 'excel_report_templates'));
     if (lockedType) {
       return res.status(403).json({ error: upgradeMessage('excel_report_templates'), featureLocked: true });
+    }
+
+    // เรียกจากหน้าพนักงาน (pos-staff.js ส่ง staffId มาด้วย) — ต้องมีสิทธิ์ "export รายงาน VAT" ถึงจะดึงได้
+    // เจ้าของร้าน/แอดมิน (pos.js เรียกตรง ไม่ส่ง staffId) ไม่ถูกกระทบเลย
+    if (staffId && (typeList.includes('vat') || typeList.includes('vat30'))) {
+      const perms = await getStaffPermissions(token, sheetId, staffId);
+      if (!perms.perm_export_vat) return res.status(403).json({ error: 'ไม่มีสิทธิ์ export รายงาน VAT' });
     }
 
     const wb = XLSX.utils.book_new();

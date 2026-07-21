@@ -70,7 +70,7 @@ export default async function handler(req, res) {
 
     // ── GET ─────────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'พนักงาน!A:I');
+      const rows = await readSheet(token, sheetId, 'พนักงาน!A:M');
       const staff = rows.slice(1)
         .map((r, i) => ({ ...rowToStaff(r), _row: i + 2 }))
         .filter(s => s.staff_id && s.name);
@@ -79,13 +79,20 @@ export default async function handler(req, res) {
 
     // ── POST ─────────────────────────────────────────────────────────────────
     if (req.method === 'POST') {
-      const { name, phone = '', line_id = '', role = 'พนักงานส่ง', notes = '', branch_name = '' } = req.body;
+      const {
+        name, phone = '', line_id = '', role = 'พนักงานส่ง', notes = '', branch_name = '',
+        perm_view_revenue = false, perm_view_pl = false, perm_manage_stock = false, perm_export_vat = false,
+      } = req.body;
       if (!name) return res.status(400).json({ error: 'ต้องระบุชื่อ' });
 
       const staff_id = makeStaffId();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
       await appendSheet(token, sheetId, 'พนักงาน', [
         staff_id, name, asText(phone), line_id, role, notes, asText(now), branch_name, '',
+        perm_view_revenue ? 'TRUE' : 'FALSE',
+        perm_view_pl ? 'TRUE' : 'FALSE',
+        perm_manage_stock ? 'TRUE' : 'FALSE',
+        perm_export_vat ? 'TRUE' : 'FALSE',
       ]);
       if (line_id) sendPinSetupLink(line_id, shopId, staff_id, name).catch(() => {});
       return res.json({ ok: true, staff_id, name });
@@ -93,16 +100,19 @@ export default async function handler(req, res) {
 
     // ── PATCH ────────────────────────────────────────────────────────────────
     if (req.method === 'PATCH') {
-      const { staff_id, name, phone, line_id, role, notes, branch_name, reset_pin, resend_pin_link } = req.body;
+      const {
+        staff_id, name, phone, line_id, role, notes, branch_name, reset_pin, resend_pin_link,
+        perm_view_revenue, perm_view_pl, perm_manage_stock, perm_export_vat,
+      } = req.body;
       if (!staff_id) return res.status(400).json({ error: 'Missing staff_id' });
 
-      const rows = await readSheet(token, sheetId, 'พนักงาน!A:I');
+      const rows = await readSheet(token, sheetId, 'พนักงาน!A:M');
       const dataRows = rows.slice(1);
       const idx = dataRows.findIndex(r => r[0] === staff_id);
       if (idx === -1) return res.status(404).json({ error: 'ไม่พบพนักงาน' });
 
       const existing = [...dataRows[idx]];
-      while (existing.length < 9) existing.push('');
+      while (existing.length < 13) existing.push('');
       if (name        !== undefined) existing[1] = name;
       if (phone       !== undefined) existing[2] = asText(phone);
       if (line_id     !== undefined) existing[3] = line_id;
@@ -111,6 +121,10 @@ export default async function handler(req, res) {
       if (branch_name !== undefined) existing[7] = branch_name;
       // รีเซ็ต PIN — กันพนักงานที่ออกจากงานแล้วแอบใช้ PIN เดิมเข้าระบบ ต้องตั้งใหม่ถึงจะเข้าได้
       if (reset_pin) existing[8] = '';
+      if (perm_view_revenue !== undefined) existing[9]  = perm_view_revenue ? 'TRUE' : 'FALSE';
+      if (perm_view_pl      !== undefined) existing[10] = perm_view_pl ? 'TRUE' : 'FALSE';
+      if (perm_manage_stock !== undefined) existing[11] = perm_manage_stock ? 'TRUE' : 'FALSE';
+      if (perm_export_vat   !== undefined) existing[12] = perm_export_vat ? 'TRUE' : 'FALSE';
 
       await updateSheetRow(token, sheetId, 'พนักงาน', idx + 2, existing);
 
@@ -128,11 +142,11 @@ export default async function handler(req, res) {
       const { staff_id } = req.body;
       if (!staff_id) return res.status(400).json({ error: 'Missing staff_id' });
 
-      const rows = await readSheet(token, sheetId, 'พนักงาน!A:I');
+      const rows = await readSheet(token, sheetId, 'พนักงาน!A:M');
       const idx = rows.slice(1).findIndex(r => r[0] === staff_id);
       if (idx === -1) return res.status(404).json({ error: 'ไม่พบพนักงาน' });
 
-      await updateSheetRow(token, sheetId, 'พนักงาน', idx + 2, Array(9).fill(''));
+      await updateSheetRow(token, sheetId, 'พนักงาน', idx + 2, Array(13).fill(''));
       return res.json({ ok: true });
     }
 

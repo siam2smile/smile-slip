@@ -14,7 +14,7 @@ export default function PosStaffPage() {
     staff_id: setupStaffId, setpin: setupMode,
   } = router.query;
 
-  const [step, setStep] = useState('pin'); // 'pin' | 'setpin' | 'menu' | 'bills' | 'confirm' | 'deliveries' | 'deliver-confirm' | 'collections' | 'collect-confirm'
+  const [step, setStep] = useState('pin'); // 'pin' | 'setpin' | 'menu' | 'bills' | 'confirm' | 'deliveries' | 'deliver-confirm' | 'collections' | 'collect-confirm' | 'manage'
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState('');
   const [pinLoading, setPinLoading] = useState(false);
@@ -22,6 +22,15 @@ export default function PosStaffPage() {
   const [staffName, setStaffName] = useState('');
   const [staffBranch, setStaffBranch] = useState(''); // สาขาที่พนักงานคนนี้ผูกอยู่ (ตั้งค่าจากตอนอนุมัติ/เพิ่มพนักงาน)
   const [staffId, setStaffId] = useState(''); // staff_id ของคนที่ login สำเร็จ (ใช้ผูกกับ PIN)
+  const [staffPerms, setStaffPerms] = useState({ perm_view_revenue: false, perm_view_pl: false, perm_manage_stock: false, perm_export_vat: false });
+
+  // ── จัดการร้าน (สิทธิ์พิเศษที่แอดมินเปิดให้เป็นรายคน) ────────────────────
+  const [manageView, setManageView] = useState(''); // 'revenue' | 'pl' | 'stock' | 'vat'
+  const [manageLoading, setManageLoading] = useState(false);
+  const [manageSalesReport, setManageSalesReport] = useState(null);
+  const [managePlReport, setManagePlReport] = useState(null);
+  const [manageStockList, setManageStockList] = useState([]);
+  const [manageStockSaving, setManageStockSaving] = useState('');
 
   // ── ตั้งรหัส PIN ครั้งแรก (มาจากลิงก์ที่ส่งทาง LINE หลังได้รับอนุมัติ/แอดมินเพิ่ม) ──────
   const [newPin, setNewPin] = useState('');
@@ -131,6 +140,12 @@ export default function PosStaffPage() {
         setStaffName(d.staff?.name || '');
         setStaffBranch(d.staff?.branch_name || '');
         setStaffId(d.staff?.staff_id || '');
+        setStaffPerms({
+          perm_view_revenue: !!d.staff?.perm_view_revenue,
+          perm_view_pl: !!d.staff?.perm_view_pl,
+          perm_manage_stock: !!d.staff?.perm_manage_stock,
+          perm_export_vat: !!d.staff?.perm_export_vat,
+        });
         fetchBills();
         fetchProducts();
         const fetchedOrders = await fetchOrders();
@@ -192,6 +207,49 @@ export default function PosStaffPage() {
       const d = await r.json();
       if (d.products) setProducts(d.products);
     } catch {}
+  }
+
+  // ── จัดการร้าน (สิทธิ์พิเศษ) ────────────────────────────────────────────
+  async function openManage(view) {
+    setManageView(view);
+    setManageLoading(true);
+    try {
+      if (view === 'revenue') {
+        const r = await fetch(`/api/pos/reports?shopId=${shopId}&type=sales&staffId=${staffId}`);
+        const d = await r.json();
+        setManageSalesReport(r.ok ? d : { error: d.error || 'เกิดข้อผิดพลาด' });
+      } else if (view === 'pl') {
+        const r = await fetch(`/api/pos/reports?shopId=${shopId}&type=pl&staffId=${staffId}`);
+        const d = await r.json();
+        setManagePlReport(r.ok ? d : { error: d.error || 'เกิดข้อผิดพลาด' });
+      } else if (view === 'stock') {
+        const r = await fetch(`/api/pos/products?shopId=${shopId}`);
+        const d = await r.json();
+        if (d.products) setManageStockList(d.products);
+      }
+    } catch {}
+    setManageLoading(false);
+  }
+
+  async function saveManageStock(sku, stock) {
+    setManageStockSaving(sku);
+    try {
+      const r = await fetch('/api/pos/products', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, staffId, sku, stock: parseFloat(stock) || 0 }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        showToast('บันทึกสต็อกแล้ว');
+        setManageStockList(list => list.map(p => p.sku === sku ? { ...p, stock: d.stock } : p));
+      } else { alert(d.error); }
+    } catch (err) { alert(err.message); }
+    setManageStockSaving('');
+  }
+
+  function exportManageVat() {
+    window.open(`/api/pos/export?shopId=${shopId}&types=vat&staffId=${staffId}`, '_blank');
   }
 
   function openDeliverConfirm(order) {
@@ -530,7 +588,11 @@ export default function PosStaffPage() {
             )}
           </div>
           {step !== 'pin' && step !== 'setpin' && (
-            <button onClick={() => { setStep('pin'); setPin(''); setBills([]); }}
+            <button onClick={() => {
+              setStep('pin'); setPin(''); setBills([]);
+              setStaffPerms({ perm_view_revenue: false, perm_view_pl: false, perm_manage_stock: false, perm_export_vat: false });
+              setManageView(''); setManageSalesReport(null); setManagePlReport(null); setManageStockList([]);
+            }}
               className="text-gray-400 hover:text-white text-xs border border-gray-700 px-3 py-1.5 rounded-lg">
               ออกจากระบบ
             </button>
@@ -653,6 +715,132 @@ export default function PosStaffPage() {
                 </div>
                 <span className="bg-orange-900 text-orange-300 text-xs px-2.5 py-1 rounded-full font-bold">{collectionTasks.length}</span>
               </button>
+              {(staffPerms.perm_view_revenue || staffPerms.perm_view_pl || staffPerms.perm_manage_stock || staffPerms.perm_export_vat) && (
+                <button onClick={() => { setManageView(''); setStep('manage'); }}
+                  className="w-full bg-gray-900 border border-blue-900 rounded-2xl p-5 text-left hover:bg-gray-800 transition-colors flex items-center justify-between">
+                  <div>
+                    <div className="text-white font-bold">📊 จัดการร้าน</div>
+                    <div className="text-gray-500 text-xs mt-0.5">สิทธิ์พิเศษที่แอดมินเปิดให้คุณ</div>
+                  </div>
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* ══ จัดการร้าน (สิทธิ์พิเศษ) ═══════════════════════════════════════ */}
+          {step === 'manage' && (
+            <div>
+              <button onClick={() => { if (manageView) { setManageView(''); } else { setStep('menu'); } }}
+                className="text-gray-400 hover:text-white text-sm mb-4 flex items-center gap-1">
+                ← {manageView ? 'จัดการร้าน' : 'เมนู'}
+              </button>
+
+              {!manageView && (
+                <div className="space-y-3">
+                  {staffPerms.perm_view_revenue && (
+                    <button onClick={() => openManage('revenue')}
+                      className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-5 text-left hover:bg-gray-800 transition-colors">
+                      <div className="text-white font-bold">📊 ดูยอดขายรวม</div>
+                    </button>
+                  )}
+                  {staffPerms.perm_view_pl && (
+                    <button onClick={() => openManage('pl')}
+                      className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-5 text-left hover:bg-gray-800 transition-colors">
+                      <div className="text-white font-bold">💰 ดูกำไรขาดทุน</div>
+                    </button>
+                  )}
+                  {staffPerms.perm_manage_stock && (
+                    <button onClick={() => openManage('stock')}
+                      className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-5 text-left hover:bg-gray-800 transition-colors">
+                      <div className="text-white font-bold">📦 จัดการสต็อกสินค้า</div>
+                    </button>
+                  )}
+                  {staffPerms.perm_export_vat && (
+                    <button onClick={exportManageVat}
+                      className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-5 text-left hover:bg-gray-800 transition-colors">
+                      <div className="text-white font-bold">🧾 Export รายงาน VAT (Excel)</div>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {manageView === 'revenue' && (
+                manageLoading ? (
+                  <div className="text-center text-gray-400 py-12">กำลังโหลด...</div>
+                ) : manageSalesReport?.error ? (
+                  <div className="text-center text-red-400 py-12 text-sm">{manageSalesReport.error}</div>
+                ) : manageSalesReport ? (
+                  <div className="space-y-3">
+                    <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+                      <div className="text-gray-400 text-xs mb-1">ยอดขายรวม (ชำระแล้ว)</div>
+                      <div className="text-green-400 text-2xl font-bold">฿{Number(manageSalesReport.summary?.total_income || 0).toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+                      <div className="text-gray-500 text-xs mt-2">จำนวนบิล: {manageSalesReport.summary?.count || 0}</div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div className="bg-gray-900 rounded-xl p-3 border border-gray-800">
+                        <div className="text-gray-500 text-[10px]">เงินสด</div>
+                        <div className="text-white text-sm font-bold">฿{Number(manageSalesReport.summary?.cash || 0).toLocaleString()}</div>
+                      </div>
+                      <div className="bg-gray-900 rounded-xl p-3 border border-gray-800">
+                        <div className="text-gray-500 text-[10px]">โอน</div>
+                        <div className="text-white text-sm font-bold">฿{Number(manageSalesReport.summary?.transfer || 0).toLocaleString()}</div>
+                      </div>
+                      <div className="bg-gray-900 rounded-xl p-3 border border-gray-800">
+                        <div className="text-gray-500 text-[10px]">เชื่อ</div>
+                        <div className="text-white text-sm font-bold">฿{Number(manageSalesReport.summary?.credit || 0).toLocaleString()}</div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null
+              )}
+
+              {manageView === 'pl' && (
+                manageLoading ? (
+                  <div className="text-center text-gray-400 py-12">กำลังโหลด...</div>
+                ) : managePlReport?.error ? (
+                  <div className="text-center text-red-400 py-12 text-sm">{managePlReport.error}</div>
+                ) : managePlReport ? (
+                  <div className="space-y-3">
+                    <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+                      <div className="text-gray-400 text-xs mb-1">รายรับรวม</div>
+                      <div className="text-green-400 text-xl font-bold">฿{Number(managePlReport.summary?.total_revenue || 0).toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+                    </div>
+                    <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+                      <div className="text-gray-400 text-xs mb-1">ต้นทุนสินค้าขาย</div>
+                      <div className="text-red-400 text-xl font-bold">฿{Number(managePlReport.summary?.total_cost || 0).toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+                    </div>
+                    <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+                      <div className="text-gray-400 text-xs mb-1">ค่าใช้จ่ายร้าน</div>
+                      <div className="text-red-400 text-xl font-bold">฿{Number(managePlReport.summary?.total_expenses || 0).toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+                    </div>
+                    <div className="bg-gray-900 rounded-2xl p-4 border border-blue-800">
+                      <div className="text-gray-400 text-xs mb-1">กำไรสุทธิ</div>
+                      <div className="text-blue-400 text-2xl font-bold">฿{Number(managePlReport.summary?.net_profit || 0).toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+                    </div>
+                  </div>
+                ) : null
+              )}
+
+              {manageView === 'stock' && (
+                manageLoading ? (
+                  <div className="text-center text-gray-400 py-12">กำลังโหลด...</div>
+                ) : (
+                  <div className="space-y-2">
+                    {manageStockList.map(p => (
+                      <div key={p.sku} className="bg-gray-900 rounded-xl p-3 border border-gray-800 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-white text-sm font-medium truncate">{p.name}</div>
+                          <div className="text-gray-500 text-xs">{p.sku} · {p.unit}</div>
+                        </div>
+                        <input type="number" defaultValue={p.stock}
+                          onBlur={e => { if (e.target.value !== String(p.stock)) saveManageStock(p.sku, e.target.value); }}
+                          disabled={manageStockSaving === p.sku}
+                          className="w-20 bg-gray-800 text-white text-sm px-2 py-1.5 rounded-lg border border-gray-700 text-right focus:outline-none focus:border-green-500" />
+                      </div>
+                    ))}
+                  </div>
+                )
+              )}
             </div>
           )}
 

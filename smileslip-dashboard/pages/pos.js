@@ -576,7 +576,7 @@ export default function POSPage() {
   const [staffLoading, setStaffLoading] = useState(false);
   const [showStaffForm, setShowStaffForm] = useState(false);
   const [editStaff, setEditStaff] = useState(null);
-  const [staffForm, setStaffForm] = useState({ name: '', phone: '', line_id: '', role: 'พนักงานส่ง', notes: '' });
+  const [staffForm, setStaffForm] = useState({ name: '', phone: '', line_id: '', role: 'พนักงานส่ง', notes: '', perm_view_revenue: false, perm_view_pl: false, perm_manage_stock: false, perm_export_vat: false });
 
   // ── คำขอสมัคร #สมัครพนักงานขนส่ง / #สมัครผู้จัดการสาขา (ผ่านกลุ่ม LINE) ──────
   const [staffRequests, setStaffRequests] = useState([]);
@@ -862,7 +862,7 @@ export default function POSPage() {
       if (d.ok !== false) {
         setShowStaffForm(false);
         setEditStaff(null);
-        setStaffForm({ name: '', phone: '', line_id: '', role: 'พนักงานส่ง', notes: '' });
+        setStaffForm({ name: '', phone: '', line_id: '', role: 'พนักงานส่ง', notes: '', perm_view_revenue: false, perm_view_pl: false, perm_manage_stock: false, perm_export_vat: false });
         await fetchStaff();
         showToast(editStaff ? 'แก้ไขพนักงานแล้ว' : 'เพิ่มพนักงานแล้ว');
       } else { alert(d.error); }
@@ -5592,7 +5592,7 @@ export default function POSPage() {
                       <h3 className="text-white font-bold">🛵 พนักงาน / คนส่งของ</h3>
                       <p className="text-gray-400 text-xs mt-0.5">ใส่ LINE ID ของพนักงานเพื่อรับงานส่งของผ่าน LINE อัตโนมัติ</p>
                     </div>
-                    <button onClick={() => { setEditStaff(null); setStaffForm({ name:'', phone:'', line_id:'', role:'พนักงานส่ง', notes:'' }); setShowStaffForm(true); }} className="shrink-0 bg-green-600 hover:bg-green-500 text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors">
+                    <button onClick={() => { setEditStaff(null); setStaffForm({ name:'', phone:'', line_id:'', role:'พนักงานส่ง', notes:'', perm_view_revenue:false, perm_view_pl:false, perm_manage_stock:false, perm_export_vat:false }); setShowStaffForm(true); }} className="shrink-0 bg-green-600 hover:bg-green-500 text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors">
                       + เพิ่ม
                     </button>
                   </div>
@@ -5625,10 +5625,18 @@ export default function POSPage() {
                                 <span className="text-yellow-500">⚠️ ยังไม่ได้ตั้ง PIN</span>
                               )}
                             </div>
+                            {(s.perm_view_revenue || s.perm_view_pl || s.perm_manage_stock || s.perm_export_vat) && (
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {s.perm_view_revenue && <span className="text-[10px] bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded">📊 ดูยอดขาย</span>}
+                                {s.perm_view_pl && <span className="text-[10px] bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded">💰 ดูกำไรขาดทุน</span>}
+                                {s.perm_manage_stock && <span className="text-[10px] bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded">📦 จัดการสต็อก</span>}
+                                {s.perm_export_vat && <span className="text-[10px] bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded">🧾 export VAT</span>}
+                              </div>
+                            )}
                           </div>
                           <div className="flex flex-col gap-1.5 shrink-0 items-end">
                             <div className="flex gap-1.5">
-                              <button onClick={() => { setEditStaff(s); setStaffForm({ name: s.name, phone: s.phone, line_id: s.line_id, role: s.role, notes: s.notes }); setShowStaffForm(true); }} className="text-xs bg-gray-700 hover:bg-blue-700 text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">แก้ไข</button>
+                              <button onClick={() => { setEditStaff(s); setStaffForm({ name: s.name, phone: s.phone, line_id: s.line_id, role: s.role, notes: s.notes, perm_view_revenue: !!s.perm_view_revenue, perm_view_pl: !!s.perm_view_pl, perm_manage_stock: !!s.perm_manage_stock, perm_export_vat: !!s.perm_export_vat }); setShowStaffForm(true); }} className="text-xs bg-gray-700 hover:bg-blue-700 text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">แก้ไข</button>
                               <button onClick={() => deleteStaffMember(s)} className="text-xs bg-gray-700 hover:bg-red-700 text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">ลบ</button>
                             </div>
                             <div className="flex gap-1.5">
@@ -6751,6 +6759,35 @@ export default function POSPage() {
                   <input value={staffForm.notes} onChange={e => setStaffForm(f => ({ ...f, notes: e.target.value }))}
                     className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
                     placeholder="ไม่บังคับ" />
+                </div>
+                <div className="bg-gray-800/60 rounded-xl p-3 border border-gray-700">
+                  <label className="text-gray-400 text-xs block mb-2">🔑 สิทธิ์เข้าถึงหน้าพนักงาน (ไม่บังคับ — เพื่อดูข้อมูลผ่านลิงก์ pos-staff เท่านั้น)</label>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={staffForm.perm_view_revenue}
+                        onChange={e => setStaffForm(f => ({ ...f, perm_view_revenue: e.target.checked }))}
+                        className="w-4 h-4 accent-green-600" />
+                      <span className="text-gray-300 text-xs">📊 ดูยอดขายรวม</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={staffForm.perm_view_pl}
+                        onChange={e => setStaffForm(f => ({ ...f, perm_view_pl: e.target.checked }))}
+                        className="w-4 h-4 accent-green-600" />
+                      <span className="text-gray-300 text-xs">💰 ดูกำไรขาดทุน</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={staffForm.perm_manage_stock}
+                        onChange={e => setStaffForm(f => ({ ...f, perm_manage_stock: e.target.checked }))}
+                        className="w-4 h-4 accent-green-600" />
+                      <span className="text-gray-300 text-xs">📦 จัดการสต็อกสินค้า (แก้ไข/รับสินค้า)</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={staffForm.perm_export_vat}
+                        onChange={e => setStaffForm(f => ({ ...f, perm_export_vat: e.target.checked }))}
+                        className="w-4 h-4 accent-green-600" />
+                      <span className="text-gray-300 text-xs">🧾 Export รายงาน VAT</span>
+                    </label>
+                  </div>
                 </div>
               </div>
               <div className="flex gap-3 mt-5">

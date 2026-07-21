@@ -336,8 +336,12 @@ export const RECEIVE_HEADERS = [
 // A           B     C        D          E      F        G           H       I
 // สาขา (H) + PIN (I) เพิ่มท้ายสุด — ไม่แทรกกลาง กันข้อมูลเก่าเลื่อนคอลัมน์ผิด (ensureTabExists
 // auto-patch header ที่สั้นกว่าให้อยู่แล้ว) — PIN เป็นรหัสส่วนตัวที่พนักงานตั้งเอง (ไม่ใช่ PIN ร้านเดียวใช้ร่วมกันแบบเดิม)
+// J-M เพิ่มท้ายสุด — สิทธิ์เชิงลึกต่อพนักงาน (ค่าเริ่มต้นว่าง = ไม่มีสิทธิ์ ปลอดภัยไว้ก่อนสำหรับ
+// พนักงานเก่าที่มีอยู่แล้ว) ใช้เปิดหน้า "📊 จัดการร้าน" เพิ่มเติมใน pos-staff.js นอกเหนือจากงาน
+// จัดส่ง/เก็บเงินปกติ — เช็คทั้งฝั่ง UI (ซ่อนเมนู) และฝั่ง API (บล็อกจริงถ้าไม่มีสิทธิ์)
 export const STAFF_HEADERS = [
   'รหัสพนักงาน', 'ชื่อ', 'เบอร์โทร', 'LINE ID', 'บทบาท', 'หมายเหตุ', 'วันที่เพิ่ม', 'สาขา', 'PIN',
+  'สิทธิ์ดูยอดขายรวม', 'สิทธิ์ดูกำไรขาดทุน', 'สิทธิ์จัดการสต็อก', 'สิทธิ์ export รายงาน VAT',
 ];
 
 // A          B          C             D           E      F       G         H              I        J         K           L      M       N
@@ -621,7 +625,35 @@ export function rowToStaff(row) {
     created_at:  row[6] || '',
     branch_name: row[7] || '',
     has_pin:     !!(row[8] && String(row[8]).trim()),
+    perm_view_revenue: row[9]  === 'TRUE' || row[9]  === '1',
+    perm_view_pl:      row[10] === 'TRUE' || row[10] === '1',
+    perm_manage_stock: row[11] === 'TRUE' || row[11] === '1',
+    perm_export_vat:   row[12] === 'TRUE' || row[12] === '1',
   };
+}
+
+// ตรวจสิทธิ์เชิงลึกของพนักงานคนหนึ่ง (จาก pos-staff.js "📊 จัดการร้าน") — ใช้บังคับฝั่ง API จริง
+// ไม่ใช่แค่ซ่อน UI เฉยๆ (กันพนักงานเรียก API ตรงข้ามหน้าบ้าน) — คืน false ทั้งหมดถ้าไม่พบพนักงาน
+// หรือ error ใดๆ (fail-safe: ไม่มีสิทธิ์ดีกว่ามีสิทธิ์ผิดคน)
+export async function getStaffPermissions(token, sheetId, staffId) {
+  const empty = { perm_view_revenue: false, perm_view_pl: false, perm_manage_stock: false, perm_export_vat: false };
+  if (!staffId) return empty;
+  try {
+    await ensureTabExists(token, sheetId, 'พนักงาน', STAFF_HEADERS);
+    const rows = await readSheet(token, sheetId, 'พนักงาน!A:M');
+    const row = rows.slice(1).find(r => r[0] === staffId);
+    if (!row) return empty;
+    const staff = rowToStaff(row);
+    return {
+      perm_view_revenue: staff.perm_view_revenue,
+      perm_view_pl: staff.perm_view_pl,
+      perm_manage_stock: staff.perm_manage_stock,
+      perm_export_vat: staff.perm_export_vat,
+    };
+  } catch (err) {
+    console.error('[getStaffPermissions]', err.message);
+    return empty;
+  }
 }
 
 export function rowToOrder(row) {
