@@ -2,7 +2,7 @@
 
 โปรเจกต์ของ Vespa / Siam Global Network Enterprise
 ภาษาหลักในโค้ดและ comment: **ไทย**
-อัปเดตล่าสุด: 2026-07-21 (ทำ 3 ใน 5 งาน "ง่ายก่อน" เสร็จครบแล้ว: ตารางเปรียบเทียบแพ็กเกจ, เว็บสั่งซื้อสาธารณะสำหรับลูกค้า (`pages/order.js`), Excel report engine (3 แม่แบบใหม่ + custom scaffold), และล่าสุด **สิทธิ์พนักงานละเอียด** (4 สิทธิ์แยกต่อคน: ดูยอดขาย/กำไรขาดทุน/จัดการสต็อก/export VAT — enforce จริงฝั่ง server ผ่าน `staffId` ที่ไม่บังคับ ไม่กระทบเจ้าของร้านเลย) — ดูข้อ 35 ในหัวข้อ "เหตุการณ์และบั๊กที่แก้แล้ว" — **commit/push แล้ว ยังไม่ได้ deploy ขึ้น production (รอผู้ใช้ยืนยัน)** — เหลือ: โอนย้ายสต็อกข้ามสาขา (deferred รอคุยโมเดลสต็อกแยกสาขา), White-Label, QR สั่งอาหารที่โต๊ะ — ทั้ง 3 อันหลังรอคุยรายละเอียดก่อนเริ่ม)
+อัปเดตล่าสุด: 2026-07-21 (ทำ 3 ใน 5 งาน "ง่ายก่อน" เสร็จครบแล้ว: ตารางเปรียบเทียบแพ็กเกจ, เว็บสั่งซื้อสาธารณะสำหรับลูกค้า (`pages/order.js`), Excel report engine (3 แม่แบบใหม่ + custom scaffold), และล่าสุด **สิทธิ์พนักงานละเอียด** (4 สิทธิ์แยกต่อคน: ดูยอดขาย/กำไรขาดทุน/จัดการสต็อก/export VAT — enforce จริงฝั่ง server ผ่าน `staffId` ที่ไม่บังคับ ไม่กระทบเจ้าของร้านเลย) — ดูข้อ 35 ในหัวข้อ "เหตุการณ์และบั๊กที่แก้แล้ว" — **Deploy production แล้ว (2026-07-21, revision จริง `smileslip-dashboard-00269-lpk` — ข้อความ deploy โชว์ revision เดิม `00268-slt` ผิดอีกตามเคย เช็คด้วย `gcloud run revisions list` แล้ว pin traffic เอง)** — verified บน production จริง: `/pricing`, `/order`, `/api/pos/public-shop-info`, `/api/pos/staff` (คอลัมน์สิทธิ์ใหม่), `/api/pos/reports?type=pl` (ทางเจ้าของร้านไม่ส่ง staffId ยังทำงานปกติ) — เหลือ: โอนย้ายสต็อกข้ามสาขา (deferred รอคุยโมเดลสต็อกแยกสาขา), White-Label, QR สั่งอาหารที่โต๊ะ — ทั้ง 3 อันหลังรอคุยรายละเอียดก่อนเริ่ม)
 
 ---
 
@@ -307,7 +307,7 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
 | Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00145-zlx` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00268-slt` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00269-lpk` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
