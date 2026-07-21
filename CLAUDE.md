@@ -2,7 +2,7 @@
 
 โปรเจกต์ของ Vespa / Siam Global Network Enterprise
 ภาษาหลักในโค้ดและ comment: **ไทย**
-อัปเดตล่าสุด: 2026-07-20 (Phase 1-3 ของสเปก "30-Day Free Trial + Package Tier & Feature Gating Matrix": แก้บั๊ก 4 ข้อ (เงินเชื่อไม่อัปเดตยอดค้าง/งานเก็บเงินข้ามขั้นยืนยัน/สต็อคหมุนเวียนไม่อัปเดตตอนจัดส่ง/พนักงานไม่โชว์สาขา), ลดขั้นตอนสมัคร (ตัดกรอกบัญชีธนาคารออก), ระบบทดลองใช้ฟรี 30 วันแบบล็อกอัตโนมัติ (ร้านเก่ายกเว้นตลอดไป), ตารางสิทธิ์ฟีเจอร์ตาม tier (`lib/tier-features.js` — Shop Pro ล็อก 3 ฟีเจอร์ที่ trial ฟรีใช้ได้โดยเจตนา), Day-25 LINE nudge, ปรับ copy หน้าราคา — ดูข้อ 33 ในหัวข้อ "เหตุการณ์และบั๊กที่แก้แล้ว" — **deploy production แล้วทั้งหมด revision `smileslip-dashboard-00268-slt`, `smileslip-service-00145-zlx` — รอผู้ใช้รัน SQL คอลัมน์ trial ก่อน trial-lock จะเริ่มมีผลจริง (feature gating matrix มีผลแล้วตอนนี้)**)
+อัปเดตล่าสุด: 2026-07-20 (Phase 1-3 ของสเปก "30-Day Free Trial + Package Tier & Feature Gating Matrix": แก้บั๊ก 4 ข้อ (เงินเชื่อไม่อัปเดตยอดค้าง/งานเก็บเงินข้ามขั้นยืนยัน/สต็อคหมุนเวียนไม่อัปเดตตอนจัดส่ง/พนักงานไม่โชว์สาขา), ลดขั้นตอนสมัคร (ตัดกรอกบัญชีธนาคารออก), ระบบทดลองใช้ฟรี 30 วันแบบล็อกอัตโนมัติ (ร้านเก่ายกเว้นตลอดไป), ตารางสิทธิ์ฟีเจอร์ตาม tier (`lib/tier-features.js` — Shop Pro ล็อก 3 ฟีเจอร์ที่ trial ฟรีใช้ได้โดยเจตนา), Day-25 LINE nudge, ปรับ copy หน้าราคา — ดูข้อ 33 ในหัวข้อ "เหตุการณ์และบั๊กที่แก้แล้ว" — **deploy production แล้วทั้งหมด revision `smileslip-dashboard-00268-slt`, `smileslip-service-00145-zlx` + รัน SQL คอลัมน์ trial แล้ว + สร้าง Cloud Scheduler jobs ครบแล้ว (2026-07-21) — ระบบ 30-Day Free Trial Lock + Feature Gating Matrix มีผลจริงครบวงจรแล้วตอนนี้**)
 
 ---
 
@@ -228,7 +228,7 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
       - Enforce ฝั่ง UI ที่ `pos.js` — ซ่อนตัวเลือก "เชื่อ"/"ค้างจ่าย" ในหน้าชำระเงิน/สร้างออเดอร์จัดส่ง, ซ่อนตัวเลือกประเภทสินค้า "หมุนเวียน" ในฟอร์มเพิ่มสินค้า, ซ่อนทั้งแท็บ "เก็บเงิน/ของ" และปุ่ม "ส่งพนักงานไปเก็บ" ทั้งหมด สำหรับ Shop Pro
     - **ปรับ copy หน้า `pricing.js`** — เปลี่ยนข้อความ "50 สลิปแรกฟรี" เป็น "ทดลองใช้ฟรีเต็มรูปแบบ 30 วัน" ทั้ง hero banner และการ์ด Starter, เพิ่มคำเตือนชัดเจนใน Shop Pro ว่า "⚠️ ไม่รวม: สต็อกหมุนเวียน/แอปพนักงานส่งของ/ระบบเงินเชื่อ" และใน Advance ว่า "🔓 ปลดล็อก..." กันลูกค้าสับสน/ประหลาดใจตอนซื้อ
     - **Deploy production แล้ว (2026-07-20)** — bot revision จริง `smileslip-service-00145-zlx`, dashboard revision จริง `smileslip-dashboard-00268-slt` (ข้อความ deploy โชว์ revision เดิมผิดอีกตามเคยทั้งคู่ เช็คด้วย `gcloud run revisions list` แล้ว pin traffic เองเหมือนทุกครั้ง) — verified: บอท boot สำเร็จ (Redis connected), หน้า `/pricing` โชว์ copy ทดลองใช้ 30 วัน + คำเตือน Shop Pro ใหม่ถูกต้องบน production จริง, endpoint `/cron/trial-day25-nudge` มีอยู่จริงและปฏิเสธ request ไม่มี secret ถูกต้อง (401)
-    - **ยังไม่ได้รัน SQL เพิ่มคอลัมน์ trial ใน production** (ดู "ต้องทำด้วยมือ" ด้านล่าง) — ทุกจุดออกแบบ fail-safe ไว้แล้ว ก่อนรัน SQL ระบบจะทำงานเหมือนเดิมทุกประการ (ไม่มีร้านไหนถูกล็อกโดยไม่ตั้งใจ) ฟีเจอร์ trial-lock จะเริ่มมีผลจริงก็ต่อเมื่อรัน SQL แล้วเท่านั้น (และต้องสร้าง Cloud Scheduler jobs เพิ่มด้วย) — ส่วน feature gating matrix (ล็อก Shop Pro 3 ฟีเจอร์) มีผลทันทีบน production แล้วตอนนี้ ไม่ต้องรอ SQL เพราะใช้แค่ `subscription_tier` ที่มีอยู่แล้ว
+    - **ผู้ใช้รัน SQL แล้ว + สร้าง Cloud Scheduler jobs ครบแล้ว (2026-07-21)** — verified คอลัมน์ trial มีจริงผ่าน REST query (ร้านเก่าทุกร้าน `trial_started_at`/`trial_ends_at` เป็น NULL ตามที่ตั้งใจ ไม่มีใครถูกแตะ), ทดสอบรัน `smileslip-expire-trials`/`smileslip-trial-day25-nudge` ด้วยมือสำเร็จทั้งคู่ (HTTP 200 / log จบไม่มี error) — ระบบ 30-Day Free Trial Lock **มีผลจริงครบวงจรแล้ว** ทั้งการล็อกอัตโนมัติเมื่อครบ 30 วันและ LINE nudge วันที่ 25 — ส่วน feature gating matrix (ล็อก Shop Pro 3 ฟีเจอร์) มีผลตั้งแต่ deploy แล้วเช่นกัน (ไม่ต้องรอ SQL เพราะใช้แค่ `subscription_tier` ที่มีอยู่แล้ว)
 
 **ข้อควรระวังใหม่ที่เพิ่มจากเหตุการณ์นี้:**
 - **Git identity ของเครื่องนี้ตั้งแบบ repo-local เท่านั้น** (`user.name=Vespa`, `user.email=six.papigod@gmail.com`) ไม่ใช่ global — ถ้าย้ายเครื่อง/ไดร์อีกต้องตั้งใหม่
@@ -991,8 +991,11 @@ ALTER TABLE shop_profiles
 - [x] **Vision API Budget Alert** — ทำแล้ว (2026-06-12)
 - [x] **เพิ่ม `subscription_expires_at`, `stripe_billed_tier`, `stripe_period_end`, `google_bonus_granted` columns** ใน `shop_profiles` — ทำแล้ว 2026-06-27/28
 - [ ] **ไลน์ออฟฟิเชียลอื่น (ไม่ใช่บอทนี้)** — ผู้ใช้ถามว่า Claude แก้ Rich Menu/ข้อความตอบกลับอัตโนมัติของ LINE OA อื่นได้ไหม — ทำไม่ได้เพราะต้อง login LINE Official Account Manager ด้วยบัญชีผู้ใช้เอง (ห้ามกรอก credential ให้) ผู้ใช้ต้องอัปโหลดรูป/ใส่ข้อความเองหลัง Claude ออกแบบ/เขียนให้
-- [ ] **รัน SQL คอลัมน์ trial (`trial_started_at`/`trial_ends_at`/`status`/`trial_day25_notified`) ใน `shop_profiles`** — ดู SQL ด้านบน — ต้องรันก่อนระบบ 30-Day Free Trial Lock จะเริ่มล็อกร้านที่หมดเวลาได้จริง (ก่อนรัน โค้ดทำงานปกติทุกอย่าง ไม่ล็อกใคร)
-- [ ] **สร้าง Cloud Scheduler jobs `smileslip-expire-trials` + `smileslip-trial-day25-nudge`** — ดูรายละเอียด endpoint ด้านบน (ต้องรัน SQL ก่อนถึงจะมีผล)
+- [x] **รัน SQL คอลัมน์ trial (`trial_started_at`/`trial_ends_at`/`status`/`trial_day25_notified`) ใน `shop_profiles`** — ✅ รันแล้ว 2026-07-21 — verified ผ่าน REST query: คอลัมน์มีจริง, `status` default `'active'` ถูกต้อง, ร้านเก่าทุกร้านมี `trial_started_at`/`trial_ends_at` เป็น NULL ตามที่ตั้งใจ (ยกเว้นตลอดไป ไม่มีร้านไหนถูกแตะ)
+- [x] **สร้าง Cloud Scheduler jobs `smileslip-expire-trials` + `smileslip-trial-day25-nudge`** — ✅ สร้างแล้ว 2026-07-21 (region `asia-southeast1`, ใช้ header `x-cron-secret` เดียวกับ cron อื่นทั้งหมด):
+  - `smileslip-expire-trials` — `0 19 30 * * *` UTC (02:30 กรุงเทพ ทุกวัน) → `POST https://smileslippro.com/api/cron/expire-trials`
+  - `smileslip-trial-day25-nudge` — `0 11 * * *` UTC (18:00 กรุงเทพ ทุกวัน) → `POST {bot_url}/cron/trial-day25-nudge`
+  - ทดสอบรันด้วยมือ (`gcloud scheduler jobs run`) ทั้งคู่แล้ว: `expire-trials` ตอบ HTTP 200, `trial-day25-nudge` log เริ่ม/จบสำเร็จไม่มี error — ระบบ 30-Day Free Trial Lock **มีผลจริงครบวงจรแล้วตอนนี้** (ทดลองใช้ครบ 30 วัน → ล็อกอัตโนมัติ, เหลือ 5 วัน → แจ้งเตือนทาง LINE อัตโนมัติ)
 
 ---
 
