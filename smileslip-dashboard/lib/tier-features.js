@@ -22,6 +22,7 @@ export function hasFeature(tier, feature) {
   const level = TIER_LEVEL[t] ?? 0;
 
   if (feature === 'vat_report') return level >= TIER_LEVEL.business;
+  if (feature === 'excel_report_templates') return level >= TIER_LEVEL.business;
   if (feature === 'market_price_index') return level >= TIER_LEVEL.enterprise;
 
   if (GATED_AT_PRO_ONLY.has(feature)) {
@@ -38,6 +39,7 @@ export const FEATURE_LABEL = {
   delivery_staff_app: 'แอปพนักงานส่งของ',
   credit_ar: 'ระบบลงบัญชีเงินเชื่อ/ลูกหนี้',
   vat_report: 'รายงานภาษีมูลค่าเพิ่ม (VAT)',
+  excel_report_templates: 'รายงาน Excel สำเร็จรูป (ภ.พ.30/สรุปยอดขาย/คลังสินค้าหมุนเวียน)',
   market_price_index: 'ดัชนีราคากลาง + ตรวจทุจริตจัดซื้อ',
 };
 

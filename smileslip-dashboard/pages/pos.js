@@ -7371,6 +7371,24 @@ export default function POSPage() {
                   <span className="text-gray-300 text-sm">{r.label}</span>
                 </label>
               ))}
+              {hasFeature(shopInfo?.subscription_tier, 'excel_report_templates') && (
+                <>
+                  <div className="border-t border-gray-800 pt-2 mt-2 text-gray-400 text-xs mb-1">📑 แม่แบบสำเร็จรูป (Business+)</div>
+                  {[
+                    { key: 'vat30',              label: '🧾 ภาษีซื้อ-ขาย มาตรฐาน (ภ.พ.30)' },
+                    { key: 'sales_by_branch',    label: '🏢 สรุปยอดขายแยกสาขา/วิธีชำระ' },
+                    { key: 'cyclical_inventory', label: '🔄 คลังสินค้าหมุนเวียน + มูลค่าสินทรัพย์' },
+                  ].map(r => (
+                    <label key={r.key} className="flex items-center gap-3 cursor-pointer py-1">
+                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${exportTypes.includes(r.key) ? 'bg-green-600 border-green-600' : 'border-gray-600'}`}
+                        onClick={() => setExportTypes(prev => prev.includes(r.key) ? prev.filter(t => t !== r.key) : [...prev, r.key])}>
+                        {exportTypes.includes(r.key) && <span className="text-white text-xs font-bold">✓</span>}
+                      </div>
+                      <span className="text-gray-300 text-sm">{r.label}</span>
+                    </label>
+                  ))}
+                </>
+              )}
               <div className="border-t border-gray-800 pt-3 space-y-2">
                 <div className="text-gray-400 text-xs">ช่วงเวลา: {reportDateFrom || 'ทั้งหมด'}{reportDateTo && reportDateFrom !== reportDateTo ? ` – ${reportDateTo}` : ''}</div>
               </div>

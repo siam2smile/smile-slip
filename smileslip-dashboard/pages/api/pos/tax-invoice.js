@@ -20,6 +20,14 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
+// บังคับเก็บเป็นข้อความเสมอ กัน Sheets USER_ENTERED ตีความสตริงวันที่ไทย (มีปี พ.ศ.) เป็นเลข serial
+// ผิดเพี้ยน ~543 ปี (เจอจริงกับ INV-2569-00002 ระหว่างทดสอบ Excel report engine — ไฟล์นี้ไม่เคยผ่าน
+// asText() มาก่อนเลยตั้งแต่สร้าง ต่างจากไฟล์ POS อื่นๆ ที่แก้ไปแล้ว)
+function asText(v) {
+  if (v === '' || v == null) return v;
+  return `'${v}`;
+}
+
 const VAT_RATE = 0.07;
 
 async function getConfig(shopId) {
@@ -104,7 +112,7 @@ export default async function handler(req, res) {
       const invoice_no = `INV-${yearBE}-${String(countThisYear + 1).padStart(5, '0')}`;
 
       await appendSheet(token, sheetId, 'ใบกำกับภาษี', [
-        invoice_no, now, ref_bill_no, customer_id,
+        invoice_no, asText(now), ref_bill_no, customer_id,
         buyer_name, buyer_tax_id, buyer_address, buyer_branch,
         JSON.stringify(items), subtotal, vat, total, issued_by, buyer_phone,
         seller_name, seller_address,
