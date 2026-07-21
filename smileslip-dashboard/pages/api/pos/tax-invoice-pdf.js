@@ -26,16 +26,22 @@ export default async function handler(req, res) {
     if (!gc?.google_refresh_token) return res.status(400).json({ error: 'ยังไม่ได้เชื่อมต่อ Google' });
 
     const token = await getAccessToken(gc.google_refresh_token);
-    const rows = await readSheet(token, pc.pos_sheet_id, 'ใบกำกับภาษี!A:N');
+    const rows = await readSheet(token, pc.pos_sheet_id, 'ใบกำกับภาษี!A:P');
     const invoice = rows.slice(1).map(rowToTaxInvoice).find(v => v.invoice_no === invoice_no);
     if (!invoice) return res.status(404).json({ error: 'ไม่พบใบกำกับภาษีนี้' });
+
+    // ถ้าใบนี้ออกโดยสาขาที่มีชื่อ/ที่อยู่แยกจากบริษัทหลัก (บันทึกไว้ตอนออกจริง) ใช้ข้อมูลนั้นแทน
+    // — ไม่คำนวณจากการตั้งค่าสาขาปัจจุบันใหม่ กันเอกสารเปลี่ยนย้อนหลังถ้ามีการแก้ไขทีหลัง
+    const shopInfo = invoice.seller_name
+      ? { ...shop, shop_name: invoice.seller_name, address: invoice.seller_address || shop?.address }
+      : (shop || {});
 
     const pdf = await generatePosTaxInvoicePdf({
       invoice_no: invoice.invoice_no,
       issued_at: invoice.issued_at,
       ref_bill_no: invoice.ref_bill_no,
       issued_by: invoice.issued_by,
-      shopInfo: shop || {},
+      shopInfo,
       buyer: {
         name: invoice.buyer_name,
         tax_id: invoice.buyer_tax_id,

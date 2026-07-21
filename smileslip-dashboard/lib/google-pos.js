@@ -275,10 +275,15 @@ export const LOAN_HEADERS = [
 // tab "ใบกำกับภาษี" — ใบกำกับภาษีที่ร้านออกให้ลูกค้าของร้านเอง (คนละระบบกับใบกำกับภาษี
 // ที่ Smile Slip Pro ออกให้ร้านตอนซื้อแพ็กเกจ — นี่คือร้านออกให้ลูกค้าร้านตัวเอง)
 // เลขที่รันต่อปี ไม่ให้เลขขาดหาย (นับจากจำนวนแถวที่มีอยู่ของปีนั้น + 1)
+// เพิ่ม O=ชื่อผู้ขาย(สาขา) P=ที่อยู่ผู้ขาย(สาขา) ท้ายสุด — เก็บชื่อ/ที่อยู่ "ผู้ออกใบกำกับภาษี" ที่แท้จริง
+// ตอนออกจริง (เผื่อสาขาที่ออกมีแบรนด์/ที่อยู่แยกจากบริษัทหลัก) แช่แข็งไว้ ณ เวลาที่ออก ไม่คำนวณใหม่
+// ตอนพิมพ์ซ้ำทีหลัง (กันเอกสารเปลี่ยนย้อนหลังถ้าตั้งค่าสาขาถูกแก้ไขในอนาคต) — ว่าง = ใบเก่าก่อนมีฟีเจอร์นี้
+// (fallback ไปใช้ข้อมูลบริษัทหลักที่ tax-invoice-pdf.js เหมือนเดิม)
 export const TAX_INVOICE_HEADERS = [
   'เลขที่ใบกำกับภาษี', 'วันที่ออก', 'เลขที่บิลอ้างอิง', 'รหัสลูกค้า',
   'ชื่อผู้ซื้อ', 'เลขภาษีผู้ซื้อ', 'ที่อยู่ผู้ซื้อ', 'สาขาผู้ซื้อ',
   'รายการ (JSON)', 'ยอดก่อน VAT', 'ยอด VAT', 'ยอดรวม', 'ออกโดย', 'เบอร์โทรผู้ซื้อ',
+  'ชื่อผู้ขาย (สาขา)', 'ที่อยู่ผู้ขาย (สาขา)',
 ];
 
 export function rowToTaxInvoice(row) {
@@ -299,6 +304,8 @@ export function rowToTaxInvoice(row) {
     total:        parseFloat(row[11]) || 0,
     issued_by:    row[12] || '',
     buyer_phone:  row[13] || '',
+    seller_name:    row[14] || '',
+    seller_address: row[15] || '',
   };
 }
 
@@ -420,6 +427,46 @@ export async function logCyclicalTransaction(token, sheetId, { sku, name, source
   } catch (err) {
     console.error('[logCyclicalTransaction]', err.message);
   }
+}
+
+// ── Backdating helper ─────────────────────────────────────────────────────────
+// คำนวณวันที่-เวลาของ "รายการ" (ไม่ใช่วันที่ระบบบันทึกจริง) — รองรับกรอกย้อนหลัง
+// (เอกสารมาช้า/คีย์ข้อมูลย้อนหลัง) ผ่าน transactionDate (ISO "YYYY-MM-DD", optional)
+// เวลาที่แสดงยังคงเป็นเวลาปัจจุบันเสมอ (ไม่มีช่องกรอกเวลาแยก) มีแค่ "วันที่" ที่แก้ได้
+//
+// คืนค่า 2 รูปแบบเพราะโค้ดเดิมของโปรเจกต์ใช้ format ไม่ตรงกันระหว่าง 2 จุด (ต้องคงไว้ตามเดิม
+// เป๊ะ ไม่งั้น date-filter แบบ startsWith ที่มีอยู่แล้วจะพังกับวันที่/เดือนหลักเดียว):
+//   - `full` (ไม่ pad เลข) — ใช้เขียนคอลัมน์ "วันที่-เวลา" ของ POS Sheet เอง (sales/receives/expenses
+//     tab) ตรงกับที่ `now.toLocaleString('th-TH')` เคยให้มาแต่เดิม เช่น "5/7/2569 13:06:03"
+//   - `thaiDate`/`thaiTime` (pad 2 หลัก) — ใช้เขียนคอลัมน์ "วันที่สลิป"/"เวลา" ของ Sheets บัญชีหลัก
+//     (writeXToMainSheets) ตรงกับที่ `toLocaleDateString(...,{day:'2-digit',month:'2-digit'})` เคยให้มา
+//   - `isoYear` — ปีของ "รายการ" (ไม่ใช่ปีปัจจุบัน) ใช้เลือกว่าจะเขียนลง tab ปีไหนใน Sheets บัญชีหลัก
+export function resolveRecordDateTime(transactionDate) {
+  const now = new Date();
+  const thaiLocale = { timeZone: 'Asia/Bangkok' };
+  const thaiTime = now.toLocaleTimeString('th-TH', thaiLocale);
+  const pad = (n) => String(n).padStart(2, '0');
+
+  if (transactionDate) {
+    const [y, m, d] = transactionDate.split('-').map(Number);
+    if (y && m && d) {
+      const buddhistYear = y + 543;
+      return {
+        full: `${d}/${m}/${buddhistYear} ${thaiTime}`,        // ไม่ pad — ตรงกับ toLocaleString เดิม
+        thaiDate: `${pad(d)}/${pad(m)}/${buddhistYear}`,      // pad — ตรงกับ toLocaleDateString เดิม
+        thaiTime,
+        isoYear: y.toString(),
+      };
+    }
+  }
+
+  const thaiDate = now.toLocaleDateString('th-TH', { ...thaiLocale, day: '2-digit', month: '2-digit', year: 'numeric' });
+  return {
+    full: now.toLocaleString('th-TH', thaiLocale),
+    thaiDate,
+    thaiTime,
+    isoYear: now.getFullYear().toString(),
+  };
 }
 
 // ── Key Generators ────────────────────────────────────────────────────────────

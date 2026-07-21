@@ -170,6 +170,11 @@ function parseThaiOrderDate(str) {
   return new Date(yBE - 543, m - 1, d);
 }
 
+// วันที่วันนี้แบบ ISO (YYYY-MM-DD) ตามเขตเวลาไทย — ใช้เป็นค่าเริ่มต้นของช่องเลือกวันที่ย้อนหลัง
+function getTodayISO() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+}
+
 // ── Map Picker Modal ─────────────────────────────────────────────────────────
 // ใช้ Leaflet + OpenStreetMap (ฟรี ไม่ต้องมี API key)
 // ผู้ใช้คลิกบนแผนที่เพื่อวางหมุดตรงจุดที่ต้องการ
@@ -374,6 +379,7 @@ export default function POSPage() {
   const { userId } = router.query;
 
   const [tab, setTab] = useState('sell');
+  const [showMoreMenu, setShowMoreMenu] = useState(false); // แท็บมือถือ: ตัวเลือกรองที่ไม่ได้ใช้บ่อยซ่อนใน "เพิ่มเติม"
   const [loading, setLoading] = useState(true);
   const [configLoading, setConfigLoading] = useState(false);
   const [configured, setConfigured] = useState(false);
@@ -398,6 +404,7 @@ export default function POSPage() {
   const [customerPrices, setCustomerPrices] = useState({}); // { sku: ราคาล่าสุดที่ลูกค้าคนนี้เคยซื้อ }
   const [payMethod, setPayMethod] = useState('เงินสด');
   const [cashReceived, setCashReceived] = useState('');
+  const [saleDate, setSaleDate] = useState(''); // ว่าง = วันนี้ (ปกติ) — เลือกวันอื่นได้เมื่อคีย์ข้อมูลย้อนหลัง
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [lastBill, setLastBill] = useState(null);
   const [showTaxInvoiceForm, setShowTaxInvoiceForm] = useState(false);
@@ -462,6 +469,8 @@ export default function POSPage() {
   const [reportBranch, setReportBranch] = useState('');
   const [reportStatusFilter, setReportStatusFilter] = useState('ทั้งหมด');
   const [expandedCredit, setExpandedCredit] = useState(null);
+  const [expandedCyclicalCust, setExpandedCyclicalCust] = useState(null);
+  const [cyclicalHoldingsCache, setCyclicalHoldingsCache] = useState({}); // { contact_id: { sku: qty } | 'unreconciled' }
   const [expandedLoan, setExpandedLoan] = useState(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportTypes, setExportTypes] = useState(['sales', 'inventory', 'credit', 'loans', 'topsellers', 'pl', 'expenses', 'vat']);
@@ -489,6 +498,7 @@ export default function POSPage() {
   const [showReceivePicker, setShowReceivePicker] = useState(false); // เปิด/ปิด รายการสินค้าให้เลือกแบบเบราส์
   const [receiveNotes, setReceiveNotes] = useState('');
   const [receivePhotoUrl, setReceivePhotoUrl] = useState(''); // รูปบิล/ใบส่งของ — ใช้เป็นหลักฐานสำหรับดัชนีราคากลาง
+  const [receiveDate, setReceiveDate] = useState(''); // ว่าง = วันนี้ — แก้ย้อนหลังได้ถ้าเอกสารมาช้า
   const [receivePhotoUploading, setReceivePhotoUploading] = useState(false);
   const [receiveSaving, setReceiveSaving] = useState(false);
   const [receiveHistory, setReceiveHistory] = useState([]);
@@ -501,7 +511,7 @@ export default function POSPage() {
   const [linkedPendingNo, setLinkedPendingNo] = useState(null); // pending_no ที่กำลังแก้ไขอยู่ในฟอร์ม (ลบออกจากคิวหลังยืนยันสำเร็จ)
 
   // รายจ่าย — ค่าใช้จ่ายร้านที่ไม่เกี่ยวกับสต็อคสินค้า
-  const [expenseForm, setExpenseForm] = useState({ label: '', amount: '', vatType: 'ไม่มี VAT', payment_method: 'เงินสด', notes: '' });
+  const [expenseForm, setExpenseForm] = useState({ label: '', amount: '', vatType: 'ไม่มี VAT', payment_method: 'เงินสด', notes: '', transactionDate: '' });
   const [expensePhotoUrl, setExpensePhotoUrl] = useState('');
   const [expensePhotoUploading, setExpensePhotoUploading] = useState(false);
   const [expenseSaving, setExpenseSaving] = useState(false);
@@ -964,20 +974,59 @@ export default function POSPage() {
     setCollectionTasksLoading(false);
   }
 
-  function openCollectDispatch(cust) {
+  // ดึงรายการสินค้าหมุนเวียนแยกตาม SKU ที่ลูกค้าคนนี้ถืออยู่ (ใช้ในรายงาน→สินค้าหมุนเวียน ตอนกดดูรายละเอียด)
+  // คืน 'unreconciled' ถ้าผลรวมที่คำนวณได้ไม่ตรงกับยอดรวมจริง (ข้อมูล log เก่าไม่ครบ) กันโชว์เลขผิด
+  async function fetchCyclicalHoldingsFor(cust) {
+    if (cyclicalHoldingsCache[cust.contact_id] !== undefined) return;
+    try {
+      const r = await fetch(`/api/pos/collections?shopId=${shopId}&holdingsFor=${cust.contact_id}`);
+      const d = await r.json();
+      const holdings = d.holdings || {};
+      const sum = Object.values(holdings).reduce((s, q) => s + q, 0);
+      setCyclicalHoldingsCache(prev => ({ ...prev, [cust.contact_id]: sum === cust.cylinders ? holdings : 'unreconciled' }));
+    } catch {
+      setCyclicalHoldingsCache(prev => ({ ...prev, [cust.contact_id]: 'unreconciled' }));
+    }
+  }
+
+  async function openCollectDispatch(cust) {
     const hasDebt = (cust.debt || 0) > 0;
     const hasItems = (cust.cylinders || 0) > 0;
     const cyclicalProducts = products.filter(p => p.type === 'หมุนเวียน');
-    const itemsQty = {};
-    // ถ้าร้านมีสินค้าหมุนเวียนแบบเดียว เดาให้อัตโนมัติจากยอดรวมที่ลูกค้าถืออยู่ (แก้ได้ถ้าไม่ตรง)
-    if (hasItems && cyclicalProducts.length === 1) {
+    let itemsQty = {};
+    let itemsUnreconciled = false;
+
+    // ดึงจำนวนที่ลูกค้าถืออยู่จริงแยกตาม SKU จากประวัติแลกเปลี่ยน — แม่นกว่าเดาเดี่ยว แต่ใช้ได้เฉพาะ
+    // ตอนผลรวมตรงกับยอดรวม (cust.cylinders) เท่านั้น เพราะ log บางรายการ (ยืมจากออเดอร์จัดส่ง)
+    // เก็บเป็นยอดรวมไม่แยก SKU มาตั้งแต่ต้น (known gap เดิม) ทำให้แยกคืนไม่ได้ครบทุกเคส —
+    // ถ้าไม่ตรง ไม่เดาส่งเดา (เสี่ยงผิด) แต่โชว์ยอดรวมให้แอดมินกรอกแยกเองแทน
+    if (hasItems && shopId) {
+      try {
+        const r = await fetch(`/api/pos/collections?shopId=${shopId}&holdingsFor=${cust.contact_id}`);
+        const d = await r.json();
+        const holdings = d.holdings || {};
+        const sumHoldings = Object.values(holdings).reduce((s, q) => s + q, 0);
+        if (sumHoldings === cust.cylinders && Object.keys(holdings).length) {
+          for (const [sku, qty] of Object.entries(holdings)) {
+            if (qty > 0) itemsQty[sku] = String(qty);
+          }
+        }
+      } catch {}
+    }
+    // ถ้าร้านมีสินค้าหมุนเวียนแบบเดียว ยอดรวม = ยอดของ SKU นั้นเป๊ะอยู่แล้วไม่ต้องเดา
+    if (hasItems && !Object.keys(itemsQty).length && cyclicalProducts.length === 1) {
       itemsQty[cyclicalProducts[0].sku] = String(cust.cylinders);
     }
+    if (hasItems && !Object.keys(itemsQty).length && cyclicalProducts.length > 1) {
+      itemsUnreconciled = true;
+    }
+
     setCollectDispatchCust(cust);
     setCollectDispatchForm({
       task_type: hasDebt && hasItems ? 'ทั้งคู่' : hasItems ? 'สินค้ายืม' : 'เงินเชื่อ',
       debt_amount: hasDebt ? String(cust.debt) : '',
       itemsQty,
+      itemsUnreconciled,
       staff_id: '', staff_name: '', staff_line_id: '', notes: '',
     });
     setShowCollectDispatch(true);
@@ -1597,10 +1646,12 @@ export default function POSPage() {
           slipSender: slipOcrData?.sender || '',
           slipRefNo: slipOcrData?.refNo || '',
           branch: selectedBranch?.branch_name || '',
+          transactionDate: saleDate || '',
         }),
       });
       const d = await r.json();
       if (d.ok) {
+        setSaleDate('');
         setLastBill({
           billNo: d.billNo,
           items: itemsWithReturns,
@@ -1653,9 +1704,13 @@ export default function POSPage() {
 
   // ── พิมพ์ใบเสร็จ / ใบกำกับภาษี ───────────────────────────────────────────────
   function printReceipt(bill) {
+    // ถ้าสาขาที่เลือกอยู่ตั้งชื่อแบรนด์/ที่อยู่แยกไว้ (หน้าตั้งค่า → จัดการสาขา) ใบเสร็จแสดงของสาขานั้นแทน
+    const receiptShopInfo = (selectedBranch?.brand_name || selectedBranch?.address)
+      ? { ...shopInfo, shop_name: selectedBranch.brand_name || shopInfo?.shop_name, address: selectedBranch.address || shopInfo?.address }
+      : shopInfo;
     const html = buildReceiptHtml({
       paperSize: posConfig.receipt_paper_size || '80mm',
-      shopInfo,
+      shopInfo: receiptShopInfo,
       isTaxInvoice: false,
       showVat: !!posConfig.vat_registered,
       docNo: bill.billNo,
@@ -1720,6 +1775,10 @@ export default function POSPage() {
           buyer_phone: taxInvoiceForm.buyer_phone.trim(),
           items: lastBill.items,
           issued_by: shopInfo?.shop_name || '',
+          // ผู้ออกใบกำกับภาษีจริง — ถ้าสาขาที่เลือกอยู่ตั้งชื่อแบรนด์/ที่อยู่แยกไว้ (หน้าตั้งค่า → จัดการสาขา)
+          // ใช้ของสาขานั้นแทน ไม่งั้นใช้ชื่อ/ที่อยู่บริษัทหลักตามปกติ (แช่แข็งค่านี้ไว้ตอนออกจริง)
+          seller_name: selectedBranch?.brand_name || shopInfo?.shop_name || '',
+          seller_address: selectedBranch?.address || shopInfo?.address || '',
         }),
       });
       const d = await r.json();
@@ -1935,6 +1994,7 @@ export default function POSPage() {
           notes: receiveNotes,
           branch: selectedBranch?.branch_name || '',
           photoUrl: receivePhotoUrl,
+          transactionDate: receiveDate || '',
         }),
       });
       const d = await r.json();
@@ -1948,6 +2008,7 @@ export default function POSPage() {
         setSupplierPrices({});
         setReceiveNotes('');
         setReceivePhotoUrl('');
+        setReceiveDate('');
         if (d.warnings?.length) setTimeout(() => showToast(d.warnings.join(' / ')), 3200);
         // ถ้ามาจากรายการรอยืนยันของ LINE — ลบออกจากคิวรอ เพราะยืนยันเข้าสต็อคจริงแล้ว
         if (linkedPendingNo) {
@@ -2049,12 +2110,13 @@ export default function POSPage() {
           notes: expenseForm.notes,
           recordedBy: shopInfo?.shop_name || '',
           branch: selectedBranch?.branch_name || '',
+          transactionDate: expenseForm.transactionDate || '',
         }),
       });
       const d = await r.json();
       if (d.ok) {
         showToast(`✅ บันทึกรายจ่าย ${d.expenseNo} แล้ว (฿${d.total.toLocaleString()})`);
-        setExpenseForm({ label: '', amount: '', vatType: 'ไม่มี VAT', payment_method: 'เงินสด', notes: '' });
+        setExpenseForm({ label: '', amount: '', vatType: 'ไม่มี VAT', payment_method: 'เงินสด', notes: '', transactionDate: '' });
         setExpensePhotoUrl('');
         fetchExpenseHistory();
         // ถ้ามาจากรายการรอยืนยันของ LINE — ลบออกจากคิวรอ เพราะบันทึกจริงแล้ว
@@ -2268,10 +2330,22 @@ export default function POSPage() {
     setDebtHistoryLoading(true);
     setShowDebtHistory(true);
     try {
-      const r = await fetch(`/api/pos/delivery?shopId=${shopId}`);
-      const d = await r.json();
-      const orders = (d.orders || []).filter(o => o.customer_id === c.contact_id && o.payment_method === 'ค้างจ่าย');
-      setDebtHistoryOrders(orders);
+      // ยอดค้างชำระของลูกค้ามาจาก 2 แหล่ง — ขายเชื่อหน้าร้าน (sales.js) และออเดอร์จัดส่งค้างจ่าย
+      // (delivery.js) — เดิมดูแค่จัดส่งอย่างเดียว ทำให้ลูกค้าที่ค้างจากขายเชื่อหน้าร้านล้วนๆ
+      // ไม่เห็นรายการเลยสักบิล ทั้งที่ยอดค้างชำระรวมแสดงถูกต้องอยู่แล้ว
+      const [salesRes, deliveryRes] = await Promise.all([
+        fetch(`/api/pos/sales?shopId=${shopId}&customerId=${c.contact_id}`),
+        fetch(`/api/pos/delivery?shopId=${shopId}`),
+      ]);
+      const salesData = await salesRes.json();
+      const deliveryData = await deliveryRes.json();
+      const creditSales = (salesData.sales || [])
+        .filter(s => s.payment_method === 'เชื่อ')
+        .map(s => ({ order_no: s.bill_no, created_at: s.created_at, notes: s.notes, items: s.items, total: s.total, status: s.status, source: 'pos' }));
+      const creditOrders = (deliveryData.orders || [])
+        .filter(o => o.customer_id === c.contact_id && o.payment_method === 'ค้างจ่าย')
+        .map(o => ({ order_no: o.order_no, created_at: o.created_at, notes: o.notes, items: o.items, total: o.total, status: o.credit_settled ? 'ชำระแล้ว' : 'ค้างชำระ', source: 'delivery' }));
+      setDebtHistoryOrders([...creditSales, ...creditOrders].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)));
     } catch {}
     setDebtHistoryLoading(false);
   }
@@ -2813,32 +2887,79 @@ export default function POSPage() {
           </a>
         </header>
 
-        {/* Tab nav */}
-        <nav className="bg-gray-900 border-b border-gray-800 flex shrink-0 overflow-x-auto">
-          {[
+        {/* Tab nav — แท็บที่ใช้บ่อยที่สุดอยู่บนแถบหลัก ที่เหลือซ่อนใน "เพิ่มเติม" กันแถบแน่นเกินไปบนมือถือ */}
+        {(() => {
+          const primaryTabs = [
             { key: 'sell',     label: '💰 ขาย' },
             { key: 'orders',   label: '🚚 ออเดอร์' },
-            ...(hasFeature(shopInfo?.subscription_tier, 'credit_ar') ? [{ key: 'collections', label: '🧾 เก็บเงิน/ของ' }] : []),
             { key: 'contacts', label: '👥 ผู้ติดต่อ' },
             { key: 'products', label: '📦 สินค้า' },
+          ];
+          const moreTabs = [
+            ...(hasFeature(shopInfo?.subscription_tier, 'credit_ar') ? [{ key: 'collections', label: '🧾 เก็บเงิน/ของ' }] : []),
             { key: 'receive',  label: '📥 รับสินค้า' },
             { key: 'expenses', label: '🧾 รายจ่าย' },
             { key: 'report',   label: '📊 รายงาน' },
             { key: 'settings', label: '⚙️ ตั้งค่า' },
-          ].map(t => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`shrink-0 flex-1 py-3 text-xs font-medium transition-colors border-b-2 min-w-0 ${
-                tab === t.key
-                  ? 'text-green-400 border-green-400'
-                  : 'text-gray-400 border-transparent hover:text-gray-200'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
+          ];
+          const isMoreActive = moreTabs.some(t => t.key === tab);
+          return (
+            <nav className="bg-gray-900 border-b border-gray-800 flex shrink-0 overflow-x-auto">
+              {primaryTabs.map(t => (
+                <button
+                  key={t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`shrink-0 flex-1 py-3 text-xs font-medium transition-colors border-b-2 min-w-0 ${
+                    tab === t.key
+                      ? 'text-green-400 border-green-400'
+                      : 'text-gray-400 border-transparent hover:text-gray-200'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+              <button
+                onClick={() => setShowMoreMenu(true)}
+                className={`shrink-0 flex-1 py-3 text-xs font-medium transition-colors border-b-2 min-w-0 ${
+                  isMoreActive
+                    ? 'text-green-400 border-green-400'
+                    : 'text-gray-400 border-transparent hover:text-gray-200'
+                }`}
+              >
+                {isMoreActive ? moreTabs.find(t => t.key === tab)?.label : '⋯ เพิ่มเติม'}
+              </button>
+            </nav>
+          );
+        })()}
+
+        {/* แผงเลือกแท็บรอง — เปิดจากปุ่ม "เพิ่มเติม" */}
+        {showMoreMenu && (
+          <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center" onClick={() => setShowMoreMenu(false)}>
+            <div className="bg-gray-900 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm border-t sm:border border-gray-700 max-h-[70vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+                <h3 className="text-white font-bold text-sm">เมนูเพิ่มเติม</h3>
+                <button onClick={() => setShowMoreMenu(false)} className="text-gray-400 hover:text-white text-xl leading-none">✕</button>
+              </div>
+              <div className="p-2">
+                {[
+                  ...(hasFeature(shopInfo?.subscription_tier, 'credit_ar') ? [{ key: 'collections', label: '🧾 เก็บเงิน/ของ' }] : []),
+                  { key: 'receive',  label: '📥 รับสินค้า' },
+                  { key: 'expenses', label: '🧾 รายจ่าย' },
+                  { key: 'report',   label: '📊 รายงาน' },
+                  { key: 'settings', label: '⚙️ ตั้งค่า' },
+                ].map(t => (
+                  <button key={t.key}
+                    onClick={() => { setTab(t.key); setShowMoreMenu(false); }}
+                    className={`w-full text-left px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
+                      tab === t.key ? 'bg-green-900/40 text-green-400' : 'text-gray-300 hover:bg-gray-800'
+                    }`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Content */}
         <div className="flex-1 overflow-hidden">
@@ -3436,6 +3557,17 @@ export default function POSPage() {
                       </label>
                     </div>
 
+                    {/* วันที่รับสินค้า — ปกติเป็นวันนี้ แก้ย้อนหลังได้ถ้าเอกสารมาช้า */}
+                    <div className="bg-gray-800 rounded-xl p-4 mb-4">
+                      <label className="block text-gray-400 text-xs mb-2 font-medium">📅 วันที่รับสินค้า</label>
+                      <input type="date" value={receiveDate || getTodayISO()} max={getTodayISO()}
+                        onChange={e => setReceiveDate(e.target.value)}
+                        className="w-full bg-gray-700 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-600 focus:outline-none focus:border-green-500"/>
+                      {receiveDate && receiveDate !== getTodayISO() && (
+                        <div className="text-amber-400 text-[11px] mt-1">⚠️ กำลังบันทึกย้อนหลัง — ไม่ใช่วันนี้</div>
+                      )}
+                    </div>
+
                     {/* หมายเหตุ */}
                     <div className="bg-gray-800 rounded-xl p-4 mb-4">
                       <label className="block text-gray-400 text-xs mb-2 font-medium">หมายเหตุ (ไม่บังคับ)</label>
@@ -3703,6 +3835,16 @@ export default function POSPage() {
                         <span className="text-gray-500 text-xs">📷 แตะเพื่อถ่ายรูป/เลือกรูปบิล-สลิป</span>
                       )}
                     </label>
+                  </div>
+
+                  <div>
+                    <label className="block text-gray-400 text-xs mb-1.5">📅 วันที่รายจ่าย</label>
+                    <input type="date" value={expenseForm.transactionDate || getTodayISO()} max={getTodayISO()}
+                      onChange={e => setExpenseForm(f => ({ ...f, transactionDate: e.target.value }))}
+                      className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                    {expenseForm.transactionDate && expenseForm.transactionDate !== getTodayISO() && (
+                      <div className="text-amber-400 text-[11px] mt-1">⚠️ กำลังบันทึกย้อนหลัง — ไม่ใช่วันนี้</div>
+                    )}
                   </div>
 
                   <div>
@@ -4212,6 +4354,11 @@ export default function POSPage() {
                   {collectDispatchForm.task_type !== 'เงินเชื่อ' && (
                     <div className="mb-4">
                       <label className="block text-gray-400 text-xs mb-1.5">สินค้าหมุนเวียนที่ต้องเก็บคืน (ตรวจสอบให้ตรงกับที่ลูกค้าถืออยู่จริง)</label>
+                      {collectDispatchForm.itemsUnreconciled && (
+                        <div className="text-amber-400 text-[11px] mb-2">
+                          ⚠️ ระบบแยกไม่ได้ว่าลูกค้าถือสินค้าชนิดไหนกี่ชิ้น — รวมทั้งหมด {collectDispatchCust.cylinders} ชิ้น กรุณาระบุแยกตามชนิดสินค้าด้านล่างให้ครบ
+                        </div>
+                      )}
                       <div className="space-y-2">
                         {products.filter(p => p.type === 'หมุนเวียน').map(p => (
                           <div key={p.sku} className="flex items-center justify-between gap-2 bg-gray-800 rounded-xl px-3 py-2">
@@ -4929,21 +5076,54 @@ export default function POSPage() {
                       <div className="bg-gray-900 rounded-xl overflow-hidden">
                         <div className="px-3 py-2 border-b border-gray-800 text-gray-400 text-xs font-medium">👥 ลูกค้าที่ถือสินค้าหมุนเวียนอยู่</div>
                         <div className="divide-y divide-gray-800">
-                          {(reportData.customers || []).map(c => (
-                            <div key={c.contact_id} className="px-3 py-2.5 flex items-center justify-between gap-2">
-                              <div className="min-w-0">
-                                <div className="text-white text-sm truncate">{c.name}</div>
-                                {c.phone && <div className="text-gray-500 text-xs">{c.phone}</div>}
-                              </div>
-                              <div className="flex items-center gap-2 shrink-0">
-                                <span className="text-orange-400 font-bold text-sm">{c.cylinders} ชิ้น</span>
-                                {hasFeature(shopInfo?.subscription_tier, 'credit_ar') && (
-                                  <button onClick={() => openCollectDispatch(contacts.find(x => x.contact_id === c.contact_id) || c)}
-                                    className="text-xs bg-orange-800 hover:bg-orange-700 text-orange-200 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">📤 ส่งเก็บ</button>
-                                )}
-                              </div>
+                          {(reportData.customers || []).map(c => {
+                            const isExpanded = expandedCyclicalCust === c.contact_id;
+                            const holdings = cyclicalHoldingsCache[c.contact_id];
+                            return (
+                            <div key={c.contact_id}>
+                              <button
+                                onClick={() => {
+                                  const next = isExpanded ? null : c.contact_id;
+                                  setExpandedCyclicalCust(next);
+                                  if (next) fetchCyclicalHoldingsFor(c);
+                                }}
+                                className="w-full px-3 py-2.5 flex items-center justify-between gap-2 text-left">
+                                <div className="min-w-0">
+                                  <div className="text-white text-sm truncate">{c.name}</div>
+                                  {c.phone && <div className="text-gray-500 text-xs">{c.phone}</div>}
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className="text-orange-400 font-bold text-sm">{c.cylinders} ชิ้น</span>
+                                  <span className="text-gray-500 text-xs">{isExpanded ? '▲' : '▼'}</span>
+                                </div>
+                              </button>
+                              {isExpanded && (
+                                <div className="px-3 pb-3 -mt-1">
+                                  <div className="bg-gray-800 rounded-xl p-3 mb-2">
+                                    {holdings === undefined ? (
+                                      <div className="text-gray-500 text-xs animate-pulse">กำลังโหลดรายการ...</div>
+                                    ) : holdings === 'unreconciled' ? (
+                                      <div className="text-amber-400 text-xs">⚠️ ระบบแยกไม่ได้ว่าเป็นสินค้าชนิดไหนกี่ชิ้น (มีเฉพาะยอดรวม {c.cylinders} ชิ้น) — ประวัติเก่าบางส่วนไม่ได้บันทึกแยกชนิดไว้</div>
+                                    ) : Object.keys(holdings).length === 0 ? (
+                                      <div className="text-gray-500 text-xs">ไม่มีข้อมูลรายการ</div>
+                                    ) : (
+                                      <ul className="space-y-1">
+                                        {Object.entries(holdings).map(([sku, qty]) => {
+                                          const p = products.find(x => x.sku === sku);
+                                          return <li key={sku} className="text-gray-300 text-xs flex justify-between"><span>{p?.name || sku}</span><span className="text-white font-medium">{qty} {p?.unit || ''}</span></li>;
+                                        })}
+                                      </ul>
+                                    )}
+                                  </div>
+                                  {hasFeature(shopInfo?.subscription_tier, 'credit_ar') && (
+                                    <button onClick={() => openCollectDispatch(contacts.find(x => x.contact_id === c.contact_id) || c)}
+                                      className="w-full text-xs bg-orange-800 hover:bg-orange-700 text-orange-200 hover:text-white px-2.5 py-2 rounded-lg transition-colors">📤 ส่งพนักงานไปเก็บ</button>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                         {!reportData.customers?.length && <div className="text-center text-gray-500 py-8 text-sm">ไม่มีลูกค้าถือสินค้าหมุนเวียนอยู่ตอนนี้</div>}
                       </div>
@@ -5577,6 +5757,17 @@ export default function POSPage() {
               <div className="bg-gray-800 rounded-xl p-4 text-center">
                 <div className="text-gray-400 text-xs mb-1">ยอดสุทธิ</div>
                 <div className="text-green-400 text-3xl font-bold">฿{cartTotal.toLocaleString()}</div>
+              </div>
+
+              {/* วันที่ทำรายการ — ปกติเป็นวันนี้ แก้เป็นวันอื่นได้ถ้าคีย์ข้อมูลย้อนหลัง */}
+              <div>
+                <label className="block text-gray-400 text-xs mb-1.5">📅 วันที่ทำรายการ</label>
+                <input type="date" value={saleDate || getTodayISO()} max={getTodayISO()}
+                  onChange={e => setSaleDate(e.target.value)}
+                  className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"/>
+                {saleDate && saleDate !== getTodayISO() && (
+                  <div className="text-amber-400 text-[11px] mt-1">⚠️ กำลังบันทึกย้อนหลัง — ไม่ใช่วันนี้</div>
+                )}
               </div>
 
               {/* วิธีชำระ */}
@@ -6644,7 +6835,7 @@ export default function POSPage() {
                   <div className="text-gray-500 text-xs mt-0.5">ยอดค้างชำระ</div>
                 </div>
                 <div className="flex-1 bg-gray-800 rounded-xl p-3 text-center">
-                  <div className="text-white font-bold text-xl">{debtHistoryOrders.length}</div>
+                  <div className="text-white font-bold text-xl">{debtHistoryOrders.filter(o => o.status !== 'ชำระแล้ว').length}</div>
                   <div className="text-gray-500 text-xs mt-0.5">บิลค้างชำระ</div>
                 </div>
               </div>
@@ -6665,13 +6856,15 @@ export default function POSPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-white text-sm font-medium">{o.order_no}</span>
-                            <span className={`text-xs px-2 py-0.5 rounded-full ${
-                              o.status === 'จัดส่งแล้ว' ? 'bg-green-900 text-green-400' :
-                              o.status === 'รอจัดส่ง'   ? 'bg-yellow-900 text-yellow-400' :
-                              'bg-gray-700 text-gray-400'
-                            }`}>{o.status}</span>
+                            <span className={`text-xs px-1.5 py-0.5 rounded-full ${o.source === 'delivery' ? 'bg-orange-900/60 text-orange-300' : 'bg-blue-900/60 text-blue-300'}`}>
+                              {o.source === 'delivery' ? '🚚 จัดส่ง' : '🏪 หน้าร้าน'}
+                            </span>
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${o.status === 'ชำระแล้ว' ? 'bg-green-900 text-green-400' : 'bg-red-900/60 text-red-300'}`}>{o.status}</span>
                           </div>
-                          {o.notes && <p className="text-gray-500 text-xs mt-1">{o.notes}</p>}
+                          {(o.items||[]).length > 0 && (
+                            <p className="text-gray-500 text-xs mt-1">{o.items.map(i => `${i.name}×${i.qty}`).join(', ')}</p>
+                          )}
+                          {o.notes && <p className="text-gray-600 text-xs mt-0.5">{o.notes}</p>}
                         </div>
                         <div className="text-red-400 font-bold text-sm shrink-0">฿{(o.total || 0).toLocaleString()}</div>
                       </div>

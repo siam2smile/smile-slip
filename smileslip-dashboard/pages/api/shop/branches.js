@@ -20,7 +20,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { branchName, lineGroupId, brandName } = req.body;
+    const { branchName, lineGroupId, brandName, address } = req.body;
     if (!branchName?.trim() || !lineGroupId?.trim())
       return res.status(400).json({ error: 'กรุณากรอกชื่อสาขาและ Group ID ให้ครบ' });
 
@@ -38,18 +38,46 @@ export default async function handler(req, res) {
       .insert({ shop_id: shopId, branch_name: branchName.trim(), line_group_id: lineGroupId.trim(), brand_name: brandName?.trim() || null })
       .select().single();
     if (error) return res.status(500).json({ error: error.message });
+
+    // เขียน address แยกต่างหาก (คอลัมน์ใหม่ — ถ้ายังไม่ได้รัน SQL เพิ่มคอลัมน์ ไม่ให้พังการสร้างสาขาหลัก)
+    if (address?.trim()) {
+      try {
+        const { data: withAddr } = await supabase
+          .from('shop_branches').update({ address: address.trim() }).eq('id', data.id).select().single();
+        if (withAddr) return res.status(200).json({ branch: withAddr });
+      } catch (addrErr) {
+        console.error('[shop/branches] set address on create failed (non-fatal):', addrErr.message);
+      }
+    }
     return res.status(200).json({ branch: data });
   }
 
   if (req.method === 'PATCH') {
-    const { branchId, brandName } = req.body;
+    const { branchId, brandName, address } = req.body;
     if (!branchId) return res.status(400).json({ error: 'ไม่พบ branchId' });
-    const { data, error } = await supabase
-      .from('shop_branches')
-      .update({ brand_name: brandName?.trim() || null })
-      .eq('id', branchId).eq('shop_id', shopId)
-      .select().single();
-    if (error) return res.status(500).json({ error: error.message });
+    const updates = {};
+    if (brandName !== undefined) updates.brand_name = brandName?.trim() || null;
+
+    let data, error;
+    if (Object.keys(updates).length) {
+      ({ data, error } = await supabase.from('shop_branches').update(updates).eq('id', branchId).eq('shop_id', shopId).select().single());
+      if (error) return res.status(500).json({ error: error.message });
+    }
+    // address เป็นคอลัมน์ใหม่ — แยก update ต่างหากกันพังถ้ายังไม่ได้รัน SQL เพิ่มคอลัมน์
+    if (address !== undefined) {
+      try {
+        const { data: withAddr, error: addrErr } = await supabase
+          .from('shop_branches').update({ address: address?.trim() || null }).eq('id', branchId).eq('shop_id', shopId).select().single();
+        if (!addrErr && withAddr) data = withAddr;
+        else if (addrErr) console.error('[shop/branches] update address failed (non-fatal):', addrErr.message);
+      } catch (addrErr) {
+        console.error('[shop/branches] update address failed (non-fatal):', addrErr.message);
+      }
+    }
+    if (!data) {
+      const { data: fresh } = await supabase.from('shop_branches').select('*').eq('id', branchId).eq('shop_id', shopId).single();
+      data = fresh;
+    }
     return res.status(200).json({ branch: data });
   }
 

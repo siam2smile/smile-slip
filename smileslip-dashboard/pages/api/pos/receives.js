@@ -32,7 +32,7 @@ function splitVat(unitCost, vatType) {
 import { createClient } from '@supabase/supabase-js';
 import {
   getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
-  makeReceiveNo, rowToReceive, rowToProduct, RECEIVE_HEADERS,
+  makeReceiveNo, rowToReceive, rowToProduct, RECEIVE_HEADERS, resolveRecordDateTime,
 } from '../../../lib/google-pos';
 import { getShopDistrictProvince, checkProcurementFraud, insertAnonymousMarketPrices, MARKET_PRICE_FEATURE_LIVE } from '../../../lib/market-price';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
@@ -61,15 +61,13 @@ async function getConfig(shopId) {
 
 // เขียนต้นทุนรับสินค้าลง Sheets บัญชีหลัก (tab ปี ค.ศ.) ด้วย เพื่อให้แสดงในหน้ากราฟวิเคราะห์/Ledger ของ
 // Dashboard และนับรวมใน #กำไรขาดทุน ของบอท LINE เหมือนกับที่ยอดขาย/รายจ่าย POS ทำอยู่แล้ว
-async function writeReceiveToMainSheets(token, mainSheetId, { total, supplier, notes, shopName, branchName }) {
+async function writeReceiveToMainSheets(token, mainSheetId, { total, supplier, notes, shopName, branchName, transactionDate }) {
   if (!mainSheetId) return;
   try {
     const now = new Date();
-    const year = now.getFullYear().toString();
     const thaiLocale = { timeZone: 'Asia/Bangkok' };
-    const thaiDate = now.toLocaleDateString('th-TH', { ...thaiLocale, day: '2-digit', month: '2-digit', year: 'numeric' });
-    const thaiTime = now.toLocaleTimeString('th-TH', thaiLocale);
-    const todayISO = now.toLocaleDateString('en-CA', thaiLocale);
+    const { thaiDate, thaiTime, isoYear: year } = resolveRecordDateTime(transactionDate);
+    const todayISO = now.toLocaleDateString('en-CA', thaiLocale); // วันที่บันทึกจริง (recorded_at) — ไม่ backdate
 
     const metaRes = await fetch(`${SHEETS_BASE}/${mainSheetId}`, { headers: { Authorization: `Bearer ${token}` } });
     const meta = await metaRes.json();
@@ -143,7 +141,7 @@ export default async function handler(req, res) {
 
     // ── POST ─────────────────────────────────────────────────────────────────
     if (req.method === 'POST') {
-      const { supplierId = '', supplier = '', items = [], notes = '', branch = '', photoUrl = '' } = req.body;
+      const { supplierId = '', supplier = '', items = [], notes = '', branch = '', photoUrl = '', transactionDate = '' } = req.body;
       if (!items.length) return res.status(400).json({ error: 'ต้องมีรายการสินค้าอย่างน้อย 1 รายการ' });
 
       // อ่านข้อมูลสินค้าทั้งหมดเพื่อคำนวณ weighted avg cost — ต้องอ่านเต็ม A:R (18 คอลัมน์)
@@ -152,7 +150,8 @@ export default async function handler(req, res) {
       const prodRows = await readSheet(token, sheetId, 'สินค้า!A:R');
       const prodDataRows = prodRows.slice(1);
 
-      const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+      const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }); // เวลาจริงที่ปรับสต็อค — ไม่ backdate
+      const recordDT = resolveRecordDateTime(transactionDate); // วันที่ของ "รายการ" — backdate ได้ถ้าระบุ transactionDate
       const receiveNo = makeReceiveNo();
       let subtotal = 0;   // ยอดก่อน VAT (ต้นทุนถ่วงน้ำหนักของสินค้าคำนวณจากยอดนี้เสมอ)
       let vatTotal = 0;    // ยอด VAT รวมทั้งใบ
@@ -211,7 +210,7 @@ export default async function handler(req, res) {
       // บันทึกใบรับสินค้าลง tab "รับสินค้า"
       await appendSheet(token, sheetId, 'รับสินค้า', [
         receiveNo,
-        now,
+        recordDT.full,
         supplier,
         JSON.stringify(items.map(i => {
           const q = parseFloat(i.qty) || 0;
@@ -235,7 +234,7 @@ export default async function handler(req, res) {
       ]);
 
       await writeReceiveToMainSheets(token, mainSheetId, {
-        total: grandTotal, supplier, notes, shopName, branchName: branch || branchName,
+        total: grandTotal, supplier, notes, shopName, branchName: branch || branchName, transactionDate,
       });
 
       // Market Price Index + Procurement Fraud Detection (v1 retail-only, fail-safe เสมอ)

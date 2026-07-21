@@ -42,9 +42,10 @@ async function getSheetAccess(shopId) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { shopId, type, amount, date, time, sender, receiver, note, method } = req.body;
+  const { shopId, type, amount, date, time, sender, receiver, note, method, branch } = req.body;
   if (!shopId) return res.status(400).json({ error: 'shopId ไม่ถูกต้อง' });
   if (type !== 'รายรับ' && type !== 'รายจ่าย') return res.status(400).json({ error: 'ประเภทต้องเป็น รายรับ หรือ รายจ่าย' });
+  if (!branch) return res.status(400).json({ error: 'ต้องระบุสาขา' });
   const amountNum = parseFloat(amount);
   if (isNaN(amountNum) || amountNum <= 0) return res.status(400).json({ error: 'จำนวนเงินไม่ถูกต้อง' });
 
@@ -96,7 +97,7 @@ export default async function handler(req, res) {
         note || '-',
         'ไม่มีรูปภาพ (คีย์เอง)',
         recordedAt,
-        access.shopName || '-',
+        branch || access.shopName || '-',
         ref,
         '-', '-', '-', '-',     // L-O: เลขภาษี/ชื่อผู้เสียภาษี/ยอดภาษี/ที่อยู่
         '-',                    // P: หมวดหมู่

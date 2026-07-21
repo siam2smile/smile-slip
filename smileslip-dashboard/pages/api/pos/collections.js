@@ -23,8 +23,31 @@ import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import {
   getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
   makeCollectionNo, rowToCollection, rowToContact, rowToProduct,
-  COLLECTION_HEADERS, CONTACT_HEADERS, logCyclicalTransaction,
+  COLLECTION_HEADERS, CONTACT_HEADERS, CYCLICAL_LOG_HEADERS, rowToCyclicalLog, logCyclicalTransaction,
 } from '../../../lib/google-pos';
+
+// คำนวณจำนวนสินค้าหมุนเวียนที่ลูกค้าคนนี้ถืออยู่จริง แยกตาม SKU (ไม่ใช่แค่ยอดรวมเดียว) จากประวัติ
+// "บันทึกแลกเปลี่ยน" — ยืม = +qty (ถืออยู่เพิ่ม), คืน = -qty (คืนแล้ว), แลกเปลี่ยน = สุทธิ 0 (คืนเก่า+ยืมใหม่พร้อมกัน)
+// ใช้เติมจำนวนอัตโนมัติตอนส่งพนักงานไปเก็บ (กันต้องนับเองเวลาร้านมีสินค้าหมุนเวียนมากกว่า 1 ชนิด)
+async function getCustomerCyclicalHoldings(token, sheetId, customerId) {
+  if (!customerId) return {};
+  try {
+    await ensureTabExists(token, sheetId, 'บันทึกแลกเปลี่ยน', CYCLICAL_LOG_HEADERS);
+    const rows = await readSheet(token, sheetId, 'บันทึกแลกเปลี่ยน!A:K');
+    const holdings = {};
+    for (const row of rows.slice(1)) {
+      const log = rowToCyclicalLog(row);
+      if (log.customer_id !== customerId || !log.sku) continue;
+      if (log.action === 'ยืม') holdings[log.sku] = (holdings[log.sku] || 0) + log.qty;
+      else if (log.action === 'คืน') holdings[log.sku] = (holdings[log.sku] || 0) - log.qty;
+    }
+    for (const sku of Object.keys(holdings)) holdings[sku] = Math.max(0, Math.round(holdings[sku]));
+    return holdings;
+  } catch (err) {
+    console.error('[pos/collections] getCustomerCyclicalHoldings error:', err.message);
+    return {};
+  }
+}
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -142,6 +165,12 @@ export default async function handler(req, res) {
 
     // ── GET — รายการงาน ────────────────────────────────────────────────────
     if (req.method === 'GET') {
+      // ดึงจำนวนสินค้าหมุนเวียนที่ลูกค้าคนนี้ถืออยู่จริงแยกตาม SKU — ใช้เติมฟอร์มส่งพนักงานไปเก็บอัตโนมัติ
+      if (req.query.holdingsFor) {
+        const holdings = await getCustomerCyclicalHoldings(token, sheetId, req.query.holdingsFor);
+        return res.json({ holdings });
+      }
+
       const rows = await readSheet(token, sheetId, 'งานเก็บเงิน!A:U');
       const tasks = rows.slice(1)
         .map((r, i) => ({ ...rowToCollection(r), _row: i + 2 }))

@@ -13,7 +13,7 @@ import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import {
   getAccessToken, readSheet, appendSheet, updateSheetRow,
   ensureTabExists, makeBillNo, rowToSale, SALE_HEADERS, rowToProduct, CONTACT_HEADERS,
-  computeVatBreakdown, logCyclicalTransaction,
+  computeVatBreakdown, logCyclicalTransaction, resolveRecordDateTime,
 } from '../../../lib/google-pos';
 
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -42,15 +42,13 @@ async function getConfig(shopId) {
 }
 
 // เขียนรายการขายลง Sheets บัญชีหลัก (tab ปี ค.ศ.) เพื่อให้แสดงใน Dashboard Ledger
-async function writeToMainSheets(token, mainSheetId, { billNo, items, total, payMethod, customerName, notes, shopName, branchName, slipUrl, slipSender, slipRefNo }) {
+async function writeToMainSheets(token, mainSheetId, { billNo, items, total, payMethod, customerName, notes, shopName, branchName, slipUrl, slipSender, slipRefNo, transactionDate }) {
   if (!mainSheetId) return;
   try {
     const now = new Date();
-    const year = now.getFullYear().toString();
     const thaiLocale = { timeZone: 'Asia/Bangkok' };
-    const thaiDate = now.toLocaleDateString('th-TH', { ...thaiLocale, day: '2-digit', month: '2-digit', year: 'numeric' });
-    const thaiTime = now.toLocaleTimeString('th-TH', thaiLocale);
-    const todayISO = now.toLocaleDateString('en-CA', thaiLocale); // YYYY-MM-DD
+    const { thaiDate, thaiTime, isoYear: year } = resolveRecordDateTime(transactionDate);
+    const todayISO = now.toLocaleDateString('en-CA', thaiLocale); // วันที่บันทึกจริง (recorded_at) — ไม่ backdate
 
     // ตรวจ/สร้าง tab ปี พร้อม header 18 คอลัมน์
     const metaRes = await fetch(`${SHEETS_BASE}/${mainSheetId}`, {
@@ -214,7 +212,7 @@ export default async function handler(req, res) {
         cash_received = 0, cashier = '', notes = '',
         customerName = '', customerId = '',
         slipUrl = '', slipSender = '', slipRefNo = '',
-        branch = '',
+        branch = '', transactionDate = '',
       } = req.body;
       if (!items.length) return res.status(400).json({ error: 'ไม่มีรายการสินค้า' });
       if (payment_method === 'เชื่อ' && !customerName) return res.status(400).json({ error: 'ต้องระบุลูกค้าสำหรับการขายเชื่อ' });
@@ -226,7 +224,8 @@ export default async function handler(req, res) {
       const total = Math.max(0, subtotal - discount);
       const change = payment_method === 'เงินสด' ? Math.max(0, cash_received - total) : 0;
       const billNo = makeBillNo();
-      const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+      const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }); // เวลาจริงที่ตัดสต็อค — ไม่ backdate
+      const recordDT = resolveRecordDateTime(transactionDate); // วันที่ของบิล — backdate ได้ถ้าระบุ transactionDate
 
       const fullNotes = [
         customerName ? `ลูกค้า: ${customerName}` : '',
@@ -247,7 +246,7 @@ export default async function handler(req, res) {
 
       // 1. บันทึกลง POS Sheets tab "ยอดขาย" (18 คอลัมน์ A-R — เพิ่มยอดก่อน VAT/ยอด VAT ท้ายสุด)
       await appendSheet(token, sheetId, 'ยอดขาย', [
-        billNo, now, JSON.stringify(items),
+        billNo, recordDT.full, JSON.stringify(items),
         subtotal, discount, total,
         payment_method, cash_received, change,
         cashier, fullNotes, billStatus,
@@ -262,7 +261,7 @@ export default async function handler(req, res) {
         await writeToMainSheets(token, mainSheetId, {
           billNo, items, total, payMethod: payment_method,
           customerName, notes, shopName, branchName: branch || branchName,
-          slipUrl, slipSender, slipRefNo,
+          slipUrl, slipSender, slipRefNo, transactionDate,
         });
       }
 

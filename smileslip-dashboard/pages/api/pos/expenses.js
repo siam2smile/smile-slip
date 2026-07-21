@@ -14,7 +14,7 @@ import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import {
   getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
-  makeExpenseNo, rowToExpense, EXPENSE_HEADERS,
+  makeExpenseNo, rowToExpense, EXPENSE_HEADERS, resolveRecordDateTime,
 } from '../../../lib/google-pos';
 
 const supabase = createClient(
@@ -63,15 +63,13 @@ const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 
 // เขียนรายจ่ายลง Sheets บัญชีหลัก (tab ปี ค.ศ.) ด้วย เพื่อให้แสดงในหน้ากราฟวิเคราะห์/Ledger ของ Dashboard
 // และนับรวมใน #กำไรขาดทุน ของบอท LINE เหมือนกับที่ยอดขาย POS ทำอยู่แล้ว (writeToMainSheets ใน sales.js)
-async function writeExpenseToMainSheets(token, mainSheetId, { total, label, payment_method, notes, shopName, branchName, recordedBy }) {
+async function writeExpenseToMainSheets(token, mainSheetId, { total, label, payment_method, notes, shopName, branchName, recordedBy, transactionDate }) {
   if (!mainSheetId) return;
   try {
     const now = new Date();
-    const year = now.getFullYear().toString();
     const thaiLocale = { timeZone: 'Asia/Bangkok' };
-    const thaiDate = now.toLocaleDateString('th-TH', { ...thaiLocale, day: '2-digit', month: '2-digit', year: 'numeric' });
-    const thaiTime = now.toLocaleTimeString('th-TH', thaiLocale);
-    const todayISO = now.toLocaleDateString('en-CA', thaiLocale); // YYYY-MM-DD
+    const { thaiDate, thaiTime, isoYear: year } = resolveRecordDateTime(transactionDate);
+    const todayISO = now.toLocaleDateString('en-CA', thaiLocale); // วันที่บันทึกจริง (recorded_at) — ไม่ backdate
 
     const metaRes = await fetch(`${SHEETS_BASE}/${mainSheetId}`, { headers: { Authorization: `Bearer ${token}` } });
     const meta = await metaRes.json();
@@ -146,7 +144,7 @@ export default async function handler(req, res) {
     if (req.method === 'POST') {
       const {
         label = '', amount = 0, vatType = 'ไม่มี VAT', payment_method = 'เงินสด',
-        photo_url = '', notes = '', recordedBy = '', branch = '',
+        photo_url = '', notes = '', recordedBy = '', branch = '', transactionDate = '',
       } = req.body;
 
       if (!label.trim()) return res.status(400).json({ error: 'กรุณาระบุรายการ/หมวดหมู่' });
@@ -156,11 +154,11 @@ export default async function handler(req, res) {
       const { base, vat } = splitVat(numAmount, vatType);
       const subtotal = Math.round(base * 100) / 100;
       const vatAmount = Math.round(vat * 100) / 100;
-      const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+      const recordDT = resolveRecordDateTime(transactionDate); // วันที่ของรายจ่าย — backdate ได้ถ้าระบุ transactionDate
       const expenseNo = makeExpenseNo();
 
       await appendSheet(token, sheetId, 'รายจ่าย', [
-        expenseNo, asText(now), label.trim(), numAmount,
+        expenseNo, asText(recordDT.full), label.trim(), numAmount,
         vatType, subtotal, vatAmount, payment_method,
         photo_url, notes, recordedBy, branch,
       ]);
@@ -169,7 +167,7 @@ export default async function handler(req, res) {
       // ไม่งั้นรายจ่ายทุกสาขาจะถูกนับรวมเป็นสาขาเดียวกันหมดในบัญชีหลัก/กราฟวิเคราะห์
       await writeExpenseToMainSheets(token, mainSheetId, {
         total: numAmount, label: label.trim(), payment_method, notes, shopName,
-        branchName: branch || branchName, recordedBy,
+        branchName: branch || branchName, recordedBy, transactionDate,
       });
 
       return res.json({ ok: true, expenseNo, subtotal, vatAmount, total: numAmount });

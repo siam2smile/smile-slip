@@ -56,11 +56,13 @@ export default function Dashboard() {
   const [newBranchName, setNewBranchName] = useState('');
   const [newBranchGroupId, setNewBranchGroupId] = useState('');
   const [newBranchBrand, setNewBranchBrand] = useState('');
+  const [newBranchAddress, setNewBranchAddress] = useState('');
   const [editBranchBrand, setEditBranchBrand] = useState({}); // branchId -> brand_name ระหว่างแก้ไข
+  const [editBranchAddress, setEditBranchAddress] = useState({}); // branchId -> address ระหว่างแก้ไข
   const [branchLoading, setBranchLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [editForm, setEditForm] = useState({ shopName: '', email: '', phone: '', taxId: '', userType: 'individual', address: '' });
+  const [editForm, setEditForm] = useState({ shopName: '', email: '', phone: '', taxId: '', userType: 'individual', address: '', branchName: '' });
   const [savingProfile, setSavingProfile] = useState(false);
 
   // Sidebar
@@ -167,7 +169,7 @@ export default function Dashboard() {
 
   // Manual entry modal
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState({ type: 'รายรับ', amount: '', date: '', time: '', sender: '', receiver: '', note: '', method: 'โอน' });
+  const [addForm, setAddForm] = useState({ type: 'รายรับ', amount: '', date: '', time: '', sender: '', receiver: '', note: '', method: 'โอน', branch: '' });
   const [addingSaving, setAddingSaving] = useState(false);
 
   // ─── Timers ───
@@ -237,7 +239,7 @@ export default function Dashboard() {
       const data = await res.json();
       if (data.profile) {
         setShopInfo(data.profile);
-        setEditForm({ shopName: data.profile.shop_name || '', email: data.profile.email || '', phone: data.profile.phone || '', taxId: data.profile.tax_id || '', userType: data.profile.user_type || 'individual', address: data.profile.address || '' });
+        setEditForm({ shopName: data.profile.shop_name || '', email: data.profile.email || '', phone: data.profile.phone || '', taxId: data.profile.tax_id || '', userType: data.profile.user_type || 'individual', address: data.profile.address || '', branchName: data.profile.branch_name || '' });
         setCredits(data.credits ?? 0);
         setGoogleConfig(data.googleConfig);
         setBankAccounts(data.bankAccounts || []);
@@ -402,7 +404,7 @@ export default function Dashboard() {
       });
       const data = await res.json();
       if (data.error) { alert('เกิดข้อผิดพลาด: ' + data.error); return; }
-      setShopInfo(prev => ({ ...prev, shop_name: editForm.shopName, email: editForm.email, phone: editForm.phone, tax_id: editForm.taxId, user_type: editForm.userType, address: editForm.address }));
+      setShopInfo(prev => ({ ...prev, shop_name: editForm.shopName, email: editForm.email, phone: editForm.phone, tax_id: editForm.taxId, user_type: editForm.userType, address: editForm.address, branch_name: editForm.branchName }));
       setIsEditingProfile(false);
     } catch { alert('เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง'); }
     finally { setSavingProfile(false); }
@@ -434,11 +436,11 @@ export default function Dashboard() {
     const res = await fetch(`/api/shop/branches?shopId=${shopInfo.id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ branchName: newBranchName, lineGroupId: newBranchGroupId, brandName: newBranchBrand }),
+      body: JSON.stringify({ branchName: newBranchName, lineGroupId: newBranchGroupId, brandName: newBranchBrand, address: newBranchAddress }),
     });
     const data = await res.json();
     if (data.error) alert('เกิดข้อผิดพลาด: ' + data.error);
-    else { setNewBranchName(''); setNewBranchGroupId(''); setNewBranchBrand(''); await fetchBranches(shopInfo.id); }
+    else { setNewBranchName(''); setNewBranchGroupId(''); setNewBranchBrand(''); setNewBranchAddress(''); await fetchBranches(shopInfo.id); }
     setBranchLoading(false);
   };
 
@@ -449,6 +451,16 @@ export default function Dashboard() {
       body: JSON.stringify({ branchId, brandName }),
     });
     setEditBranchBrand(p => { const n = { ...p }; delete n[branchId]; return n; });
+    await fetchBranches(shopInfo.id);
+  };
+
+  const handleUpdateBranchAddress = async (branchId, address) => {
+    await fetch(`/api/shop/branches?shopId=${shopInfo.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branchId, address }),
+    });
+    setEditBranchAddress(p => { const n = { ...p }; delete n[branchId]; return n; });
     await fetchBranches(shopInfo.id);
   };
 
@@ -516,6 +528,7 @@ export default function Dashboard() {
     if (!shopInfo?.id) return;
     const amt = parseFloat(addForm.amount);
     if (isNaN(amt) || amt <= 0) return alert('กรุณากรอกจำนวนเงินให้ถูกต้อง');
+    if (!addForm.branch) return alert('กรุณาเลือกสาขา');
     setAddingSaving(true);
     try {
       const res = await fetch('/api/sheets/add-transaction', {
@@ -526,7 +539,7 @@ export default function Dashboard() {
       const data = await res.json();
       if (data.error) { alert('เกิดข้อผิดพลาด: ' + data.error); return; }
       setShowAddModal(false);
-      setAddForm({ type: 'รายรับ', amount: '', date: '', time: '', sender: '', receiver: '', note: '', method: 'โอน' });
+      setAddForm({ type: 'รายรับ', amount: '', date: '', time: '', sender: '', receiver: '', note: '', method: 'โอน', branch: addForm.branch });
       fetchTransactions(shopInfo.id, ledgerYear, ledgerMonth);
     } catch (err) { alert('บันทึกไม่สำเร็จ: ' + err.message); }
     finally { setAddingSaving(false); }
@@ -2021,7 +2034,7 @@ export default function Dashboard() {
                       <RefreshCcw size={13}/> โหลดใหม่
                     </button>
                     <div className="flex-1"/>
-                    <button onClick={() => setShowAddModal(true)}
+                    <button onClick={() => { setAddForm(f => ({ ...f, branch: f.branch || shopInfo?.branch_name || '' })); setShowAddModal(true); }}
                       className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-medium transition-all">
                       <PlusCircle size={13}/> บันทึกเอง
                     </button>
@@ -2399,6 +2412,12 @@ export default function Dashboard() {
                             className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-400 transition-colors"/>
                           <p className="text-xs text-slate-400 mt-1.5">💡 ถ้าสาขานี้ขายของแบบเดียวกับร้านหลัก (เช่นแฟรนไชส์) ไม่ต้องกรอก ระบบจะรวมข้อมูลลูกค้าให้อัตโนมัติ — กรอกเฉพาะถ้าสาขานี้เป็นร้าน/แบรนด์คนละแบบ</p>
                         </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">ที่อยู่สาขา (ไม่บังคับ)</label>
+                          <textarea value={newBranchAddress} onChange={e => setNewBranchAddress(e.target.value)} rows={2}
+                            placeholder="เว้นว่าง = ใช้ที่อยู่ร้านหลัก — กรอกถ้าต้องการให้ใบเสร็จ/ใบกำกับภาษีของสาขานี้แสดงที่อยู่แยก"
+                            className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-400 transition-colors"/>
+                        </div>
                         <button onClick={handleAddBranch} disabled={branchLoading}
                           className="w-full bg-blue-800 hover:bg-blue-700 text-white py-2.5 rounded-xl font-medium text-sm transition-colors disabled:opacity-50">
                           {branchLoading ? 'กำลังเพิ่ม...' : '+ เพิ่มสาขา'}
@@ -2443,6 +2462,23 @@ export default function Dashboard() {
                                 <button onClick={() => setEditBranchBrand(p => ({ ...p, [b.id]: b.brand_name || '' }))}
                                   className="text-[10px] text-violet-500 hover:text-violet-700 mt-1 flex items-center gap-1">
                                   🏷️ แบรนด์: {b.brand_name || 'เดียวกับร้านหลัก'} <Edit3 size={9}/>
+                                </button>
+                              )}
+                              {editBranchAddress[b.id] !== undefined ? (
+                                <div className="flex items-start gap-1.5 mt-1.5">
+                                  <textarea value={editBranchAddress[b.id]} rows={2}
+                                    onChange={e => setEditBranchAddress(p => ({ ...p, [b.id]: e.target.value }))}
+                                    placeholder="เว้นว่าง = ใช้ที่อยู่ร้านหลัก"
+                                    className="border border-slate-200 rounded-lg px-2 py-1 text-xs outline-none focus:border-blue-400 w-56"/>
+                                  <button onClick={() => handleUpdateBranchAddress(b.id, editBranchAddress[b.id])}
+                                    className="p-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700"><CheckCircle2 size={12}/></button>
+                                  <button onClick={() => setEditBranchAddress(p => { const n={...p}; delete n[b.id]; return n; })}
+                                    className="p-1 bg-slate-200 text-slate-500 rounded-lg hover:bg-slate-300"><X size={12}/></button>
+                                </div>
+                              ) : (
+                                <button onClick={() => setEditBranchAddress(p => ({ ...p, [b.id]: b.address || '' }))}
+                                  className="text-[10px] text-blue-500 hover:text-blue-700 mt-1 flex items-center gap-1">
+                                  📍 ที่อยู่: {b.address ? (b.address.length > 30 ? b.address.slice(0,30)+'…' : b.address) : 'เดียวกับร้านหลัก'} <Edit3 size={9}/>
                                 </button>
                               )}
                             </div>
@@ -2564,6 +2600,7 @@ export default function Dashboard() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {[
                           { key: 'shopName', label: 'ชื่อร้าน / ธุรกิจ' },
+                          { key: 'branchName', label: 'ชื่อสาขาสำนักงานใหญ่' },
                           { key: 'taxId',    label: 'เลขประจำตัวผู้เสียภาษี' },
                           { key: 'email',    label: 'อีเมล' },
                           { key: 'phone',    label: 'เบอร์โทรศัพท์' },
@@ -2596,7 +2633,7 @@ export default function Dashboard() {
                           { label: 'ชื่อร้าน / ธุรกิจ',           value: shopInfo?.shop_name },
                           { label: 'ประเภทผู้เสียภาษี',            value: shopInfo?.user_type === 'corporate' ? 'นิติบุคคล' : 'บุคคลธรรมดา' },
                           { label: 'เลขประจำตัวผู้เสียภาษี',      value: shopInfo?.tax_id || '—' },
-                          { label: 'สาขา',                         value: shopInfo?.branch_name },
+                          { label: 'ชื่อสาขาสำนักงานใหญ่',        value: shopInfo?.branch_name },
                           { label: 'อีเมล',                        value: shopInfo?.email || '—' },
                           { label: 'เบอร์โทรศัพท์',               value: shopInfo?.phone || '—' },
                           { label: 'แพ็กเกจ',                      value: tierLabel[tierKey] },
@@ -3039,6 +3076,18 @@ export default function Dashboard() {
                   onChange={e => setAddForm({...addForm, amount: e.target.value})}
                   placeholder="0.00"
                   className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-400 transition-colors"/>
+              </div>
+              {/* สาขา */}
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">สาขา *</label>
+                <select required value={addForm.branch} onChange={e => setAddForm({...addForm, branch: e.target.value})}
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-400 transition-colors bg-white">
+                  <option value="">— เลือกสาขา —</option>
+                  <option value={shopInfo?.branch_name || 'สำนักงานใหญ่'}>{shopInfo?.branch_name || 'สำนักงานใหญ่'} (สำนักงานใหญ่)</option>
+                  {branches.filter(b => b.branch_name !== shopInfo?.branch_name).map(b => (
+                    <option key={b.id} value={b.branch_name}>{b.branch_name}</option>
+                  ))}
+                </select>
               </div>
               {/* วันที่ + เวลา */}
               <div className="grid grid-cols-2 gap-3">

@@ -299,6 +299,7 @@ export default async function handler(req, res) {
         customer_id, customer_name, phone, address,
         items, total, payment_method, staff_id, staff_name,
         confirm_delivery, slip_url, confirmed_by, cash_received, goods_received, credit_settled,
+        partial_paid_amount,
       } = req.body;
       if (!order_no) return res.status(400).json({ error: 'Missing order_no' });
 
@@ -351,6 +352,7 @@ export default async function handler(req, res) {
         }
       }
 
+      let debtAdded = 0;
       if (confirm_delivery) {
         existing[12] = 'ส่งแล้ว'; // ใช้ label เดียวกับสถานะที่แอดมินกดเปลี่ยนเองในหน้า pos.js
         existing[15] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
@@ -364,6 +366,34 @@ export default async function handler(req, res) {
         // แล้วอัปเดตทั้งสต็อคสินค้า (เต็ม/กับลูกค้า/เปล่ารอรีฟิล) และยอดถังของลูกค้าด้วยผลสุทธิจริง
         const cust = customer_id !== undefined ? customer_id : existing[2];
         let netCylinderDeltaForCustomer = 0;
+
+        // พนักงานเลือก "ค้างจ่าย" ตอนยืนยันจัดส่ง (คนละจุดกับตอนสร้างออเดอร์ — อาจเลือกวิธีจ่ายจริง
+        // ไม่ตรงกับตอนสร้างออเดอร์ก็ได้ เช่น สร้างไว้เป็น "เก็บปลายทาง" แต่ลูกค้าจ่ายไม่ครบตอนส่งจริง)
+        // เดิมกรณีนี้ไม่เคยเพิ่มยอดค้างชำระของลูกค้าเลยสักครั้ง (บั๊กจริง เจอระหว่างทำฟีเจอร์จ่ายบางส่วน)
+        // — รองรับจ่ายมาบางส่วนได้ด้วย: ค้างชำระ = ยอดสุทธิ - จ่ายมาแล้ว (ไม่ต่ำกว่า 0)
+        if (payment_method === 'ค้างจ่าย' && cust) {
+          const orderTotal = total !== undefined ? parseFloat(total) || 0 : parseFloat(existing[8]) || 0;
+          const paidNow = Math.min(orderTotal, Math.max(0, parseFloat(partial_paid_amount) || 0));
+          debtAdded = Math.round((orderTotal - paidNow) * 100) / 100;
+          if (debtAdded > 0) {
+            try {
+              await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
+              const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:W');
+              const custDataRows = custRows.slice(1);
+              const custIdx = custDataRows.findIndex(r => r[0] === cust);
+              if (custIdx !== -1) {
+                const custRow = rowToContact(custDataRows[custIdx]);
+                const custExisting = [...custDataRows[custIdx]];
+                while (custExisting.length < 23) custExisting.push('');
+                custExisting[13] = (custRow.debt || 0) + debtAdded; // ยอดค้างชำระ
+                custExisting[19] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+                await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
+              }
+            } catch (debtErr) {
+              console.error('[delivery] confirm_delivery add debt error:', debtErr.message);
+            }
+          }
+        }
 
         if (Array.isArray(items) && items.length) {
           try {
@@ -432,7 +462,7 @@ export default async function handler(req, res) {
       }
 
       await updateSheetRow(token, sheetId, 'ออเดอร์จัดส่ง', idx + 2, existing);
-      return res.json({ ok: true, order_no });
+      return res.json({ ok: true, order_no, debtAdded });
     }
 
     // ── DELETE — ลบออเดอร์ (เช่น ลูกค้ามารับเองแทนการจัดส่ง) ──────────────────

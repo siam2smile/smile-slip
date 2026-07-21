@@ -47,6 +47,7 @@ export default function PosStaffPage() {
   const [products, setProducts] = useState([]);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [deliverPayMethod, setDeliverPayMethod] = useState('เก็บปลายทาง');
+  const [deliverPartialPaid, setDeliverPartialPaid] = useState(''); // ค้างจ่าย: จ่ายมาบางส่วนแล้วเท่าไหร่ (ว่าง = ค้างเต็มจำนวน)
   const [deliverSlipUrl, setDeliverSlipUrl] = useState('');
   const [deliverSlipUploading, setDeliverSlipUploading] = useState(false);
   const [deliverQr, setDeliverQr] = useState('');
@@ -239,6 +240,9 @@ export default function PosStaffPage() {
         ${info.discountAmount > 0 ? `<tr><td>ส่วนลด</td><td style="text-align:right">-${info.discountAmount.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>` : ''}
         <tr class="grand"><td>ยอดรวมสุทธิ</td><td style="text-align:right">${info.finalTotal.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
         <tr><td colspan="2">วิธีชำระ: ${esc(info.payMethod === 'เก็บปลายทาง' ? 'เงินสด' : info.payMethod === 'โอนแล้ว' ? 'โอน' : 'ค้างจ่าย')}</td></tr>
+        ${info.payMethod === 'ค้างจ่าย' && info.remainingDebt > 0 ? `
+        <tr><td>จ่ายแล้ว</td><td style="text-align:right">${(info.finalTotal - info.remainingDebt).toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
+        <tr class="bold"><td>ค้างชำระ</td><td style="text-align:right">${info.remainingDebt.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>` : ''}
       </table>
       <div class="line"></div>
       <div class="center">ขอบคุณที่ใช้บริการ</div>
@@ -409,6 +413,7 @@ export default function PosStaffPage() {
           confirm_delivery: true,
           total: deliverFinalTotal,
           payment_method: deliverPayMethod,
+          partial_paid_amount: deliverPayMethod === 'ค้างจ่าย' ? (parseFloat(deliverPartialPaid) || 0) : 0,
           slip_url: deliverSlipUrl,
           confirmed_by: staffName.trim() || undefined,
           items,
@@ -419,7 +424,8 @@ export default function PosStaffPage() {
         showToast('✅ ยืนยันจัดส่งสำเร็จแล้ว');
         setOrders(prev => prev.filter(o => o.order_no !== selectedOrder.order_no));
         // ไม่เคลียร์ selectedOrder ทันที — เก็บไว้แสดงหน้า "เสร็จสิ้น" พร้อมปุ่มพิมพ์สลิปก่อน
-        setDeliverDone({ order: selectedOrder, finalTotal: deliverFinalTotal, discountAmount: deliverDiscountAmount, payMethod: deliverPayMethod });
+        setDeliverDone({ order: selectedOrder, finalTotal: deliverFinalTotal, discountAmount: deliverDiscountAmount, payMethod: deliverPayMethod, remainingDebt: d.debtAdded });
+        setDeliverPartialPaid('');
       } else {
         alert(d.error || 'เกิดข้อผิดพลาด');
       }
@@ -840,6 +846,9 @@ export default function PosStaffPage() {
                 {deliverDone.discountAmount > 0 && (
                   <div className="text-gray-500 text-xs mt-1">(ลดแล้ว ฿{deliverDone.discountAmount.toLocaleString(undefined,{minimumFractionDigits:2})})</div>
                 )}
+                {deliverDone.payMethod === 'ค้างจ่าย' && deliverDone.remainingDebt > 0 && (
+                  <div className="text-amber-400 text-sm font-bold mt-2">📒 ค้างชำระ ฿{deliverDone.remainingDebt.toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+                )}
               </div>
               <button onClick={() => printDeliveryReceipt(deliverDone)}
                 className="w-full bg-blue-700 hover:bg-blue-600 text-white font-bold py-3.5 rounded-2xl mb-3 transition-colors">
@@ -951,6 +960,21 @@ export default function PosStaffPage() {
                         className="hidden" onChange={handleDeliverSlipCapture} />
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* ค้างจ่าย — เลือกได้ว่าลูกค้าจ่ายมาบางส่วนก่อนไหม ส่วนที่เหลือถึงจะเข้ายอดค้างชำระจริง */}
+              {deliverPayMethod === 'ค้างจ่าย' && (
+                <div className="mb-4">
+                  <h3 className="text-white font-bold mb-2 text-sm">💰 จ่ายมาก่อนบางส่วนไหม?</h3>
+                  <label className="block text-gray-400 text-xs mb-1.5">จ่ายแล้วตอนนี้ (บาท) — เว้นว่างถ้าไม่ได้จ่ายเลย</label>
+                  <input type="number" min="0" max={deliverFinalTotal} value={deliverPartialPaid}
+                    onChange={e => setDeliverPartialPaid(e.target.value)}
+                    placeholder="0"
+                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-orange-500" />
+                  <div className="text-amber-400 text-xs mt-1.5">
+                    ค้างชำระ ฿{Math.max(0, deliverFinalTotal - (parseFloat(deliverPartialPaid) || 0)).toLocaleString(undefined,{minimumFractionDigits:2})}
+                  </div>
                 </div>
               )}
 
