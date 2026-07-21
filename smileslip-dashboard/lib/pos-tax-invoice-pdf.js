@@ -49,7 +49,7 @@ export function generatePosTaxInvoicePdf(inv) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 0, autoFirstPage: true, info: {
       Title:   `ใบกำกับภาษี ${inv.invoice_no || ''}`,
-      Author:  inv.shopInfo?.shop_name || 'Smile Slip Pro',
+      Author:  inv.shopInfo?.shop_name || (inv.isWhiteLabel ? '' : 'Smile Slip Pro'),
       Subject: 'Tax Invoice / ใบกำกับภาษี / ใบเสร็จรับเงิน',
     }});
 
@@ -230,8 +230,10 @@ export function generatePosTaxInvoicePdf(inv) {
     t(doc, inv.issued_at || '', RS_X + 4, y + SIG_H - 5, { width: SIG_W - 8, align: 'center' });
 
     doc.font('Thai').fontSize(7).fillColor('#cbd5e1');
-    t(doc, `เลขที่ใบกำกับภาษี: ${inv.invoice_no || '-'}   ·   ออกโดยระบบ Smile Slip Pro POS`,
-      0, H - 30, { width: W, align: 'center' });
+    const footerText = inv.isWhiteLabel
+      ? `เลขที่ใบกำกับภาษี: ${inv.invoice_no || '-'}`
+      : `เลขที่ใบกำกับภาษี: ${inv.invoice_no || '-'}   ·   ออกโดย Smile Slip Pro · smileslippro.com`;
+    t(doc, footerText, 0, H - 30, { width: W, align: 'center' });
 
     doc.end();
   });

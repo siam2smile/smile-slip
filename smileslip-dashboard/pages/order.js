@@ -296,6 +296,10 @@ export default function CustomerOrderPage() {
             </div>
           </div>
         )}
+
+        {!shopInfo?.isWhiteLabel && (
+          <p className="text-center text-slate-300 text-[11px] py-4">ออกโดย Smile Slip Pro · smileslippro.com</p>
+        )}
       </div>
     </>
   );

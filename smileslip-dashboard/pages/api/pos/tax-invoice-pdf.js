@@ -6,6 +6,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { getAccessToken, readSheet, rowToTaxInvoice } from '../../../lib/google-pos';
 import { generatePosTaxInvoicePdf } from '../../../lib/pos-tax-invoice-pdf';
+import { hasFeature } from '../../../lib/tier-features';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -20,7 +21,7 @@ export default async function handler(req, res) {
     const [{ data: pc }, { data: gc }, { data: shop }] = await Promise.all([
       supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
       supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single(),
-      supabase.from('shop_profiles').select('shop_name, address, tax_id, phone').eq('id', shopId).single(),
+      supabase.from('shop_profiles').select('shop_name, address, tax_id, phone, subscription_tier').eq('id', shopId).single(),
     ]);
     if (!pc?.pos_sheet_id) return res.status(400).json({ error: 'ยังไม่ได้ตั้งค่า POS' });
     if (!gc?.google_refresh_token) return res.status(400).json({ error: 'ยังไม่ได้เชื่อมต่อ Google' });
@@ -53,6 +54,7 @@ export default async function handler(req, res) {
       subtotal: invoice.subtotal,
       vat: invoice.vat,
       total: invoice.total,
+      isWhiteLabel: hasFeature(shop?.subscription_tier, 'white_label'),
     });
 
     res.setHeader('Content-Type', 'application/pdf');

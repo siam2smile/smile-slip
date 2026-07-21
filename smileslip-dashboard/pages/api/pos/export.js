@@ -13,6 +13,7 @@ import {
   getStaffPermissions,
 } from '../../../lib/google-pos';
 import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
+import { sanitizeFilenamePart } from '../../../lib/branding';
 
 // รายงาน 3 แม่แบบใหม่ (vat30/sales_by_branch/cyclical_inventory) + custom เฉพาะร้าน — Business+ เท่านั้น
 // (รายงานเดิม 8 ประเภทด้านบนยังไม่ล็อก tier ตามที่เป็นมาแต่เดิม ไม่ได้แก้ย้อนหลังในรอบนี้)
@@ -507,7 +508,10 @@ export default async function handler(req, res) {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['ไม่มีข้อมูล']]), 'รายงาน');
     }
 
-    const fileName = `SmileSlip_POS_${shopName}_${dateFrom || 'all'}.xlsx`;
+    // White-Label (Enterprise): ตัดคำนำหน้า "SmileSlip_" ออก ใช้ชื่อสาขา (หรือชื่อร้านหลักถ้าไม่ได้กรองสาขา) แทน
+    const fileName = hasFeature(tier, 'white_label')
+      ? `${sanitizeFilenamePart(branchLabel)}_${dateFrom || 'all'}.xlsx`
+      : `SmileSlip_POS_${sanitizeFilenamePart(shopName)}_${dateFrom || 'all'}.xlsx`;
     const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

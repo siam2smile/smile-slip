@@ -13,6 +13,7 @@ import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
 import { generateVatReportPdf } from '../../../lib/vat-report-pdf';
+import { hasFeature } from '../../../lib/tier-features';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -156,7 +157,7 @@ export default async function handler(req, res) {
 
     // ─── PDF Export (สรุปสำหรับส่งสำนักงานบัญชี) ───────────────────────────
     if (req.query.format === 'pdf') {
-      const pdfBuffer = await generateVatReportPdf({ ...reportPayload, shopInfo: profile });
+      const pdfBuffer = await generateVatReportPdf({ ...reportPayload, shopInfo: profile, isWhiteLabel: hasFeature(tier, 'white_label') });
       const period = month ? `${month.padStart(2,'0')}-${sheetYear}` : sheetYear;
       const filename = `VATReport_${profile?.shop_name || 'shop'}_${period}.pdf`;
       res.setHeader('Content-Type', 'application/pdf');

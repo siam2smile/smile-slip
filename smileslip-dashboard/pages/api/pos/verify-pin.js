@@ -73,6 +73,7 @@ export default async function handler(req, res) {
     const staff = rowToStaff(staffRow);
     return res.json({
       ok: true, hasSheet: !!pc.pos_sheet_id,
+      isWhiteLabel: hasFeature(sp?.subscription_tier, 'white_label'),
       staff: {
         staff_id: staff.staff_id, name: staff.name, role: staff.role, line_id: staff.line_id, branch_name: staff.branch_name,
         perm_view_revenue: staff.perm_view_revenue, perm_view_pl: staff.perm_view_pl,

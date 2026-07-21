@@ -4,6 +4,7 @@
  *   คืนเฉพาะชื่อร้าน + สถานะว่าเปิดรับออเดอร์อยู่ไหม — ไม่คืนข้อมูลอ่อนไหวใดๆ (เลขภาษี/เบอร์โทร/อีเมลเจ้าของ ฯลฯ)
  */
 import { createClient } from '@supabase/supabase-js';
+import { hasFeature } from '../../../lib/tier-features';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -16,7 +17,7 @@ export default async function handler(req, res) {
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
 
   const [{ data: shop }, { data: pc }] = await Promise.all([
-    supabase.from('shop_profiles').select('shop_name, status').eq('id', shopId).maybeSingle(),
+    supabase.from('shop_profiles').select('shop_name, status, subscription_tier').eq('id', shopId).maybeSingle(),
     supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).maybeSingle(),
   ]);
 
@@ -25,5 +26,7 @@ export default async function handler(req, res) {
   return res.json({
     shop_name: shop.shop_name || '',
     accepting_orders: !!pc?.pos_sheet_id && shop.status !== 'trial_expired',
+    // ไม่คืน tier ตรงๆ (ไม่จำเป็นต้องให้สาธารณะรู้ระดับแพ็กเกจ) คืนแค่ผลลัพธ์ boolean ที่หน้าเว็บต้องใช้
+    isWhiteLabel: hasFeature(shop.subscription_tier, 'white_label'),
   });
 }

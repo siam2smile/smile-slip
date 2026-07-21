@@ -6,6 +6,7 @@
 import { useState, useRef, useEffect } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
+import { withBrandFooter } from '../lib/branding';
 
 export default function PosStaffPage() {
   const router = useRouter();
@@ -23,6 +24,7 @@ export default function PosStaffPage() {
   const [staffBranch, setStaffBranch] = useState(''); // สาขาที่พนักงานคนนี้ผูกอยู่ (ตั้งค่าจากตอนอนุมัติ/เพิ่มพนักงาน)
   const [staffId, setStaffId] = useState(''); // staff_id ของคนที่ login สำเร็จ (ใช้ผูกกับ PIN)
   const [staffPerms, setStaffPerms] = useState({ perm_view_revenue: false, perm_view_pl: false, perm_manage_stock: false, perm_export_vat: false });
+  const [isWhiteLabel, setIsWhiteLabel] = useState(false);
 
   // ── จัดการร้าน (สิทธิ์พิเศษที่แอดมินเปิดให้เป็นรายคน) ────────────────────
   const [manageView, setManageView] = useState(''); // 'revenue' | 'pl' | 'stock' | 'vat'
@@ -140,6 +142,7 @@ export default function PosStaffPage() {
         setStaffName(d.staff?.name || '');
         setStaffBranch(d.staff?.branch_name || '');
         setStaffId(d.staff?.staff_id || '');
+        setIsWhiteLabel(!!d.isWhiteLabel);
         setStaffPerms({
           perm_view_revenue: !!d.staff?.perm_view_revenue,
           perm_view_pl: !!d.staff?.perm_view_pl,
@@ -303,7 +306,7 @@ export default function PosStaffPage() {
         <tr class="bold"><td>ค้างชำระ</td><td style="text-align:right">${info.remainingDebt.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>` : ''}
       </table>
       <div class="line"></div>
-      <div class="center">ขอบคุณที่ใช้บริการ</div>
+      <div class="center">${withBrandFooter('ขอบคุณที่ใช้บริการ', isWhiteLabel).split('\n').map(esc).join('<br>')}</div>
     </body></html>`;
     w.document.open(); w.document.write(html); w.document.close();
   }

@@ -7,6 +7,7 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { MARKET_PRICE_FEATURE_LIVE } from '../lib/market-price-flag';
 import { hasFeature } from '../lib/tier-features';
+import { withBrandFooter } from '../lib/branding';
 
 const UNITS = ['ชิ้น', 'อัน', 'กล่อง', 'แพ็ก', 'ขวด', 'ถัง', 'ถุง', 'กก.', 'กรัม', 'ลิตร', 'มล.', 'เมตร', 'คู่', 'ชุด', 'โหล', 'แผ่น', 'มัด', 'หัว', 'ลูก', 'ท่อน', 'แท่ง', 'ห่อ', 'เส้น', 'จาน', 'ชาม', 'แก้ว'];
 const PAY_METHODS = ['เงินสด', 'โอน', 'บัตรเครดิต', 'QR Code', 'เชื่อ'];
@@ -74,7 +75,7 @@ function escapeHtml(s) {
 }
 
 // paperSize: '58mm' | '80mm' — isTaxInvoice: true เมื่อพิมพ์ใบกำกับภาษีเต็มรูปแบบ (มีข้อมูลผู้ซื้อ + แยก VAT)
-function buildReceiptHtml({ paperSize = '80mm', shopInfo, isTaxInvoice, showVat, docNo, dateStr, buyer, items, subtotal, vat, discount, total, payMethod, cashReceived, change, footer }) {
+function buildReceiptHtml({ paperSize = '80mm', shopInfo, isTaxInvoice, showVat, docNo, dateStr, buyer, items, subtotal, vat, discount, total, payMethod, cashReceived, change, footer, isWhiteLabel }) {
   const widthMm = paperSize === '58mm' ? 58 : 80;
   const title = isTaxInvoice ? 'ใบกำกับภาษี / ใบเสร็จรับเงิน' : 'ใบเสร็จรับเงิน';
   const itemRows = (items || []).map(i => {
@@ -149,7 +150,7 @@ function buildReceiptHtml({ paperSize = '80mm', shopInfo, isTaxInvoice, showVat,
   </table>
   ${isTaxInvoice ? `<div style="margin-top:4px">(${bahtText(total)})</div>` : ''}
   <div class="line"></div>
-  <div class="foot">${escapeHtml(footer || 'ขอบคุณที่ใช้บริการ')}</div>
+  <div class="foot">${withBrandFooter(footer || 'ขอบคุณที่ใช้บริการ', isWhiteLabel).split('\n').map(escapeHtml).join('<br>')}</div>
 </body></html>`;
 }
 
@@ -1802,6 +1803,7 @@ export default function POSPage() {
       payMethod: bill.payMethod,
       cashReceived: bill.payMethod === 'เงินสด' ? bill.cashReceived : 0,
       change: bill.change,
+      isWhiteLabel: hasFeature(shopInfo?.subscription_tier, 'white_label'),
     });
     openPrintWindow(html);
   }

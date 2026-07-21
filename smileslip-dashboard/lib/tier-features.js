@@ -24,6 +24,7 @@ export function hasFeature(tier, feature) {
   if (feature === 'vat_report') return level >= TIER_LEVEL.business;
   if (feature === 'excel_report_templates') return level >= TIER_LEVEL.business;
   if (feature === 'market_price_index') return level >= TIER_LEVEL.enterprise;
+  if (feature === 'white_label') return level >= TIER_LEVEL.enterprise;
 
   if (GATED_AT_PRO_ONLY.has(feature)) {
     // Shop Pro (pro) ล็อกเฉพาะ 3 ฟีเจอร์นี้ — ส่วน normal (trial/ร้านเก่า grandfather) และ advance ขึ้นไปผ่านหมด
@@ -41,6 +42,7 @@ export const FEATURE_LABEL = {
   vat_report: 'รายงานภาษีมูลค่าเพิ่ม (VAT)',
   excel_report_templates: 'รายงาน Excel สำเร็จรูป (ภ.พ.30/สรุปยอดขาย/คลังสินค้าหมุนเวียน)',
   market_price_index: 'ดัชนีราคากลาง + ตรวจทุจริตจัดซื้อ',
+  white_label: 'White-Label (ลบชื่อ Smile Slip Pro ออกจากใบเสร็จ/ใบกำกับภาษี/รายงาน)',
 };
 
 export function upgradeMessage(feature) {

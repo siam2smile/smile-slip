@@ -5,6 +5,8 @@
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
+import { hasFeature } from '../../../lib/tier-features';
+import { sanitizeFilenamePart } from '../../../lib/branding';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -21,11 +23,13 @@ export default async function handler(req, res) {
     // ดึงข้อมูลร้านค้า
     const { data: shop } = await supabase
       .from('shop_profiles')
-      .select('shop_name, google_sheet_id')
+      .select('shop_name, google_sheet_id, subscription_tier')
       .eq('id', shopId)
       .single();
 
     if (!shop) return res.status(404).json({ error: 'ไม่พบร้านค้า' });
+
+    const isWhiteLabel = hasFeature(shop.subscription_tier, 'white_label');
 
     // ดึง Google config
     const { data: gConfig } = await supabase
@@ -89,7 +93,7 @@ export default async function handler(req, res) {
 
     // Sheet 2: สรุปยอด
     const summaryData = [
-      ['รายงานสรุป Smile Slip Pro', `ร้าน: ${shop.shop_name}`],
+      [isWhiteLabel ? 'รายงานสรุป' : 'รายงานสรุป Smile Slip Pro', `ร้าน: ${shop.shop_name}`],
       ['ช่วงเวลา', month ? `${month}/${targetYear}` : `ปี ${targetYear}`],
       [''],
       ['ประเภท', 'จำนวนเงิน (บาท)', 'จำนวนรายการ'],
@@ -105,7 +109,9 @@ export default async function handler(req, res) {
 
     // ส่งไฟล์กลับ
     const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-    const fileName = `SmileSlip_${shop.shop_name}_${sheetLabel}.xlsx`;
+    const fileName = isWhiteLabel
+      ? `${sanitizeFilenamePart(shop.shop_name)}_${sheetLabel}.xlsx`
+      : `SmileSlip_${sanitizeFilenamePart(shop.shop_name)}_${sheetLabel}.xlsx`;
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);

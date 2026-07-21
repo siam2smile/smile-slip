@@ -23,7 +23,7 @@ export function generateVatReportPdf(report) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 40, autoFirstPage: true, info: {
       Title: `รายงานภาษีมูลค่าเพิ่ม ${report.year || ''}`,
-      Author: report.shopInfo?.shop_name || 'Smile Slip Pro',
+      Author: report.shopInfo?.shop_name || (report.isWhiteLabel ? '' : 'Smile Slip Pro'),
       Subject: 'VAT Report / รายงานภาษีมูลค่าเพิ่ม',
     }});
 
@@ -137,8 +137,12 @@ export function generateVatReportPdf(report) {
 
     ensureSpace(30);
     y += 10;
+    const printedAt = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+    const footerText = report.isWhiteLabel
+      ? `พิมพ์เมื่อ ${printedAt}`
+      : `จัดทำโดยระบบ Smile Slip Pro — พิมพ์เมื่อ ${printedAt}`;
     doc.font('Sarabun').fontSize(8).fillColor('#999')
-      .text(`จัดทำโดยระบบ Smile Slip Pro — พิมพ์เมื่อ ${new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}`, 40, y, { width: pageWidth, align: 'center' });
+      .text(footerText, 40, y, { width: pageWidth, align: 'center' });
 
     doc.end();
   });
