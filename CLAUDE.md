@@ -1005,7 +1005,7 @@ ALTER TABLE shop_profiles
 - `smileslip-expire-trials` → `POST {dashboard_url}/api/cron/expire-trials` ทุกวัน พร้อม header `x-cron-secret`
 - `smileslip-trial-day25-nudge` → `POST {bot_url}/cron/trial-day25-nudge` ทุกวัน พร้อม header `x-cron-secret`
 
-**เพิ่มคอลัมน์ address ใน shop_branches (ก่อนใช้ที่อยู่แยกต่อสาขาสำหรับใบเสร็จ/ใบกำกับภาษี — เพิ่ม 2026-07-21, ยังไม่ได้รัน):**
+**เพิ่มคอลัมน์ address ใน shop_branches (ก่อนใช้ที่อยู่แยกต่อสาขาสำหรับใบเสร็จ/ใบกำกับภาษี — เพิ่ม 2026-07-21, ✅ รันแล้ว 2026-07-21):**
 ก่อนรัน SQL นี้ การสร้าง/แก้ไขสาขายังทำงานปกติทุกอย่าง (ทดสอบแล้วจริง) — `api/shop/branches.js` แยกเขียน
 `address` เป็น query ต่างหากเสมอ ถ้าคอลัมน์ยังไม่มีจะแค่ไม่บันทึกที่อยู่ (ไม่ error ไม่พังการสร้างสาขา)
 ```sql
@@ -1027,7 +1027,7 @@ ALTER TABLE shop_branches ADD COLUMN IF NOT EXISTS address text;
   - `smileslip-expire-trials` — `0 19 30 * * *` UTC (02:30 กรุงเทพ ทุกวัน) → `POST https://smileslippro.com/api/cron/expire-trials`
   - `smileslip-trial-day25-nudge` — `0 11 * * *` UTC (18:00 กรุงเทพ ทุกวัน) → `POST {bot_url}/cron/trial-day25-nudge`
   - ทดสอบรันด้วยมือ (`gcloud scheduler jobs run`) ทั้งคู่แล้ว: `expire-trials` ตอบ HTTP 200, `trial-day25-nudge` log เริ่ม/จบสำเร็จไม่มี error — ระบบ 30-Day Free Trial Lock **มีผลจริงครบวงจรแล้วตอนนี้** (ทดลองใช้ครบ 30 วัน → ล็อกอัตโนมัติ, เหลือ 5 วัน → แจ้งเตือนทาง LINE อัตโนมัติ)
-- [ ] **รัน SQL คอลัมน์ `address` ใน `shop_branches`** — ดู SQL ด้านบน — ต้องรันก่อนที่อยู่แยกต่อสาขา (ใบเสร็จ/ใบกำกับภาษี) จะบันทึกได้จริง (ก่อนรัน สร้าง/แก้สาขายังทำงานปกติทุกอย่าง แค่ที่อยู่จะไม่ถูกบันทึก)
+- [x] **รัน SQL คอลัมน์ `address` ใน `shop_branches`** — ✅ รันแล้ว 2026-07-21 — verified ผ่าน REST query ว่าคอลัมน์มีจริง (ที่อยู่แยกต่อสาขาบันทึก/ใช้กับใบเสร็จ-ใบกำกับภาษีได้จริงแล้วตอนนี้)
 
 ---
 
