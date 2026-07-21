@@ -1062,6 +1062,12 @@ export default function PosStaffPage() {
                 <div className="text-white font-bold text-lg">{selectedOrder.customer_name}</div>
                 {selectedOrder.phone && <div className="text-gray-400 text-xs mt-0.5">📞 {selectedOrder.phone}</div>}
                 {selectedOrder.address && <div className="text-gray-500 text-xs mt-1">📍 {selectedOrder.address}</div>}
+                {selectedOrder.maps_link && (
+                  <a href={selectedOrder.maps_link} target="_blank" rel="noreferrer"
+                    className="inline-block mt-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-medium px-3 py-2 rounded-xl transition-colors">
+                    🗺️ เปิดแผนที่
+                  </a>
+                )}
                 <div className="border-t border-gray-800 mt-3 pt-3 space-y-0.5">
                   {Array.isArray(selectedOrder.items) && selectedOrder.items.map((item, j) => (
                     <div key={j} className="flex justify-between text-xs text-gray-400">

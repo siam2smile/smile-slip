@@ -101,13 +101,16 @@ export default async function handler(req, res) {
 
       // คำนวณยอดรวมใหม่จากราคาสินค้าจริงเสมอ (ไม่เชื่อราคาที่ฝั่งลูกค้าส่งมา กันปลอมราคา) —
       // ไม่รับสินค้าประเภท "หมุนเวียน" จากช่องทางนี้ (ต้องมีพนักงานคุยเรื่องแลก/ยืมของเก่าโดยตรง)
-      const prodRows = await readSheet(token, sheetId, 'สินค้า!A:S');
+      const prodRows = await readSheet(token, sheetId, 'สินค้า!A:T');
       const products = prodRows.slice(1).map(r => rowToProduct(r)).filter(p => p.sku && p.is_active !== false);
       const resolvedItems = [];
       for (const item of items) {
         const prod = products.find(p => p.sku === item.sku);
         if (!prod) continue;
         if (prod.type === 'หมุนเวียน') continue;
+        // สินค้าที่ระบุสาขาที่ขายไว้เฉพาะเจาะจง (ไม่ใช่ขายได้ทุกสาขา) ต้องตรงกับสาขาที่ลูกค้าเลือกเท่านั้น
+        // กันลูกค้ายิง request ตรงสั่งสินค้าที่สาขานั้นไม่ได้ขาย
+        if (branch && prod.branches.length > 0 && !prod.branches.includes(branch)) continue;
         const qty = Math.max(1, parseInt(item.qty) || 0);
         if (qty <= 0) continue;
         resolvedItems.push({ sku: prod.sku, name: prod.name, unit: prod.unit, price: prod.price, qty });

@@ -16,7 +16,7 @@ const EXPENSE_CATEGORIES = ['ค่าเช่าร้าน', 'ค่าน�
 const CONTACT_TYPES = ['ผู้จำหน่าย', 'ลูกค้า', 'ทั้งคู่'];
 
 function emptyProdForm() {
-  return { name: '', category: '', price: '', stock: '', unit: 'ชิ้น', aliases: '', notes: '', type: 'นับสต็อค', product_code: '', barcode: '', description: '', vat_type: 'ไม่มี VAT', is_active: true, empty_ceiling: '' };
+  return { name: '', category: '', price: '', stock: '', unit: 'ชิ้น', aliases: '', notes: '', type: 'นับสต็อค', product_code: '', barcode: '', description: '', vat_type: 'ไม่มี VAT', is_active: true, empty_ceiling: '', branches: [] };
 }
 function emptyContactForm() {
   return {
@@ -1579,8 +1579,11 @@ export default function POSPage() {
   }, [products]);
 
   const displayProducts = useMemo(() => {
-    // sale tab แสดงเฉพาะ active, products tab แสดงทั้งหมด
+    // sale tab แสดงเฉพาะ active + กรองตามสาขาที่เลือก, products tab (จัดการสินค้า) แสดงทั้งหมดทุกสาขาเสมอ
     let p = tab === 'products' ? products : products.filter(x => x.is_active !== false);
+    if (tab !== 'products' && selectedBranch?.branch_name) {
+      p = p.filter(x => !x.branches?.length || x.branches.includes(selectedBranch.branch_name));
+    }
     if (selectedCat !== 'ทั้งหมด') p = p.filter(x => x.category === selectedCat);
     if (search) {
       const q = search.toLowerCase();
@@ -1593,7 +1596,7 @@ export default function POSPage() {
       );
     }
     return p;
-  }, [products, selectedCat, search, tab]);
+  }, [products, selectedCat, search, tab, selectedBranch]);
 
   // ── cart ──────────────────────────────────────────────────────────────────
   function addToCart(prod) {
@@ -1894,6 +1897,7 @@ export default function POSPage() {
       vat_type: prod.vat_type || 'ไม่มี VAT',
       is_active: prod.is_active !== false,
       empty_ceiling: prod.empty_ceiling ? String(prod.empty_ceiling) : '',
+      branches: prod.branches || [],
     });
     setShowProdForm(true);
   }
@@ -5516,6 +5520,27 @@ export default function POSPage() {
                       📋 คัดลอก
                     </button>
                   </div>
+
+                  {posBranches.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-gray-800 space-y-2">
+                      <p className="text-gray-400 text-xs mb-2">
+                        หรือแยกลิงก์เฉพาะสาขา (ลูกค้าจะเห็นแค่สินค้าของสาขานั้น + ล็อกสาขาไว้อัตโนมัติ ไม่ต้องเลือกเอง)
+                      </p>
+                      {posBranches.map(b => (
+                        <div key={b.id} className="flex items-center gap-2">
+                          <span className="shrink-0 text-gray-300 text-xs w-20 truncate">{b.brand_name || b.branch_name}</span>
+                          <input readOnly value={typeof window !== 'undefined' ? `${window.location.origin}/order?shopId=${shopId}&branch=${encodeURIComponent(b.branch_name)}` : ''}
+                            className="flex-1 bg-gray-800 text-gray-300 text-xs px-3 py-2 rounded-xl border border-gray-700 truncate" />
+                          <button onClick={() => {
+                            navigator.clipboard.writeText(`${window.location.origin}/order?shopId=${shopId}&branch=${encodeURIComponent(b.branch_name)}`);
+                            showToast('คัดลอกลิงก์แล้ว');
+                          }} className="shrink-0 bg-gray-700 hover:bg-gray-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors">
+                            📋
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Table names */}
@@ -6314,6 +6339,28 @@ export default function POSPage() {
                   <input type="number" value={prodForm.empty_ceiling} onChange={e => setProdForm(f => ({...f, empty_ceiling: e.target.value}))}
                     className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
                     placeholder="0" min="0" />
+                </div>
+              )}
+
+              {/* ── สาขาที่ขาย (แสดงเฉพาะร้านที่มีมากกว่า 1 สาขา) ── */}
+              {posBranches.length > 0 && (
+                <div>
+                  <label className="block text-gray-400 text-xs mb-1.5">สาขาที่ขาย (ไม่เลือก = ขายได้ทุกสาขา)</label>
+                  <div className="flex flex-wrap gap-2">
+                    {posBranches.map(b => {
+                      const checked = prodForm.branches.includes(b.branch_name);
+                      return (
+                        <button key={b.id} type="button"
+                          onClick={() => setProdForm(f => ({
+                            ...f,
+                            branches: checked ? f.branches.filter(x => x !== b.branch_name) : [...f.branches, b.branch_name],
+                          }))}
+                          className={`text-xs font-bold px-3 py-2 rounded-xl border-2 transition-colors ${checked ? 'bg-green-900/40 border-green-600 text-green-300' : 'bg-gray-800 border-gray-700 text-gray-400'}`}>
+                          {checked ? '✓ ' : ''}{b.brand_name || b.branch_name}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 

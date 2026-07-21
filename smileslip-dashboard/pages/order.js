@@ -7,11 +7,12 @@ import { ShoppingCart, Plus, Minus, Trash2, CheckCircle2, Loader2 } from 'lucide
 // ส่งเข้าคิว "ออเดอร์ลูกค้ารอยืนยัน" เสมอ — ร้านต้องกดยืนยันในหน้า POS ก่อนถึงจะกลายเป็นออเดอร์จัดส่งจริง
 export default function CustomerOrderPage() {
   const router = useRouter();
-  const { shopId } = router.query;
+  const { shopId, branch: branchParam } = router.query;
 
   const [loading, setLoading] = useState(true);
   const [shopInfo, setShopInfo] = useState(null);
   const [branches, setBranches] = useState([]);
+  const [lockedBranch, setLockedBranch] = useState(''); // ล็อกจากลิงก์ ?branch=xxx ถ้าตรงกับสาขาจริง
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState({}); // { sku: qty }
   const [step, setStep] = useState('browse'); // browse | checkout | done
@@ -27,23 +28,30 @@ export default function CustomerOrderPage() {
     async function init() {
       setLoading(true);
       try {
-        const [infoRes, branchRes, prodRes] = await Promise.all([
+        const [infoRes, branchRes] = await Promise.all([
           fetch(`/api/pos/public-shop-info?shopId=${shopId}`),
           fetch(`/api/shop/branches?shopId=${shopId}`),
-          fetch(`/api/pos/products?shopId=${shopId}`),
         ]);
         const info = await infoRes.json();
         const branchData = await branchRes.json();
-        const prodData = await prodRes.json();
+        const activeBranches = (branchData.branches || []).filter(b => b.is_active !== false);
         setShopInfo(info);
-        setBranches((branchData.branches || []).filter(b => b.is_active !== false));
+        setBranches(activeBranches);
+
+        // ล็อกสาขาจากลิงก์ (?branch=xxx) เฉพาะถ้าตรงกับสาขาจริงของร้านเท่านั้น — กันลิงก์พิมพ์ผิด/ปลอม
+        const matched = branchParam && activeBranches.find(b => b.branch_name === branchParam) ? branchParam : '';
+        setLockedBranch(matched);
+        if (matched) setForm(f => ({ ...f, branch: matched }));
+
+        const prodRes = await fetch(`/api/pos/products?shopId=${shopId}${matched ? `&branch=${encodeURIComponent(matched)}` : ''}`);
+        const prodData = await prodRes.json();
         // ไม่ให้สั่งสินค้าประเภท "หมุนเวียน" ผ่านหน้านี้ (ต้องคุยเรื่องแลก/ยืมของเก่ากับร้านโดยตรง)
         setProducts((prodData.products || []).filter(p => p.type !== 'หมุนเวียน'));
       } catch {}
       setLoading(false);
     }
     init();
-  }, [shopId]);
+  }, [shopId, branchParam]);
 
   const cartItems = useMemo(() => {
     return Object.entries(cart)
@@ -148,7 +156,9 @@ export default function CustomerOrderPage() {
       <div className="min-h-screen bg-slate-50 pb-28">
         <header className="bg-white border-b border-slate-200 px-4 py-4 sticky top-0 z-10">
           <h1 className="font-black text-slate-800">{shopInfo?.shop_name || 'ร้านค้า'}</h1>
-          <p className="text-slate-400 text-xs">สั่งซื้อ/สั่งจัดส่งออนไลน์</p>
+          <p className="text-slate-400 text-xs">
+            สั่งซื้อ/สั่งจัดส่งออนไลน์{lockedBranch ? ` · สาขา${branches.find(b => b.branch_name === lockedBranch)?.brand_name || lockedBranch}` : ''}
+          </p>
         </header>
 
         {step === 'browse' && (
@@ -232,7 +242,14 @@ export default function CustomerOrderPage() {
                 <textarea value={form.address} rows={2} onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
                   className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-blue-400 resize-none"/>
               </div>
-              {branches.length > 0 && (
+              {lockedBranch ? (
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">สาขา</label>
+                  <div className="w-full border border-slate-200 bg-slate-50 rounded-xl px-4 py-2.5 text-sm text-slate-600">
+                    {branches.find(b => b.branch_name === lockedBranch)?.brand_name || lockedBranch}
+                  </div>
+                </div>
+              ) : branches.length > 0 && (
                 <div>
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">สาขาที่ต้องการให้จัดส่ง</label>
                   <select value={form.branch} onChange={e => setForm(f => ({ ...f, branch: e.target.value }))}

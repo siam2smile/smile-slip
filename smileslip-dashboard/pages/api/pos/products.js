@@ -45,7 +45,7 @@ export default async function handler(req, res) {
 
     // ── GET ──────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'สินค้า!A:S');
+      const rows = await readSheet(token, sheetId, 'สินค้า!A:T');
       let products = rows.slice(1)
         .map((r, i) => ({ ...rowToProduct(r), _row: i + 2 }))
         .filter(p => p.sku && p.name);
@@ -54,6 +54,8 @@ export default async function handler(req, res) {
       if (!req.query.showInactive) products = products.filter(p => p.is_active !== false);
 
       if (req.query.category) products = products.filter(p => p.category === req.query.category);
+      // สาขาที่ขาย — ว่าง (branches.length===0) = ขายได้ทุกสาขา เสมอ
+      if (req.query.branch) products = products.filter(p => p.branches.length === 0 || p.branches.includes(req.query.branch));
       if (req.query.search) {
         const q = req.query.search.toLowerCase();
         products = products.filter(p =>
@@ -75,7 +77,7 @@ export default async function handler(req, res) {
         unit = 'ชิ้น', aliases = '', notes = '',
         type = 'นับสต็อค',
         product_code = '', barcode = '', description = '',
-        vat_type = 'ไม่มี VAT', is_active = true, empty_ceiling = 0,
+        vat_type = 'ไม่มี VAT', is_active = true, empty_ceiling = 0, branches = [],
       } = req.body;
       if (!name) return res.status(400).json({ error: 'ต้องระบุชื่อสินค้า' });
       if (type === 'หมุนเวียน' && !hasFeature(tier, 'cyclical_stock')) {
@@ -88,6 +90,7 @@ export default async function handler(req, res) {
         sku, name, category, price, cost, stock, unit, aliases, notes, now,
         type, 0, 0,
         product_code, barcode, description, vat_type, is_active ? '1' : '0', empty_ceiling || 0,
+        Array.isArray(branches) ? branches.join(',') : '',
       ]);
       return res.json({ ok: true, sku, name });
     }
@@ -104,13 +107,13 @@ export default async function handler(req, res) {
         if (!perms.perm_manage_stock) return res.status(403).json({ error: 'ไม่มีสิทธิ์จัดการสต็อกสินค้า' });
       }
 
-      const rows = await readSheet(token, sheetId, 'สินค้า!A:S');
+      const rows = await readSheet(token, sheetId, 'สินค้า!A:T');
       const dataRows = rows.slice(1);
       const idx = dataRows.findIndex(r => r[0] === sku);
       if (idx === -1) return res.status(404).json({ error: `ไม่พบสินค้า ${sku}` });
 
       const existing = [...dataRows[idx]];
-      while (existing.length < 19) existing.push('');
+      while (existing.length < 20) existing.push('');
 
       // บล็อคเฉพาะตอน "เปลี่ยนประเภทเป็นหมุนเวียนใหม่" (จากประเภทอื่น) — สินค้าที่เป็นหมุนเวียนอยู่แล้ว
       // (สร้างไว้ตั้งแต่ก่อนถูกล็อค/ตอน tier สูงกว่า) แก้ไขฟิลด์อื่นได้ตามปกติไม่ถูกบล็อค
@@ -157,6 +160,7 @@ export default async function handler(req, res) {
       if (updates.vat_type      !== undefined) existing[16] = updates.vat_type;
       if (updates.is_active     !== undefined) existing[17] = updates.is_active ? '1' : '0';
       if (updates.empty_ceiling !== undefined) existing[18] = updates.empty_ceiling;
+      if (updates.branches      !== undefined) existing[19] = Array.isArray(updates.branches) ? updates.branches.join(',') : '';
       existing[9] = now;
 
       await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
@@ -168,12 +172,12 @@ export default async function handler(req, res) {
       const { sku } = req.body;
       if (!sku) return res.status(400).json({ error: 'Missing sku' });
 
-      const rows = await readSheet(token, sheetId, 'สินค้า!A:S');
+      const rows = await readSheet(token, sheetId, 'สินค้า!A:T');
       const dataRows = rows.slice(1);
       const idx = dataRows.findIndex(r => r[0] === sku);
       if (idx === -1) return res.status(404).json({ error: `ไม่พบสินค้า ${sku}` });
 
-      await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, Array(19).fill(''));
+      await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, Array(20).fill(''));
       return res.json({ ok: true, sku });
     }
 
