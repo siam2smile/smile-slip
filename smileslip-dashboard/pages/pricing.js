@@ -190,6 +190,31 @@ export default function PricingPage() {
     },
   ];
 
+  // ตารางเปรียบเทียบฟีเจอร์แบบเต็ม — ให้เห็นภาพรวมทุกแพ็กเกจในตารางเดียว (เสริมจากการ์ดด้านบน ไม่ได้แทนที่)
+  // ค่าต่อคอลัมน์เรียงตาม plans: Starter / Shop Pro / Advance / Business / Enterprise
+  const comparisonRows = [
+    { label: '🤖 AI อ่านสลิปอัตโนมัติ', values: ['✅ (ช่วงทดลอง 30 วัน)', '✅ 200/เดือน', '✅ 500/เดือน', '✅ 1,000/เดือน', '✅ ไม่จำกัด'] },
+    { label: '💰 POS ขายหน้าร้าน', values: [true, true, true, true, true] },
+    { label: '📝 คีย์รายการเอง (ไม่หักเครดิต)', values: [true, true, true, true, true] },
+    { label: '🔄 สต็อกสินค้าหมุนเวียน (ถัง/ขวด)', values: ['✅ (ช่วงทดลอง)', false, true, true, true] },
+    { label: '🚚 แอปพนักงานส่งของ', values: ['✅ (ช่วงทดลอง)', false, true, true, true] },
+    { label: '💳 ระบบเงินเชื่อ/ลูกหนี้', values: ['✅ (ช่วงทดลอง)', false, true, true, true] },
+    { label: '🏢 จำนวนสาขาสูงสุด', values: ['1', '1', '5', '10', '20+'] },
+    { label: '👥 จำนวน Admin', values: ['1', '1', '1', '3', '3+'] },
+    { label: '📅 #สรุปวันนี้/#สรุปเดือน/#กำไรขาดทุน', values: [false, true, true, true, true] },
+    { label: '🔔 แจ้งเจ้าของส่วนตัวทันที', values: [false, true, true, true, true] },
+    { label: '💬 #สรุปทุกสาขา + เปรียบเทียบสาขา', values: [false, false, true, true, true] },
+    { label: '🛡️ ป้องกันสลิปซ้ำข้ามสาขา', values: [false, false, true, true, true] },
+    { label: '📤 Export Excel ส่งนักบัญชี', values: [false, false, true, true, true] },
+    { label: '📊 กราฟ Top Sender รายเดือน', values: [false, false, false, true, true] },
+    { label: '📱 Dashboard Mobile-first', values: [false, false, false, true, true] },
+    { label: '🧾 รายงานภาษี VAT (ภ.พ.30)', values: [false, false, false, true, true] },
+    { label: '📊 ดัชนีราคากลาง + ตรวจทุจริตจัดซื้อ', values: [false, false, false, false, '✅*'] },
+    { label: '🎯 Priority Support 4 ชม.', values: [false, false, false, false, true] },
+    { label: '🚀 Onboarding ส่วนตัว + Setup โดยทีมงาน', values: [false, false, false, false, true] },
+    { label: '📊 รายงาน Excel Custom', values: [false, false, false, false, true] },
+  ];
+
   const credits = [
     { name: 'Starter Pack', amount: 100, price: 99, priceId: 'price_1TYLy93ZvivzvZ6qMaWLnlhH', color: 'border-slate-200', perUnit: '฿0.99/แผ่น' },
     { name: 'Value Pack', amount: 500, price: 299, priceId: 'price_1TYLyA3ZvivzvZ6q78LPY9Fh', color: 'border-blue-200', perUnit: '฿0.60/แผ่น' },
@@ -372,6 +397,55 @@ export default function PricingPage() {
             </div>
           );
         })}
+      </div>
+
+      {/* ── ตารางเปรียบเทียบฟีเจอร์แบบเต็ม ── */}
+      <div className="max-w-7xl mx-auto px-4 mt-16">
+        <div className="text-center mb-8">
+          <h2 className="text-3xl font-black text-slate-900 mb-2">เปรียบเทียบฟีเจอร์ทุกแพ็กเกจ</h2>
+          <p className="text-slate-500">ดูภาพรวมทั้งหมดในตารางเดียว เลือกแพ็กเกจที่ตรงกับร้านของคุณ</p>
+        </div>
+        <div className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[720px]">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="text-left px-5 py-4 font-bold text-slate-700 sticky left-0 bg-slate-50">ฟีเจอร์</th>
+                  {plans.map(p => (
+                    <th key={p.id} className="text-center px-4 py-4 font-bold text-slate-700 min-w-[110px]">{p.name}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {comparisonRows.map((row, i) => (
+                  <tr key={row.label} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                    <td className="text-left px-5 py-3 text-slate-700 font-medium sticky left-0 bg-inherit">{row.label}</td>
+                    {row.values.map((v, j) => (
+                      <td key={j} className="text-center px-4 py-3">
+                        {v === true ? (
+                          <CheckCircle className="inline text-green-500" size={18} />
+                        ) : v === false ? (
+                          <span className="text-slate-300">—</span>
+                        ) : (
+                          <span className="text-xs font-medium text-slate-700">{v}</span>
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="px-5 py-3 text-[10px] text-slate-400 border-t border-slate-100">
+            * ดัชนีราคากลาง + ตรวจทุจริตจัดซื้อ อยู่ระหว่างรอตรวจสอบข้อกฎหมายก่อนเปิดใช้งานจริง
+          </div>
+        </div>
+        <div className="text-center mt-8">
+          <button onClick={() => router.push(userId ? `/dashboard?userId=${userId}` : '/register')}
+            className="inline-flex items-center gap-2 bg-blue-800 hover:bg-blue-700 text-white font-black px-8 py-3.5 rounded-2xl transition-all text-sm">
+            {userId ? 'ไปที่แดชบอร์ดเพื่ออัปเกรด →' : '🚀 สมัครใช้งานฟรี 30 วัน →'}
+          </button>
+        </div>
       </div>
 
       {/* ── ระบบแนะนำเพื่อน ── */}

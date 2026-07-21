@@ -754,3 +754,36 @@ export function rowToReceive(row) {
     photo_url:   row[9] || '',
   };
 }
+
+// tab "ออเดอร์ลูกค้ารอยืนยัน" — มาจากหน้าเว็บสั่งจัดส่งสาธารณะ (pages/order.js, ไม่ต้อง login)
+// ลูกค้าส่งเข้ามาที่นี่ก่อนเสมอ (สถานะ 'รอตรวจสอบ') แอดมิน/พนักงานต้องกด "ยืนยัน" ในหน้า POS
+// ก่อนถึงจะกลายเป็นออเดอร์จัดส่งจริงผ่าน /api/pos/delivery ปกติ — กันสแปม/พิมพ์ผิดจากคนนอกที่ไม่มีคนตรวจก่อน
+export const CUSTOMER_ORDER_HEADERS = [
+  'เลขที่คำสั่งซื้อ', 'วันที่-เวลา', 'ชื่อลูกค้า', 'เบอร์โทร', 'ที่อยู่จัดส่ง',
+  'สาขาที่เลือก', 'รายการสินค้า (JSON)', 'ยอดรวม', 'วิธีชำระ', 'ลิงก์สลิป', 'หมายเหตุ', 'สถานะ',
+];
+
+export function rowToCustomerOrder(row) {
+  let items = [];
+  try { items = JSON.parse(row[6] || '[]'); } catch {}
+  return {
+    order_no:       row[0]  || '',
+    created_at:     row[1]  || '',
+    customer_name:  row[2]  || '',
+    phone:          row[3]  || '',
+    address:        row[4]  || '',
+    branch:         row[5]  || '',
+    items,
+    total:          parseFloat(row[7]) || 0,
+    payment_method: row[8]  || '',
+    slip_url:       row[9]  || '',
+    notes:          row[10] || '',
+    status:         row[11] || 'รอตรวจสอบ',
+  };
+}
+
+export function makeCustomerOrderNo() {
+  const now = new Date();
+  const pad = (n, len = 2) => String(n).padStart(len, '0');
+  return `CO${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}${pad(Math.floor(Math.random() * 100))}`;
+}

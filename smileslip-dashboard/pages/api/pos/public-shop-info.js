@@ -1,0 +1,29 @@
+/**
+ * GET /api/pos/public-shop-info?shopId=xxx
+ * → ข้อมูลร้านค้าแบบสาธารณะขั้นต่ำสุด สำหรับหน้าสั่งซื้อของลูกค้า (pages/order.js, ไม่ต้อง login)
+ *   คืนเฉพาะชื่อร้าน + สถานะว่าเปิดรับออเดอร์อยู่ไหม — ไม่คืนข้อมูลอ่อนไหวใดๆ (เลขภาษี/เบอร์โทร/อีเมลเจ้าของ ฯลฯ)
+ */
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
+);
+
+export default async function handler(req, res) {
+  if (req.method !== 'GET') return res.status(405).end();
+  const { shopId } = req.query;
+  if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
+
+  const [{ data: shop }, { data: pc }] = await Promise.all([
+    supabase.from('shop_profiles').select('shop_name, status').eq('id', shopId).maybeSingle(),
+    supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).maybeSingle(),
+  ]);
+
+  if (!shop) return res.status(404).json({ error: 'ไม่พบร้านค้านี้' });
+
+  return res.json({
+    shop_name: shop.shop_name || '',
+    accepting_orders: !!pc?.pos_sheet_id && shop.status !== 'trial_expired',
+  });
+}

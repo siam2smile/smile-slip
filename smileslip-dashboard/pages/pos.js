@@ -507,6 +507,12 @@ export default function POSPage() {
   const [receiveHistoryPage, setReceiveHistoryPage] = useState(0);
   const [receiveView, setReceiveView] = useState('form'); // 'form' | 'history' | 'pending'
   const [pendingReceives, setPendingReceives] = useState([]); // มาจากบอท LINE #รับสินค้า รอตรวจสอบ
+  const [customerOrders, setCustomerOrders] = useState([]); // มาจากหน้าเว็บสั่งซื้อสาธารณะ /order รอตรวจสอบ
+  const [customerOrdersLoading, setCustomerOrdersLoading] = useState(false);
+  const [showCustomerOrders, setShowCustomerOrders] = useState(false);
+  const [confirmingCustomerOrder, setConfirmingCustomerOrder] = useState(null);
+  const [confirmOrderStaffId, setConfirmOrderStaffId] = useState('');
+  const [confirmOrderSubmitting, setConfirmOrderSubmitting] = useState(false);
   const [pendingReceivesLoading, setPendingReceivesLoading] = useState(false);
   const [linkedPendingNo, setLinkedPendingNo] = useState(null); // pending_no ที่กำลังแก้ไขอยู่ในฟอร์ม (ลบออกจากคิวหลังยืนยันสำเร็จ)
 
@@ -1273,6 +1279,79 @@ export default function POSPage() {
   }
 
   // ── รับสินค้ารอยืนยันจาก LINE (#รับสินค้า → ถ่ายรูปใบส่งของ → OCR) ───────────
+  // ── คำสั่งซื้อจากลูกค้ารอยืนยัน (หน้าเว็บสาธารณะ /order) ──────────────────────
+  async function fetchCustomerOrders(sid = shopId) {
+    if (!sid) return;
+    setCustomerOrdersLoading(true);
+    try {
+      const r = await fetch(`/api/pos/customer-orders?shopId=${sid}`);
+      const d = await r.json();
+      if (d.pending) setCustomerOrders(d.pending);
+    } catch {}
+    setCustomerOrdersLoading(false);
+  }
+
+  async function rejectCustomerOrder(order) {
+    if (!confirm(`ปฏิเสธคำสั่งซื้อนี้จาก "${order.customer_name}"?`)) return;
+    try {
+      const r = await fetch('/api/pos/customer-orders', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, order_no: order.order_no }),
+      });
+      const d = await r.json();
+      if (d.ok) { await fetchCustomerOrders(); showToast('ปฏิเสธคำสั่งซื้อแล้ว'); }
+      else alert(d.error);
+    } catch (err) { alert(err.message); }
+  }
+
+  // ยืนยันคำสั่งซื้อจากลูกค้า → สร้างเป็นออเดอร์จัดส่งจริงผ่าน /api/pos/delivery ตรงๆ (ไม่ผ่าน cart/บิลที่
+  // เปิดอยู่ในแท็บขาย เพราะ cart เป็น state ที่ผูกกับบิลที่ active อยู่ ถ้าไปยุ่งจะทำข้อมูลบิลที่กำลังขายอยู่หายได้)
+  async function submitCustomerOrderConfirm() {
+    if (!confirmingCustomerOrder || !confirmOrderStaffId || confirmOrderSubmitting) return;
+    setConfirmOrderSubmitting(true);
+    try {
+      const order = confirmingCustomerOrder;
+      const staffObj = staff.find(s => s.staff_id === confirmOrderStaffId);
+      const items = (order.items || []).map(i => ({ name: i.name, qty: i.qty, price: i.price, sku: i.sku }));
+      const noteParts = [`สั่งซื้อออนไลน์ ${order.order_no}`, order.notes];
+      if (order.payment_method === 'โอนแล้ว' && order.slip_url) noteParts.push(`ลูกค้าแจ้งโอนแล้ว สลิป: ${order.slip_url}`);
+      const r = await fetch('/api/pos/delivery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId,
+          customer_name: order.customer_name,
+          phone: order.phone,
+          address: order.address,
+          items, total: order.total,
+          payment_method: order.payment_method === 'โอนแล้ว' ? 'โอนแล้ว' : 'เก็บปลายทาง',
+          staff_id: staffObj?.staff_id || '',
+          staff_name: staffObj?.name || '',
+          staff_line_id: staffObj?.line_id || '',
+          notes: noteParts.filter(Boolean).join(' | '),
+          created_by: userId || '',
+        }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        await fetch('/api/pos/customer-orders', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ shopId, order_no: order.order_no }),
+        });
+        showToast(`ยืนยันเป็นออเดอร์จัดส่งแล้ว — ${d.order_no}`);
+        setConfirmingCustomerOrder(null);
+        setConfirmOrderStaffId('');
+        fetchCustomerOrders();
+        fetchOrders();
+      } else {
+        alert(d.error);
+      }
+    } catch (err) { alert(err.message); }
+    setConfirmOrderSubmitting(false);
+  }
+
   async function fetchPendingReceives(sid = shopId) {
     if (!sid) return;
     setPendingReceivesLoading(true);
@@ -1333,7 +1412,7 @@ export default function POSPage() {
     if (!configured || !shopId) return;
     if (tab === 'report') { fetchSales(); fetchReport('sales', reportDateFrom, reportDateTo); }
     if (tab === 'settings') { fetchStaff(); fetchStaffRequests(); }
-    if (tab === 'orders') fetchOrders(shopId);
+    if (tab === 'orders') { fetchOrders(shopId); fetchCustomerOrders(shopId); fetchStaff(); }
     if (tab === 'collections') fetchCollectionTasks(shopId);
   }, [tab, configured, shopId]);
 
@@ -3896,11 +3975,17 @@ export default function POSPage() {
           {tab === 'orders' && (
             <div className="h-full overflow-y-auto">
               <div className="p-4 max-w-3xl mx-auto">
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center justify-between mb-4 gap-2">
                   <h2 className="text-white font-bold">ออเดอร์จัดส่ง ({displayOrders.length}{displayOrders.length !== orders.length ? `/${orders.length}` : ''})</h2>
-                  <button onClick={() => fetchOrders(shopId)} className="text-xs text-gray-400 hover:text-white bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-700 transition-colors">
-                    🔄 รีเฟรช
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button onClick={() => setShowCustomerOrders(true)}
+                      className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${customerOrders.length ? 'bg-orange-900/60 text-orange-300 border-orange-700 animate-pulse' : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700'}`}>
+                      🛒 รอยืนยันจากลูกค้า{customerOrders.length ? ` (${customerOrders.length})` : ''}
+                    </button>
+                    <button onClick={() => fetchOrders(shopId)} className="text-xs text-gray-400 hover:text-white bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-700 transition-colors">
+                      🔄 รีเฟรช
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-1.5 mb-3 flex-wrap">
@@ -4313,6 +4398,79 @@ export default function POSPage() {
                       {debtSaving ? 'กำลังบันทึก...' : `รับ ฿${parseFloat(debtAmount || 0).toLocaleString()}`}
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══ MODAL: คำสั่งซื้อจากลูกค้ารอยืนยัน (หน้าเว็บสาธารณะ /order) ══════════ */}
+          {showCustomerOrders && (
+            <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-4" onClick={() => setShowCustomerOrders(false)}>
+              <div className="bg-gray-900 rounded-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto border border-gray-700" onClick={e => e.stopPropagation()}>
+                <div className="p-4 border-b border-gray-800 flex items-center justify-between sticky top-0 bg-gray-900">
+                  <h3 className="text-white font-bold">🛒 คำสั่งซื้อจากลูกค้ารอยืนยัน</h3>
+                  <button onClick={() => setShowCustomerOrders(false)} className="text-gray-400 hover:text-white text-xl leading-none">✕</button>
+                </div>
+                <div className="p-4">
+                  {customerOrdersLoading ? (
+                    <div className="text-center text-gray-500 py-8 animate-pulse">กำลังโหลด...</div>
+                  ) : customerOrders.length === 0 ? (
+                    <div className="text-center text-gray-500 py-12 text-sm">
+                      <div className="text-3xl mb-2">📭</div>
+                      ยังไม่มีคำสั่งซื้อจากลูกค้ารอยืนยัน
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {customerOrders.map(order => (
+                        <div key={order.order_no} className="bg-gray-800 rounded-xl p-3">
+                          <div className="flex items-start justify-between gap-2 mb-1.5">
+                            <div className="min-w-0">
+                              <div className="text-white font-medium text-sm">{order.customer_name}</div>
+                              <div className="text-gray-400 text-xs">📞 {order.phone}</div>
+                              <div className="text-gray-500 text-xs mt-0.5">📍 {order.address}{order.branch ? ` (${order.branch})` : ''}</div>
+                            </div>
+                            <div className="text-green-400 font-bold text-sm shrink-0">฿{order.total.toLocaleString()}</div>
+                          </div>
+                          <div className="text-gray-500 text-xs mt-1">{(order.items || []).map(i => `${i.name}×${i.qty}`).join(', ')}</div>
+                          <div className="text-gray-500 text-xs mt-0.5">💳 {order.payment_method}{order.notes ? ` — ${order.notes}` : ''}</div>
+                          <div className="flex gap-2 mt-2.5">
+                            <button onClick={() => rejectCustomerOrder(order)}
+                              className="flex-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 py-2 rounded-lg transition-colors">ปฏิเสธ</button>
+                            <button onClick={() => { setConfirmingCustomerOrder(order); setConfirmOrderStaffId(''); }}
+                              className="flex-[2] text-xs bg-green-700 hover:bg-green-600 text-white font-bold py-2 rounded-lg transition-colors">✅ ยืนยันเป็นออเดอร์จัดส่ง</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══ MODAL: เลือกพนักงานส่ง เพื่อยืนยันคำสั่งซื้อจากลูกค้า ══════════════ */}
+          {confirmingCustomerOrder && (
+            <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-4" onClick={() => setConfirmingCustomerOrder(null)}>
+              <div className="bg-gray-900 rounded-2xl w-full max-w-sm border border-gray-700" onClick={e => e.stopPropagation()}>
+                <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+                  <h3 className="text-white font-bold text-sm">เลือกพนักงานส่ง</h3>
+                  <button onClick={() => setConfirmingCustomerOrder(null)} className="text-gray-400 hover:text-white text-xl leading-none">✕</button>
+                </div>
+                <div className="p-4">
+                  <div className="grid grid-cols-2 gap-2 mb-4">
+                    {staff.map(s => (
+                      <button key={s.staff_id} onClick={() => setConfirmOrderStaffId(s.staff_id)}
+                        className={`py-3 rounded-xl text-sm font-medium border transition-colors ${confirmOrderStaffId === s.staff_id ? 'bg-green-700 border-green-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}`}>
+                        {s.name}
+                        {!s.line_id && <div className="text-[10px] text-yellow-500 mt-0.5">⚠️ ไม่มี LINE ID</div>}
+                      </button>
+                    ))}
+                    {!staff.length && <div className="col-span-2 text-gray-500 text-xs text-center py-4">ยังไม่มีพนักงานในระบบ — เพิ่มได้ที่แท็บตั้งค่า</div>}
+                  </div>
+                  <button onClick={submitCustomerOrderConfirm} disabled={!confirmOrderStaffId || confirmOrderSubmitting}
+                    className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors">
+                    {confirmOrderSubmitting ? 'กำลังสร้างออเดอร์...' : '✅ ยืนยันสร้างออเดอร์จัดส่ง'}
+                  </button>
                 </div>
               </div>
             </div>
@@ -5338,6 +5496,24 @@ export default function POSPage() {
                   >
                     🔗 เปิดหน้าพนักงาน (pos-staff)
                   </a>
+                </div>
+
+                {/* ลิงก์สั่งซื้อสำหรับลูกค้า */}
+                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
+                  <h3 className="text-white font-bold mb-1">🛒 ลิงก์สั่งซื้อสำหรับลูกค้า</h3>
+                  <p className="text-gray-400 text-xs mb-3">
+                    แชร์ลิงก์นี้ให้ลูกค้าเพื่อสั่งซื้อ/สั่งจัดส่งเองได้ (ไม่ต้อง login) — คำสั่งซื้อที่เข้ามาจะรอให้ร้านตรวจสอบ/ยืนยันในแท็บ "🚚 ออเดอร์" ก่อนเสมอ ไม่กลายเป็นออเดอร์จริงทันที
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input readOnly value={typeof window !== 'undefined' ? `${window.location.origin}/order?shopId=${shopId}` : ''}
+                      className="flex-1 bg-gray-800 text-gray-300 text-xs px-3 py-2.5 rounded-xl border border-gray-700 truncate" />
+                    <button onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/order?shopId=${shopId}`);
+                      showToast('คัดลอกลิงก์แล้ว');
+                    }} className="shrink-0 bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-colors">
+                      📋 คัดลอก
+                    </button>
+                  </div>
                 </div>
 
                 {/* Table names */}
