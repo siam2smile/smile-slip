@@ -246,9 +246,10 @@ export default async function handler(req, res) {
 
         if (result === 'success') {
           const custId = existing[2];
-          const amountCollected = parseFloat(collected_amount) || 0;
+          // ค่าติดลบเคยทำให้ "เก็บเงิน/ของ" กลับเพิ่มยอดค้าง/ถังลูกค้าแทนที่จะลด (debt - (-x) = debt + x)
+          const amountCollected = Math.max(0, parseFloat(collected_amount) || 0);
           const itemsCollected = Array.isArray(collected_items) ? collected_items : [];
-          const totalItemsQty = itemsCollected.reduce((s, i) => s + (parseInt(i.qty) || 0), 0);
+          const totalItemsQty = itemsCollected.reduce((s, i) => s + Math.max(0, parseInt(i.qty) || 0), 0);
 
           if (custId && (amountCollected > 0 || totalItemsQty > 0)) {
             try {

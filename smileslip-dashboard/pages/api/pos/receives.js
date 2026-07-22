@@ -162,7 +162,8 @@ export default async function handler(req, res) {
         const { sku, qty, unitCost, vatType } = item;
         const numQty = parseFloat(qty) || 0;
         const numCost = parseFloat(unitCost) || 0;
-        if (!sku || numQty <= 0) continue;
+        // ต้นทุนติดลบเคยไม่ถูกกันไว้ — จะทำให้ต้นทุนถ่วงน้ำหนักเพี้ยนติดลบได้ (กระทบ P&L/รายงานทั้งหมด)
+        if (!sku || numQty <= 0 || numCost < 0) continue;
 
         const { base: unitBase, vat: unitVat } = splitVat(numCost, vatType);
         const lineSubtotal = numQty * unitBase;

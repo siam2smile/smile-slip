@@ -1203,12 +1203,22 @@ export default function POSPage() {
 
   async function handleDelivery() {
     if (!delivCust || !delivStaff || cart.length === 0) return;
+
+    const addrPre = delivAddrIdx === 0 ? delivCust.address_1 :
+                    delivAddrIdx === 1 ? delivCust.address_2 : delivAddrCustom;
+    const mapsPre = delivAddrIdx === 0 ? delivCust.maps_1 :
+                    delivAddrIdx === 1 ? delivCust.maps_2 : delivMapsCustom;
+    // เตือนก่อนส่งงานจริง ถ้าไม่มีที่อยู่/แผนที่/ราคา — พนักงานส่งของจะเปิดมาเจอออเดอร์ที่หาที่ทางไม่ได้
+    const missing = [];
+    if (!addrPre?.trim()) missing.push('ที่อยู่จัดส่ง');
+    if (!mapsPre?.trim()) missing.push('ลิงก์แผนที่ (พนักงานจะกดเปิดแผนที่ไม่ได้)');
+    if (cartTotal <= 0) missing.push('ยอดรวม (ตอนนี้เป็น 0 บาท)');
+    if (missing.length && !confirm(`ออเดอร์นี้ไม่มี: ${missing.join(', ')} — ยืนยันส่งงานต่อเลยไหม?`)) return;
+
     setDelivLoading(true);
     try {
-      const addr = delivAddrIdx === 0 ? delivCust.address_1 :
-                   delivAddrIdx === 1 ? delivCust.address_2 : delivAddrCustom;
-      const maps = delivAddrIdx === 0 ? delivCust.maps_1 :
-                   delivAddrIdx === 1 ? delivCust.maps_2 : delivMapsCustom;
+      const addr = addrPre;
+      const maps = mapsPre;
       const items = cart.map(i => ({ name: i.name, qty: i.qty, price: i.price, sku: i.sku }));
       const total = cartTotal;
       const cylinders_delivered = cart
@@ -1783,6 +1793,24 @@ export default function POSPage() {
       alert(err.message);
     }
     setCheckoutLoading(false);
+  }
+
+  // ── ยกเลิกบิล (คืนสต็อค/ยอดค้างชำระให้อัตโนมัติ) ─────────────────────────────
+  async function cancelBill(billNo) {
+    if (!confirm(`ยกเลิกบิล ${billNo}? ระบบจะคืนสต็อคสินค้าและยอดค้างชำระ (ถ้ามี) กลับให้อัตโนมัติ`)) return;
+    try {
+      const r = await fetch('/api/pos/sales', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, bill_no: billNo }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        showToast('ยกเลิกบิลแล้ว');
+        fetchReport();
+        fetchProducts();
+      } else { alert(d.error); }
+    } catch (err) { alert(err.message); }
   }
 
   // ── พิมพ์ใบเสร็จ / ใบกำกับภาษี ───────────────────────────────────────────────
@@ -4836,6 +4864,7 @@ export default function POSPage() {
                               <th className="text-right text-gray-400 px-3 py-2">รายรับ</th>
                               <th className="text-left text-gray-400 px-3 py-2">ชำระ</th>
                               <th className="text-right text-gray-400 px-3 py-2">ยอดสะสม</th>
+                              <th className="text-center text-gray-400 px-3 py-2"></th>
                             </tr></thead>
                             <tbody>
                               {(reportData.statement || []).map((s, i) => (
@@ -4849,6 +4878,12 @@ export default function POSPage() {
                                     <span className={`text-[10px] px-1.5 py-0.5 rounded ${s.payment_method === 'เชื่อ' ? 'bg-orange-900/60 text-orange-300' : s.payment_method === 'โอน' ? 'bg-blue-900/60 text-blue-300' : 'bg-yellow-900/60 text-yellow-300'}`}>{s.payment_method}</span>
                                   </td>
                                   <td className="px-3 py-2 text-right text-white font-mono">฿{(s.balance||0).toLocaleString()}</td>
+                                  <td className="px-3 py-2 text-center">
+                                    <button onClick={() => cancelBill(s.bill_no)}
+                                      className="text-red-400 hover:text-red-300 text-[10px] border border-red-900 px-2 py-1 rounded-lg transition-colors">
+                                      ยกเลิก
+                                    </button>
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
@@ -5955,7 +5990,8 @@ export default function POSPage() {
                       className={`text-xs px-3 py-1 transition-colors ${discountType === 'percent' ? 'bg-green-600 text-white' : 'text-gray-400 hover:text-white'}`}>% เปอร์เซ็นต์</button>
                   </div>
                 </div>
-                <input type="number" value={discount} onChange={e => setDiscount(e.target.value)}
+                <input type="number" value={discount}
+                  onChange={e => setDiscount(e.target.value < 0 ? '0' : e.target.value)}
                   placeholder="0" min="0" max={discountType === 'percent' ? 100 : undefined}
                   className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
                 />

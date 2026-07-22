@@ -211,6 +211,13 @@ export default async function handler(req, res) {
 
       if (!customer_name) return res.status(400).json({ error: 'ต้องระบุชื่อลูกค้า' });
       if (!items.length) return res.status(400).json({ error: 'ต้องมีสินค้าอย่างน้อย 1 รายการ' });
+      // จำนวน/ราคาต้องไม่ติดลบ (แบบเดียวกับ sales.js — กันสต็อคเพี้ยนตอนยืนยันจัดส่งภายหลัง)
+      if (items.some(i => !(parseFloat(i.qty) > 0))) {
+        return res.status(400).json({ error: 'จำนวนสินค้าต้องมากกว่า 0 ทุกรายการ' });
+      }
+      if (items.some(i => parseFloat(i.price) < 0)) {
+        return res.status(400).json({ error: 'ราคาสินค้าต้องไม่ติดลบ' });
+      }
       if (payment_method === 'ค้างจ่าย' && !hasFeature(tier, 'credit_ar')) {
         return res.status(403).json({ error: upgradeMessage('credit_ar'), featureLocked: true });
       }
@@ -247,6 +254,12 @@ export default async function handler(req, res) {
 
       // อัปเดตจำนวนถังกับลูกค้า (สินค้าหมุนเวียน) + เช็ควงเงินยืมสูงสุด (soft warning ไม่บล็อค)
       const deliveryWarnings = [];
+      // เตือน (ไม่บล็อค) ถ้าสร้างออเดอร์โดยไม่มีที่อยู่/เบอร์โทร/ลิงก์แผนที่ — พนักงานส่งของจะเปิดมาเจอ
+      // ไม่มีทางติดต่อ/หาที่อยู่ลูกค้าเลย และถ้ายอดรวมเป็น 0 ทั้งที่มีสินค้า อาจเป็นราคาที่กรอกผิด
+      if (!address.trim()) deliveryWarnings.push('⚠️ ไม่ได้กรอกที่อยู่จัดส่ง');
+      if (!maps_link.trim()) deliveryWarnings.push('⚠️ ไม่ได้ปักหมุดแผนที่ — พนักงานส่งจะไม่มีลิงก์แผนที่ให้กด');
+      if (!phone.trim()) deliveryWarnings.push('⚠️ ไม่ได้กรอกเบอร์โทรลูกค้า');
+      if (total <= 0 && items.length) deliveryWarnings.push('⚠️ ยอดรวมออเดอร์เป็น 0 บาท ทั้งที่มีรายการสินค้า');
       if (cylinders_delivered > 0 && customer_id) {
         try {
           await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
@@ -406,8 +419,9 @@ export default async function handler(req, res) {
               const prod = rowToProduct(prodDataRows[pIdx]);
               if (prod.type !== 'หมุนเวียน') continue;
 
-              const returnedQty = parseInt(item.returned_qty) || 0;
-              const qty = parseInt(item.qty) || 0;
+              // qty ติดลบเคยทำให้ยืนยันจัดส่ง "เพิ่ม" สต็อคแทนที่จะลด (stock - (-qty) = stock + qty)
+              const qty = Math.max(0, parseInt(item.qty) || 0);
+              const returnedQty = Math.min(qty, Math.max(0, parseInt(item.returned_qty) || 0));
               const netBorrow = qty - returnedQty;
 
               const prodExisting = [...prodDataRows[pIdx]];

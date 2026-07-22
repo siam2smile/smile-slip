@@ -215,6 +215,15 @@ export default async function handler(req, res) {
         branch = '', transactionDate = '',
       } = req.body;
       if (!items.length) return res.status(400).json({ error: 'ไม่มีรายการสินค้า' });
+      // จำนวน/ราคาต้องไม่ติดลบ — จำนวนติดลบเคยทำให้ "ขาย" กลายเป็นวิธีเพิ่มสต็อคฟรีๆ ได้
+      // (stock - (-qty) = stock + qty) และราคาติดลบไม่มีเหตุผลทางธุรกิจใดๆ เลย
+      if (items.some(i => !(parseFloat(i.qty) > 0))) {
+        return res.status(400).json({ error: 'จำนวนสินค้าต้องมากกว่า 0 ทุกรายการ' });
+      }
+      if (items.some(i => parseFloat(i.price) < 0)) {
+        return res.status(400).json({ error: 'ราคาสินค้าต้องไม่ติดลบ' });
+      }
+      if (discount < 0) return res.status(400).json({ error: 'ส่วนลดต้องไม่ติดลบ' });
       if (payment_method === 'เชื่อ' && !customerName) return res.status(400).json({ error: 'ต้องระบุลูกค้าสำหรับการขายเชื่อ' });
       if (payment_method === 'เชื่อ' && !hasFeature(tier, 'credit_ar')) {
         return res.status(403).json({ error: upgradeMessage('credit_ar'), featureLocked: true });
@@ -271,6 +280,16 @@ export default async function handler(req, res) {
       //    (กับลูกค้าสุทธิ = qty - returned_qty) และเพิ่ม "เปล่ารอรีฟิล" ตามจำนวนที่คืนมา
       let netCylinderDeltaForCustomer = 0;
       const warnings = [];
+
+      // เตือน (ไม่บล็อค) ถ้าราคาที่ขายจริงต่ำกว่าต้นทุน — พนักงานแก้ราคาต่อรายการได้ตามปกติ (ฟีเจอร์ตั้งใจ)
+      // แต่เจ้าของร้านควรเห็นสัญญาณถ้าขายต่ำกว่าทุนผิดปกติ (เช่น พิมพ์ราคาผิด หรือทุจริต)
+      for (const item of items) {
+        const prod = productsForVat.find(p => p.sku === item.sku);
+        if (prod && prod.cost > 0 && parseFloat(item.price) < prod.cost) {
+          warnings.push(`⚠️ "${item.name}" ขายราคา ${item.price} ต่ำกว่าต้นทุน (${prod.cost})`);
+        }
+      }
+
       try {
         for (const item of items) {
           const idx = dataRows.findIndex(r => r[0] === item.sku);
@@ -346,6 +365,85 @@ export default async function handler(req, res) {
       }
 
       return res.json({ ok: true, billNo, total, change, vatSubtotal, vatAmount, warnings });
+    }
+
+    // ── DELETE (ยกเลิกบิล) ───────────────────────────────────────────────────
+    // เดิมบิลที่คีย์ผิด (ราคา/จำนวน/สินค้าผิด) ไม่มีทางยกเลิกได้เลยผ่านหน้าเว็บ ต้องรบกวนแอดมินเข้า
+    // Sheets แก้เอง — คืนสต็อค/ถังลูกค้า/ยอดค้างชำระ (ถ้าเป็นบิลเชื่อ) กลับที่เดิม แล้วลบแถวทิ้ง
+    // หมายเหตุ: ถ้าบิลนั้น "ชำระแล้ว" (เขียนเข้าบัญชีหลักไปแล้ว) การยกเลิกจะไม่ลบแถวในบัญชีหลักอัตโนมัติ
+    // (หาแถวที่แน่ชัดยากเพราะบัญชีหลักไม่ได้เก็บ reference กลับมาที่ bill_no เสมอไป) ต้องลบเองถ้าจำเป็น
+    if (req.method === 'DELETE') {
+      const { bill_no } = req.body;
+      if (!bill_no) return res.status(400).json({ error: 'Missing bill_no' });
+
+      const rows = await readSheet(token, sheetId, 'ยอดขาย!A:R');
+      const dataRows = rows.slice(1);
+      const idx = dataRows.findIndex(r => r[0] === bill_no);
+      if (idx === -1) return res.status(404).json({ error: 'ไม่พบบิล' });
+
+      const sale = rowToSale(dataRows[idx]);
+      const isCredit = sale.payment_method === 'เชื่อ';
+      const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+
+      // คืนสต็อค/ถังลูกค้า — ย้อนกลับตรรกะเดียวกับตอนบันทึกขาย (fail-safe ไม่ให้พังการยกเลิกทั้งหมด)
+      let netCylinderDeltaForCustomer = 0;
+      try {
+        const prodRows = await readSheet(token, sheetId, 'สินค้า!A:S');
+        const prodDataRows = prodRows.slice(1);
+        for (const item of (sale.items || [])) {
+          const pIdx = prodDataRows.findIndex(r => r[0] === item.sku);
+          if (pIdx === -1) continue;
+          const existing = [...prodDataRows[pIdx]];
+          while (existing.length < 19) existing.push('');
+          const rawType = existing[10] || 'นับสต็อค';
+          const prodType = rawType === 'ทั่วไป' ? 'นับสต็อค' : rawType;
+          if (prodType === 'ไม่นับสต็อค') continue;
+          if (prodType === 'หมุนเวียน') {
+            const returnedQty = parseInt(item.returned_qty) || 0;
+            const netBorrow = item.qty - returnedQty;
+            existing[5]  = (parseFloat(existing[5]) || 0) + item.qty; // คืนเต็มกลับ
+            existing[11] = Math.max(0, (parseFloat(existing[11]) || 0) - netBorrow); // กับลูกค้าลดกลับ
+            existing[12] = Math.max(0, (parseFloat(existing[12]) || 0) - returnedQty); // เปล่ารอรีฟิลลดกลับ
+            netCylinderDeltaForCustomer -= netBorrow;
+          } else {
+            existing[5] = (parseFloat(existing[5]) || 0) + item.qty;
+          }
+          existing[9] = now;
+          await updateSheetRow(token, sheetId, 'สินค้า', pIdx + 2, existing);
+          prodDataRows[pIdx] = existing;
+        }
+      } catch (err) {
+        console.error('[pos/sales] cancel: restore stock error:', err.message);
+      }
+
+      // คืนยอดค้างชำระ/ถังลูกค้า (ถ้าผูกลูกค้าไว้ตอนขาย)
+      if (sale.customer_id) {
+        try {
+          await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
+          const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:X');
+          const custDataRows = custRows.slice(1);
+          const custIdx = custDataRows.findIndex(r => r[0] === sale.customer_id);
+          if (custIdx !== -1) {
+            const custExisting = [...custDataRows[custIdx]];
+            while (custExisting.length < 24) custExisting.push('');
+            if (netCylinderDeltaForCustomer !== 0) {
+              custExisting[14] = Math.max(0, (parseFloat(custExisting[14]) || 0) + netCylinderDeltaForCustomer);
+            }
+            if (isCredit) {
+              custExisting[13] = Math.max(0, (parseFloat(custExisting[13]) || 0) - sale.total);
+            }
+            custExisting[19] = now;
+            await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
+          }
+        } catch (err) {
+          console.error('[pos/sales] cancel: revert customer debt/cylinders error:', err.message);
+        }
+      }
+
+      // ลบแถวบิลทิ้ง (blank ทั้งแถว แบบเดียวกับ products/contacts)
+      await updateSheetRow(token, sheetId, 'ยอดขาย', idx + 2, Array(18).fill(''));
+
+      return res.json({ ok: true });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
