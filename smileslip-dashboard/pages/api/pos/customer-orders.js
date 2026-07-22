@@ -111,7 +111,9 @@ export default async function handler(req, res) {
         // สินค้าที่ระบุสาขาที่ขายไว้เฉพาะเจาะจง (ไม่ใช่ขายได้ทุกสาขา) ต้องตรงกับสาขาที่ลูกค้าเลือกเท่านั้น
         // กันลูกค้ายิง request ตรงสั่งสินค้าที่สาขานั้นไม่ได้ขาย
         if (branch && prod.branches.length > 0 && !prod.branches.includes(branch)) continue;
-        const qty = Math.max(1, parseInt(item.qty) || 0);
+        // จำกัดจำนวนสูงสุดต่อรายการ (10,000) กันแบบฟอร์มสาธารณะที่ไม่ต้อง login ถูกกรอกเลขมั่ว/สแปม
+        // ทำให้คิวรอตรวจสอบมียอดเพี้ยนเกินจริงเป็นเรื่องยากต่อแอดมินตรวจสอบ
+        const qty = Math.min(10000, Math.max(1, parseInt(item.qty) || 0));
         if (qty <= 0) continue;
         resolvedItems.push({ sku: prod.sku, name: prod.name, unit: prod.unit, price: prod.price, qty });
       }

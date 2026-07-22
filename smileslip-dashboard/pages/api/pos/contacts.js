@@ -120,6 +120,8 @@ export default async function handler(req, res) {
         cylinder_limit = 0,
       } = req.body;
       if (!name) return res.status(400).json({ error: 'ต้องระบุชื่อ' });
+      if (parseFloat(debt) < 0) return res.status(400).json({ error: 'ยอดค้างชำระต้องไม่ติดลบ' });
+      if (parseFloat(cylinders) < 0) return res.status(400).json({ error: 'จำนวนถังต้องไม่ติดลบ' });
 
       const contact_id = makeContactId();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
@@ -137,6 +139,12 @@ export default async function handler(req, res) {
     if (req.method === 'PATCH') {
       const { contact_id, ...updates } = req.body;
       if (!contact_id) return res.status(400).json({ error: 'Missing contact_id' });
+      if (updates.debt !== undefined && parseFloat(updates.debt) < 0) {
+        return res.status(400).json({ error: 'ยอดค้างชำระต้องไม่ติดลบ' });
+      }
+      if (updates.cylinders !== undefined && parseFloat(updates.cylinders) < 0) {
+        return res.status(400).json({ error: 'จำนวนถังต้องไม่ติดลบ' });
+      }
 
       const rows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:X');
       const dataRows = rows.slice(1);

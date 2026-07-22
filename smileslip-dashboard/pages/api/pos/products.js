@@ -80,6 +80,10 @@ export default async function handler(req, res) {
         vat_type = 'ไม่มี VAT', is_active = true, empty_ceiling = 0, branches = [],
       } = req.body;
       if (!name) return res.status(400).json({ error: 'ต้องระบุชื่อสินค้า' });
+      // ราคา/ทุน/สต็อคติดลบตั้งแต่สร้างสินค้าจะไหลไปกระทบทุกจุดที่ใช้ข้อมูลนี้ต่อ (ขาย/รายงาน/VAT)
+      if (parseFloat(price) < 0) return res.status(400).json({ error: 'ราคาขายต้องไม่ติดลบ' });
+      if (parseFloat(cost) < 0) return res.status(400).json({ error: 'ราคาทุนต้องไม่ติดลบ' });
+      if (parseFloat(stock) < 0) return res.status(400).json({ error: 'จำนวนสต็อคต้องไม่ติดลบ' });
       if (type === 'หมุนเวียน' && !hasFeature(tier, 'cyclical_stock')) {
         return res.status(403).json({ error: upgradeMessage('cyclical_stock'), featureLocked: true });
       }
@@ -105,6 +109,15 @@ export default async function handler(req, res) {
       if (staffId) {
         const perms = await getStaffPermissions(token, sheetId, staffId);
         if (!perms.perm_manage_stock) return res.status(403).json({ error: 'ไม่มีสิทธิ์จัดการสต็อกสินค้า' });
+      }
+      if (updates.price !== undefined && parseFloat(updates.price) < 0) {
+        return res.status(400).json({ error: 'ราคาขายต้องไม่ติดลบ' });
+      }
+      if (updates.cost !== undefined && parseFloat(updates.cost) < 0) {
+        return res.status(400).json({ error: 'ราคาทุนต้องไม่ติดลบ' });
+      }
+      if (updates.stock !== undefined && parseFloat(updates.stock) < 0) {
+        return res.status(400).json({ error: 'จำนวนสต็อคต้องไม่ติดลบ' });
       }
 
       const rows = await readSheet(token, sheetId, 'สินค้า!A:T');
