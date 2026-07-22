@@ -74,6 +74,13 @@ export default async function handler(req, res) {
       if (!buyer_name) return res.status(400).json({ error: 'ต้องระบุชื่อผู้ซื้อ' });
       if (!buyer_tax_id) return res.status(400).json({ error: 'ต้องระบุเลขประจำตัวผู้เสียภาษีของผู้ซื้อ' });
       if (!items.length) return res.status(400).json({ error: 'ต้องมีรายการสินค้าอย่างน้อย 1 รายการ' });
+      // เอกสารทางการ (ใบกำกับภาษี) ต้องไม่มีจำนวน/ราคาติดลบเด็ดขาด (ผิดกฎหมาย/ผิดหลักบัญชี)
+      if (items.some(i => !(parseFloat(i.qty) > 0))) {
+        return res.status(400).json({ error: 'จำนวนสินค้าต้องมากกว่า 0 ทุกรายการ' });
+      }
+      if (items.some(i => parseFloat(i.price) < 0)) {
+        return res.status(400).json({ error: 'ราคาสินค้าต้องไม่ติดลบ' });
+      }
 
       // คำนวณ VAT จาก vat_type ของสินค้าแต่ละชิ้น (จับคู่ด้วย SKU)
       const prodRows = await readSheet(token, sheetId, 'สินค้า!A:R');
