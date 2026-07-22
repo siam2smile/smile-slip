@@ -124,8 +124,8 @@ export default async function handler(req, res) {
 
     // ── GET ──────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      // A:P (16 คอลัมน์เต็ม) — เดิมอ่านแค่ A:L ทำให้รหัส/ชื่อลูกค้า (คอลัมน์ M/N) ไม่เคยถูกอ่านเลย
-      const rows = await readSheet(token, sheetId, 'ยอดขาย!A:R');
+      // A:S (19 คอลัมน์เต็ม รวมเลขที่กะ) — เดิมอ่านแค่ A:L ทำให้รหัส/ชื่อลูกค้า (คอลัมน์ M/N) ไม่เคยถูกอ่านเลย
+      const rows = await readSheet(token, sheetId, 'ยอดขาย!A:S');
       let sales = rows.slice(1).map(r => rowToSale(r)).filter(s => s.bill_no);
 
       if (req.query.date) {
@@ -212,7 +212,7 @@ export default async function handler(req, res) {
         cash_received = 0, cashier = '', notes = '',
         customerName = '', customerId = '',
         slipUrl = '', slipSender = '', slipRefNo = '',
-        branch = '', transactionDate = '',
+        branch = '', transactionDate = '', shift_no = '',
       } = req.body;
       if (!items.length) return res.status(400).json({ error: 'ไม่มีรายการสินค้า' });
       // จำนวน/ราคาต้องไม่ติดลบ — จำนวนติดลบเคยทำให้ "ขาย" กลายเป็นวิธีเพิ่มสต็อคฟรีๆ ได้
@@ -253,14 +253,14 @@ export default async function handler(req, res) {
       const productsForVat = dataRows.map(r => rowToProduct(r));
       const { subtotal: vatSubtotal, vat: vatAmount } = computeVatBreakdown(items, productsForVat);
 
-      // 1. บันทึกลง POS Sheets tab "ยอดขาย" (18 คอลัมน์ A-R — เพิ่มยอดก่อน VAT/ยอด VAT ท้ายสุด)
+      // 1. บันทึกลง POS Sheets tab "ยอดขาย" (19 คอลัมน์ A-S — เพิ่มเลขที่กะท้ายสุด)
       await appendSheet(token, sheetId, 'ยอดขาย', [
         billNo, recordDT.full, JSON.stringify(items),
         subtotal, discount, total,
         payment_method, cash_received, change,
         cashier, fullNotes, billStatus,
         customerId, customerName, '', branch,
-        vatSubtotal, vatAmount,
+        vatSubtotal, vatAmount, shift_no,
       ]);
 
       // 2. บันทึกลง Main shop Sheets เฉพาะเมื่อชำระแล้ว (ไม่บันทึกถ้าค้างชำระ/รอยืนยัน)

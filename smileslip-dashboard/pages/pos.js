@@ -430,6 +430,25 @@ export default function POSPage() {
   const [posSettingsForm, setPosSettingsForm] = useState({ promptpay_id: '', scb_biller_id: '', vat_registered: false });
   const [settingsSaving, setSettingsSaving] = useState(false);
 
+  // ── เปิดกะ/ปิดกะเงินสด (ผูกกับพนักงานรายคนผ่าน PIN ไม่ใช่สาขา/เครื่อง) ─────────
+  const [activeShift, setActiveShift] = useState(null); // { shift_no, staff_id, staff_name, opening_cash, opened_at }
+  const [showOpenShiftModal, setShowOpenShiftModal] = useState(false);
+  const [openShiftStep, setOpenShiftStep] = useState('pin'); // 'pin' | 'amount'
+  const [openShiftPin, setOpenShiftPin] = useState('');
+  const [openShiftPinError, setOpenShiftPinError] = useState('');
+  const [openShiftVerifying, setOpenShiftVerifying] = useState(false);
+  const [openShiftStaff, setOpenShiftStaff] = useState(null); // { staff_id, name }
+  const [openShiftAmount, setOpenShiftAmount] = useState('');
+  const [openShiftSaving, setOpenShiftSaving] = useState(false);
+  const [showCloseShiftModal, setShowCloseShiftModal] = useState(false);
+  const [closeShiftPreview, setCloseShiftPreview] = useState(null); // { expected_cash, opening_cash, opened_at, staff_name }
+  const [closeShiftLoading, setCloseShiftLoading] = useState(false);
+  const [closeShiftCounted, setCloseShiftCounted] = useState('');
+  const [closeShiftWithdrawn, setCloseShiftWithdrawn] = useState('');
+  const [closeShiftNotes, setCloseShiftNotes] = useState('');
+  const [closeShiftSaving, setCloseShiftSaving] = useState(false);
+  const [closeShiftResult, setCloseShiftResult] = useState(null); // สรุปหลังปิดกะสำเร็จ (แสดงก่อนปิด modal)
+
   // ── Multi-table bill management ───────────────────────────────────────────
   // เก็บบิลที่เปิดค้างอยู่ทั้งหมด (localStorage) ให้ persist ข้ามการ refresh
   const [openBills, setOpenBills] = useState([]);
@@ -710,6 +729,139 @@ export default function POSPage() {
     }
     init();
   }, [userId]);
+
+  // ── โหลดกะเงินสดที่เปิดค้างไว้ (ถ้ามี) จาก localStorage แล้วเช็คกับ server ว่ายังเปิดอยู่จริง ──
+  // (กันเคสกะถูกปิดไปแล้วจากอุปกรณ์อื่น/ปิดกะแล้วแต่ localStorage เครื่องนี้ไม่ทันอัปเดต)
+  useEffect(() => {
+    if (!shopId) return;
+    (async () => {
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem(`pos_shift_${shopId}`) || 'null'); } catch {}
+      if (!saved?.shift_no) return;
+      try {
+        const r = await fetch(`/api/pos/cash-shifts?shopId=${shopId}&shift_no=${saved.shift_no}`);
+        const d = await r.json();
+        if (d.shift && d.shift.status === 'เปิดอยู่') {
+          setActiveShift(saved);
+        } else {
+          localStorage.removeItem(`pos_shift_${shopId}`);
+        }
+      } catch {}
+    })();
+  }, [shopId]);
+
+  function openShiftModalStart() {
+    setOpenShiftStep('pin');
+    setOpenShiftPin('');
+    setOpenShiftPinError('');
+    setOpenShiftStaff(null);
+    setOpenShiftAmount('');
+    setShowOpenShiftModal(true);
+  }
+
+  async function verifyOpenShiftPin() {
+    if (!openShiftPin.trim() || openShiftVerifying) return;
+    setOpenShiftVerifying(true);
+    setOpenShiftPinError('');
+    try {
+      const r = await fetch('/api/pos/verify-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, pin: openShiftPin.trim(), purpose: 'cash_shift' }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        setOpenShiftStaff(d.staff);
+        setOpenShiftStep('amount');
+      } else {
+        setOpenShiftPinError(d.error || 'PIN ไม่ถูกต้อง');
+      }
+    } catch (err) {
+      setOpenShiftPinError(err.message);
+    }
+    setOpenShiftVerifying(false);
+  }
+
+  async function confirmOpenShift() {
+    if (!openShiftStaff || openShiftSaving) return;
+    setOpenShiftSaving(true);
+    try {
+      const r = await fetch('/api/pos/cash-shifts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId, staff_id: openShiftStaff.staff_id, staff_name: openShiftStaff.name,
+          branch: selectedBranch?.branch_name || '', opening_cash: openShiftAmount || 0,
+        }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        const shift = { shift_no: d.shift_no, staff_id: openShiftStaff.staff_id, staff_name: d.staff_name, opening_cash: d.opening_cash, opened_at: d.opened_at };
+        setActiveShift(shift);
+        try { localStorage.setItem(`pos_shift_${shopId}`, JSON.stringify(shift)); } catch {}
+        setShowOpenShiftModal(false);
+        showToast(`✅ เปิดกะแล้ว — ${d.staff_name}`);
+      } else {
+        alert(d.error);
+      }
+    } catch (err) {
+      alert(err.message);
+    }
+    setOpenShiftSaving(false);
+  }
+
+  async function openCloseShiftModal() {
+    if (!activeShift) return;
+    setShowCloseShiftModal(true);
+    setCloseShiftLoading(true);
+    setCloseShiftPreview(null);
+    setCloseShiftCounted('');
+    setCloseShiftWithdrawn('');
+    setCloseShiftNotes('');
+    setCloseShiftResult(null);
+    try {
+      const r = await fetch(`/api/pos/cash-shifts?shopId=${shopId}&shift_no=${activeShift.shift_no}`);
+      const d = await r.json();
+      if (d.shift) setCloseShiftPreview(d.shift);
+    } catch {}
+    setCloseShiftLoading(false);
+  }
+
+  const closeShiftVariance = closeShiftPreview
+    ? Math.round(((parseFloat(closeShiftCounted) || 0) - closeShiftPreview.expected_cash) * 100) / 100
+    : 0;
+
+  async function confirmCloseShift() {
+    if (!activeShift || closeShiftSaving) return;
+    if (closeShiftCounted === '') { showToast('กรุณากรอกยอดเงินสดที่นับได้จริง'); return; }
+    if (closeShiftVariance !== 0 && !closeShiftNotes.trim()) { showToast('ยอดไม่ตรง กรุณาระบุหมายเหตุก่อนปิดกะ'); return; }
+    setCloseShiftSaving(true);
+    try {
+      const r = await fetch('/api/pos/cash-shifts', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId, shift_no: activeShift.shift_no,
+          counted_cash: closeShiftCounted, notes: closeShiftNotes, withdrawn_amount: closeShiftWithdrawn || 0,
+        }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        setCloseShiftResult(d);
+        setActiveShift(null);
+        try { localStorage.removeItem(`pos_shift_${shopId}`); } catch {}
+      } else if (d.expected_cash !== undefined) {
+        // ยอดคำนวณจริงตอนปิดกะเปลี่ยนไปจากตอนเปิด modal (มีรายการใหม่เข้ามาระหว่างนั้น) — รีเฟรช preview แล้วให้ใส่หมายเหตุ
+        setCloseShiftPreview(prev => ({ ...prev, expected_cash: d.expected_cash }));
+        showToast(d.error);
+      } else {
+        showToast(d.error || 'ปิดกะไม่สำเร็จ');
+      }
+    } catch (err) {
+      alert(err.message);
+    }
+    setCloseShiftSaving(false);
+  }
 
   async function fetchPosConfig(sid = shopId) {
     if (!sid) return;
@@ -1740,6 +1892,7 @@ export default function POSPage() {
           slipRefNo: slipOcrData?.refNo || '',
           branch: selectedBranch?.branch_name || '',
           transactionDate: saleDate || '',
+          shift_no: payMethod === 'เงินสด' ? (activeShift?.shift_no || '') : '',
         }),
       });
       const d = await r.json();
@@ -2224,6 +2377,7 @@ export default function POSPage() {
           recordedBy: shopInfo?.shop_name || '',
           branch: selectedBranch?.branch_name || '',
           transactionDate: expenseForm.transactionDate || '',
+          shift_no: expenseForm.payment_method === 'เงินสด' ? (activeShift?.shift_no || '') : '',
         }),
       });
       const d = await r.json();
@@ -2995,9 +3149,23 @@ export default function POSPage() {
               </div>
             </div>
           </div>
-          <a href={`/dashboard?userId=${userId}`} className="text-gray-400 hover:text-white text-xs px-3 py-1.5 rounded-lg border border-gray-700 hover:border-gray-500 transition-colors">
-            ← Dashboard
-          </a>
+          <div className="flex items-center gap-2">
+            {activeShift ? (
+              <button onClick={openCloseShiftModal}
+                className="flex items-center gap-1.5 bg-green-950 hover:bg-green-900 border border-green-700 text-green-300 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"></span>
+                {activeShift.staff_name} · ปิดกะ
+              </button>
+            ) : (
+              <button onClick={openShiftModalStart}
+                className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">
+                🔓 เปิดกะ
+              </button>
+            )}
+            <a href={`/dashboard?userId=${userId}`} className="text-gray-400 hover:text-white text-xs px-3 py-1.5 rounded-lg border border-gray-700 hover:border-gray-500 transition-colors">
+              ← Dashboard
+            </a>
+          </div>
         </header>
 
         {/* Tab nav — แท็บที่ใช้บ่อยที่สุดอยู่บนแถบหลัก ที่เหลือซ่อนใน "เพิ่มเติม" กันแถบแน่นเกินไปบนมือถือ */}
@@ -4383,6 +4551,155 @@ export default function POSPage() {
                       {orderEditSaving ? 'กำลังบันทึก...' : '💾 บันทึก'}
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══ Modal: เปิดกะเงินสด ══════════════════════════════════════════ */}
+          {showOpenShiftModal && (
+            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-gray-900 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl">
+                <div className="p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-white font-bold">🔓 เปิดกะเงินสด</h3>
+                    <button onClick={() => setShowOpenShiftModal(false)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+                  </div>
+
+                  {openShiftStep === 'pin' ? (
+                    <>
+                      <div className="text-gray-400 text-xs mb-3">กรอก PIN พนักงานเพื่อยืนยันตัวตนก่อนเปิดกะของตัวเอง</div>
+                      <input
+                        type="password" inputMode="numeric" autoFocus
+                        value={openShiftPin}
+                        onChange={e => { setOpenShiftPin(e.target.value.replace(/\D/g, '').slice(0, 8)); setOpenShiftPinError(''); }}
+                        onKeyDown={e => { if (e.key === 'Enter') verifyOpenShiftPin(); }}
+                        placeholder="PIN"
+                        className="w-full bg-gray-800 text-white text-2xl font-bold text-center tracking-widest px-4 py-3 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 mb-2"
+                      />
+                      {openShiftPinError && <div className="text-red-400 text-xs mb-3">{openShiftPinError}</div>}
+                      <button onClick={verifyOpenShiftPin} disabled={openShiftVerifying || !openShiftPin.trim()}
+                        className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm">
+                        {openShiftVerifying ? 'กำลังตรวจสอบ...' : 'ยืนยันตัวตน'}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="bg-gray-800 rounded-xl p-3 mb-4">
+                        <div className="text-white font-medium">👋 {openShiftStaff?.name}</div>
+                        {selectedBranch && <div className="text-gray-400 text-xs mt-0.5">สาขา: {selectedBranch.branch_name}</div>}
+                      </div>
+                      <label className="text-gray-400 text-xs block mb-1.5">เงินสดตั้งต้นในลิ้นชัก (บาท)</label>
+                      <input
+                        type="number" autoFocus
+                        value={openShiftAmount}
+                        onChange={e => setOpenShiftAmount(e.target.value)}
+                        placeholder="0"
+                        className="w-full bg-gray-800 text-white text-lg font-bold px-4 py-3 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 mb-4"
+                      />
+                      <div className="flex gap-3">
+                        <button onClick={() => setOpenShiftStep('pin')} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-colors text-sm">← กลับ</button>
+                        <button onClick={confirmOpenShift} disabled={openShiftSaving}
+                          className="flex-[2] bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm">
+                          {openShiftSaving ? 'กำลังเปิดกะ...' : '🔓 เปิดกะ'}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══ Modal: ปิดกะเงินสด ══════════════════════════════════════════ */}
+          {showCloseShiftModal && activeShift && (
+            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-gray-900 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div className="p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-white font-bold">🔒 ปิดกะเงินสด</h3>
+                    <button onClick={() => setShowCloseShiftModal(false)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+                  </div>
+
+                  {closeShiftResult ? (
+                    <>
+                      <div className={`rounded-xl p-4 mb-4 ${closeShiftResult.variance === 0 ? 'bg-green-950 border border-green-800' : 'bg-yellow-950 border border-yellow-800'}`}>
+                        <div className={`font-bold mb-2 ${closeShiftResult.variance === 0 ? 'text-green-300' : 'text-yellow-300'}`}>
+                          {closeShiftResult.variance === 0 ? '✅ ปิดกะสำเร็จ ยอดตรงพอดี' : `⚠️ ปิดกะสำเร็จ — ${closeShiftResult.variance > 0 ? 'เงินเกิน' : 'เงินขาด'} ฿${Math.abs(closeShiftResult.variance).toLocaleString()}`}
+                        </div>
+                        <div className="text-gray-300 text-sm space-y-1">
+                          <div>เงินที่ควรมี: ฿{closeShiftResult.expected_cash.toLocaleString()}</div>
+                          <div>นับได้จริง: ฿{closeShiftResult.counted_cash.toLocaleString()}</div>
+                          <div>เก็บออกไป: ฿{closeShiftResult.withdrawn_amount.toLocaleString()}</div>
+                          <div>ยกไปกะถัดไป: ฿{closeShiftResult.carried_forward.toLocaleString()}</div>
+                        </div>
+                        {closeShiftResult.notified_owner && (
+                          <div className="text-yellow-400 text-xs mt-2">📲 แจ้งเจ้าของร้านทาง LINE แล้ว</div>
+                        )}
+                      </div>
+                      <button onClick={() => setShowCloseShiftModal(false)} className="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-colors text-sm">ปิดหน้าต่าง</button>
+                    </>
+                  ) : closeShiftLoading || !closeShiftPreview ? (
+                    <div className="text-center text-gray-500 py-8 animate-pulse text-sm">กำลังคำนวณยอด...</div>
+                  ) : (
+                    <>
+                      <div className="bg-gray-800 rounded-xl p-3 mb-4 space-y-1">
+                        <div className="text-white font-medium">{activeShift.staff_name}</div>
+                        <div className="text-gray-400 text-xs">เปิดกะเมื่อ {closeShiftPreview.opened_at}</div>
+                        <div className="text-gray-400 text-xs">เงินสดตั้งต้น ฿{(closeShiftPreview.opening_cash || 0).toLocaleString()}</div>
+                        <div className="text-green-400 text-sm font-bold mt-1">เงินสดที่ควรมีตอนนี้: ฿{closeShiftPreview.expected_cash.toLocaleString()}</div>
+                      </div>
+
+                      <label className="text-gray-400 text-xs block mb-1.5">เงินสดที่นับได้จริง (บาท)</label>
+                      <input
+                        type="number" autoFocus
+                        value={closeShiftCounted}
+                        onChange={e => setCloseShiftCounted(e.target.value)}
+                        placeholder="0"
+                        className="w-full bg-gray-800 text-white text-lg font-bold px-4 py-3 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 mb-2"
+                      />
+                      {closeShiftCounted !== '' && (
+                        <div className={`text-xs mb-3 font-medium ${closeShiftVariance === 0 ? 'text-green-400' : closeShiftVariance > 0 ? 'text-blue-400' : 'text-red-400'}`}>
+                          {closeShiftVariance === 0 ? '✅ ยอดตรงพอดี' : closeShiftVariance > 0 ? `เงินเกิน ฿${closeShiftVariance.toLocaleString()}` : `เงินขาด ฿${Math.abs(closeShiftVariance).toLocaleString()}`}
+                        </div>
+                      )}
+
+                      {closeShiftVariance !== 0 && closeShiftCounted !== '' && (
+                        <div className="mb-3">
+                          <label className="text-yellow-400 text-xs block mb-1.5">⚠️ หมายเหตุ (บังคับ — ยอดไม่ตรง ต้องระบุสาเหตุ)</label>
+                          <textarea
+                            value={closeShiftNotes}
+                            onChange={e => setCloseShiftNotes(e.target.value)}
+                            placeholder="เช่น ทอนผิด, ลืมคีย์รายจ่าย ฯลฯ"
+                            rows={2}
+                            className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-yellow-800 focus:outline-none focus:border-yellow-500"
+                          />
+                        </div>
+                      )}
+
+                      <label className="text-gray-400 text-xs block mb-1.5">ยอดเก็บออกไป (ฝากธนาคาร/เข้าตู้เซฟ — เว้นว่างได้)</label>
+                      <input
+                        type="number"
+                        value={closeShiftWithdrawn}
+                        onChange={e => setCloseShiftWithdrawn(e.target.value)}
+                        placeholder="0"
+                        className="w-full bg-gray-800 text-white px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 mb-2 text-sm"
+                      />
+                      {closeShiftCounted !== '' && (
+                        <div className="text-gray-400 text-xs mb-4">
+                          ยกไปกะถัดไป: ฿{Math.max(0, (parseFloat(closeShiftCounted) || 0) - Math.min(parseFloat(closeShiftCounted) || 0, Math.max(0, parseFloat(closeShiftWithdrawn) || 0))).toLocaleString()}
+                        </div>
+                      )}
+
+                      <div className="flex gap-3">
+                        <button onClick={() => setShowCloseShiftModal(false)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-colors text-sm">ยกเลิก</button>
+                        <button onClick={confirmCloseShift} disabled={closeShiftSaving || closeShiftCounted === ''}
+                          className="flex-[2] bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm">
+                          {closeShiftSaving ? 'กำลังปิดกะ...' : '🔒 ปิดกะ'}
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

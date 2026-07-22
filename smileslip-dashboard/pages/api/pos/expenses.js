@@ -121,7 +121,7 @@ export default async function handler(req, res) {
 
     // ── GET ──────────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'รายจ่าย!A:L');
+      const rows = await readSheet(token, sheetId, 'รายจ่าย!A:M');
       let expenses = rows.slice(1)
         .map((r, i) => ({ ...rowToExpense(r), _row: i + 2 }))
         .filter(e => e.expense_no);
@@ -144,7 +144,7 @@ export default async function handler(req, res) {
     if (req.method === 'POST') {
       const {
         label = '', amount = 0, vatType = 'ไม่มี VAT', payment_method = 'เงินสด',
-        photo_url = '', notes = '', recordedBy = '', branch = '', transactionDate = '',
+        photo_url = '', notes = '', recordedBy = '', branch = '', transactionDate = '', shift_no = '',
       } = req.body;
 
       if (!label.trim()) return res.status(400).json({ error: 'กรุณาระบุรายการ/หมวดหมู่' });
@@ -160,7 +160,7 @@ export default async function handler(req, res) {
       await appendSheet(token, sheetId, 'รายจ่าย', [
         expenseNo, asText(recordDT.full), label.trim(), numAmount,
         vatType, subtotal, vatAmount, payment_method,
-        photo_url, notes, recordedBy, branch,
+        photo_url, notes, recordedBy, branch, shift_no,
       ]);
 
       // branch (สาขาที่เลือกไว้ในหน้า POS) ต้องมาก่อน branchName (ค่า default ของร้าน) เสมอ —

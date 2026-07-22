@@ -40,7 +40,7 @@ function clearFailedAttempts(shopId) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { shopId, pin } = req.body || {};
+  const { shopId, pin, purpose = '' } = req.body || {};
   if (!shopId || !pin) return res.status(400).json({ error: 'Missing shopId or pin' });
 
   if (isRateLimited(shopId)) {
@@ -49,8 +49,10 @@ export default async function handler(req, res) {
 
   try {
     // แอปพนักงานส่งของ (pos-staff.js) ล็อกที่ Shop Pro ตาม feature gating matrix — advance ขึ้นไปใช้ได้
+    // purpose='cash_shift' (เปิด/ปิดกะเงินสดจากหน้า pos.js เอง) ไม่เกี่ยวกับแอปพนักงานส่งของเลย
+    // ทุก tier ต้องเปิด-ปิดกะเงินสดได้เสมอ — ข้ามการเช็ค tier gate นี้ไปเมื่อระบุ purpose นี้
     const { data: sp } = await supabase.from('shop_profiles').select('subscription_tier').eq('id', shopId).maybeSingle();
-    if (sp && !hasFeature(sp.subscription_tier, 'delivery_staff_app')) {
+    if (purpose !== 'cash_shift' && sp && !hasFeature(sp.subscription_tier, 'delivery_staff_app')) {
       return res.status(403).json({ error: upgradeMessage('delivery_staff_app'), featureLocked: true });
     }
 

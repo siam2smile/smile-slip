@@ -124,17 +124,31 @@ export async function createFolder(accessToken, name, parentId) {
 
 // ตรวจว่า tab มีอยู่ใน spreadsheet ไหม ถ้าไม่มีให้สร้างพร้อม header
 export async function ensureTabExists(accessToken, sheetId, tabName, headers) {
-  const metaRes = await fetch(`${SHEETS_BASE}/${sheetId}`, {
+  // ใช้ sheetsFetch (retry+throw) แทน fetch ตรงๆ — เดิมถ้า metadata fetch นี้โดน
+  // 429/5xx (เช่น quota exceeded ตอนมีการยิง API ถี่ๆ) จะได้ response error ที่ไม่มี
+  // .sheets เลย ทำให้ `exists` เพี้ยนเป็น falsy ทั้งที่ tab มีอยู่จริง แล้วโค้ดจะพยายาม
+  // "สร้างใหม่" (addSheet ล้มเหลวเงียบๆ เพราะชื่อซ้ำ) แล้ว appendSheet(headers) แบบไม่มี
+  // เงื่อนไขต่อ ทำให้ header ถูกเขียนซ้ำเป็นแถวขยะต่อท้ายข้อมูลจริงที่มีอยู่แล้ว (เจอบั๊กนี้จริง
+  // ระหว่างทดสอบฟีเจอร์กะเงินสด — ต้อง fail loud ดีกว่าเงียบแล้วพังข้อมูล)
+  const metaRes = await sheetsFetch(`${SHEETS_BASE}/${sheetId}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
+  if (!metaRes.ok) {
+    const err = await metaRes.json().catch(() => ({}));
+    throw new Error(`Sheets metadata error: ${err.error?.message || metaRes.status}`);
+  }
   const meta = await metaRes.json();
   const exists = meta.sheets?.some(s => s.properties.title === tabName);
   if (!exists) {
-    await fetch(`${SHEETS_BASE}/${sheetId}:batchUpdate`, {
+    const addRes = await sheetsFetch(`${SHEETS_BASE}/${sheetId}:batchUpdate`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ requests: [{ addSheet: { properties: { title: tabName } } }] }),
     });
+    if (!addRes.ok) {
+      const err = await addRes.json().catch(() => ({}));
+      throw new Error(`Sheets addSheet error: ${err.error?.message || addRes.status}`);
+    }
     if (headers?.length) await appendSheet(accessToken, sheetId, tabName, headers);
     return;
   }
@@ -145,13 +159,17 @@ export async function ensureTabExists(accessToken, sheetId, tabName, headers) {
   // และเติม header ที่ขาดให้ครบทุกครั้งที่เปิดใช้แท็บนี้ เหมือนที่บอทมี getOrCreateYearSheet()
   if (headers?.length) {
     const range = `${tabName}!A1:${colLetter(headers.length)}1`;
-    const res = await fetch(`${SHEETS_BASE}/${sheetId}/values/${encodeURIComponent(range)}`, {
+    const res = await sheetsFetch(`${SHEETS_BASE}/${sheetId}/values/${encodeURIComponent(range)}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(`Sheets read error: ${err.error?.message || res.status}`);
+    }
     const d = await res.json();
     const currentHeader = d.values?.[0] || [];
     if (currentHeader.length < headers.length) {
-      await fetch(
+      const putRes = await sheetsFetch(
         `${SHEETS_BASE}/${sheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,
         {
           method: 'PUT',
@@ -159,6 +177,10 @@ export async function ensureTabExists(accessToken, sheetId, tabName, headers) {
           body: JSON.stringify({ values: [headers] }),
         }
       );
+      if (!putRes.ok) {
+        const err = await putRes.json().catch(() => ({}));
+        throw new Error(`Sheets update error: ${err.error?.message || putRes.status}`);
+      }
     }
   }
 }
@@ -234,10 +256,11 @@ export const PRODUCT_HEADERS = [
 
 // Q-R (ยอดก่อน VAT/ยอด VAT) เพิ่มท้ายสุด — ไม่แทรกกลาง กันข้อมูลเก่าเลื่อนคอลัมน์ผิด
 // คำนวณจาก vat_type ของสินค้าแต่ละชิ้น (ไม่รวมผลของส่วนลดบิล — เหมือน pattern เดียวกับใบกำกับภาษี)
+// S=เลขที่กะ เพิ่มท้ายสุด — ผูกบิลเงินสดเข้ากะที่เปิดอยู่ตอนขาย (ว่าง = ไม่ได้เปิดกะไว้ ไม่กระทบร้านที่ไม่ใช้ฟีเจอร์นี้)
 export const SALE_HEADERS = [
   'เลขบิล', 'วันที่-เวลา', 'รายการสินค้า (JSON)', 'ยอดรวมก่อนลด',
   'ส่วนลด', 'ยอดสุทธิ', 'วิธีชำระ', 'เงินรับ', 'เงินทอน', 'ผู้ขาย', 'หมายเหตุ', 'สถานะ',
-  'รหัสลูกค้า', 'ชื่อลูกค้า', 'วันที่ชำระ', 'สาขา', 'ยอดก่อน VAT (บาท)', 'ยอด VAT (บาท)',
+  'รหัสลูกค้า', 'ชื่อลูกค้า', 'วันที่ชำระ', 'สาขา', 'ยอดก่อน VAT (บาท)', 'ยอด VAT (บาท)', 'เลขที่กะ',
 ];
 
 // คำนวณ VAT รวมของรายการสินค้าจาก vat_type ต่อ SKU — ใช้ร่วมกันทั้งขายหน้าร้าน/ใบกำกับภาษี/รายงาน VAT
@@ -359,10 +382,11 @@ export const ORDER_HEADERS = [
 
 // tab "รายจ่าย" — ค่าใช้จ่ายของร้านที่ไม่เกี่ยวกับสต็อคสินค้า (ค่าเช่า/ค่าน้ำไฟ/ค่าแรง ฯลฯ)
 // คนละระบบกับ "รับสินค้า" (นั่นคือซื้อสินค้าเข้าสต็อค) — vat_type ใช้ชุดค่าเดียวกับสินค้า/รับสินค้า
+// M=เลขที่กะ เพิ่มท้ายสุด — ผูกรายจ่ายเงินสดเข้ากะที่เปิดอยู่ตอนจ่าย (ว่าง = ไม่ได้เปิดกะไว้)
 export const EXPENSE_HEADERS = [
   'เลขที่รายจ่าย', 'วันที่-เวลา', 'รายการ/หมวดหมู่', 'จำนวนเงินรวม (บาท)',
   'ประเภท VAT', 'ยอดก่อน VAT (บาท)', 'ยอด VAT (บาท)', 'วิธีชำระ',
-  'ลิงก์รูปภาพบิล/สลิป', 'หมายเหตุ', 'ผู้บันทึก', 'สาขา',
+  'ลิงก์รูปภาพบิล/สลิป', 'หมายเหตุ', 'ผู้บันทึก', 'สาขา', 'เลขที่กะ',
 ];
 
 export function makeExpenseNo() {
@@ -385,6 +409,42 @@ export function rowToExpense(row) {
     notes:      row[9] || '',
     recorded_by: row[10] || '',
     branch:     row[11] || '',
+    shift_no:   row[12] || '',
+  };
+}
+
+// tab "กะเงินสด" — เปิดกะ/ปิดกะต่อพนักงาน (ผูกกับ staff_id ไม่ใช่สาขา/เครื่อง — พนักงานหมุนเวียน
+// กันหลายคนต่อเครื่องเดียวได้ แต่ละคนเปิด-ปิดกะของตัวเอง) ใช้กระทบยอดเงินสด/รายจ่ายเงินสดที่เกิดขึ้น
+// ระหว่างกะ (ผูกผ่านคอลัมน์ "เลขที่กะ" ใน SALE_HEADERS/EXPENSE_HEADERS) คำนวณเงินสดที่ควรมีตอนปิดกะ
+export const CASH_SHIFT_HEADERS = [
+  'เลขที่กะ', 'รหัสพนักงาน', 'ชื่อพนักงาน', 'สาขา',
+  'เปิดกะเมื่อ', 'เงินสดตั้งต้น (บาท)',
+  'ปิดกะเมื่อ', 'เงินสดที่ควรมี (บาท)', 'เงินสดที่นับได้จริง (บาท)', 'ส่วนต่าง (บาท)',
+  'หมายเหตุ', 'ยอดเก็บออกไป (บาท)', 'ยอดยกไปกะถัดไป (บาท)', 'สถานะ',
+];
+
+export function makeShiftNo() {
+  const now = new Date();
+  const pad = (n, len = 2) => String(n).padStart(len, '0');
+  return `SHIFT${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+}
+
+export function rowToCashShift(row) {
+  return {
+    shift_no:         row[0]  || '',
+    staff_id:         row[1]  || '',
+    staff_name:       row[2]  || '',
+    branch:           row[3]  || '',
+    opened_at:        row[4]  || '',
+    opening_cash:     parseFloat(row[5]) || 0,
+    closed_at:        row[6]  || '',
+    expected_cash:    row[7]  !== '' && row[7]  !== undefined ? parseFloat(row[7])  : null,
+    counted_cash:     row[8]  !== '' && row[8]  !== undefined ? parseFloat(row[8])  : null,
+    variance:         row[9]  !== '' && row[9]  !== undefined ? parseFloat(row[9])  : null,
+    notes:            row[10] || '',
+    withdrawn_amount: parseFloat(row[11]) || 0,
+    carried_forward:  row[12] !== '' && row[12] !== undefined ? parseFloat(row[12]) : null,
+    status:           row[13] || 'เปิดอยู่',
   };
 }
 
@@ -567,6 +627,7 @@ export function rowToSale(row) {
     branch:         row[15] || '',
     vat_subtotal:   parseFloat(row[16]) || 0,
     vat_amount:     parseFloat(row[17]) || 0,
+    shift_no:       row[18] || '',
   };
 }
 
