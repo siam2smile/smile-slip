@@ -6,7 +6,7 @@ import Link from 'next/link';
 import {
   Store, Phone, MapPin, Mail, Lock, Eye, EyeOff,
   ChevronRight, CheckCircle2, MessageCircle, Building2,
-  Hash, Landmark, ShieldCheck
+  Hash, Landmark, ShieldCheck, AlertTriangle, Trash2, Plus, LogIn
 } from 'lucide-react';
 import { PROVINCES, DISTRICTS } from '../data/thailand-address';
 
@@ -30,11 +30,72 @@ export default function Register() {
     addressDetail: '', subDistrict: '', district: '', province: '', postalCode: '',
   });
 
+  // ── ตรวจสอบว่าไลไอดีนี้มีบัญชีอยู่แล้วหรือไม่ก่อนให้กรอกฟอร์ม ──
+  // เดิม register.js ไม่เคยเช็คเลย ทำให้ไลไอดีเดียวกันสมัครซ้ำได้เรื่อยๆ (เสี่ยงร้านซ้ำ/ขอ trial
+  // ซ้ำ) — ผู้ใช้ขอชัดเจนให้ถามก่อนว่า "มีบัญชีแล้ว ต้องการลบข้อมูลเก่า หรือเพิ่ม"
+  const [checkedExisting, setCheckedExisting] = useState(false);
+  const [existingRoles, setExistingRoles] = useState([]);
+  const [decision, setDecision] = useState(null); // null = ยังไม่ตัดสินใจ, 'form' = ไปกรอกฟอร์มสมัครได้แล้ว
+  const [deleteMode, setDeleteMode] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
   const { userId, name, ref: referralCode } = router.query;
+  const ownerRole = existingRoles.find(r => r.role === 'owner') || null;
 
   useEffect(() => {
     if (router.isReady) setIsReady(true);
   }, [router.isReady]);
+
+  useEffect(() => {
+    if (!isReady) return;
+    if (!userId) { setCheckedExisting(true); return; }
+    (async () => {
+      try {
+        const res = await fetch(`/api/auth/check-user?userId=${userId}`);
+        const data = await res.json();
+        if (data.exists && data.roles?.length) {
+          setExistingRoles(data.roles);
+        } else {
+          setDecision('form'); // ยังไม่มีบัญชีเลย → ข้ามหน้าตัดสินใจ ไปกรอกฟอร์มปกติทันที
+        }
+      } catch {
+        setDecision('form'); // เช็คไม่ได้ → ไม่บล็อกผู้ใช้ ปล่อยให้กรอกฟอร์มได้ตามปกติ
+      } finally {
+        setCheckedExisting(true);
+      }
+    })();
+  }, [isReady, userId]);
+
+  const goToExistingShop = (roleEntry) => {
+    if (roleEntry.role === 'admin') {
+      router.push(`/dashboard?userId=${roleEntry.ownerId}&adminId=${userId}`);
+    } else {
+      router.push(`/dashboard?userId=${roleEntry.ownerId}`);
+    }
+  };
+
+  const handleDeleteAndReregister = async () => {
+    if (!ownerRole) return;
+    setDeleteError('');
+    if (deleteConfirmText.trim() !== (ownerRole.shopName || '').trim()) {
+      setDeleteError('ชื่อร้านที่พิมพ์ไม่ตรงกับชื่อร้านจริง กรุณาพิมพ์ให้ตรงเป๊ะ');
+      return;
+    }
+    setDeleteLoading(true);
+    try {
+      const res = await axios.delete('/api/shop/delete-shop', {
+        data: { shopId: ownerRole.shopId, lineUserId: userId, confirmShopName: deleteConfirmText.trim() }
+      });
+      if (res.data.success) {
+        setDecision('form'); // ลบสำเร็จ → เข้าฟอร์มสมัครใหม่ (นับ trial ใหม่ไม่ได้แล้ว ถูกบันทึกไว้ก่อนลบ)
+      }
+    } catch (err) {
+      setDeleteError(err.response?.data?.error || 'ลบร้านไม่สำเร็จ กรุณาลองใหม่');
+    }
+    setDeleteLoading(false);
+  };
 
   // Districts filtered by selected province
   const availableDistricts = formData.province ? (DISTRICTS[formData.province] || []) : [];
@@ -72,11 +133,109 @@ export default function Register() {
     setLoading(false);
   };
 
-  if (!isReady) return (
+  if (!isReady || (userId && !checkedExisting)) return (
     <div className="min-h-screen flex items-center justify-center bg-blue-950 text-white">
       <p className="animate-pulse font-bold tracking-widest text-sm">กำลังโหลด...</p>
     </div>
   );
+
+  // ── หน้าตัดสินใจ: ไลไอดีนี้ผูกกับบัญชีอยู่แล้ว ──
+  if (userId && existingRoles.length > 0 && decision === null) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-950 via-blue-900 to-blue-800 flex items-center justify-center p-6">
+        <Head><title>พบบัญชีอยู่แล้ว | Smile Slip Pro</title></Head>
+        <div className="max-w-md w-full bg-white rounded-3xl p-8 shadow-2xl">
+          {!deleteMode ? (
+            <>
+              <div className="text-center mb-6">
+                <div className="text-4xl mb-3">🔎</div>
+                <h2 className="text-lg font-black text-slate-900 mb-1">บัญชี LINE นี้มีอยู่ในระบบแล้ว</h2>
+                <p className="text-slate-400 text-xs">เลือกสิ่งที่ต้องการทำต่อ</p>
+              </div>
+
+              <div className="space-y-2 mb-5">
+                {existingRoles.map((r) => (
+                  <div key={`${r.shopId}-${r.role}`}
+                    className="flex items-center justify-between gap-3 py-3 px-4 bg-slate-50 rounded-xl">
+                    <span className="font-bold text-slate-800 text-sm truncate">{r.shopName || 'ร้านค้า'}</span>
+                    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0 ${r.role === 'owner' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {r.role === 'owner' ? '👑 เจ้าของร้าน' : '🛡️ แอดมิน'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-2.5">
+                {existingRoles.map((r) => (
+                  <button key={`goto-${r.shopId}-${r.role}`} onClick={() => goToExistingShop(r)}
+                    className="w-full flex items-center justify-center gap-2 py-3.5 bg-blue-900 hover:bg-blue-700 text-white rounded-xl font-black text-sm transition-all shadow-lg">
+                    <LogIn size={16}/> เข้าร้าน "{r.shopName}"
+                  </button>
+                ))}
+
+                {!ownerRole && (
+                  <button onClick={() => setDecision('form')}
+                    className="w-full flex items-center justify-center gap-2 py-3.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-black text-sm transition-all border-2 border-emerald-200">
+                    <Plus size={16}/> สมัครร้านใหม่แยกต่างหาก (จ่ายแพ็กเกจเอง)
+                  </button>
+                )}
+
+                {ownerRole && (
+                  <>
+                    <button onClick={() => { setDeleteMode(true); setDeleteError(''); }}
+                      className="w-full flex items-center justify-center gap-2 py-3.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl font-black text-sm transition-all border-2 border-red-200">
+                      <Trash2 size={16}/> ลบร้านเดิมแล้วสมัครใหม่
+                    </button>
+                    <p className="text-[10px] text-slate-400 text-center leading-relaxed px-2">
+                      * บัญชีนี้เป็นเจ้าของร้านอยู่แล้ว ระบบยังไม่รองรับการเป็นเจ้าของ 2 ร้านพร้อมกัน —
+                      ถ้าต้องการเปิดร้านใหม่แยกต่างหาก ต้องลบร้านเดิมก่อน หรือใช้บัญชี LINE อื่นสมัคร
+                    </p>
+                  </>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="text-center mb-5">
+                <div className="w-14 h-14 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                  <AlertTriangle size={28}/>
+                </div>
+                <h2 className="text-lg font-black text-slate-900 mb-1">ยืนยันการลบร้าน "{ownerRole?.shopName}"</h2>
+                <p className="text-red-500 text-xs font-bold leading-relaxed">
+                  ⚠️ ลบถาวร กู้คืนไม่ได้ — ข้อมูลร้าน/เครดิต/พนักงาน/สาขา/บัญชีธนาคารทั้งหมดจะถูกลบทิ้ง
+                  และสิทธิ์ทดลองใช้ฟรี 30 วันของบัญชีนี้จะถูกใช้ไปแล้วถาวร (สมัครใหม่จะไม่ได้ trial อีก)
+                </p>
+              </div>
+
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">
+                พิมพ์ชื่อร้าน "{ownerRole?.shopName}" เพื่อยืนยัน
+              </label>
+              <input value={deleteConfirmText} onChange={e => setDeleteConfirmText(e.target.value)}
+                placeholder={ownerRole?.shopName}
+                className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent rounded-xl focus:bg-white focus:border-red-400 outline-none transition-all font-bold text-sm mb-3"/>
+
+              {deleteError && (
+                <div className="bg-red-50 border border-red-200 text-red-600 text-xs font-bold px-4 py-3 rounded-xl mb-3">
+                  {deleteError}
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button onClick={() => { setDeleteMode(false); setDeleteConfirmText(''); setDeleteError(''); }}
+                  className="flex-1 py-3 bg-slate-100 text-slate-500 rounded-xl font-bold text-sm hover:bg-slate-200 transition-all">
+                  ยกเลิก
+                </button>
+                <button onClick={handleDeleteAndReregister} disabled={deleteLoading || !deleteConfirmText.trim()}
+                  className="flex-[2] py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-sm transition-all disabled:opacity-40">
+                  {deleteLoading ? 'กำลังลบ...' : '🗑️ ลบถาวรแล้วสมัครใหม่'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (!userId && step !== 4) {
     return (

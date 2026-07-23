@@ -1127,6 +1127,20 @@ CREATE TABLE IF NOT EXISTS pos_open_bills (
 );
 ```
 
+**สร้างตาราง trial_used_line_ids (ป้องกันลบร้านแล้วสมัครใหม่ขอทดลองฟรี 30 วันซ้ำไม่จำกัดรอบ — เพิ่ม 2026-07-23, ยังไม่ได้รัน):**
+ก่อนรัน SQL นี้ การสมัครสมาชิกยังทำงานปกติทุกอย่าง (ให้ trial 30 วันตามเดิมทุกครั้ง ไม่เช็คซ้ำ) —
+`api/register.js` เช็ค error จาก Supabase ก่อนเสมอแล้ว fail-safe เป็น "ยังไม่เคยใช้ trial" ถ้าตารางนี้
+ยังไม่มี (ทดสอบแล้วจริงว่าไม่ error/ไม่บล็อกสมัครสมาชิกใหม่) — ตารางนี้แยกออกจาก `shop_profiles`
+โดยเจตนา (keyed ด้วย `line_user_id` ตรงๆ ไม่ผูก `shop_id`) เพื่อให้ "เคยใช้สิทธิ์ทดลองแล้ว" อยู่รอด
+ต่อไปแม้ร้านที่เคยใช้ trial นั้นจะถูกลบทิ้งทั้งหมดผ่าน `DELETE /api/shop/delete-shop` — ห้าม
+`DELETE`/`TRUNCATE` ตารางนี้เด็ดขาดไม่ว่ากรณีใด (ต่างจากตารางอื่นๆ ที่ผูก shop_id ซึ่งถูกลบตอนลบร้าน)
+```sql
+CREATE TABLE IF NOT EXISTS trial_used_line_ids (
+  line_user_id text PRIMARY KEY,
+  first_used_at timestamptz DEFAULT now()
+);
+```
+
 ### ต้องทำด้วยมือ (ไม่ใช่โค้ด)
 - [x] **สร้าง admin_settings table** ใน Supabase — มีแล้ว มีข้อมูลอยู่จริง (verified 2026-06-28 ผ่าน REST query)
 - [x] **เพิ่ม Google OAuth redirect URI** สำหรับ admin + **กด "เชื่อมต่อ Google"** — เสร็จแล้ว (admin_settings มี `admin_invoice_sheet_id` แปลว่า connect สำเร็จแล้ว) — verified 2026-06-28

@@ -109,13 +109,45 @@ export default async function handler(req, res) {
     // ตั้งค่า trial 30 วันสำหรับร้านใหม่เท่านั้น (ร้านเก่าก่อนหน้านี้จะไม่มีค่านี้เลย = ยกเว้นตลอดไป
     // ตามที่ผู้ใช้ตัดสินใจไว้ — ดู CLAUDE.md เรื่อง 30-Day Free Trial) — แยก update ต่างหากกันพัง
     // เหมือน district/province ถ้ายังไม่ได้รัน SQL เพิ่มคอลัมน์
+    //
+    // ป้องกันการลบร้านแล้วสมัครใหม่เพื่อขอทดลองฟรี 30 วันซ้ำไม่จำกัดรอบ (ผู้ใช้ยืนยันชัดเจนว่า
+    // ต้องปิดช่องโหว่นี้ — trial_used_line_ids แยกตารางจาก shop_profiles โดยเจตนา เพื่อให้
+    // "ประวัติเคยใช้สิทธิ์ทดลองแล้ว" อยู่รอดต่อไปแม้ร้านจะถูกลบทิ้งทั้งหมด) — เช็คก่อนเสมอว่า
+    // ไลไอดีนี้เคยได้ trial มาก่อนหรือยัง (ไม่ว่าจะร้านนี้หรือร้านอื่นที่เคยสมัคร/ลบไปแล้ว)
+    let trialAlreadyUsed = false;
     try {
-      const trialStart = new Date();
-      const trialEnd = new Date(trialStart.getTime() + 30 * 24 * 60 * 60 * 1000);
-      await supabase.from('shop_profiles').update({
-        trial_started_at: trialStart.toISOString(),
-        trial_ends_at: trialEnd.toISOString(),
-      }).eq('id', newShop.id);
+      const { data: usedRow } = await supabase
+        .from('trial_used_line_ids')
+        .select('line_user_id')
+        .eq('line_user_id', lineUserId)
+        .maybeSingle();
+      trialAlreadyUsed = !!usedRow;
+    } catch { /* ตาราง trial_used_line_ids ยังไม่ถูกสร้าง — ถือว่ายังไม่เคยใช้ (ปลอดภัยสุดเท่าที่ทำได้ก่อนรัน SQL) */ }
+
+    try {
+      if (trialAlreadyUsed) {
+        // เคยใช้สิทธิ์ทดลองไปแล้ว (จากร้านเดิมที่อาจถูกลบไปแล้ว) — ไม่ให้ trial ใหม่
+        // ตั้ง status ตรงๆ เป็น trial_expired (ไม่ใช่ปล่อย trial_started_at/trial_ends_at เป็น NULL
+        // เพราะ NULL ในระบบนี้แปลว่า "ร้านเก่าก่อนยุค trial ได้รับการยกเว้นตลอดไป" ซึ่งตรงข้ามกับที่ต้องการ)
+        await supabase.from('shop_profiles').update({ status: 'trial_expired' }).eq('id', newShop.id);
+      } else {
+        const trialStart = new Date();
+        const trialEnd = new Date(trialStart.getTime() + 30 * 24 * 60 * 60 * 1000);
+        await supabase.from('shop_profiles').update({
+          trial_started_at: trialStart.toISOString(),
+          trial_ends_at: trialEnd.toISOString(),
+        }).eq('id', newShop.id);
+      }
+    } catch {}
+
+    // บันทึกว่าไลไอดีนี้ใช้สิทธิ์ทดลอง (หรือพยายามสมัคร) ไปแล้ว — upsert เสมอทุกครั้งที่สมัคร
+    // (ไม่ว่าจะเป็นการสมัครครั้งแรกหรือครั้งต่อไป) กันได้ trial ซ้ำแม้จะยังไม่เคยลบร้านเลยก็ตาม
+    // (สมัครร้านที่สองแยกต่างหากโดยไม่ลบร้านแรก ก็จะไม่ได้ trial ใหม่เช่นกัน — เป็นนโยบายที่ตั้งใจ)
+    try {
+      await supabase.from('trial_used_line_ids').upsert(
+        { line_user_id: lineUserId },
+        { onConflict: 'line_user_id', ignoreDuplicates: true }
+      );
     } catch {}
 
     // เครดิตเริ่มต้น 20 แผ่น (ถ้ามี referral จะได้โบนัสเพิ่มอีก 30 หลัง Google connect)
