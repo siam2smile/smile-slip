@@ -8,28 +8,20 @@ import axios from 'axios';
 
 export default function LoginPage() {
   const router = useRouter();
-  // 'loading' | 'options' | 'email'
+  // 'loading' | 'options' | 'confirm' | 'email'
   const [view, setView] = useState('loading');
+  const [pendingProfile, setPendingProfile] = useState(null); // { userId, displayName, pictureUrl } รอผู้ใช้ยืนยันว่าใช่บัญชีนี้
+  const [switching, setSwitching] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // เรียกเมื่อผู้ใช้คลิกปุ่ม LINE หรือ auto-เมื่อ logged in อยู่แล้ว
-  const doLineLogin = async () => {
+  // ตรวจ userId กับระบบแล้วพาไปหน้าที่ถูกต้อง — แยกออกมาต่างหากเพื่อให้เรียกซ้ำได้ทั้งจาก
+  // ปุ่ม LINE ตรงๆ (user gesture ชัดเจน ไม่ต้อง confirm ซ้ำ) และจากหน้ายืนยันบัญชี (หลังกด "ใช่")
+  const proceedWithProfile = async (profile) => {
     try {
-      // ถ้า LIFF SDK ยังไม่โหลด → ใช้ LINE OAuth ธรรมดา (แสดง QR บน desktop เหมือนกัน)
-      if (!window.liff) {
-        window.location.href = '/api/auth/line';
-        return;
-      }
-      if (!window.liff.isLoggedIn()) {
-        // user gesture → LINE redirect → desktop แสดง QR code ให้สแกน
-        window.liff.login();
-        return;
-      }
-      const profile = await window.liff.getProfile();
       const res = await fetch(`/api/auth/check-user?userId=${profile.userId}`);
       const data = await res.json();
 
@@ -53,6 +45,37 @@ export default function LoginPage() {
     }
   };
 
+  // เรียกเมื่อผู้ใช้กดปุ่ม "เข้าสู่ระบบด้วย LINE" เอง (user gesture ชัดเจนอยู่แล้วว่าตั้งใจเข้าบัญชีนี้)
+  const doLineLogin = async () => {
+    try {
+      // ถ้า LIFF SDK ยังไม่โหลด → ใช้ LINE OAuth ธรรมดา (แสดง QR บน desktop เหมือนกัน)
+      if (!window.liff) {
+        window.location.href = '/api/auth/line';
+        return;
+      }
+      if (!window.liff.isLoggedIn()) {
+        // user gesture → LINE redirect → desktop แสดง QR code ให้สแกน
+        window.liff.login();
+        return;
+      }
+      const profile = await window.liff.getProfile();
+      await proceedWithProfile(profile);
+    } catch (err) {
+      console.error('LINE login error:', err);
+      window.location.href = '/api/auth/line';
+    }
+  };
+
+  // ผู้ใช้กด "ไม่ใช่บัญชีนี้" ในหน้ายืนยัน — ล้าง session LIFF ของเบราว์เซอร์นี้ทิ้ง แล้วรีโหลด
+  // ให้กลับไปเจอหน้าตัวเลือกเข้าสู่ระบบใหม่ (กดปุ่ม LINE อีกครั้งจะให้เลือก/ล็อกอินบัญชีใหม่ได้)
+  const switchAccount = async () => {
+    setSwitching(true);
+    try {
+      if (window.liff?.logout) window.liff.logout();
+    } catch {}
+    window.location.reload();
+  };
+
   // เรียกหลัง LIFF SDK โหลดจาก CDN สำเร็จ
   const initLiff = async () => {
     // timeout 8 วิ — ถ้า LIFF ค้างให้แสดงหน้าตัวเลือก
@@ -61,15 +84,23 @@ export default function LoginPage() {
       await window.liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID });
       clearTimeout(fallbackTimer);
 
-      // อยู่ใน LINE app → auto-login (ผู้ใช้คาดหวัง)
+      // อยู่ใน LINE app เอง → auto-login ได้เลย ไม่ต้องถามยืนยัน เพราะ LIFF ผูกกับบัญชีที่
+      // เปิดแอป LINE อยู่ตรงๆ อยู่แล้ว ไม่มีทางสลับบัญชีผิดจากตรงนี้
       if (window.liff.isInClient()) {
         await doLineLogin();
         return;
       }
 
-      // Browser + เคย login ไว้แล้ว → auto ไป dashboard (ไม่ต้องกดอีกครั้ง)
+      // เปิดผ่านเบราว์เซอร์ + เคย login ค้างไว้จากรอบก่อน — เดิม auto เข้าระบบทันทีโดยไม่ถาม
+      // ทำให้เผลอเข้าบัญชีเดิมตอนตั้งใจจะสลับบัญชี → เปลี่ยนเป็นถามยืนยันก่อนเสมอ
       if (window.liff.isLoggedIn()) {
-        await doLineLogin();
+        try {
+          const profile = await window.liff.getProfile();
+          setPendingProfile(profile);
+          setView('confirm');
+        } catch {
+          setView('options');
+        }
         return;
       }
 
@@ -126,6 +157,30 @@ export default function LoginPage() {
               <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}/>
               <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}/>
             </div>
+          </div>
+        )}
+
+        {/* ─── ยืนยันบัญชี LINE (มี session ค้างในเบราว์เซอร์นี้อยู่แล้ว) ─── */}
+        {view === 'confirm' && pendingProfile && (
+          <div className="text-center py-2">
+            <h2 className="text-lg font-black text-slate-900 mb-1">เข้าสู่ระบบด้วยบัญชีนี้ใช่ไหม?</h2>
+            <p className="text-slate-400 text-xs mb-5">เบราว์เซอร์นี้ล็อกอิน LINE ค้างไว้อยู่แล้ว</p>
+
+            <div className="flex flex-col items-center gap-2 mb-6">
+              {pendingProfile.pictureUrl && (
+                <img src={pendingProfile.pictureUrl} alt="" className="w-16 h-16 rounded-full border-4 border-blue-50 shadow"/>
+              )}
+              <p className="font-black text-slate-900 text-sm">{pendingProfile.displayName}</p>
+            </div>
+
+            <button onClick={() => proceedWithProfile(pendingProfile)}
+              className="w-full py-3.5 bg-[#06C755] hover:bg-[#05b34c] text-white rounded-xl font-bold text-sm transition-all shadow-lg mb-3">
+              ✅ ใช่ เข้าสู่ระบบด้วยบัญชีนี้
+            </button>
+            <button onClick={switchAccount} disabled={switching}
+              className="w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm transition-all disabled:opacity-50">
+              {switching ? 'กำลังออกจากระบบ...' : '🔄 ไม่ใช่ ต้องการเปลี่ยนบัญชี LINE'}
+            </button>
           </div>
         )}
 

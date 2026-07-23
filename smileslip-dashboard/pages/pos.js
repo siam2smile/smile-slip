@@ -5975,7 +5975,7 @@ export default function POSPage() {
                       </span>
                     </div>
                     <p className="text-gray-400 text-xs mb-4">
-                      ให้พนักงาน/ผู้จัดการพิมพ์ <span className="font-mono bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">#สมัครพนักงานขนส่ง</span> หรือ <span className="font-mono bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">#สมัครผู้จัดการสาขา</span> ในกลุ่ม LINE ของสาขา แล้วมาอนุมัติที่นี่
+                      ให้พนักงาน/ผู้จัดการพิมพ์ <span className="font-mono bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">#สมัครพนักงาน</span> หรือ <span className="font-mono bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">#สมัครผู้จัดการสาขา</span> ในกลุ่ม LINE ของสาขา แล้วมาอนุมัติที่นี่ (คำสั่งเดิม <span className="font-mono bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">#สมัครพนักงานขนส่ง</span> ยังใช้ได้เหมือนเดิม)
                     </p>
                     <div className="space-y-2">
                       {staffRequests.filter(r => r.status === 'pending').map(req => (
