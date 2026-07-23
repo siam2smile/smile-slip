@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Link from 'next/link';
@@ -8,33 +8,47 @@ import axios from 'axios';
 
 export default function LoginPage() {
   const router = useRouter();
-  // 'loading' | 'options' | 'confirm' | 'email'
+  // 'loading' | 'options' | 'confirm' | 'picker' | 'email'
   const [view, setView] = useState('loading');
   const [pendingProfile, setPendingProfile] = useState(null); // { userId, displayName, pictureUrl } รอผู้ใช้ยืนยันว่าใช่บัญชีนี้
   const [switching, setSwitching] = useState(false);
+  const [roleOptions, setRoleOptions] = useState([]); // [{shopId, shopName, ownerId, role}] เมื่อไลไอดีนี้ผูกกับหลายร้าน
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState('');
+  const handledPickerQuery = useRef(false);
+
+  // ไปหน้าที่ถูกต้องตามบทบาทที่เลือก (เจ้าของ → dashboard ตรงๆ, แอดมิน → dashboard+adminId)
+  // แยกออกมาให้ทั้ง proceedWithProfile (กรณีมีร้านเดียว) และตัวเลือกร้านในหน้า picker เรียกใช้ร่วมกัน
+  const goToRole = (roleEntry, lineUserId) => {
+    const next = router.query.next;
+    if (roleEntry.role === 'admin') {
+      router.push(`/dashboard?userId=${roleEntry.ownerId}&adminId=${lineUserId}`);
+    } else if (next) {
+      router.push(`/${next}?userId=${roleEntry.ownerId}`);
+    } else {
+      router.push(`/dashboard?userId=${roleEntry.ownerId}`);
+    }
+  };
 
   // ตรวจ userId กับระบบแล้วพาไปหน้าที่ถูกต้อง — แยกออกมาต่างหากเพื่อให้เรียกซ้ำได้ทั้งจาก
   // ปุ่ม LINE ตรงๆ (user gesture ชัดเจน ไม่ต้อง confirm ซ้ำ) และจากหน้ายืนยันบัญชี (หลังกด "ใช่")
+  //
+  // รองรับหลายบทบาทพร้อมกัน (เจ้าของร้านตัวเอง + แอดมินร้านอื่น) — ถ้า check-user คืนร้านเดียว
+  // เข้าตรงเหมือนเดิมทุกประการ (ไม่มีอะไรเปลี่ยนสำหรับกรณีปกติ) ถ้าคืนหลายร้าน ให้เลือกก่อน
   const proceedWithProfile = async (profile) => {
     try {
       const res = await fetch(`/api/auth/check-user?userId=${profile.userId}`);
       const data = await res.json();
 
-      // รองรับ ?next=pricing ฯลฯ
-      const next = router.query.next;
-      if (data.exists) {
-        if (data.role === 'admin') {
-          router.push(`/dashboard?userId=${data.ownerId}&adminId=${profile.userId}`);
-        } else if (next) {
-          router.push(`/${next}?userId=${profile.userId}`);
-        } else {
-          router.push(`/dashboard?userId=${profile.userId}`);
-        }
+      if (data.exists && data.roles?.length === 1) {
+        goToRole(data.roles[0], profile.userId);
+      } else if (data.exists && data.roles?.length > 1) {
+        setPendingProfile(profile);
+        setRoleOptions(data.roles);
+        setView('picker');
       } else {
         router.push(`/register?userId=${profile.userId}&name=${encodeURIComponent(profile.displayName)}`);
       }
@@ -44,6 +58,35 @@ export default function LoginPage() {
       window.location.href = '/api/auth/line';
     }
   };
+
+  // รองรับ redirect กลับมาจาก /api/auth/callback/line (LINE OAuth บนเบราว์เซอร์ ไม่ใช่ LIFF)
+  // เมื่อไลไอดีนั้นผูกกับหลายร้าน — callback ไม่มีทางโชว์ picker เองได้ (เป็นแค่ HTTP redirect)
+  // จึงส่ง query มาที่นี่แทนให้เรียก check-user ซ้ำแล้วโชว์ตัวเลือกร้านเหมือนกับฝั่ง LIFF
+  useEffect(() => {
+    if (!router.isReady || handledPickerQuery.current) return;
+    const { picker, userId, name } = router.query;
+    if (picker !== '1' || !userId) return;
+    handledPickerQuery.current = true;
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/auth/check-user?userId=${userId}`);
+        const data = await res.json();
+        const profile = { userId, displayName: name || '', pictureUrl: null };
+        if (data.exists && data.roles?.length > 1) {
+          setPendingProfile(profile);
+          setRoleOptions(data.roles);
+          setView('picker');
+        } else if (data.exists && data.roles?.length === 1) {
+          goToRole(data.roles[0], userId);
+        } else {
+          router.push(`/register?userId=${userId}&name=${encodeURIComponent(name || '')}`);
+        }
+      } catch (err) {
+        console.error('picker query resolve error:', err);
+      }
+    })();
+  }, [router.isReady, router.query]);
 
   // เรียกเมื่อผู้ใช้กดปุ่ม "เข้าสู่ระบบด้วย LINE" เอง (user gesture ชัดเจนอยู่แล้วว่าตั้งใจเข้าบัญชีนี้)
   const doLineLogin = async () => {
@@ -180,6 +223,34 @@ export default function LoginPage() {
             <button onClick={switchAccount} disabled={switching}
               className="w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm transition-all disabled:opacity-50">
               {switching ? 'กำลังออกจากระบบ...' : '🔄 ไม่ใช่ ต้องการเปลี่ยนบัญชี LINE'}
+            </button>
+          </div>
+        )}
+
+        {/* ─── เลือกร้าน (ไลไอดีนี้ผูกกับหลายร้าน — เจ้าของร้านตัวเอง + แอดมินร้านอื่นพร้อมกันได้) ─── */}
+        {view === 'picker' && (
+          <div className="py-2">
+            <div className="text-center mb-5">
+              <h2 className="text-lg font-black text-slate-900 mb-1">เลือกร้านที่ต้องการเข้า</h2>
+              <p className="text-slate-400 text-xs">บัญชี LINE นี้เชื่อมกับหลายร้าน</p>
+            </div>
+
+            <div className="space-y-2 mb-4">
+              {roleOptions.map((r) => (
+                <button key={`${r.shopId}-${r.role}`}
+                  onClick={() => goToRole(r, pendingProfile.userId)}
+                  className="w-full flex items-center justify-between gap-3 py-3.5 px-4 bg-slate-50 hover:bg-blue-50 border-2 border-transparent hover:border-blue-200 rounded-xl transition-all text-left">
+                  <span className="font-black text-slate-900 text-sm">{r.shopName || 'ร้านค้า'}</span>
+                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${r.role === 'owner' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                    {r.role === 'owner' ? '👑 เจ้าของร้าน' : '🛡️ แอดมิน'}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <button onClick={switchAccount} disabled={switching}
+              className="w-full py-3 text-slate-400 hover:text-slate-600 text-xs font-bold transition-all disabled:opacity-50">
+              {switching ? 'กำลังออกจากระบบ...' : '🔄 ต้องการเปลี่ยนบัญชี LINE'}
             </button>
           </div>
         )}

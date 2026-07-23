@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
+import { getRolesForLineId } from '../../../../lib/identity';
 
 export default async function handler(req, res) {
   const supabaseUrl = process.env.SUPABASE_URL;
@@ -38,19 +39,25 @@ export default async function handler(req, res) {
     const lineUserId = profileResponse.data.userId;
     const lineName = profileResponse.data.displayName;
 
-    // 3. ตรวจสอบในตาราง shop_profiles
-    const { data: shop, error } = await supabase
-      .from('shop_profiles')
-      .select('*')
-      .eq('owner_line_id', lineUserId.trim())
-      .maybeSingle();
+    // 3. ตรวจสอบว่าไลไอดีนี้ผูกกับร้านไหนบ้าง (เจ้าของ/แอดมิน) — ใช้ helper กลางแทน
+    //    .maybeSingle() เดิม ที่เช็คแค่ owner_line_id ทำให้แอดมิน-ล้วน (ไม่ใช่เจ้าของที่ไหนเลย)
+    //    ถูกเด้งไปหน้าสมัครสมาชิกใหม่ผิดๆ ทั้งที่มีบัญชีอยู่แล้ว
+    const trimmedId = lineUserId.trim();
+    const roles = await getRolesForLineId(trimmedId);
 
-    if (shop) {
-      // ถ้าพบข้อมูลแล้ว (เคยสมัครไว้แล้ว) ให้ไป Dashboard เลย
-      return res.redirect(`/dashboard?userId=${lineUserId}`);
+    if (roles.length === 0) {
+      // ยังไม่มีบทบาทใดๆ เลย → ไปหน้าสมัครสมาชิกใหม่
+      return res.redirect(`/register?userId=${trimmedId}&name=${encodeURIComponent(lineName)}`);
+    } else if (roles.length === 1) {
+      const r = roles[0];
+      if (r.role === 'admin') {
+        return res.redirect(`/dashboard?userId=${r.ownerId}&adminId=${trimmedId}`);
+      }
+      return res.redirect(`/dashboard?userId=${r.ownerId}`);
     } else {
-      // ถ้าไม่พบ ให้ไปหน้าสมัครสมาชิกใหม่
-      return res.redirect(`/register?userId=${lineUserId}&name=${encodeURIComponent(lineName)}`);
+      // ผูกกับหลายร้าน (เจ้าของร้านตัวเอง + แอดมินร้านอื่นพร้อมกัน) — ส่งต่อไปหน้า /login
+      // ให้แสดงตัวเลือกร้าน (login.js อ่าน query นี้แล้วเรียก check-user ซ้ำเพื่อโชว์ picker)
+      return res.redirect(`/login?picker=1&userId=${trimmedId}&name=${encodeURIComponent(lineName)}`);
     }
 
   } catch (error) {

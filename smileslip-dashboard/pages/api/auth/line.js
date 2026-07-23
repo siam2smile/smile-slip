@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { getRolesForLineId } from '../../../lib/identity';
 
 // ใช้ service role key เสมอสำหรับ API route (bypass RLS)
 const supabase = createClient(
@@ -18,19 +19,26 @@ export default async function handler(req, res) {
     }
 
     try {
-      // 1. เช็คก่อนว่ามีร้านค้านี้ในระบบหรือยัง
-      let { data: shop, error: fetchError } = await supabase
-        .from('shop_profiles')
-        .select('*')
-        .eq('owner_line_id', lineUserId)
-        .single();
+      // 1. เช็คก่อนว่าไลไอดีนี้ผูกกับร้านไหนอยู่แล้วบ้าง (เจ้าของ/แอดมิน) — ใช้ helper กลาง
+      //    แทน .single() เดิม ที่จะ throw ทันทีถ้าเจอแถวซ้ำ (เคยเกิดจริงจากบั๊กจุดนี้เอง)
+      const roles = await getRolesForLineId(lineUserId);
+      const ownerRole = roles.find(r => r.role === 'owner');
 
-      // 2. ถ้ายังไม่มีร้านค้า (ล็อคอินครั้งแรก) -> ทำการ "ลงทะเบียน" อัตโนมัติ
-      if (!shop) {
+      let shop;
+      if (ownerRole) {
+        // เป็นเจ้าของร้านอยู่แล้ว — ดึงข้อมูลเต็มมาคืน (ไม่ insert ซ้ำ)
+        const { data: existingShop, error: fetchError } = await supabase
+          .from('shop_profiles')
+          .select('*')
+          .eq('id', ownerRole.shopId)
+          .maybeSingle();
+        if (fetchError) throw fetchError;
+        shop = existingShop;
+      } else if (roles.length === 0) {
+        // ยังไม่มีบทบาทใดๆ เลย (ไม่ใช่ทั้งเจ้าของและแอดมิน) → ลงทะเบียนร้านใหม่อัตโนมัติ
         const newShopData = {
           owner_line_id: lineUserId,
           shop_name: displayName || 'ร้านค้าใหม่ (รอกำหนดชื่อ)',
-          // ถ้ามีคอลัมน์รูปโปรไฟล์ใน DB สามารถเพิ่ม pictureUrl ไปด้วยได้
         };
 
         const { data: newShop, error: insertError } = await supabase
@@ -47,6 +55,10 @@ export default async function handler(req, res) {
           shop_id: shop.id,
           balance_credits: 20
         });
+      } else {
+        // มีบทบาทเป็นแอดมินร้านอื่นอยู่แล้วแต่ไม่ใช่เจ้าของที่ไหนเลย — endpoint นี้ออกแบบมา
+        // สำหรับ flow เจ้าของร้านเท่านั้น คืน roles กลับไปให้ฝั่งเว็บตัดสินใจแทน (ไม่เดา/ไม่สร้างร้านทับ)
+        return res.status(200).json({ success: true, requiresRoleSelection: true, roles });
       }
 
       // 3. ส่งข้อมูลร้านค้ากลับไปให้หน้าเว็บเพื่อเข้าสู่ระบบ
