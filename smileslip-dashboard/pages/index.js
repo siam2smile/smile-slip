@@ -5,6 +5,7 @@ import {
   CheckCircle2, ChevronRight, ArrowRight, Zap, Shield, BarChart3,
   Clock, ChevronDown, Database, Lock, TrendingUp, Target, Award,
   Activity, FileSpreadsheet, ShieldCheck, Users, Smartphone, Star,
+  ShoppingCart, Truck, Wallet,
 } from 'lucide-react';
 
 export default function Home() {
@@ -65,12 +66,20 @@ export default function Home() {
       desc: 'รูปสลิปทุกใบเก็บเข้า Google Drive ส่วนตัวของร้านคุณ แยกโฟลเดอร์ตามเดือน — ข้อมูลไม่ผ่านเซิร์ฟเวอร์กลาง PDPA 100%',
       items: ['Google Drive ของร้านคุณเอง', 'แยกโฟลเดอร์ปี/เดือน', 'Export Excel รายเดือนได้'],
     },
+    {
+      icon: <ShoppingCart size={24}/>,
+      color: 'amber',
+      title: 'POS ขายหน้าร้านครบวงจร ในแอปเดียว',
+      desc: 'ไม่ต้องซื้อระบบ POS แยกอีกชุด — ขายหน้าร้าน จัดการสต็อก คิดภาษี VAT ออกใบกำกับภาษี และส่งพนักงานจัดส่งสินค้า ในระบบเดียวกับที่ตรวจสลิป',
+      items: ['ขายได้หลายบิลพร้อมกัน + พิมพ์ใบเสร็จ', 'สต็อกสินค้าหมุนเวียน (ถัง/ขวด) อัตโนมัติ', 'แอปพนักงานส่งของ ไม่ต้องติดตั้งเพิ่ม'],
+    },
   ];
 
   const colorMap = {
     blue:   { bg: 'bg-blue-50', border: 'border-blue-100', icon: 'bg-blue-100 text-blue-600', check: 'text-blue-500' },
     green:  { bg: 'bg-emerald-50', border: 'border-emerald-100', icon: 'bg-emerald-100 text-emerald-600', check: 'text-emerald-500' },
     purple: { bg: 'bg-violet-50', border: 'border-violet-100', icon: 'bg-violet-100 text-violet-600', check: 'text-violet-500' },
+    amber:  { bg: 'bg-amber-50', border: 'border-amber-100', icon: 'bg-amber-100 text-amber-600', check: 'text-amber-500' },
   };
 
   const MORE_FEATURES = [
@@ -78,6 +87,10 @@ export default function Home() {
     { icon: <FileSpreadsheet size={20}/>, title: 'ใบแจ้งหนี้ + ใบกำกับภาษีเต็มรูปแบบ', desc: 'ลูกค้านิติบุคคลขอใบแจ้งหนี้ผ่านระบบได้เอง ทีมงานออกใบกำกับภาษีพร้อมคำนวณ VAT และหัก ณ ที่จ่าย 3% ให้ครบ ส่งอีเมลอัตโนมัติ' },
     { icon: <Users size={20}/>, title: 'ชวนเพื่อนได้เครดิตฟรี', desc: 'ทุกร้านมีลิงก์แนะนำของตัวเอง ชวนร้านอื่นมาเชื่อม Google Drive สำเร็จ รับเครดิตฟรีทันทีทั้งสองฝ่าย ไม่มีจำกัดจำนวนครั้ง' },
     { icon: <BarChart3 size={20}/>, title: 'เทียบยอดหลายสาขาในที่เดียว', desc: 'เจ้าของแฟรนไชส์ดูยอดทุกสาขาพร้อมกันได้จาก Dashboard เดียว ไม่ต้องโทรถามแต่ละสาขาทุกวันอีกต่อไป' },
+    { icon: <Users size={20}/>, title: 'สิทธิ์พนักงานละเอียด', desc: 'กำหนดได้เองว่าพนักงานคนไหนดูยอดขาย/กำไรขาดทุน/จัดการสต็อก/export VAT ได้บ้าง แยกสิทธิ์รายคนจากมือถือของพนักงานเอง' },
+    { icon: <ShoppingCart size={20}/>, title: 'รับสินค้า/รายจ่ายผ่านรูปถ่ายใน LINE', desc: 'ถ่ายรูปใบส่งของ/บิลค่าใช้จ่ายส่งในกลุ่ม LINE เข้าคิวรอแอดมินตรวจสอบ+ยืนยัน ไม่ต้องพิมพ์เข้าระบบเอง' },
+    { icon: <Award size={20}/>, title: 'White-Label (Enterprise)', desc: 'ลบชื่อ Smile Slip Pro ออกจากใบเสร็จ/ใบกำกับภาษี/รายงาน Excel ให้เหลือแต่แบรนด์ร้านคุณเอง' },
+    { icon: <Target size={20}/>, title: 'Excel รายงานสำเร็จรูป', desc: 'ภ.พ.30, ยอดขายแยกสาขา, มูลค่าสต็อกสินค้าหมุนเวียน — ดาวน์โหลดพร้อมส่งนักบัญชีได้ทันที' },
   ];
 
   const ENTERPRISE_FEATURES = [
@@ -87,29 +100,64 @@ export default function Home() {
     { icon: '🔮', title: 'Revenue Forecast (AI)', desc: 'AI พยากรณ์รายรับ 3 เดือนข้างหน้า จากข้อมูลประวัติจริง — วางแผนสต็อก จ้างพนักงาน ได้ล่วงหน้า' },
   ];
 
+  const PAIN_POINTS = [
+    { icon: '🕵️', text: 'สลิปปลอม/สลิปซ้ำที่ไม่มีใครจับได้ทัน' },
+    { icon: '📦', text: 'สต็อกหายแต่หาสาเหตุไม่เจอ เพราะจดมือ' },
+    { icon: '💵', text: 'ปิดร้านแล้วเงินในลิ้นชักไม่ตรงบัญชี ไม่รู้ใครทำหาย' },
+  ];
+
+  const POS_FEATURES = [
+    { icon: <ShoppingCart size={22}/>, title: 'ขายหน้าร้านหลายบิลพร้อมกัน', desc: 'เปิดได้หลายบิลพร้อมกัน พิมพ์ใบเสร็จ/ใบกำกับภาษีเต็มรูปแบบทันที' },
+    { icon: <Database size={22}/>, title: 'สต็อกสินค้าหมุนเวียน', desc: 'ถังแก๊ส/ขวดน้ำ แลกเปลี่ยน-ยืมคืนคำนวณให้อัตโนมัติ ไม่ต้องนับเอง' },
+    { icon: <FileSpreadsheet size={22}/>, title: 'VAT ภ.พ.30 อัตโนมัติ', desc: 'คำนวณภาษีซื้อ-ขายทุกบิล ออกรายงานพร้อมยื่นสรรพากร แยกสาขาได้' },
+    { icon: <Truck size={22}/>, title: 'แอปพนักงานส่งของ', desc: 'พนักงานยืนยันจัดส่ง รับเงิน รับของคืนผ่านมือถือ ไม่ต้องติดตั้งแอปเพิ่ม' },
+    { icon: <Wallet size={22}/>, title: 'เปิด-ปิดกะเงินสด', desc: 'พนักงานเปิดกะด้วย PIN ตัวเอง ระบบกระทบยอดเงินสดให้อัตโนมัติ' },
+    { icon: <Smartphone size={22}/>, title: 'เว็บสั่งซื้อสาธารณะ', desc: 'ลูกค้าสั่งซื้อ/สั่งจัดส่งเองผ่านลิงก์ ไม่ต้องโทรสั่ง แยกลิงก์ต่อสาขาได้' },
+  ];
+
+  const ROI_COMPARE = [
+    { label: 'นักบัญชีรายเดือน', old: '฿8,000-15,000/เดือน', withUs: 'รวมในแพ็กเกจ Advance ฿499/เดือน' },
+    { label: 'ระบบ POS แยก', old: '฿500-2,000/เดือน', withUs: 'ไม่มีค่าใช้จ่ายเพิ่ม — อยู่ในระบบเดียวกัน' },
+    { label: 'เวลานั่งคัดสลิป/จดบัญชี', old: '2-3 ชม./วัน', withUs: '0 นาที — AI ทำให้อัตโนมัติ' },
+  ];
+
+  const COMPARISON_ROWS = [
+    { label: 'ความเร็วตรวจสอบสลิป', old: 'นั่งเช็คเองทีละใบ', us: 'อัตโนมัติภายใน 2 วินาที' },
+    { label: 'ระบบ POS + บัญชี', old: 'คนละระบบ ต้องกรอกซ้ำ', us: 'ระบบเดียว ข้อมูลเชื่อมกันหมด' },
+    { label: 'ตรวจจับสลิปปลอม/ซ้ำ', old: 'ไม่มีทางรู้จนเงินหาย', us: 'แจ้งเตือนทันทีที่พบความผิดปกติ' },
+    { label: 'ปิดกะ/กระทบยอดเงินสด', old: 'นับมือ เดาไม่ออกว่าใครทำเงินขาด', us: 'ระบบคำนวณให้ พร้อมแจ้งเจ้าของถ้ายอดไม่ตรง' },
+    { label: 'ข้อมูลเป็นของใคร', old: 'ล็อกอยู่ในระบบผู้ให้บริการ', us: 'Google Drive/Sheets ของร้านเอง 100%' },
+  ];
+
   const TIERS = [
     {
       name: 'Starter', price: 'ฟรี', period: '', color: 'slate',
-      desc: 'เริ่มต้นใช้ฟรี ไม่ต้องใส่บัตร',
-      features: ['50 เครดิตเริ่มต้น', 'สแกนสลิปอัตโนมัติ', 'Google Drive + Sheets', 'บันทึกรายรับ/รายจ่าย'],
-      cta: 'เริ่มฟรี', popular: false,
+      desc: 'ทดลองใช้ฟรีเต็มรูปแบบ 30 วัน ไม่ต้องผูกบัตร',
+      features: ['สแกนสลิปอัตโนมัติ + POS เต็มรูปแบบ', 'สต็อกหมุนเวียน/แอปพนักงานส่ง/เงินเชื่อ', 'Google Drive + Sheets ของร้านเอง'],
+      cta: 'เริ่มทดลองฟรี', popular: false,
     },
     {
       name: 'Shop Pro', price: '199', period: '/เดือน', color: 'blue',
-      desc: 'สำหรับร้านค้าที่ต้องการควบคุมยอดขายจริงจัง',
-      features: ['200 เครดิต/เดือน', '#สรุปยอดรายวัน/เดือน/ปี', 'แจ้งเจ้าของเมื่อมีสลิปเข้า', 'Analytics Dashboard', 'Export Excel'],
+      desc: 'สำหรับร้านค้าที่มีพนักงาน',
+      features: ['200 เครดิต/เดือน', '#สรุปยอด/#กำไรขาดทุน', 'แจ้งเจ้าของทันทีเมื่อมีสลิปเข้า', 'Analytics Dashboard'],
       cta: 'เลือกแพ็กเกจนี้', popular: true,
     },
     {
+      name: 'Advance', price: '499', period: '/เดือน', color: 'indigo',
+      desc: 'SME ที่มีนักบัญชี ต้องการ POS เต็มรูปแบบ',
+      features: ['ปลดล็อกสต็อกหมุนเวียน/แอปพนักงานส่ง/เงินเชื่อ', '5 สาขา', 'Export Excel ส่งนักบัญชี', '#สรุปทุกสาขา'],
+      cta: 'เลือกแพ็กเกจนี้', popular: false,
+    },
+    {
       name: 'Business', price: '999', period: '/เดือน', color: 'violet',
-      desc: 'สำหรับธุรกิจหลายสาขา ต้องการข้อมูลเชิงลึก',
-      features: ['1,000 เครดิต/เดือน', '10 สาขา · 3 Admin', 'Top Sender Analysis', 'หมวดหมู่อัตโนมัติ (AI)', 'Tax Report + Export CSV'],
+      desc: 'ร้านอาหาร/แฟรนไชส์เล็ก หลายสาขา',
+      features: ['10 สาขา · 3 Admin', 'รายงานภาษี VAT (ภ.พ.30)', 'Top Sender Analysis', 'Dashboard Mobile-first'],
       cta: 'เลือกแพ็กเกจนี้', popular: false,
     },
     {
       name: 'Enterprise', price: '2,990', period: '/เดือน', color: 'amber',
-      desc: 'ไม่จำกัดการสแกน + Marketing Intelligence เต็มรูปแบบ',
-      features: ['สแกน ∞ ไม่จำกัด', '20 สาขา · 10 Admin', '🔥 Peak Time Heatmap', '👥 RFM Customer Segments', '📈 Marketing ROI + Revenue Forecast'],
+      desc: 'แฟรนไชส์ใหญ่ ไม่จำกัดการสแกน',
+      features: ['สแกน ∞ ไม่จำกัด', '20 สาขา', '🔥 Heatmap + RFM + ROI + Forecast', 'Priority Support + Onboarding'],
       cta: 'ติดต่อทีมงาน', popular: false,
     },
   ];
@@ -117,6 +165,7 @@ export default function Home() {
   const tierColor = {
     slate:  { badge: 'bg-slate-100 text-slate-600', btn: 'bg-slate-700 hover:bg-slate-600 text-white', border: 'border-slate-200' },
     blue:   { badge: 'bg-blue-600 text-white', btn: 'bg-blue-700 hover:bg-blue-600 text-white', border: 'border-blue-400 ring-2 ring-blue-300' },
+    indigo: { badge: 'bg-indigo-100 text-indigo-700', btn: 'bg-indigo-600 hover:bg-indigo-700 text-white', border: 'border-indigo-200' },
     violet: { badge: 'bg-violet-100 text-violet-700', btn: 'bg-violet-700 hover:bg-violet-600 text-white', border: 'border-violet-200' },
     amber:  { badge: 'bg-amber-100 text-amber-700', btn: 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-white', border: 'border-amber-200' },
   };
@@ -129,7 +178,8 @@ export default function Home() {
 
   const FAQS = [
     { q: 'ข้อมูลการเงินของร้านปลอดภัยไหม?', a: 'ปลอดภัย 100% ครับ ข้อมูลธุรกรรมทั้งหมด (ยอดเงิน, ชื่อผู้โอน, รูปสลิป) เก็บตรงใน Google Drive และ Google Sheets ของร้านคุณเอง — ไม่ผ่านเซิร์ฟเวอร์กลางของเรา เป็นไปตาม PDPA' },
-    { q: 'ต้องจ่ายเงินทันทีไหม? ทดลองใช้ฟรีได้ไหม?', a: 'ไม่ต้องครับ แพ็กเกจ Starter ฟรี ได้รับ 20 เครดิตเริ่มต้น ไม่ต้องใส่บัตรเครดิต ทดลองใช้ได้เลยทันที' },
+    { q: 'ต้องจ่ายเงินทันทีไหม? ทดลองใช้ฟรีได้ไหม?', a: 'ไม่ต้องครับ แพ็กเกจ Starter ให้ทดลองใช้งานเต็มรูปแบบฟรี 30 วัน (รวมระบบ POS ขายหน้าร้านด้วย) ไม่ต้องใส่บัตรเครดิต ครบกำหนดแล้วค่อยเลือกแพ็กเกจที่เหมาะกับร้านต่อ ข้อมูลเดิมไม่หายแม้แต่บรรทัดเดียว' },
+    { q: 'มีระบบ POS ขายหน้าร้านด้วยไหม?', a: 'มีครับ ระบบ POS เต็มรูปแบบ (ขายหน้าร้าน จัดการสต็อกสินค้ารวมถึงสินค้าหมุนเวียน คิด VAT พิมพ์ใบเสร็จ/ใบกำกับภาษี แอปพนักงานส่งของ เปิด-ปิดกะเงินสด) รวมอยู่ในระบบเดียวกัน ไม่ต้องซื้อระบบ POS แยกต่างหาก' },
     { q: 'ใช้กับ LINE กลุ่มที่มีอยู่แล้วได้ไหม?', a: 'ได้เลยครับ เพียงแค่เพิ่ม Smile Slip บอท (@574unjqj) เข้ากลุ่ม LINE ที่พนักงานใช้อยู่แล้ว ไม่ต้องเปลี่ยนแอปหรือสร้างกลุ่มใหม่' },
     { q: 'ถ้ายกเลิก ข้อมูลใน Google Sheets หายไปไหม?', a: 'ไม่หายครับ เพราะข้อมูลอยู่ใน Google Drive ของร้านคุณเองตลอด แม้ยกเลิกบริการก็ยังเข้าถึงข้อมูลได้ตามปกติ' },
   ];
@@ -137,11 +187,11 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>Smile Slip Pro — AI ตรวจสลิป บันทึกบัญชีอัตโนมัติ สำหรับร้านค้า SME ไทย</title>
-        <meta name="description" content="เปลี่ยนกลุ่ม LINE ร้านค้าให้เป็นพนักงานบัญชีอัจฉริยะ ตรวจสลิปปลอม บันทึกบัญชีอัตโนมัติ 24 ชม. เชื่อมต่อ Google Sheets"/>
-        <meta name="keywords" content="ตรวจสลิป, LINE Bot, บัญชีร้านค้า, SME ไทย, Google Sheets, AI, สลิปปลอม"/>
-        <meta property="og:title" content="Smile Slip Pro — AI ตรวจสลิปอัตโนมัติ"/>
-        <meta property="og:description" content="พนักงานส่งสลิปใน LINE บอทอ่าน OCR บันทึกบัญชีอัตโนมัติ ป้องกันสลิปปลอม"/>
+        <title>Smile Slip Pro — AI ตรวจสลิป + ระบบ POS ขายหน้าร้านครบวงจร สำหรับร้านค้า SME ไทย</title>
+        <meta name="description" content="เปลี่ยนกลุ่ม LINE ร้านค้าให้เป็นพนักงานบัญชีอัจฉริยะ ตรวจสลิปปลอม บันทึกบัญชีอัตโนมัติ พร้อมระบบ POS ขายหน้าร้าน สต็อกสินค้า VAT และแอปพนักงานส่งของ ครบในแอปเดียว"/>
+        <meta name="keywords" content="ตรวจสลิป, LINE Bot, บัญชีร้านค้า, POS ขายหน้าร้าน, SME ไทย, Google Sheets, AI, สลิปปลอม, VAT"/>
+        <meta property="og:title" content="Smile Slip Pro — AI ตรวจสลิป + POS ครบวงจร"/>
+        <meta property="og:description" content="พนักงานส่งสลิปใน LINE บอทอ่าน OCR บันทึกบัญชีอัตโนมัติ ป้องกันสลิปปลอม พร้อมระบบ POS ขายหน้าร้านในแอปเดียว"/>
         <meta property="og:type" content="website"/>
         <meta name="viewport" content="width=device-width, initial-scale=1"/>
         <style>{`
@@ -216,15 +266,15 @@ export default function Home() {
                 </h1>
 
                 <p className="text-blue-200 text-base md:text-lg leading-relaxed mb-3">
-                  เปลี่ยนกลุ่ม LINE ร้านค้าของคุณให้เป็น <strong className="text-white">พนักงานบัญชีอัจฉริยะ</strong> ตรวจสลิปปลอม บันทึกบัญชีอัตโนมัติ ส่งสรุปยอดให้ทุกวัน
+                  เปลี่ยนกลุ่ม LINE ร้านค้าของคุณให้เป็น <strong className="text-white">พนักงานบัญชีอัจฉริยะ</strong> ตรวจสลิปปลอม บันทึกบัญชีอัตโนมัติ พร้อม <strong className="text-white">ระบบ POS ขายหน้าร้านครบวงจร</strong> ในแอปเดียว
                 </p>
-                <p className="text-blue-400 text-sm mb-8">— โดยไม่ต้องพิมพ์แม้แต่ตัวเดียว</p>
+                <p className="text-blue-400 text-sm mb-8">— โดยไม่ต้องพิมพ์แม้แต่ตัวเดียว และไม่ต้องซื้อระบบ POS แยกอีกชุด</p>
 
                 <div className="flex flex-col sm:flex-row gap-3 mb-8">
                   <Link href="/register"
                     className="flex items-center justify-center gap-2 px-8 py-4 bg-white text-blue-900 rounded-2xl font-black text-sm shadow-2xl hover:bg-blue-50 transition-all group">
                     เริ่มต้นใช้งานฟรี
-                    <span className="bg-emerald-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">รับ 20 เครดิต</span>
+                    <span className="bg-emerald-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">ทดลองฟรี 30 วัน</span>
                     <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform"/>
                   </Link>
                   <a href="https://lin.ee/wdnoEN5" target="_blank" rel="noreferrer"
@@ -350,6 +400,10 @@ export default function Home() {
                       <p className="text-emerald-500 text-[9px]">ข้อมูลอยู่ใน Google</p>
                     </div>
                   </div>
+                  <div className="absolute top-1/3 -right-4 bg-white rounded-2xl shadow-xl px-3 py-2 flex items-center gap-2 border border-slate-100">
+                    <ShoppingCart size={14} className="text-blue-600"/>
+                    <p className="text-slate-900 text-[10px] font-black">POS ในตัว</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -370,6 +424,37 @@ export default function Home() {
           </div>
         </section>
 
+        {/* ═══ TRUST BAR ═══ */}
+        <section className="bg-white py-8 border-b border-slate-100">
+          <div className="max-w-5xl mx-auto px-5 text-center">
+            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-4">ร้านค้าที่ไว้ใจใช้งาน</p>
+            <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-slate-500 text-sm font-bold">
+              <span>🍜 ร้านอาหาร</span>
+              <span>🏪 ร้านค้าปลีก</span>
+              <span>🔥 ร้านแก๊ส/น้ำ</span>
+              <span>📦 ร้านขายส่ง</span>
+              <span>🏢 แฟรนไชส์หลายสาขา</span>
+            </div>
+          </div>
+        </section>
+
+        {/* ═══ PROBLEM AGITATION ═══ */}
+        <section className="py-20 bg-gradient-to-b from-slate-900 to-slate-800">
+          <div className="max-w-4xl mx-auto px-5 text-center">
+            <p className="text-rose-400 font-bold text-sm uppercase tracking-wider mb-2">ก่อนจะสายเกินไป</p>
+            <h2 className="text-3xl md:text-4xl font-black text-white mb-4">เงินร้านคุณรั่วไหลตรงไหนบ้าง<br/>โดยที่ไม่รู้ตัว?</h2>
+            <p className="text-slate-400 mb-10 max-w-xl mx-auto">3 จุดที่ร้านค้าส่วนใหญ่เสียเงิน/เสียเวลาไปโดยไม่รู้ตัว — และเป็นจุดที่ระบบนี้แก้ให้ครบในที่เดียว</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+              {PAIN_POINTS.map((p, i) => (
+                <div key={i} className="bg-white/5 border border-rose-500/20 rounded-2xl p-6">
+                  <div className="text-3xl mb-3">{p.icon}</div>
+                  <p className="text-slate-200 text-sm leading-relaxed font-medium">{p.text}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
         {/* ═══ 3 CORE BENEFITS ═══ */}
         <section className="py-20 bg-slate-50" id="benefits">
           <div className="max-w-6xl mx-auto px-5">
@@ -377,7 +462,7 @@ export default function Home() {
               <p className="text-blue-600 font-bold text-sm uppercase tracking-wider mb-2">ทำไมต้องใช้ Smile Slip Pro?</p>
               <h2 className="text-3xl md:text-4xl font-black text-slate-900">ปัญหาที่ระบบนี้แก้ได้ทันที</h2>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {BENEFITS.map((b, i) => {
                 const c = colorMap[b.color];
                 return (
@@ -404,13 +489,14 @@ export default function Home() {
         <section className="py-20 bg-white">
           <div className="max-w-4xl mx-auto px-5 text-center">
             <p className="text-blue-600 font-bold text-sm uppercase tracking-wider mb-2">วิธีการทำงาน</p>
-            <h2 className="text-3xl font-black text-slate-900 mb-12">ง่ายใน 3 ขั้นตอน</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative">
-              <div className="hidden md:block absolute top-10 left-1/4 right-1/4 h-px bg-gradient-to-r from-blue-200 via-blue-400 to-blue-200"/>
+            <h2 className="text-3xl font-black text-slate-900 mb-12">ง่ายใน 4 ขั้นตอน</h2>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-8 relative">
+              <div className="hidden md:block absolute top-10 left-[12.5%] right-[12.5%] h-px bg-gradient-to-r from-blue-200 via-blue-400 to-blue-200"/>
               {[
                 { step:'01', icon:'📲', title:'เพิ่มบอทเข้ากลุ่ม LINE', desc:'เพิ่ม Smile Slip บอทเข้ากลุ่ม LINE ที่พนักงานใช้อยู่แล้ว ตั้งค่าเสร็จใน 5 นาที' },
                 { step:'02', icon:'🧾', title:'พนักงานส่งรูปสลิป', desc:'พนักงานถ่ายรูปสลิปแล้วส่งในกลุ่มเหมือนเดิม บอทรับและตรวจสอบทันที' },
                 { step:'03', icon:'📊', title:'บัญชีอัปเดตอัตโนมัติ', desc:'ข้อมูลวิ่งเข้า Google Sheets ของร้านทันที เจ้าของรับแจ้งเตือน ดู Dashboard ได้เลย' },
+                { step:'04', icon:'🛒', title:'เปิด POS ขายหน้าร้านได้เลย', desc:'ใช้อุปกรณ์เดียวกันเปิดขายหน้าร้าน จัดสต็อก ออกใบเสร็จ — ไม่ต้องสมัครระบบอื่นเพิ่ม' },
               ].map((s, i) => (
                 <div key={i} className="relative flex flex-col items-center">
                   <div className="w-20 h-20 bg-blue-50 border-2 border-blue-100 rounded-3xl flex items-center justify-center text-3xl mb-4 relative z-10 shadow-lg">
@@ -429,10 +515,10 @@ export default function Home() {
         <section className="py-20 bg-slate-50">
           <div className="max-w-6xl mx-auto px-5">
             <div className="text-center mb-12">
-              <p className="text-blue-600 font-bold text-sm uppercase tracking-wider mb-2">มากกว่าแค่บันทึกสลิป</p>
-              <h2 className="text-3xl md:text-4xl font-black text-slate-900">ครบเครื่องเรื่องบัญชีร้านค้า</h2>
+              <p className="text-blue-600 font-bold text-sm uppercase tracking-wider mb-2">ไม่ใช่แค่บันทึกบัญชี</p>
+              <h2 className="text-3xl md:text-4xl font-black text-slate-900">ครบเครื่องทั้งบัญชีและ POS ร้านค้า</h2>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
               {MORE_FEATURES.map((f, i) => (
                 <div key={i} className="bg-white rounded-2xl border border-slate-200 p-6 flex gap-4 hover:shadow-lg transition-all">
                   <div className="w-11 h-11 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
@@ -444,6 +530,49 @@ export default function Home() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ═══ POS SYSTEM SHOWCASE ═══ */}
+        <section className="py-20 bg-gradient-to-br from-emerald-950 via-teal-950 to-emerald-950 overflow-hidden relative" id="pos">
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(16,185,129,0.15),transparent_70%)] pointer-events-none"/>
+          <div className="max-w-6xl mx-auto px-5 relative z-10">
+            <div className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-black px-4 py-1.5 rounded-full mb-4 uppercase tracking-wider">
+                <ShoppingCart size={12}/> POS ระบบขายหน้าร้าน
+              </div>
+              <h2 className="text-3xl md:text-4xl font-black text-white mb-3 max-w-2xl mx-auto leading-snug">
+                ทำไมต้องซื้อระบบ POS แยก ในเมื่อมันอยู่ในแอปเดียวกับที่ตรวจสลิปอยู่แล้ว?
+              </h2>
+              <p className="text-emerald-300 text-base max-w-xl mx-auto">ขาย จัดสต็อก คิด VAT ออกใบกำกับภาษี และส่งพนักงานจัดส่งสินค้า — ทำได้ทั้งหมดโดยไม่ต้องสมัครระบบเพิ่มอีกชุด</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+              {POS_FEATURES.map((f, i) => (
+                <div key={i} className="bg-white/5 border border-white/10 rounded-2xl p-5 hover:bg-white/10 transition-all">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-300 flex items-center justify-center mb-3">{f.icon}</div>
+                  <h3 className="font-black text-white text-sm mb-1.5">{f.title}</h3>
+                  <p className="text-emerald-100/70 text-xs leading-relaxed">{f.desc}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Mock POS screen preview */}
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
+              <p className="text-white text-xs font-bold mb-3 flex items-center gap-2">🧾 ตัวอย่างใบเสร็จจากหน้าขาย POS จริง</p>
+              <div className="bg-white rounded-xl p-4 max-w-xs mx-auto font-mono text-[11px] text-slate-700 shadow-xl">
+                <p className="text-center font-black text-slate-900 mb-1">ร้านตัวอย่างของคุณ</p>
+                <p className="text-center text-slate-400 text-[9px] mb-2">ใบเสร็จรับเงิน / ใบกำกับภาษี</p>
+                <div className="border-t border-dashed border-slate-300 my-2"/>
+                <div className="flex justify-between"><span>น้ำแก๊ส 15 กก. x1</span><span>480.00</span></div>
+                <div className="flex justify-between text-slate-400"><span>↔️ แลกเปลี่ยนถังเก่า</span><span></span></div>
+                <div className="border-t border-dashed border-slate-300 my-2"/>
+                <div className="flex justify-between"><span>ก่อน VAT</span><span>448.60</span></div>
+                <div className="flex justify-between"><span>VAT 7%</span><span>31.40</span></div>
+                <div className="flex justify-between font-black text-slate-900 mt-1"><span>รวมสุทธิ</span><span>฿480.00</span></div>
+              </div>
+              <p className="text-emerald-100/50 text-[10px] mt-3 text-center">* ตัวอย่างข้อมูลสาธิต — พิมพ์จริงผ่านเครื่องพิมพ์ใบเสร็จหรือมือถือได้ทันที</p>
             </div>
           </div>
         </section>
@@ -502,6 +631,25 @@ export default function Home() {
           </div>
         </section>
 
+        {/* ═══ "แทนอะไรได้บ้าง" ROI FRAMING ═══ */}
+        <section className="py-16 bg-white">
+          <div className="max-w-4xl mx-auto px-5">
+            <div className="text-center mb-10">
+              <p className="text-blue-600 font-bold text-sm uppercase tracking-wider mb-2">คุ้มค่าแค่ไหน</p>
+              <h2 className="text-3xl font-black text-slate-900">แทนอะไรได้บ้าง</h2>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {ROI_COMPARE.map((r, i) => (
+                <div key={i} className="bg-slate-50 border border-slate-200 rounded-2xl p-5 text-center">
+                  <p className="text-slate-400 text-xs font-bold mb-2">{r.label}</p>
+                  <p className="text-rose-500 text-sm line-through mb-1">{r.old}</p>
+                  <p className="text-emerald-600 font-black text-sm">{r.withUs}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
         {/* ═══ PRICING ═══ */}
         <section className="py-20 bg-slate-50" id="pricing">
           <div className="max-w-6xl mx-auto px-5">
@@ -513,10 +661,10 @@ export default function Home() {
                 </div>
               )}
               <p className="text-blue-600 font-bold text-sm uppercase tracking-wider mb-2">ราคา</p>
-              <h2 className="text-3xl md:text-4xl font-black text-slate-900 mb-3">เริ่มต้นฟรี ขยายตามธุรกิจ</h2>
+              <h2 className="text-3xl md:text-4xl font-black text-slate-900 mb-3">ทดลองฟรี 30 วัน ขยายตามธุรกิจ</h2>
               <p className="text-slate-500">ไม่มีค่าติดตั้ง · ยกเลิกได้ทุกเมื่อ · ข้อมูลยังอยู่กับคุณ</p>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
               {TIERS.map((t, i) => {
                 const c = tierColor[t.color];
                 return (
@@ -599,6 +747,38 @@ export default function Home() {
           </div>
         </section>
 
+        {/* ═══ COMPARISON TABLE ═══ */}
+        <section className="py-20 bg-slate-50">
+          <div className="max-w-4xl mx-auto px-5">
+            <div className="text-center mb-10">
+              <p className="text-blue-600 font-bold text-sm uppercase tracking-wider mb-2">เทียบให้เห็นชัดๆ</p>
+              <h2 className="text-3xl font-black text-slate-900">Smile Slip Pro vs วิธีเดิม</h2>
+            </div>
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[560px]">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50">
+                      <th className="text-left px-5 py-4 font-bold text-slate-700">หัวข้อ</th>
+                      <th className="text-left px-4 py-4 font-bold text-slate-400">วิธีเดิม (จดมือ + POS แยก + นักบัญชี)</th>
+                      <th className="text-left px-4 py-4 font-bold text-emerald-600">Smile Slip Pro</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {COMPARISON_ROWS.map((row, i) => (
+                      <tr key={row.label} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                        <td className="text-left px-5 py-3 text-slate-700 font-medium">{row.label}</td>
+                        <td className="text-left px-4 py-3 text-slate-400">{row.old}</td>
+                        <td className="text-left px-4 py-3 text-emerald-700 font-bold">{row.us}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* ═══ FAQ ═══ */}
         <section className="py-20 bg-slate-50">
           <div className="max-w-2xl mx-auto px-5">
@@ -632,7 +812,7 @@ export default function Home() {
           <div className="max-w-2xl mx-auto px-5 text-center relative z-10">
             <div className="text-5xl mb-5">😊</div>
             <h2 className="text-3xl md:text-4xl font-black text-white mb-3">พร้อมเปิดร้านแบบสบายใจกว่านี้ไหม?</h2>
-            <p className="text-blue-300 mb-8">เริ่มต้นฟรี ไม่ต้องใส่บัตรเครดิต ตั้งค่าเสร็จใน 5 นาที</p>
+            <p className="text-blue-300 mb-8">บัญชี + POS ขายหน้าร้าน ครบในระบบเดียว — ทดลองฟรี 30 วัน ไม่ต้องใส่บัตรเครดิต ตั้งค่าเสร็จใน 5 นาที</p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <Link href="/register"
                 className="flex items-center justify-center gap-2 px-10 py-4 bg-white text-blue-900 rounded-2xl font-black shadow-2xl hover:bg-blue-50 transition-all group">
