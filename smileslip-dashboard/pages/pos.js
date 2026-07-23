@@ -450,10 +450,13 @@ export default function POSPage() {
   const [closeShiftResult, setCloseShiftResult] = useState(null); // สรุปหลังปิดกะสำเร็จ (แสดงก่อนปิด modal)
 
   // ── Multi-table bill management ───────────────────────────────────────────
-  // เก็บบิลที่เปิดค้างอยู่ทั้งหมด (localStorage) ให้ persist ข้ามการ refresh
+  // เก็บบิลที่เปิดค้างอยู่ทั้งหมด — localStorage (แคชในเครื่อง, instant) + sync ขึ้น
+  // Supabase แบบ debounce (ให้สลับเครื่อง/อุปกรณ์แล้วเห็นโต๊ะที่เปิดค้างตรงกัน — ผู้ใช้ยืนยันแล้ว
+  // ว่าใช้ทีละเครื่องไม่ได้แก้พร้อมกัน จึงไม่ต้องมี conflict resolution แค่ last-write-wins พอ)
   const [openBills, setOpenBills] = useState([]);
   const [activeBillId, setActiveBillIdState] = useState(null);
   const activeBillIdRef = useRef(null); // ref กันปัญหา stale closure ใน useEffect
+  const openBillsSyncTimer = useRef(null);
   const [showNewBillModal, setShowNewBillModal] = useState(false);
   const [newBillName, setNewBillName] = useState('');
   const [newBillCust, setNewBillCust] = useState(null); // ลูกค้าที่เลือกสำหรับบิลใหม่
@@ -462,6 +465,20 @@ export default function POSPage() {
   const [showBillsSidebar, setShowBillsSidebar] = useState(false); // แผงขยายรายการบิลที่เปิดค้างอยู่ + ค้นหา (เมื่อมีบิลเยอะ)
   const [billsSidebarQ, setBillsSidebarQ] = useState('');
   const [tableNamesInput, setTableNamesInput] = useState(''); // สำหรับ settings form
+
+  // บันทึกบิลที่เปิดค้าง — localStorage ทันที (ให้ UI เร็ว/ใช้ต่อได้แม้เน็ตหลุด) + sync
+  // ขึ้น server แบบ debounce กันยิง Supabase ถี่เกินตอนแก้ตะกร้ารัวๆ (เช่น พิมพ์จำนวนสินค้า)
+  function persistOpenBills(bills, names = tableNames) {
+    if (!shopId) return;
+    try { localStorage.setItem(`pos_bills_${shopId}`, JSON.stringify(bills)); } catch {}
+    clearTimeout(openBillsSyncTimer.current);
+    openBillsSyncTimer.current = setTimeout(() => {
+      fetch('/api/pos/open-bills', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, bills, table_names: names }),
+      }).catch(() => {});
+    }, 1200);
+  }
 
   function setActiveBillId(id) {
     activeBillIdRef.current = id;
@@ -1421,7 +1438,7 @@ export default function POSPage() {
         // ปิดบิลที่ active
         const remaining = openBills.filter(b => b.id !== activeBillId);
         setOpenBills(remaining);
-        localStorage.setItem(`pos_bills_${shopId}`, JSON.stringify(remaining));
+        persistOpenBills(remaining);
         if (remaining.length > 0) { setActiveBillId(remaining[0].id); setCart(remaining[0].items || []); }
         else { setActiveBillId(null); setCart([]); }
         setDiscount('');
@@ -1579,24 +1596,45 @@ export default function POSPage() {
     if (tab === 'collections') fetchCollectionTasks(shopId);
   }, [tab, configured, shopId]);
 
-  // โหลดบิลที่ค้างจาก localStorage เมื่อ shopId พร้อม
+  // โหลดบิลที่ค้างเมื่อ shopId พร้อม — ลอง server ก่อนเสมอ (ให้สลับเครื่องแล้วเห็นตรงกัน)
+  // ถ้าเรียก server ไม่ได้ (ออฟไลน์/ตารางยังไม่ถูกสร้าง) ใช้ localStorage เป็น fallback
+  // ถ้า server ว่างแต่เครื่องนี้มีข้อมูลเก่าใน localStorage (ยังไม่เคย sync มาก่อน) ให้ migrate ขึ้น server ทันที
   useEffect(() => {
     if (!shopId) return;
-    try {
-      const stored = localStorage.getItem(`pos_bills_${shopId}`);
-      const bills = stored ? JSON.parse(stored) : [];
-      const names = localStorage.getItem(`pos_table_names_${shopId}`);
-      if (names) {
-        const parsed = JSON.parse(names);
-        setTableNames(parsed);
-        setTableNamesInput(parsed.join(', '));
+    (async () => {
+      let localBills = [], localNames = [];
+      try {
+        const stored = localStorage.getItem(`pos_bills_${shopId}`);
+        localBills = stored ? JSON.parse(stored) : [];
+        const storedNames = localStorage.getItem(`pos_table_names_${shopId}`);
+        localNames = storedNames ? JSON.parse(storedNames) : [];
+      } catch {}
+
+      let bills = localBills, names = localNames;
+      try {
+        const r = await fetch(`/api/pos/open-bills?shopId=${shopId}`);
+        const d = await r.json();
+        if (d.ok && !d.tableMissing) {
+          bills = d.bills || [];
+          names = (d.table_names && d.table_names.length) ? d.table_names : localNames;
+          if (bills.length === 0 && localBills.length > 0) {
+            bills = localBills; // เครื่องนี้ยังไม่เคย sync มาก่อน — ใช้ของเดิมเป็นตั้งต้นแล้วดันขึ้น server
+            persistOpenBills(bills, names);
+          }
+        }
+      } catch {}
+
+      if (names.length) {
+        setTableNames(names);
+        setTableNamesInput(names.join(', '));
       }
       if (bills.length > 0) {
         setOpenBills(bills);
         setActiveBillId(bills[0].id);
         setCart(bills[0].items || []);
+        try { localStorage.setItem(`pos_bills_${shopId}`, JSON.stringify(bills)); } catch {}
       }
-    } catch {}
+    })();
   }, [shopId]);
 
   // sync cart → openBills ทุกครั้งที่ cart เปลี่ยน
@@ -1605,7 +1643,7 @@ export default function POSPage() {
     if (!id || !shopId) return;
     setOpenBills(prev => {
       const updated = prev.map(b => b.id === id ? { ...b, items: cart } : b);
-      localStorage.setItem(`pos_bills_${shopId}`, JSON.stringify(updated));
+      persistOpenBills(updated);
       return updated;
     });
   }, [cart]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1623,7 +1661,7 @@ export default function POSPage() {
     };
     setOpenBills(prev => {
       const updated = [...prev, newBill];
-      if (shopId) localStorage.setItem(`pos_bills_${shopId}`, JSON.stringify(updated));
+      if (shopId) persistOpenBills(updated);
       return updated;
     });
     setActiveBillId(id);
@@ -1703,7 +1741,7 @@ export default function POSPage() {
     }
     const remaining = openBills.filter(b => b.id !== billId);
     setOpenBills(remaining);
-    if (shopId) localStorage.setItem(`pos_bills_${shopId}`, JSON.stringify(remaining));
+    if (shopId) persistOpenBills(remaining);
     if (billId === activeBillId) {
       if (remaining.length > 0) {
         setActiveBillId(remaining[0].id);
@@ -1721,7 +1759,10 @@ export default function POSPage() {
   function saveTableNames(rawInput) {
     const names = rawInput.split(',').map(s => s.trim()).filter(Boolean);
     setTableNames(names);
-    if (shopId) localStorage.setItem(`pos_table_names_${shopId}`, JSON.stringify(names));
+    if (shopId) {
+      localStorage.setItem(`pos_table_names_${shopId}`, JSON.stringify(names));
+      persistOpenBills(openBills, names); // sync ชื่อโต๊ะขึ้น server ด้วย ให้เครื่องอื่นเห็นตรงกัน
+    }
     showToast('บันทึกชื่อโต๊ะแล้ว');
   }
 
@@ -1917,7 +1958,7 @@ export default function POSPage() {
         // ปิดบิลที่ checkout เสร็จ + สลับไปบิลถัดไป (ถ้ามี)
         const remaining = openBills.filter(b => b.id !== activeBillId);
         setOpenBills(remaining);
-        if (shopId) localStorage.setItem(`pos_bills_${shopId}`, JSON.stringify(remaining));
+        if (shopId) persistOpenBills(remaining);
         if (remaining.length > 0) {
           setActiveBillId(remaining[0].id);
           setCart(remaining[0].items || []);
