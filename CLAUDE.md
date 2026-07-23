@@ -2,7 +2,7 @@
 
 โปรเจกต์ของ Vespa / Siam Global Network Enterprise
 ภาษาหลักในโค้ดและ comment: **ไทย**
-อัปเดตล่าสุด: 2026-07-23 (ต่อจากระบบเปิดกะ/ปิดกะเงินสด (ข้อ 41) — ทำ 2 งานใหญ่เพิ่ม: (1) **ปรับปรุงหน้าเซลเพจ (`pages/index.js`)** ให้ตรงกับสิ่งที่ระบบมีจริงตอนนี้ — เดิมพูดถึงแค่บอทตรวจสลิป ไม่เคยพูดถึงระบบ POS ขายหน้าร้านที่มีมานานแล้ว และตารางราคาขาดแพ็กเกจ Advance — เพิ่ม Trust bar, Problem Agitation, POS System Showcase, ROI comparison, ตารางเทียบ "Smile Slip Pro vs วิธีเดิม", แก้ราคาให้ครบ 5 แพ็กเกจ, อัปเดต FAQ — Deploy production แล้ว (revision จริง `smileslip-dashboard-00275-v24`) verified ผ่าน curl ว่าเนื้อหาใหม่ขึ้นจริงบน smileslippro.com (2) **Sync บิล/โต๊ะที่เปิดค้างข้ามอุปกรณ์** (ดูข้อ 42) — ผู้ใช้เจอปัญหาจริง: เข้าผ่านแท็บเล็ต/คอมด้วย LINE บัญชีเดียวกันแต่เห็นโต๊ะที่เปิดค้างไม่ตรงกัน เพราะเดิมเก็บแค่ `localStorage` ต่อเครื่อง — ย้ายไป sync ผ่าน Supabase (`pos_open_bills`, last-write-wins ตามที่ผู้ใช้ยืนยันว่าไม่ต้องกัน conflict เพราะใช้ทีละเครื่อง) ผู้ใช้รัน SQL แล้ว ทดสอบ end-to-end ผ่านครบ — ยังไม่ได้ deploy รอบนี้ (รอ commit+ยืนยัน deploy) — เหลือเดิม: เปิดลิ้นชักเงินสดอัตโนมัติ (ต้องมีเครื่องพิมพ์จริง), โอนย้ายสต็อกข้ามสาขา (deferred), White-Label แบบ LINE OA เต็มรูปแบบ (ยังไม่เริ่ม), QR สั่งอาหารที่โต๊ะ (วางแผนแล้ว ยังไม่เริ่ม))
+อัปเดตล่าสุด: 2026-07-23 (ต่อจากระบบเปิดกะ/ปิดกะเงินสด (ข้อ 41) — ทำ 2 งานใหญ่เพิ่ม: (1) **ปรับปรุงหน้าเซลเพจ (`pages/index.js`)** ให้ตรงกับสิ่งที่ระบบมีจริงตอนนี้ — เดิมพูดถึงแค่บอทตรวจสลิป ไม่เคยพูดถึงระบบ POS ขายหน้าร้านที่มีมานานแล้ว และตารางราคาขาดแพ็กเกจ Advance — เพิ่ม Trust bar, Problem Agitation, POS System Showcase, ROI comparison, ตารางเทียบ "Smile Slip Pro vs วิธีเดิม", แก้ราคาให้ครบ 5 แพ็กเกจ, อัปเดต FAQ — Deploy production แล้ว (revision จริง `smileslip-dashboard-00275-v24`) verified ผ่าน curl ว่าเนื้อหาใหม่ขึ้นจริงบน smileslippro.com (2) **Sync บิล/โต๊ะที่เปิดค้างข้ามอุปกรณ์** (ดูข้อ 42) — ผู้ใช้เจอปัญหาจริง: เข้าผ่านแท็บเล็ต/คอมด้วย LINE บัญชีเดียวกันแต่เห็นโต๊ะที่เปิดค้างไม่ตรงกัน เพราะเดิมเก็บแค่ `localStorage` ต่อเครื่อง — ย้ายไป sync ผ่าน Supabase (`pos_open_bills`, last-write-wins ตามที่ผู้ใช้ยืนยันว่าไม่ต้องกัน conflict เพราะใช้ทีละเครื่อง) ผู้ใช้รัน SQL แล้ว ทดสอบ end-to-end ผ่านครบ — **Deploy production แล้ว (revision จริง `smileslip-dashboard-00276-bcb`)** verified ผ่าน curl ว่า `/api/pos/open-bills` ทำงานถูกต้องบน production จริง — เหลือเดิม: เปิดลิ้นชักเงินสดอัตโนมัติ (ต้องมีเครื่องพิมพ์จริง), โอนย้ายสต็อกข้ามสาขา (deferred), White-Label แบบ LINE OA เต็มรูปแบบ (ยังไม่เริ่ม), QR สั่งอาหารที่โต๊ะ (วางแผนแล้ว ยังไม่เริ่ม))
 
 ---
 
@@ -385,7 +385,7 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
 | Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00145-zlx` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00274-g98` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00276-bcb` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
