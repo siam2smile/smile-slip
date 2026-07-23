@@ -15,6 +15,43 @@ const PAY_METHODS = ['เงินสด', 'โอน', 'บัตรเคร�
 const EXPENSE_CATEGORIES = ['ค่าเช่าร้าน', 'ค่าน้ำ', 'ค่าไฟ', 'ค่าน้ำมัน/ขนส่ง', 'เงินเดือนพนักงาน', 'ค่าโทรศัพท์/อินเทอร์เน็ต', 'ค่าซ่อมบำรุง', 'ค่าวัสดุสิ้นเปลือง', 'ค่าการตลาด/โฆษณา'];
 const CONTACT_TYPES = ['ผู้จำหน่าย', 'ลูกค้า', 'ทั้งคู่'];
 
+// สิทธิ์เชิงลึกของพนักงาน (session ที่เซ็นชื่อผ่าน PIN) — บังคับจริงฝั่ง API ผ่าน lib/pos-auth.js
+// ไม่ใช่แค่ซ่อน UI เฉยๆ — 4 ตัวแรกมีมาก่อน (ดูยอดขาย/กำไรขาดทุน/จัดการสต็อก/export VAT),
+// 8 ตัวหลังเพิ่มใหม่ (2026-07-23) ครอบคลุมการขาย/จัดส่ง/ลูกค้า/รายจ่าย/รับสินค้า/ใบกำกับภาษี/
+// จัดการพนักงานเอง
+const STAFF_PERM_DEFS = [
+  { key: 'perm_view_revenue', icon: '📊', label: 'ดูยอดขายรวม' },
+  { key: 'perm_view_pl', icon: '💰', label: 'ดูกำไรขาดทุน' },
+  { key: 'perm_manage_stock', icon: '📦', label: 'จัดการสต็อกสินค้า' },
+  { key: 'perm_export_vat', icon: '🧾', label: 'Export รายงาน VAT' },
+  { key: 'perm_process_sales', icon: '🛒', label: 'ขายหน้าร้าน' },
+  { key: 'perm_void_sales', icon: '↩️', label: 'ยกเลิกบิล' },
+  { key: 'perm_manage_customers', icon: '👥', label: 'จัดการลูกค้า/ผู้ติดต่อ' },
+  { key: 'perm_manage_expenses', icon: '💸', label: 'จัดการรายจ่าย' },
+  { key: 'perm_manage_delivery', icon: '🚚', label: 'จัดการจัดส่ง/เก็บเงิน' },
+  { key: 'perm_manage_receiving', icon: '📥', label: 'บันทึกรับสินค้า' },
+  { key: 'perm_issue_tax_invoice', icon: '📄', label: 'ออกใบกำกับภาษี' },
+  { key: 'perm_manage_staff', icon: '🔐', label: 'จัดการพนักงาน (เพิ่ม/แก้ไข/ตั้งสิทธิ์)' },
+];
+
+// ตำแหน่งสำเร็จรูป — กดแล้วติ๊กสิทธิ์ที่แนะนำให้อัตโนมัติ ยังแก้ไขทีละอันต่อได้เหมือนเดิม
+// (hybrid ตามที่ผู้ใช้เลือก: มีทั้งตำแหน่งสำเร็จรูปและติ๊กเองละเอียด)
+const STAFF_PRESETS = {
+  'แคชเชียร์': ['perm_process_sales', 'perm_manage_customers'],
+  'ผู้จัดการสาขา': [
+    'perm_process_sales', 'perm_void_sales', 'perm_manage_customers', 'perm_view_revenue',
+    'perm_view_pl', 'perm_manage_stock', 'perm_manage_expenses', 'perm_manage_delivery', 'perm_manage_receiving',
+  ],
+  'พนักงานส่งของ': ['perm_manage_delivery'],
+  'กำหนดเอง': [],
+};
+
+function emptyStaffPerms() {
+  const perms = {};
+  STAFF_PERM_DEFS.forEach(p => { perms[p.key] = false; });
+  return perms;
+}
+
 function emptyProdForm() {
   return { name: '', category: '', price: '', stock: '', unit: 'ชิ้น', aliases: '', notes: '', type: 'นับสต็อค', product_code: '', barcode: '', description: '', vat_type: 'ไม่มี VAT', is_active: true, empty_ceiling: '', branches: [] };
 }
@@ -377,7 +414,20 @@ function QrContactModal({ contact, onClose }) {
 
 export default function POSPage() {
   const router = useRouter();
-  const { userId } = router.query;
+  const { userId, mode, shopId: cashierShopId } = router.query;
+  const cashierMode = mode === 'cashier';
+
+  // ── โหมดแคชเชียร์ (/pos?shopId=<id>&mode=cashier) — ลิงก์แยกต่างหากสำหรับพนักงาน/แคชเชียร์
+  // บังคับใส่ PIN ก่อนเสมอ ไม่มีทางเข้าถึง Dashboard/ตั้งค่าได้จากตรงนี้เลย (ต่างจากลิงก์
+  // /pos?userId=... ของเจ้าของร้านที่ไม่มีการยืนยันตัวตนเพิ่มเติม เพราะผูกกับบัญชี LINE ที่
+  // login เข้า Dashboard มาแล้ว) — แก้ปัญหาที่พนักงานแคชเชียร์เดิมใช้ลิงก์เดียวกับเจ้าของร้าน
+  // แล้วกดเข้า Dashboard เห็นข้อมูลทั้งหมดได้ตลอด ไม่มีการแยกสิทธิ์จริงเลย
+  const [cashierSession, setCashierSession] = useState(null); // { sessionToken, staff, isWhiteLabel } หลัง PIN ผ่าน
+  const [cashierSessionChecked, setCashierSessionChecked] = useState(false); // เช็ค sessionStorage ครั้งแรกเสร็จหรือยัง
+  const [cashierPin, setCashierPin] = useState('');
+  const [cashierPinError, setCashierPinError] = useState('');
+  const [cashierPinLoading, setCashierPinLoading] = useState(false);
+  const cashierSessionKey = cashierMode && cashierShopId ? `pos_cashier_session_${cashierShopId}` : null;
 
   const [tab, setTab] = useState('sell');
   const [showMoreMenu, setShowMoreMenu] = useState(false); // แท็บมือถือ: ตัวเลือกรองที่ไม่ได้ใช้บ่อยซ่อนใน "เพิ่มเติม"
@@ -613,7 +663,8 @@ export default function POSPage() {
   const [staffLoading, setStaffLoading] = useState(false);
   const [showStaffForm, setShowStaffForm] = useState(false);
   const [editStaff, setEditStaff] = useState(null);
-  const [staffForm, setStaffForm] = useState({ name: '', phone: '', line_id: '', role: 'พนักงานส่ง', notes: '', perm_view_revenue: false, perm_view_pl: false, perm_manage_stock: false, perm_export_vat: false });
+  const [staffForm, setStaffForm] = useState({ name: '', phone: '', line_id: '', role: 'พนักงานส่ง', notes: '', ...emptyStaffPerms() });
+  const [staffPreset, setStaffPreset] = useState('');
 
   // ── คำขอสมัคร #สมัครพนักงานขนส่ง / #สมัครผู้จัดการสาขา (ผ่านกลุ่ม LINE) ──────
   const [staffRequests, setStaffRequests] = useState([]);
@@ -684,8 +735,56 @@ export default function POSPage() {
   const shopId = shopInfo?.id;
 
   // ── init ──────────────────────────────────────────────────────────────────
+  // โหลดสาขา/สินค้า/ผู้ติดต่อ/พนักงาน/ฯลฯ หลังรู้ profile ของร้านแล้ว — ใช้ร่วมกันทั้งเส้นทาง
+  // เจ้าของร้าน (ผ่าน /api/shop/data?userId=) และเส้นทางแคชเชียร์ (ผ่าน PIN + /api/pos/cashier-shop-info)
+  async function loadShopBody(profile) {
+    if (!profile?.id) { setLoading(false); return; }
+
+    const brRes = await fetch(`/api/shop/branches?shopId=${profile.id}`);
+    const brData = await brRes.json();
+    const activeBranches = (brData.branches || []).filter(b => b.is_active !== false);
+    setPosBranches(activeBranches);
+
+    const cfgRes = await fetch(`/api/pos/setup?shopId=${profile.id}`);
+    const cfg = await cfgRes.json();
+    setConfigured(cfg.configured);
+    if (cfg.configured) {
+      await Promise.all([
+        fetchProducts(profile.id),
+        fetchContacts(profile.id),
+        fetchStaff(profile.id),
+        fetchStaffRequests(profile.id),
+        fetchPosConfig(profile.id),
+        fetchOrders(profile.id),
+        fetchAdmins(profile.id),
+      ]);
+
+      // เลือกสาขาอัตโนมัติ (หรือให้เลือก)
+      if (activeBranches.length === 1) {
+        setSelectedBranch(activeBranches[0]);
+      } else if (activeBranches.length > 1) {
+        try {
+          const saved = localStorage.getItem(`pos_branch_${profile.id}`);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            // ตรวจว่าสาขายังมีอยู่
+            if (activeBranches.find(b => b.id === parsed.id)) {
+              setSelectedBranch(parsed);
+            } else {
+              setShowBranchSelect(true);
+            }
+          } else {
+            setShowBranchSelect(true);
+          }
+        } catch {
+          setShowBranchSelect(true);
+        }
+      }
+    }
+  }
+
   useEffect(() => {
-    if (!userId) return;
+    if (cashierMode || !userId) return; // โหมดแคชเชียร์โหลดข้อมูลหลัง PIN ผ่านแยกต่างหาก (ดูด้านล่าง)
     async function init() {
       setLoading(true);
       try {
@@ -694,58 +793,103 @@ export default function POSPage() {
         const profile = shopData.profile;
         setShopInfo(profile);
         setGoogleConnected(!!(shopData.googleConfig?.google_refresh_token));
-
-        if (!profile?.id) { setLoading(false); return; }
-
-        // โหลดสาขา
-        const brRes = await fetch(`/api/shop/branches?shopId=${profile.id}`);
-        const brData = await brRes.json();
-        const activeBranches = (brData.branches || []).filter(b => b.is_active !== false);
-        setPosBranches(activeBranches);
-
-        const cfgRes = await fetch(`/api/pos/setup?shopId=${profile.id}`);
-        const cfg = await cfgRes.json();
-        setConfigured(cfg.configured);
-        if (cfg.configured) {
-          await Promise.all([
-            fetchProducts(profile.id),
-            fetchContacts(profile.id),
-            fetchStaff(profile.id),
-            fetchStaffRequests(profile.id),
-            fetchPosConfig(profile.id),
-            fetchOrders(profile.id),
-            fetchAdmins(profile.id),
-          ]);
-
-          // เลือกสาขาอัตโนมัติ (หรือให้เลือก)
-          if (activeBranches.length === 1) {
-            setSelectedBranch(activeBranches[0]);
-          } else if (activeBranches.length > 1) {
-            try {
-              const saved = localStorage.getItem(`pos_branch_${profile.id}`);
-              if (saved) {
-                const parsed = JSON.parse(saved);
-                // ตรวจว่าสาขายังมีอยู่
-                if (activeBranches.find(b => b.id === parsed.id)) {
-                  setSelectedBranch(parsed);
-                } else {
-                  setShowBranchSelect(true);
-                }
-              } else {
-                setShowBranchSelect(true);
-              }
-            } catch {
-              setShowBranchSelect(true);
-            }
-          }
-        }
+        await loadShopBody(profile);
       } catch (err) {
         console.error('[pos/init]', err);
       }
       setLoading(false);
     }
     init();
-  }, [userId]);
+  }, [userId, cashierMode]);
+
+  // ── โหมดแคชเชียร์: กู้คืน session ที่เซ็นชื่อจาก sessionStorage ถ้ามี (ยังไม่หมดอายุ) ──
+  // sessionStorage อยู่ได้แค่ในแท็บนี้จนกว่าจะปิด พอดีกับเครื่องคิดเงินที่หลายคนหมุนเวียนใช้
+  // เครื่องเดียวกัน (ปิดแท็บ = ล้าง session อัตโนมัติ ไม่ตกค้างให้คนถัดไปสวมสิทธิ์)
+  useEffect(() => {
+    if (!cashierMode || !cashierShopId) return;
+    (async () => {
+      let saved = null;
+      try { saved = JSON.parse(sessionStorage.getItem(cashierSessionKey) || 'null'); } catch {}
+      if (!saved?.sessionToken) { setCashierSessionChecked(true); setLoading(false); return; }
+      try {
+        const r = await fetch(`/api/pos/cashier-shop-info?shopId=${cashierShopId}&session=${encodeURIComponent(saved.sessionToken)}`);
+        const d = await r.json();
+        if (!r.ok || !d.ok) {
+          try { sessionStorage.removeItem(cashierSessionKey); } catch {}
+          setCashierSessionChecked(true);
+          setLoading(false);
+          return;
+        }
+        setCashierSession(saved);
+        setShopInfo(d.shop);
+        setGoogleConnected(true); // มีลิงก์แคชเชียร์ได้แปลว่าร้านตั้งค่า POS + เชื่อม Google ไว้แล้วเสมอ
+        await loadShopBody(d.shop);
+      } catch {}
+      setCashierSessionChecked(true);
+      setLoading(false);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cashierMode, cashierShopId]);
+
+  async function verifyCashierPin() {
+    if (!cashierPin.trim() || cashierPinLoading || !cashierShopId) return;
+    setCashierPinLoading(true);
+    setCashierPinError('');
+    try {
+      const r = await fetch('/api/pos/verify-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId: cashierShopId, pin: cashierPin.trim(), purpose: 'pos_cashier' }),
+      });
+      const d = await r.json();
+      if (d.ok && d.sessionToken) {
+        const sessionPayload = { sessionToken: d.sessionToken, staff: d.staff, isWhiteLabel: !!d.isWhiteLabel };
+        setCashierSession(sessionPayload);
+        if (cashierSessionKey) { try { sessionStorage.setItem(cashierSessionKey, JSON.stringify(sessionPayload)); } catch {} }
+        setLoading(true);
+        try {
+          const infoRes = await fetch(`/api/pos/cashier-shop-info?shopId=${cashierShopId}&session=${encodeURIComponent(d.sessionToken)}`);
+          const infoData = await infoRes.json();
+          if (infoData.ok) {
+            setShopInfo(infoData.shop);
+            setGoogleConnected(true);
+            await loadShopBody(infoData.shop);
+          }
+        } catch (err) { console.error('[pos/cashier-shop-info]', err); }
+        setLoading(false);
+      } else {
+        setCashierPinError(d.error || 'PIN ไม่ถูกต้อง');
+        setCashierPin('');
+      }
+    } catch (err) {
+      setCashierPinError('เกิดข้อผิดพลาด');
+    }
+    setCashierPinLoading(false);
+  }
+
+  function cashierLogout() {
+    setCashierSession(null);
+    if (cashierSessionKey) { try { sessionStorage.removeItem(cashierSessionKey); } catch {} }
+    setCashierPin('');
+    setShopInfo(null);
+    setConfigured(false);
+  }
+
+  // แนบ session ของแคชเชียร์เป็น header `x-staff-session` ให้ทุกคำขอ /api/ ที่ยิงออกจากหน้านี้
+  // โดยอัตโนมัติ (ไม่ต้องแก้ทุกจุดที่เรียก fetch() ในไฟล์นี้ทีละจุด — ไฟล์นี้ใหญ่มาก) เจ้าของร้าน
+  // (ไม่ใช่โหมดแคชเชียร์) ไม่ถูกกระทบเลยเพราะ effect นี้ไม่ทำงานเลยถ้า cashierMode เป็น false
+  useEffect(() => {
+    if (!cashierMode || !cashierSession?.sessionToken) return;
+    const originalFetch = window.fetch;
+    window.fetch = (input, init = {}) => {
+      const url = typeof input === 'string' ? input : (input?.url || '');
+      if (url.startsWith('/api/')) {
+        init = { ...init, headers: { ...(init.headers || {}), 'x-staff-session': cashierSession.sessionToken } };
+      }
+      return originalFetch(input, init);
+    };
+    return () => { window.fetch = originalFetch; };
+  }, [cashierMode, cashierSession?.sessionToken]);
 
   // ── โหลดกะเงินสดที่เปิดค้างไว้ (ถ้ามี) จาก localStorage แล้วเช็คกับ server ว่ายังเปิดอยู่จริง ──
   // (กันเคสกะถูกปิดไปแล้วจากอุปกรณ์อื่น/ปิดกะแล้วแต่ localStorage เครื่องนี้ไม่ทันอัปเดต)
@@ -1032,7 +1176,8 @@ export default function POSPage() {
       if (d.ok !== false) {
         setShowStaffForm(false);
         setEditStaff(null);
-        setStaffForm({ name: '', phone: '', line_id: '', role: 'พนักงานส่ง', notes: '', perm_view_revenue: false, perm_view_pl: false, perm_manage_stock: false, perm_export_vat: false });
+        setStaffForm({ name: '', phone: '', line_id: '', role: 'พนักงานส่ง', notes: '', ...emptyStaffPerms() });
+        setStaffPreset('');
         await fetchStaff();
         showToast(editStaff ? 'แก้ไขพนักงานแล้ว' : 'เพิ่มพนักงานแล้ว');
       } else { alert(d.error); }
@@ -3046,6 +3191,52 @@ export default function POSPage() {
     setTimeout(() => setToast(''), 3000);
   }
 
+  // ── โหมดแคชเชียร์: บังคับใส่ PIN ก่อนเสมอ ไม่มีทางเห็นเนื้อหาอื่นได้เลยจนกว่าจะผ่าน ──
+  // (ต่างจากลิงก์ /pos?userId=... ของเจ้าของร้านที่ไม่มีการยืนยันตัวตนเพิ่มเติมเลย)
+  if (cashierMode && !cashierShopId) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
+        <div className="text-gray-400 text-sm text-center">
+          <div className="text-4xl mb-3">🔒</div>
+          ลิงก์ไม่ถูกต้อง — ไม่พบรหัสร้าน<br />
+          <span className="text-xs">ขอลิงก์แคชเชียร์ใหม่จากเจ้าของร้าน/แอดมิน</span>
+        </div>
+      </div>
+    );
+  }
+  if (cashierMode && !cashierSessionChecked) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="text-gray-400 text-sm animate-pulse">กำลังโหลด...</div>
+      </div>
+    );
+  }
+  if (cashierMode && !cashierSession) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center p-4">
+        <Head><title>เข้าสู่ระบบแคชเชียร์ · Smile Slip POS</title></Head>
+        <div className="text-4xl mb-4">🔐</div>
+        <h2 className="text-white font-bold text-xl mb-2">ใส่ PIN แคชเชียร์</h2>
+        <p className="text-gray-400 text-sm mb-8">กรอก PIN ส่วนตัวของคุณเพื่อเข้าระบบขายหน้าร้าน</p>
+
+        <div className="w-full max-w-xs">
+          <input type="password" inputMode="numeric" maxLength={4} value={cashierPin}
+            onChange={e => setCashierPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            onKeyDown={e => { if (e.key === 'Enter') verifyCashierPin(); }}
+            placeholder="••••"
+            className="w-full bg-gray-900 border border-gray-700 text-white text-center text-3xl tracking-[0.5em] px-4 py-4 rounded-2xl mb-4 focus:outline-none focus:border-green-500" />
+
+          {cashierPinError && <div className="text-red-400 text-sm text-center mb-4">{cashierPinError}</div>}
+
+          <button onClick={verifyCashierPin} disabled={cashierPin.length !== 4 || cashierPinLoading}
+            className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-4 rounded-2xl text-lg transition-colors">
+            {cashierPinLoading ? 'กำลังตรวจสอบ...' : 'เข้าสู่ระบบ'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // ── loading ───────────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -3081,9 +3272,11 @@ export default function POSPage() {
                 {configLoading ? 'กำลังตั้งค่า...' : '🚀 เปิดใช้งานระบบ POS'}
               </button>
             )}
-            <a href={`/dashboard?userId=${userId}`} className="block mt-4 text-gray-500 text-sm hover:text-gray-300 transition-colors">
-              ← กลับ Dashboard
-            </a>
+            {!cashierMode && (
+              <a href={`/dashboard?userId=${userId}`} className="block mt-4 text-gray-500 text-sm hover:text-gray-300 transition-colors">
+                ← กลับ Dashboard
+              </a>
+            )}
           </div>
         </div>
       </>
@@ -3105,13 +3298,20 @@ export default function POSPage() {
               อัปเกรดแพ็กเกจเพื่อใช้งานระบบขายหน้าร้านต่อได้ทันที<br/>
               ข้อมูลเดิมของร้านยังอยู่ครบใน Google Sheets/Drive ไม่มีการสูญหายแต่อย่างใด
             </p>
-            <a href={`/pricing?userId=${userId}`}
-              className="block w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl transition-colors">
-              🚀 อัปเกรดแพ็กเกจ
-            </a>
-            <a href={`/dashboard?userId=${userId}`} className="block mt-4 text-gray-500 text-sm hover:text-gray-300 transition-colors">
-              ← กลับ Dashboard
-            </a>
+            {!cashierMode && (
+              <a href={`/pricing?userId=${userId}`}
+                className="block w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl transition-colors">
+                🚀 อัปเกรดแพ็กเกจ
+              </a>
+            )}
+            {!cashierMode && (
+              <a href={`/dashboard?userId=${userId}`} className="block mt-4 text-gray-500 text-sm hover:text-gray-300 transition-colors">
+                ← กลับ Dashboard
+              </a>
+            )}
+            {cashierMode && (
+              <p className="text-gray-500 text-sm mt-4">แจ้งเจ้าของร้าน/แอดมินให้อัปเกรดแพ็กเกจก่อนใช้งานต่อ</p>
+            )}
           </div>
         </div>
       </>
@@ -3147,9 +3347,11 @@ export default function POSPage() {
                 </button>
               ))}
             </div>
-            <a href={`/dashboard?userId=${userId}`} className="block mt-5 text-center text-gray-500 text-sm hover:text-gray-300 transition-colors">
-              ← กลับ Dashboard
-            </a>
+            {!cashierMode && (
+              <a href={`/dashboard?userId=${userId}`} className="block mt-5 text-center text-gray-500 text-sm hover:text-gray-300 transition-colors">
+                ← กลับ Dashboard
+              </a>
+            )}
           </div>
         </div>
       </>
@@ -3203,9 +3405,21 @@ export default function POSPage() {
                 🔓 เปิดกะ
               </button>
             )}
-            <a href={`/dashboard?userId=${userId}`} className="text-gray-400 hover:text-white text-xs px-3 py-1.5 rounded-lg border border-gray-700 hover:border-gray-500 transition-colors">
-              ← Dashboard
-            </a>
+            {cashierMode ? (
+              <>
+                {cashierSession?.staff?.name && (
+                  <span className="text-gray-400 text-xs hidden sm:inline">👤 {cashierSession.staff.name}</span>
+                )}
+                <button onClick={cashierLogout}
+                  className="text-gray-400 hover:text-white text-xs px-3 py-1.5 rounded-lg border border-gray-700 hover:border-red-500 transition-colors">
+                  ออกจากระบบ
+                </button>
+              </>
+            ) : (
+              <a href={`/dashboard?userId=${userId}`} className="text-gray-400 hover:text-white text-xs px-3 py-1.5 rounded-lg border border-gray-700 hover:border-gray-500 transition-colors">
+                ← Dashboard
+              </a>
+            )}
           </div>
         </header>
 
@@ -3222,7 +3436,9 @@ export default function POSPage() {
             { key: 'receive',  label: '📥 รับสินค้า' },
             { key: 'expenses', label: '🧾 รายจ่าย' },
             { key: 'report',   label: '📊 รายงาน' },
-            { key: 'settings', label: '⚙️ ตั้งค่า' },
+            // ตั้งค่าร้าน (พร้อมเพย์/API ธนาคาร/จัดการพนักงาน) — เจ้าของ/แอดมินเท่านั้น ไม่โชว์
+            // ในโหมดแคชเชียร์เลย (ฝั่ง API เองก็บล็อก session พนักงานทุกคนจาก pos-config.js อยู่แล้ว)
+            ...(cashierMode ? [] : [{ key: 'settings', label: '⚙️ ตั้งค่า' }]),
           ];
           const isMoreActive = moreTabs.some(t => t.key === tab);
           return (
@@ -3268,7 +3484,7 @@ export default function POSPage() {
                   { key: 'receive',  label: '📥 รับสินค้า' },
                   { key: 'expenses', label: '🧾 รายจ่าย' },
                   { key: 'report',   label: '📊 รายงาน' },
-                  { key: 'settings', label: '⚙️ ตั้งค่า' },
+                  ...(cashierMode ? [] : [{ key: 'settings', label: '⚙️ ตั้งค่า' }]),
                 ].map(t => (
                   <button key={t.key}
                     onClick={() => { setTab(t.key); setShowMoreMenu(false); }}
@@ -5877,7 +6093,9 @@ export default function POSPage() {
           )}
 
           {/* ══ TAB: ตั้งค่า POS ════════════════════════════════════════════ */}
-          {tab === 'settings' && (
+          {/* กันไว้อีกชั้น (defense in depth) — เผื่อ tab ถูกตั้งเป็น 'settings' ทางอ้อมผ่านลิงก์ลัด
+              "เพิ่มพนักงาน" จากที่อื่นในหน้านี้ (ปุ่มลัดไม่ได้เช็ค cashierMode) ไม่ใช่แค่ซ่อนปุ่มแท็บเฉยๆ */}
+          {tab === 'settings' && !cashierMode && (
             <div className="h-full overflow-y-auto">
               <div className="p-4 max-w-xl mx-auto space-y-6">
                 {/* Staff PIN — เปลี่ยนเป็น PIN รายบุคคลแล้ว ตั้ง/รีเซ็ตได้ที่แท็บ "พนักงาน" ด้านล่าง */}
@@ -5895,6 +6113,28 @@ export default function POSPage() {
                   >
                     🔗 เปิดหน้าพนักงาน (pos-staff)
                   </a>
+                </div>
+
+                {/* ลิงก์แคชเชียร์ — แยกจากลิงก์ /pos?userId=... ของเจ้าของร้านโดยสิ้นเชิง บังคับใส่
+                    PIN เสมอ ไม่มีทางเห็น Dashboard/ตั้งค่า/ข้อมูลร้านทั้งหมดได้เลยจากลิงก์นี้ —
+                    สิทธิ์ที่ทำได้ขึ้นกับที่ติ๊กไว้ในโปรไฟล์พนักงานแต่ละคนเท่านั้น */}
+                <div className="bg-gray-900 rounded-2xl p-5 border border-green-900">
+                  <h3 className="text-white font-bold mb-1">🖥️ ลิงก์แคชเชียร์ (หน้าขายเต็มรูปแบบ)</h3>
+                  <p className="text-gray-400 text-xs mb-3">
+                    แชร์ลิงก์นี้ให้พนักงานแคชเชียร์แทนลิงก์ของเจ้าของร้าน — บังคับใส่ PIN ก่อนเข้าเสมอ
+                    ไม่มีทางกดไปหน้า Dashboard/ตั้งค่าได้เลย ทำได้เฉพาะสิ่งที่ติ๊กสิทธิ์ไว้ในโปรไฟล์พนักงาน
+                    (ตั้งสิทธิ์ได้ที่รายชื่อพนักงานด้านล่าง)
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input readOnly value={typeof window !== 'undefined' ? `${window.location.origin}/pos?shopId=${shopId}&mode=cashier` : ''}
+                      className="flex-1 bg-gray-800 text-gray-300 text-xs px-3 py-2.5 rounded-xl border border-gray-700 truncate" />
+                    <button onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}/pos?shopId=${shopId}&mode=cashier`);
+                      showToast('คัดลอกลิงก์แคชเชียร์แล้ว');
+                    }} className="shrink-0 bg-green-700 hover:bg-green-600 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-colors">
+                      📋 คัดลอก
+                    </button>
+                  </div>
                 </div>
 
                 {/* ลิงก์สั่งซื้อสำหรับลูกค้า */}
@@ -6012,7 +6252,7 @@ export default function POSPage() {
                       <h3 className="text-white font-bold">🛵 พนักงาน / คนส่งของ</h3>
                       <p className="text-gray-400 text-xs mt-0.5">ใส่ LINE ID ของพนักงานเพื่อรับงานส่งของผ่าน LINE อัตโนมัติ</p>
                     </div>
-                    <button onClick={() => { setEditStaff(null); setStaffForm({ name:'', phone:'', line_id:'', role:'พนักงานส่ง', notes:'', perm_view_revenue:false, perm_view_pl:false, perm_manage_stock:false, perm_export_vat:false }); setShowStaffForm(true); }} className="shrink-0 bg-green-600 hover:bg-green-500 text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors">
+                    <button onClick={() => { setEditStaff(null); setStaffForm({ name:'', phone:'', line_id:'', role:'พนักงานส่ง', notes:'', ...emptyStaffPerms() }); setStaffPreset(''); setShowStaffForm(true); }} className="shrink-0 bg-green-600 hover:bg-green-500 text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors">
                       + เพิ่ม
                     </button>
                   </div>
@@ -6045,18 +6285,24 @@ export default function POSPage() {
                                 <span className="text-yellow-500">⚠️ ยังไม่ได้ตั้ง PIN</span>
                               )}
                             </div>
-                            {(s.perm_view_revenue || s.perm_view_pl || s.perm_manage_stock || s.perm_export_vat) && (
+                            {STAFF_PERM_DEFS.some(p => s[p.key]) && (
                               <div className="flex flex-wrap gap-1 mt-1">
-                                {s.perm_view_revenue && <span className="text-[10px] bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded">📊 ดูยอดขาย</span>}
-                                {s.perm_view_pl && <span className="text-[10px] bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded">💰 ดูกำไรขาดทุน</span>}
-                                {s.perm_manage_stock && <span className="text-[10px] bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded">📦 จัดการสต็อก</span>}
-                                {s.perm_export_vat && <span className="text-[10px] bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded">🧾 export VAT</span>}
+                                {STAFF_PERM_DEFS.filter(p => s[p.key]).map(p => (
+                                  <span key={p.key} className="text-[10px] bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded">{p.icon} {p.label}</span>
+                                ))}
                               </div>
                             )}
                           </div>
                           <div className="flex flex-col gap-1.5 shrink-0 items-end">
                             <div className="flex gap-1.5">
-                              <button onClick={() => { setEditStaff(s); setStaffForm({ name: s.name, phone: s.phone, line_id: s.line_id, role: s.role, notes: s.notes, perm_view_revenue: !!s.perm_view_revenue, perm_view_pl: !!s.perm_view_pl, perm_manage_stock: !!s.perm_manage_stock, perm_export_vat: !!s.perm_export_vat }); setShowStaffForm(true); }} className="text-xs bg-gray-700 hover:bg-blue-700 text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">แก้ไข</button>
+                              <button onClick={() => {
+                                setEditStaff(s);
+                                const perms = {};
+                                STAFF_PERM_DEFS.forEach(p => { perms[p.key] = !!s[p.key]; });
+                                setStaffForm({ name: s.name, phone: s.phone, line_id: s.line_id, role: s.role, notes: s.notes, ...perms });
+                                setStaffPreset('');
+                                setShowStaffForm(true);
+                              }} className="text-xs bg-gray-700 hover:bg-blue-700 text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">แก้ไข</button>
                               <button onClick={() => deleteStaffMember(s)} className="text-xs bg-gray-700 hover:bg-red-700 text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">ลบ</button>
                             </div>
                             <div className="flex gap-1.5">
@@ -7204,32 +7450,34 @@ export default function POSPage() {
                     placeholder="ไม่บังคับ" />
                 </div>
                 <div className="bg-gray-800/60 rounded-xl p-3 border border-gray-700">
-                  <label className="text-gray-400 text-xs block mb-2">🔑 สิทธิ์เข้าถึงหน้าพนักงาน (ไม่บังคับ — เพื่อดูข้อมูลผ่านลิงก์ pos-staff เท่านั้น)</label>
+                  <label className="text-gray-400 text-xs block mb-2">🔑 สิทธิ์เข้าถึงหน้าพนักงาน (ไม่บังคับ — ผ่าน PIN ที่ /pos-staff หรือลิงก์แคชเชียร์)</label>
+
+                  {/* ตำแหน่งสำเร็จรูป — กดแล้วติ๊กสิทธิ์แนะนำให้อัตโนมัติ ยังแก้ทีละอันต่อได้ */}
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    {Object.keys(STAFF_PRESETS).map(presetName => (
+                      <button key={presetName} type="button"
+                        onClick={() => {
+                          const keys = STAFF_PRESETS[presetName];
+                          const perms = emptyStaffPerms();
+                          keys.forEach(k => { perms[k] = true; });
+                          setStaffForm(f => ({ ...f, ...perms }));
+                          setStaffPreset(presetName);
+                        }}
+                        className={`text-xs font-bold px-2.5 py-1.5 rounded-lg transition-colors ${staffPreset === presetName ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+                        {presetName}
+                      </button>
+                    ))}
+                  </div>
+
                   <div className="space-y-2">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={staffForm.perm_view_revenue}
-                        onChange={e => setStaffForm(f => ({ ...f, perm_view_revenue: e.target.checked }))}
-                        className="w-4 h-4 accent-green-600" />
-                      <span className="text-gray-300 text-xs">📊 ดูยอดขายรวม</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={staffForm.perm_view_pl}
-                        onChange={e => setStaffForm(f => ({ ...f, perm_view_pl: e.target.checked }))}
-                        className="w-4 h-4 accent-green-600" />
-                      <span className="text-gray-300 text-xs">💰 ดูกำไรขาดทุน</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={staffForm.perm_manage_stock}
-                        onChange={e => setStaffForm(f => ({ ...f, perm_manage_stock: e.target.checked }))}
-                        className="w-4 h-4 accent-green-600" />
-                      <span className="text-gray-300 text-xs">📦 จัดการสต็อกสินค้า (แก้ไข/รับสินค้า)</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={staffForm.perm_export_vat}
-                        onChange={e => setStaffForm(f => ({ ...f, perm_export_vat: e.target.checked }))}
-                        className="w-4 h-4 accent-green-600" />
-                      <span className="text-gray-300 text-xs">🧾 Export รายงาน VAT</span>
-                    </label>
+                    {STAFF_PERM_DEFS.map(p => (
+                      <label key={p.key} className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={!!staffForm[p.key]}
+                          onChange={e => { setStaffForm(f => ({ ...f, [p.key]: e.target.checked })); setStaffPreset(''); }}
+                          className="w-4 h-4 accent-green-600" />
+                        <span className="text-gray-300 text-xs">{p.icon} {p.label}</span>
+                      </label>
+                    ))}
                   </div>
                 </div>
               </div>

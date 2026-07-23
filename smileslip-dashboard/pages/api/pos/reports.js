@@ -13,11 +13,11 @@
  *   expenses   → รายจ่ายที่ไม่เกี่ยวกับสต็อคสินค้า (ค่าเช่า/ค่าน้ำไฟ ฯลฯ) — รายการ + สรุปยอดรวม/VAT
  */
 import { createClient } from '@supabase/supabase-js';
+import { requirePermission } from '../../../lib/pos-auth';
 import {
   getAccessToken, readSheet, ensureTabExists,
   rowToSale, rowToProduct, rowToLoan, rowToOrder, rowToContact, rowToReceive, rowToExpense,
   SALE_HEADERS, LOAN_HEADERS, ORDER_HEADERS, CONTACT_HEADERS, RECEIVE_HEADERS, EXPENSE_HEADERS,
-  getStaffPermissions,
 } from '../../../lib/google-pos';
 
 const supabase = createClient(
@@ -61,7 +61,7 @@ function inRange(dateStr, from, to) {
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
-  const { shopId, type = 'sales', dateFrom, dateTo, branch, status, staffId } = req.query;
+  const { shopId, type = 'sales', dateFrom, dateTo, branch, status } = req.query;
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
 
   try {
@@ -69,16 +69,14 @@ export default async function handler(req, res) {
     const from = dateFrom ? new Date(dateFrom) : null;
     const to   = dateTo   ? new Date(dateTo + 'T23:59:59') : null;
 
-    // เรียกจากหน้าพนักงาน (pos-staff.js ส่ง staffId มาด้วย) — ต้องมีสิทธิ์ที่เกี่ยวข้องถึงจะดูได้
-    // เจ้าของร้าน/แอดมิน (pos.js เรียกตรง ไม่ส่ง staffId) ไม่ถูกกระทบเลย
-    if (staffId) {
-      const perms = await getStaffPermissions(token, sheetId, staffId);
-      if ((type === 'sales' || type === 'topsellers') && !perms.perm_view_revenue) {
-        return res.status(403).json({ error: 'ไม่มีสิทธิ์ดูยอดขายรวม' });
-      }
-      if (type === 'pl' && !perms.perm_view_pl) {
-        return res.status(403).json({ error: 'ไม่มีสิทธิ์ดูกำไรขาดทุน' });
-      }
+    // เรียกจากหน้าพนักงาน (pos-staff.js/แคชเชียร์ แนบ x-staff-session มาด้วย) — ต้องมีสิทธิ์ที่
+    // เกี่ยวข้องถึงจะดูได้ (ตรวจผ่าน session ที่เซ็นชื่อ ไม่ใช่ staffId เปล่าๆ ใน query ที่ปลอมได้
+    // แบบเดิม) — เจ้าของร้าน/แอดมิน (pos.js เรียกตรง ไม่มี session) ไม่ถูกกระทบเลย
+    if (type === 'sales' || type === 'topsellers') {
+      if (!(await requirePermission(req, res, token, sheetId, 'perm_view_revenue'))) return;
+    }
+    if (type === 'pl') {
+      if (!(await requirePermission(req, res, token, sheetId, 'perm_view_pl'))) return;
     }
 
     // ── สินค้าคงเหลือ ──────────────────────────────────────────────────────

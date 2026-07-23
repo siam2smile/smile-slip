@@ -11,6 +11,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
+import { requirePermission } from '../../../lib/pos-auth';
 import {
   getAccessToken, readSheet, appendSheet, appendRows, updateSheetRow, ensureTabExists,
   makeContactId, rowToContact, CONTACT_HEADERS,
@@ -137,6 +138,8 @@ export default async function handler(req, res) {
 
     // ── PATCH ────────────────────────────────────────────────────────────────
     if (req.method === 'PATCH') {
+      if (!(await requirePermission(req, res, token, sheetId, 'perm_manage_customers'))) return;
+
       const { contact_id, ...updates } = req.body;
       if (!contact_id) return res.status(400).json({ error: 'Missing contact_id' });
       if (updates.debt !== undefined && parseFloat(updates.debt) < 0) {
@@ -183,6 +186,8 @@ export default async function handler(req, res) {
 
     // ── DELETE ────────────────────────────────────────────────────────────────
     if (req.method === 'DELETE') {
+      if (!(await requirePermission(req, res, token, sheetId, 'perm_manage_customers'))) return;
+
       const { contact_id } = req.body;
       if (!contact_id) return res.status(400).json({ error: 'Missing contact_id' });
 

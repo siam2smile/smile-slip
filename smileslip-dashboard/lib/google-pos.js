@@ -363,9 +363,14 @@ export const RECEIVE_HEADERS = [
 // J-M เพิ่มท้ายสุด — สิทธิ์เชิงลึกต่อพนักงาน (ค่าเริ่มต้นว่าง = ไม่มีสิทธิ์ ปลอดภัยไว้ก่อนสำหรับ
 // พนักงานเก่าที่มีอยู่แล้ว) ใช้เปิดหน้า "📊 จัดการร้าน" เพิ่มเติมใน pos-staff.js นอกเหนือจากงาน
 // จัดส่ง/เก็บเงินปกติ — เช็คทั้งฝั่ง UI (ซ่อนเมนู) และฝั่ง API (บล็อกจริงถ้าไม่มีสิทธิ์)
+// N-U เพิ่มท้ายสุด (2026-07-23) — สิทธิ์ระดับปฏิบัติการสำหรับ session แคชเชียร์ที่เซ็นชื่อ
+// (lib/staff-session.js + lib/pos-auth.js) ใช้บังคับฝั่ง API ตรงจริง (ไม่ใช่แค่ซ่อน UI) เริ่มจาก
+// Tier 1 (staff.js/sales.js DELETE/contacts.js) — ค่าเริ่มต้นว่าง = ไม่มีสิทธิ์เสมอ
 export const STAFF_HEADERS = [
   'รหัสพนักงาน', 'ชื่อ', 'เบอร์โทร', 'LINE ID', 'บทบาท', 'หมายเหตุ', 'วันที่เพิ่ม', 'สาขา', 'PIN',
   'สิทธิ์ดูยอดขายรวม', 'สิทธิ์ดูกำไรขาดทุน', 'สิทธิ์จัดการสต็อก', 'สิทธิ์ export รายงาน VAT',
+  'สิทธิ์ขายหน้าร้าน', 'สิทธิ์ยกเลิกบิล', 'สิทธิ์จัดการลูกค้า', 'สิทธิ์จัดการรายจ่าย',
+  'สิทธิ์จัดการจัดส่ง/เก็บเงิน', 'สิทธิ์บันทึกรับสินค้า', 'สิทธิ์ออกใบกำกับภาษี', 'สิทธิ์จัดการพนักงาน',
 ];
 
 // A          B          C             D           E      F       G         H              I        J         K           L      M       N
@@ -693,30 +698,53 @@ export function rowToStaff(row) {
     perm_view_pl:      row[10] === 'TRUE' || row[10] === '1',
     perm_manage_stock: row[11] === 'TRUE' || row[11] === '1',
     perm_export_vat:   row[12] === 'TRUE' || row[12] === '1',
+    perm_process_sales:    row[13] === 'TRUE' || row[13] === '1',
+    perm_void_sales:       row[14] === 'TRUE' || row[14] === '1',
+    perm_manage_customers: row[15] === 'TRUE' || row[15] === '1',
+    perm_manage_expenses:  row[16] === 'TRUE' || row[16] === '1',
+    perm_manage_delivery:  row[17] === 'TRUE' || row[17] === '1',
+    perm_manage_receiving: row[18] === 'TRUE' || row[18] === '1',
+    perm_issue_tax_invoice:row[19] === 'TRUE' || row[19] === '1',
+    perm_manage_staff:     row[20] === 'TRUE' || row[20] === '1',
   };
 }
 
-// ตรวจสิทธิ์เชิงลึกของพนักงานคนหนึ่ง (จาก pos-staff.js "📊 จัดการร้าน") — ใช้บังคับฝั่ง API จริง
-// ไม่ใช่แค่ซ่อน UI เฉยๆ (กันพนักงานเรียก API ตรงข้ามหน้าบ้าน) — คืน false ทั้งหมดถ้าไม่พบพนักงาน
-// หรือ error ใดๆ (fail-safe: ไม่มีสิทธิ์ดีกว่ามีสิทธิ์ผิดคน)
+const EMPTY_STAFF_PERMS = {
+  perm_view_revenue: false, perm_view_pl: false, perm_manage_stock: false, perm_export_vat: false,
+  perm_process_sales: false, perm_void_sales: false, perm_manage_customers: false, perm_manage_expenses: false,
+  perm_manage_delivery: false, perm_manage_receiving: false, perm_issue_tax_invoice: false, perm_manage_staff: false,
+};
+
+// ตรวจสิทธิ์เชิงลึกของพนักงานคนหนึ่ง (จาก pos-staff.js "📊 จัดการร้าน" และ session แคชเชียร์ที่
+// เซ็นชื่อของ /pos?mode=cashier) — ใช้บังคับฝั่ง API จริง ไม่ใช่แค่ซ่อน UI เฉยๆ (กันพนักงานเรียก
+// API ตรงข้ามหน้าบ้าน) — คืน false ทั้งหมดถ้าไม่พบพนักงานหรือ error ใดๆ (fail-safe: ไม่มีสิทธิ์
+// ดีกว่ามีสิทธิ์ผิดคน) — ดึงจาก Sheet สดทุกครั้ง ไม่เชื่อค่าที่ฝังใน session token เลย เพราะแอดมิน
+// อาจถอนสิทธิ์แล้วต้องมีผลทันที ไม่ใช่รอ token หมดอายุ
 export async function getStaffPermissions(token, sheetId, staffId) {
-  const empty = { perm_view_revenue: false, perm_view_pl: false, perm_manage_stock: false, perm_export_vat: false };
-  if (!staffId) return empty;
+  if (!staffId) return { ...EMPTY_STAFF_PERMS };
   try {
     await ensureTabExists(token, sheetId, 'พนักงาน', STAFF_HEADERS);
-    const rows = await readSheet(token, sheetId, 'พนักงาน!A:M');
+    const rows = await readSheet(token, sheetId, 'พนักงาน!A:U');
     const row = rows.slice(1).find(r => r[0] === staffId);
-    if (!row) return empty;
+    if (!row) return { ...EMPTY_STAFF_PERMS };
     const staff = rowToStaff(row);
     return {
       perm_view_revenue: staff.perm_view_revenue,
       perm_view_pl: staff.perm_view_pl,
       perm_manage_stock: staff.perm_manage_stock,
       perm_export_vat: staff.perm_export_vat,
+      perm_process_sales: staff.perm_process_sales,
+      perm_void_sales: staff.perm_void_sales,
+      perm_manage_customers: staff.perm_manage_customers,
+      perm_manage_expenses: staff.perm_manage_expenses,
+      perm_manage_delivery: staff.perm_manage_delivery,
+      perm_manage_receiving: staff.perm_manage_receiving,
+      perm_issue_tax_invoice: staff.perm_issue_tax_invoice,
+      perm_manage_staff: staff.perm_manage_staff,
     };
   } catch (err) {
     console.error('[getStaffPermissions]', err.message);
-    return empty;
+    return { ...EMPTY_STAFF_PERMS };
   }
 }
 

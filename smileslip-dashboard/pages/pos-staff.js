@@ -25,6 +25,11 @@ export default function PosStaffPage() {
   const [staffId, setStaffId] = useState(''); // staff_id ของคนที่ login สำเร็จ (ใช้ผูกกับ PIN)
   const [staffPerms, setStaffPerms] = useState({ perm_view_revenue: false, perm_view_pl: false, perm_manage_stock: false, perm_export_vat: false });
   const [isWhiteLabel, setIsWhiteLabel] = useState(false);
+  // session ที่เซ็นชื่อ (HMAC) จาก verify-pin — ใช้ ref เพราะต้องอ่านค่าล่าสุดได้ทันทีหลัง
+  // setState (React state ไม่อัปเดตแบบ sync ในฟังก์ชันเดียวกัน) แนบเป็น header ทุกคำขอที่ apiFetch
+  // ยิงออกไป (เดิมไม่มี session ที่พิสูจน์ได้เลย ส่งแค่ staffId เปล่าๆ ที่ปลอมได้ตรงๆ)
+  const sessionRef = useRef('');
+  const sessionStorageKey = shopId ? `pos_staff_session_${shopId}` : null;
 
   // ── จัดการร้าน (สิทธิ์พิเศษที่แอดมินเปิดให้เป็นรายคน) ────────────────────
   const [manageView, setManageView] = useState(''); // 'revenue' | 'pl' | 'stock' | 'vat'
@@ -90,10 +95,66 @@ export default function PosStaffPage() {
     setTimeout(() => setToast(''), 3000);
   }
 
+  // fetch wrapper แนบ session ที่เซ็นชื่อ (ถ้ามี) เป็น header เสมอ — ใช้แทน fetch() ตรงๆ ทุกจุด
+  // ที่เคยส่ง staffId เปล่าๆ ไปกับ body/query (ปลอมได้ตรงๆ) — ถ้า session หมดอายุ/ไม่ถูกต้อง
+  // (401 จาก server) จะเคลียร์ session ทิ้งแล้วเด้งกลับหน้าใส่ PIN ทันที
+  async function apiFetch(url, options = {}) {
+    const headers = { ...(options.headers || {}) };
+    if (sessionRef.current) headers['x-staff-session'] = sessionRef.current;
+    const r = await fetch(url, { ...options, headers });
+    if (r.status === 401) {
+      clearSession();
+      setStep('pin');
+      setPinError('session หมดอายุ กรุณาใส่ PIN ใหม่อีกครั้ง');
+    }
+    return r;
+  }
+
+  function saveSession(payload) {
+    sessionRef.current = payload.sessionToken || '';
+    if (sessionStorageKey) {
+      try { sessionStorage.setItem(sessionStorageKey, JSON.stringify(payload)); } catch {}
+    }
+  }
+  function clearSession() {
+    sessionRef.current = '';
+    if (sessionStorageKey) {
+      try { sessionStorage.removeItem(sessionStorageKey); } catch {}
+    }
+  }
+
   // มาจากลิงก์ตั้งรหัส PIN ที่ส่งทาง LINE (staff_id + setpin=1) → ข้ามหน้ากรอก PIN ไปตั้งรหัสใหม่เลย
   useEffect(() => {
     if (setupMode && setupStaffId) setStep('setpin');
   }, [setupMode, setupStaffId]);
+
+  // กู้คืน session ที่ค้างไว้จาก sessionStorage ตอนโหลดหน้า (เดิมพนักงานรีเฟรชหน้าแล้วต้องใส่ PIN
+  // ใหม่ทุกครั้งเพราะ staffId เก็บใน React state อย่างเดียว) — sessionStorage อยู่ได้แค่ในแท็บ/
+  // เครื่องเดิมจนกว่าจะปิดแท็บ พอดีกับเครื่องคิดเงินที่ใช้เครื่องเดียวกันหลายคนหมุนเวียน (ปิดแท็บ
+  // = ล้าง session อัตโนมัติ) — ไม่ auto-login ถ้ามาจากลิงก์ตั้ง PIN/deep-link งานเฉพาะ (ให้ล็อกอิน
+  // สดเสมอเพื่อยืนยันตัวตนก่อนทำงานที่ผูกกับ order/collection นั้นจริง)
+  useEffect(() => {
+    if (!shopId || (setupMode && setupStaffId) || deepLinkOrderNo || deepLinkCollectionNo) return;
+    if (!sessionStorageKey) return;
+    try {
+      const raw = sessionStorage.getItem(sessionStorageKey);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (!saved?.sessionToken || !saved?.staff_id) return;
+      sessionRef.current = saved.sessionToken;
+      setStaffName(saved.staffName || '');
+      setStaffBranch(saved.staffBranch || '');
+      setStaffId(saved.staff_id || '');
+      setIsWhiteLabel(!!saved.isWhiteLabel);
+      setStaffPerms(saved.staffPerms || {});
+      setStep('menu');
+      fetchBills();
+      fetchProducts();
+      fetchOrders();
+      fetchCollectionTasks();
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shopId]);
 
   async function submitSetPin() {
     if (!shopId || !setupStaffId) return;
@@ -139,15 +200,32 @@ export default function PosStaffPage() {
       });
       const d = await r.json();
       if (d.ok) {
-        setStaffName(d.staff?.name || '');
-        setStaffBranch(d.staff?.branch_name || '');
-        setStaffId(d.staff?.staff_id || '');
-        setIsWhiteLabel(!!d.isWhiteLabel);
-        setStaffPerms({
+        const perms = {
           perm_view_revenue: !!d.staff?.perm_view_revenue,
           perm_view_pl: !!d.staff?.perm_view_pl,
           perm_manage_stock: !!d.staff?.perm_manage_stock,
           perm_export_vat: !!d.staff?.perm_export_vat,
+          perm_process_sales: !!d.staff?.perm_process_sales,
+          perm_void_sales: !!d.staff?.perm_void_sales,
+          perm_manage_customers: !!d.staff?.perm_manage_customers,
+          perm_manage_expenses: !!d.staff?.perm_manage_expenses,
+          perm_manage_delivery: !!d.staff?.perm_manage_delivery,
+          perm_manage_receiving: !!d.staff?.perm_manage_receiving,
+          perm_issue_tax_invoice: !!d.staff?.perm_issue_tax_invoice,
+          perm_manage_staff: !!d.staff?.perm_manage_staff,
+        };
+        setStaffName(d.staff?.name || '');
+        setStaffBranch(d.staff?.branch_name || '');
+        setStaffId(d.staff?.staff_id || '');
+        setIsWhiteLabel(!!d.isWhiteLabel);
+        setStaffPerms(perms);
+        saveSession({
+          sessionToken: d.sessionToken || '',
+          staff_id: d.staff?.staff_id || '',
+          staffName: d.staff?.name || '',
+          staffBranch: d.staff?.branch_name || '',
+          isWhiteLabel: !!d.isWhiteLabel,
+          staffPerms: perms,
         });
         fetchBills();
         fetchProducts();
@@ -178,7 +256,7 @@ export default function PosStaffPage() {
     if (!shopId) return;
     setBillsLoading(true);
     try {
-      const r = await fetch(`/api/pos/pending-bills?shopId=${shopId}`);
+      const r = await apiFetch(`/api/pos/pending-bills?shopId=${shopId}`);
       const d = await r.json();
       if (d.bills) setBills(d.bills);
       if (d.shopName) setShopName(d.shopName);
@@ -192,7 +270,7 @@ export default function PosStaffPage() {
     setOrdersLoading(true);
     let filtered = [];
     try {
-      const r = await fetch(`/api/pos/delivery?shopId=${shopId}`);
+      const r = await apiFetch(`/api/pos/delivery?shopId=${shopId}`);
       const d = await r.json();
       if (d.orders) {
         filtered = d.orders.filter(o => o.status === 'รอจัดส่ง' || o.status === 'กำลังส่ง');
@@ -206,7 +284,7 @@ export default function PosStaffPage() {
   async function fetchProducts() {
     if (!shopId) return;
     try {
-      const r = await fetch(`/api/pos/products?shopId=${shopId}`);
+      const r = await apiFetch(`/api/pos/products?shopId=${shopId}`);
       const d = await r.json();
       if (d.products) setProducts(d.products);
     } catch {}
@@ -218,15 +296,15 @@ export default function PosStaffPage() {
     setManageLoading(true);
     try {
       if (view === 'revenue') {
-        const r = await fetch(`/api/pos/reports?shopId=${shopId}&type=sales&staffId=${staffId}`);
+        const r = await apiFetch(`/api/pos/reports?shopId=${shopId}&type=sales`);
         const d = await r.json();
         setManageSalesReport(r.ok ? d : { error: d.error || 'เกิดข้อผิดพลาด' });
       } else if (view === 'pl') {
-        const r = await fetch(`/api/pos/reports?shopId=${shopId}&type=pl&staffId=${staffId}`);
+        const r = await apiFetch(`/api/pos/reports?shopId=${shopId}&type=pl`);
         const d = await r.json();
         setManagePlReport(r.ok ? d : { error: d.error || 'เกิดข้อผิดพลาด' });
       } else if (view === 'stock') {
-        const r = await fetch(`/api/pos/products?shopId=${shopId}`);
+        const r = await apiFetch(`/api/pos/products?shopId=${shopId}`);
         const d = await r.json();
         if (d.products) setManageStockList(d.products);
       }
@@ -237,10 +315,10 @@ export default function PosStaffPage() {
   async function saveManageStock(sku, stock) {
     setManageStockSaving(sku);
     try {
-      const r = await fetch('/api/pos/products', {
+      const r = await apiFetch('/api/pos/products', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shopId, staffId, sku, stock: parseFloat(stock) || 0 }),
+        body: JSON.stringify({ shopId, sku, stock: parseFloat(stock) || 0 }),
       });
       const d = await r.json();
       if (d.ok) {
@@ -252,7 +330,10 @@ export default function PosStaffPage() {
   }
 
   function exportManageVat() {
-    window.open(`/api/pos/export?shopId=${shopId}&types=vat&staffId=${staffId}`, '_blank');
+    // window.open ไม่แนบ custom header ได้ — ส่ง session ผ่าน query param แทน (ยังเซ็นชื่อ/
+    // ตรวจสอบแบบเดียวกันทุกประการ ปลอมไม่ได้เหมือนกับ header)
+    const sessionQs = sessionRef.current ? `&session=${encodeURIComponent(sessionRef.current)}` : '';
+    window.open(`/api/pos/export?shopId=${shopId}&types=vat${sessionQs}`, '_blank');
   }
 
   function openDeliverConfirm(order) {
@@ -317,7 +398,7 @@ export default function PosStaffPage() {
     setCollectionTasksLoading(true);
     let filtered = [];
     try {
-      const r = await fetch(`/api/pos/collections?shopId=${shopId}`);
+      const r = await apiFetch(`/api/pos/collections?shopId=${shopId}`);
       const d = await r.json();
       if (d.tasks) {
         filtered = d.tasks.filter(t => t.status === 'รอดำเนินการ');
@@ -351,7 +432,7 @@ export default function PosStaffPage() {
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
-      const r = await fetch('/api/pos/process-slip', {
+      const r = await apiFetch('/api/pos/process-slip', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ shopId, imageBase64: base64, mimeType: file.type }),
@@ -374,7 +455,7 @@ export default function PosStaffPage() {
       const collectedItems = (selectedCollection.items || [])
         .map(item => ({ sku: item.sku, name: item.name, qty: parseInt(collectedItemsQty[item.sku]) || 0 }))
         .filter(item => item.qty > 0);
-      const r = await fetch('/api/pos/collections', {
+      const r = await apiFetch('/api/pos/collections', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -405,7 +486,7 @@ export default function PosStaffPage() {
     if (!selectedOrder || !shopId) return;
     setDeliverQrLoading(true);
     try {
-      const r = await fetch(`/api/pos/promptpay-qr?shopId=${shopId}&amount=${deliverFinalTotal}`);
+      const r = await apiFetch(`/api/pos/promptpay-qr?shopId=${shopId}&amount=${deliverFinalTotal}`);
       const d = await r.json();
       if (d.ok) setDeliverQr(d.qr);
       else alert(d.error || 'สร้าง QR ไม่ได้ — เช็คว่าร้านตั้งค่าพร้อมเพย์ไว้หรือยัง');
@@ -424,7 +505,7 @@ export default function PosStaffPage() {
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
-      const r = await fetch('/api/pos/process-slip', {
+      const r = await apiFetch('/api/pos/process-slip', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ shopId, imageBase64: base64, mimeType: file.type }),
@@ -465,7 +546,7 @@ export default function PosStaffPage() {
         const returnedQty = item.qty - borrowed;
         return returnedQty > 0 ? { ...item, returned_qty: returnedQty } : item;
       });
-      const r = await fetch('/api/pos/delivery', {
+      const r = await apiFetch('/api/pos/delivery', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -507,7 +588,7 @@ export default function PosStaffPage() {
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
-      const r = await fetch('/api/pos/process-slip', {
+      const r = await apiFetch('/api/pos/process-slip', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ shopId, imageBase64: base64, mimeType: file.type }),
@@ -531,7 +612,7 @@ export default function PosStaffPage() {
     if (!selectedBill || confirming) return;
     setConfirming(true);
     try {
-      const r = await fetch('/api/pos/confirm-payment', {
+      const r = await apiFetch('/api/pos/confirm-payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -592,8 +673,9 @@ export default function PosStaffPage() {
           </div>
           {step !== 'pin' && step !== 'setpin' && (
             <button onClick={() => {
+              clearSession();
               setStep('pin'); setPin(''); setBills([]);
-              setStaffPerms({ perm_view_revenue: false, perm_view_pl: false, perm_manage_stock: false, perm_export_vat: false });
+              setStaffPerms({});
               setManageView(''); setManageSalesReport(null); setManagePlReport(null); setManageStockList([]);
             }}
               className="text-gray-400 hover:text-white text-xs border border-gray-700 px-3 py-1.5 rounded-lg">

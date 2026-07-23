@@ -10,10 +10,10 @@ import {
   getAccessToken, readSheet, ensureTabExists,
   rowToSale, rowToProduct, rowToLoan, rowToExpense, rowToReceive, rowToContact, rowToTaxInvoice,
   SALE_HEADERS, LOAN_HEADERS, EXPENSE_HEADERS, RECEIVE_HEADERS, CONTACT_HEADERS, TAX_INVOICE_HEADERS,
-  getStaffPermissions,
 } from '../../../lib/google-pos';
 import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import { sanitizeFilenamePart } from '../../../lib/branding';
+import { requirePermission } from '../../../lib/pos-auth';
 
 // รายงาน 3 แม่แบบใหม่ (vat30/sales_by_branch/cyclical_inventory) + custom เฉพาะร้าน — Business+ เท่านั้น
 // (รายงานเดิม 8 ประเภทด้านบนยังไม่ล็อก tier ตามที่เป็นมาแต่เดิม ไม่ได้แก้ย้อนหลังในรอบนี้)
@@ -80,7 +80,7 @@ function fmt(n) { return Number(n || 0).toLocaleString('th-TH', { minimumFractio
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
-  const { shopId, dateFrom, dateTo, branch, staffId, types = 'sales,inventory,credit,loans,topsellers,pl,expenses,vat' } = req.query;
+  const { shopId, dateFrom, dateTo, branch, types = 'sales,inventory,credit,loans,topsellers,pl,expenses,vat' } = req.query;
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
 
   try {
@@ -94,11 +94,11 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: upgradeMessage('excel_report_templates'), featureLocked: true });
     }
 
-    // เรียกจากหน้าพนักงาน (pos-staff.js ส่ง staffId มาด้วย) — ต้องมีสิทธิ์ "export รายงาน VAT" ถึงจะดึงได้
-    // เจ้าของร้าน/แอดมิน (pos.js เรียกตรง ไม่ส่ง staffId) ไม่ถูกกระทบเลย
-    if (staffId && (typeList.includes('vat') || typeList.includes('vat30'))) {
-      const perms = await getStaffPermissions(token, sheetId, staffId);
-      if (!perms.perm_export_vat) return res.status(403).json({ error: 'ไม่มีสิทธิ์ export รายงาน VAT' });
+    // เรียกจากหน้าพนักงาน (pos-staff.js/แคชเชียร์ แนบ session ผ่าน query `?session=` เพราะเป็น
+    // การดาวน์โหลดไฟล์ผ่าน window.open ตรงๆ แนบ custom header ไม่ได้) — ต้องมีสิทธิ์ "export
+    // รายงาน VAT" ถึงจะดึงได้ — เจ้าของร้าน/แอดมิน (pos.js เรียกตรง ไม่มี session) ไม่ถูกกระทบเลย
+    if (typeList.includes('vat') || typeList.includes('vat30')) {
+      if (!(await requirePermission(req, res, token, sheetId, 'perm_export_vat'))) return;
     }
 
     const wb = XLSX.utils.book_new();

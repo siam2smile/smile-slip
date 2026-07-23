@@ -11,9 +11,10 @@
 import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
+import { requirePermission } from '../../../lib/pos-auth';
 import {
   getAccessToken, readSheet, appendSheet, updateSheetRow,
-  makeSKU, rowToProduct, getStaffPermissions,
+  makeSKU, rowToProduct,
 } from '../../../lib/google-pos';
 
 const supabase = createClient(
@@ -101,15 +102,13 @@ export default async function handler(req, res) {
 
     // ── PATCH (แก้ไข / อัปเดตสต็อค / actions หมุนเวียน) ─────────────────
     if (req.method === 'PATCH') {
-      const { sku, action, qty, stockDelta, staffId, ...updates } = req.body;
-      if (!sku) return res.status(400).json({ error: 'Missing sku' });
+      // เรียกจากหน้าพนักงาน (pos-staff.js/แคชเชียร์ แนบ x-staff-session มาด้วย) — ต้องมีสิทธิ์
+      // "จัดการสต็อก" ถึงจะแก้ได้ (ตรวจสอบผ่าน session ที่เซ็นชื่อ ไม่ใช่ staffId เปล่าๆ ที่ปลอมได้
+      // แบบเดิมอีกต่อไป) — เจ้าของร้าน/แอดมิน (pos.js เรียกตรง ไม่มี session) ไม่ถูกกระทบเลย
+      if (!(await requirePermission(req, res, token, sheetId, 'perm_manage_stock'))) return;
 
-      // เรียกจากหน้าพนักงาน (pos-staff.js ส่ง staffId มาด้วย) — ต้องมีสิทธิ์ "จัดการสต็อก" ถึงจะแก้ได้
-      // เจ้าของร้าน/แอดมิน (pos.js เรียกตรง ไม่ส่ง staffId) ไม่ถูกกระทบเลย
-      if (staffId) {
-        const perms = await getStaffPermissions(token, sheetId, staffId);
-        if (!perms.perm_manage_stock) return res.status(403).json({ error: 'ไม่มีสิทธิ์จัดการสต็อกสินค้า' });
-      }
+      const { sku, action, qty, stockDelta, ...updates } = req.body;
+      if (!sku) return res.status(400).json({ error: 'Missing sku' });
       if (updates.price !== undefined && parseFloat(updates.price) < 0) {
         return res.status(400).json({ error: 'ราคาขายต้องไม่ติดลบ' });
       }

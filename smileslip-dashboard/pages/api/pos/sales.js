@@ -10,6 +10,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
+import { requirePermission } from '../../../lib/pos-auth';
 import {
   getAccessToken, readSheet, appendSheet, updateSheetRow,
   ensureTabExists, makeBillNo, rowToSale, SALE_HEADERS, rowToProduct, CONTACT_HEADERS,
@@ -373,6 +374,10 @@ export default async function handler(req, res) {
     // หมายเหตุ: ถ้าบิลนั้น "ชำระแล้ว" (เขียนเข้าบัญชีหลักไปแล้ว) การยกเลิกจะไม่ลบแถวในบัญชีหลักอัตโนมัติ
     // (หาแถวที่แน่ชัดยากเพราะบัญชีหลักไม่ได้เก็บ reference กลับมาที่ bill_no เสมอไป) ต้องลบเองถ้าจำเป็น
     if (req.method === 'DELETE') {
+      // ยกเลิกบิล = ย้อนกลับสต็อค/ยอดค้างชำระ — เสี่ยงถูกใช้ปิดบังยอดขายจริงถ้าไม่คุมสิทธิ์
+      // (พนักงาน/แคชเชียร์ทั่วไปไม่ควรยกเลิกบิลได้เอง ต้องเปิดสิทธิ์ perm_void_sales ให้ชัดเจน)
+      if (!(await requirePermission(req, res, token, sheetId, 'perm_void_sales'))) return;
+
       const { bill_no } = req.body;
       if (!bill_no) return res.status(400).json({ error: 'Missing bill_no' });
 

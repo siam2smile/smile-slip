@@ -6,6 +6,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { getAccessToken, readSheet, ensureTabExists, rowToStaff, STAFF_HEADERS } from '../../../lib/google-pos';
 import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
+import { issueStaffSession } from '../../../lib/staff-session';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -63,7 +64,7 @@ export default async function handler(req, res) {
 
     const token = await getAccessToken(gc.google_refresh_token);
     await ensureTabExists(token, pc.pos_sheet_id, 'พนักงาน', STAFF_HEADERS);
-    const rows = await readSheet(token, pc.pos_sheet_id, 'พนักงาน!A:M');
+    const rows = await readSheet(token, pc.pos_sheet_id, 'พนักงาน!A:U');
     const staffRow = rows.slice(1).find(r => r[0] && r[8] && String(r[8]) === String(pin));
 
     if (!staffRow) {
@@ -73,13 +74,23 @@ export default async function handler(req, res) {
 
     clearFailedAttempts(shopId);
     const staff = rowToStaff(staffRow);
+    // ออก session ที่เซ็นชื่อ (HMAC) ผูก shopId+staffId — ใช้แนบ header `x-staff-session` กับ
+    // ทุกคำขอถัดไปแทนการส่ง staffId เปล่าๆ (ปลอมได้ตรงๆ แบบเดิม) ทั้ง /pos?mode=cashier และ
+    // /pos-staff ใช้ session เดียวกันนี้ร่วมกัน — คืน null ถ้ายังไม่ได้ตั้ง STAFF_SESSION_SECRET
+    // (fail-closed, ฝั่งเว็บจะ fallback เป็นไม่มี session แนบ = ทำงานเหมือนไม่มีสิทธิ์อะไรเลย)
+    const sessionToken = issueStaffSession(shopId, staff.staff_id);
     return res.json({
       ok: true, hasSheet: !!pc.pos_sheet_id,
       isWhiteLabel: hasFeature(sp?.subscription_tier, 'white_label'),
+      sessionToken,
       staff: {
         staff_id: staff.staff_id, name: staff.name, role: staff.role, line_id: staff.line_id, branch_name: staff.branch_name,
         perm_view_revenue: staff.perm_view_revenue, perm_view_pl: staff.perm_view_pl,
         perm_manage_stock: staff.perm_manage_stock, perm_export_vat: staff.perm_export_vat,
+        perm_process_sales: staff.perm_process_sales, perm_void_sales: staff.perm_void_sales,
+        perm_manage_customers: staff.perm_manage_customers, perm_manage_expenses: staff.perm_manage_expenses,
+        perm_manage_delivery: staff.perm_manage_delivery, perm_manage_receiving: staff.perm_manage_receiving,
+        perm_issue_tax_invoice: staff.perm_issue_tax_invoice, perm_manage_staff: staff.perm_manage_staff,
       },
     });
   } catch (err) {

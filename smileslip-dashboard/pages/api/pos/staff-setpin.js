@@ -26,7 +26,7 @@ export default async function handler(req, res) {
 
     const token = await getAccessToken(gc.google_refresh_token);
     await ensureTabExists(token, pc.pos_sheet_id, 'พนักงาน', STAFF_HEADERS);
-    const rows = await readSheet(token, pc.pos_sheet_id, 'พนักงาน!A:M');
+    const rows = await readSheet(token, pc.pos_sheet_id, 'พนักงาน!A:U');
     const dataRows = rows.slice(1);
     const idx = dataRows.findIndex(r => r[0] === staff_id);
     if (idx === -1) return res.status(404).json({ error: 'ไม่พบพนักงาน' });
@@ -35,8 +35,11 @@ export default async function handler(req, res) {
     const clash = dataRows.find((r, i) => i !== idx && r[0] && r[8] && String(r[8]) === String(pin));
     if (clash) return res.status(400).json({ error: 'PIN นี้มีคนอื่นใช้อยู่แล้ว กรุณาตั้งรหัสอื่น' });
 
+    // อ่าน/pad ให้ครบ 21 คอลัมน์ (A-U) เสมอก่อน update ทับทั้งแถว — เดิม pad แค่ 13 (A-M) ทำให้
+    // ถ้าพนักงานคนนี้เคยถูกตั้งสิทธิ์เชิงลึก (คอลัมน์ N-U) ไว้แล้ว การตั้ง PIN ใหม่จะเขียนทับ
+    // ล้างสิทธิ์ทั้งหมดทิ้งไปเงียบๆ (เจอบั๊กแฝงนี้จากการ grep ทุกจุดที่แตะชีต "พนักงาน" ก่อน commit)
     const existing = [...dataRows[idx]];
-    while (existing.length < 13) existing.push('');
+    while (existing.length < 21) existing.push('');
     existing[8] = String(pin);
     await updateSheetRow(token, pc.pos_sheet_id, 'พนักงาน', idx + 2, existing);
 
