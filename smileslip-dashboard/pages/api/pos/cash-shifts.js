@@ -18,6 +18,7 @@ import {
   makeShiftNo, rowToCashShift, CASH_SHIFT_HEADERS,
   rowToSale, SALE_HEADERS, rowToExpense, EXPENSE_HEADERS,
 } from '../../../lib/google-pos';
+import { dualWrite, insertRow, updateRow } from '../../../lib/supabase-pos';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -128,11 +129,21 @@ export default async function handler(req, res) {
 
       const shift_no = makeShiftNo();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-      await appendSheet(token, sheetId, 'กะเงินสด', [
-        shift_no, staff_id, staff_name, branch,
-        asText(now), parseFloat(opening_cash) || 0,
-        '', '', '', '', '', '', '', 'เปิดอยู่',
-      ]);
+      const openedAtIso = new Date().toISOString();
+      // dual-write ระยะ migration: Sheets ยังเป็นตัวจริง (primary, ต้องสำเร็จ) Supabase เขียน
+      // ตามหลังแบบ best-effort (secondary) — ดู lib/supabase-pos.js สำหรับรายละเอียด
+      await dualWrite({
+        label: 'cash-shifts:open',
+        primary: () => appendSheet(token, sheetId, 'กะเงินสด', [
+          shift_no, staff_id, staff_name, branch,
+          asText(now), parseFloat(opening_cash) || 0,
+          '', '', '', '', '', '', '', 'เปิดอยู่',
+        ]),
+        secondary: () => insertRow('pos_cash_shifts', {
+          shop_id: shopId, shift_no, staff_id, staff_name, branch_name: branch,
+          opened_at: openedAtIso, opening_cash: parseFloat(opening_cash) || 0, status: 'เปิดอยู่',
+        }),
+      });
       return res.json({ ok: true, shift_no, staff_name, opening_cash: parseFloat(opening_cash) || 0, opened_at: now });
     }
 
@@ -175,7 +186,15 @@ export default async function handler(req, res) {
       existing[11] = withdrawn;         // ยอดเก็บออกไป
       existing[12] = carriedForward;    // ยอดยกไปกะถัดไป
       existing[13] = 'ปิดแล้ว';        // สถานะ
-      await updateSheetRow(token, sheetId, 'กะเงินสด', idx + 2, existing);
+      const closedAtIso = new Date().toISOString();
+      await dualWrite({
+        label: 'cash-shifts:close',
+        primary: () => updateSheetRow(token, sheetId, 'กะเงินสด', idx + 2, existing),
+        secondary: () => updateRow('pos_cash_shifts', { shop_id: shopId, shift_no }, {
+          closed_at: closedAtIso, expected_cash: expected, counted_cash: counted,
+          variance, notes, withdrawn_amount: withdrawn, carried_forward: carriedForward, status: 'ปิดแล้ว',
+        }),
+      });
 
       // แจ้งเจ้าของร้านทาง LINE ถ้ายอดไม่ตรง (ไม่บล็อคการปิดกะ แค่แจ้งเตือน)
       if (variance !== 0 && ownerLineId) {

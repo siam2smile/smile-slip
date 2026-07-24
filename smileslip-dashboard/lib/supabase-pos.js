@@ -59,9 +59,14 @@ export async function insertRows(table, rows) {
   });
 }
 
-export async function updateRow(table, matchCol, matchVal, updates) {
+// `match` เป็น object เสมอ (ไม่ใช่คอลัมน์เดียว) — คีย์ธุรกิจหลายตัวในระบบนี้ (เช่น shift_no จาก
+// makeShiftNo(), bill_no ฯลฯ) generate จาก timestamp โดยไม่มีส่วนสุ่ม จึงไม่การันตีว่า unique
+// ข้ามร้าน ต้องเทียบคู่กับ shop_id เสมอกันแก้ผิดแถวข้ามร้าน (เช่น { shop_id, shift_no })
+export async function updateRow(table, match, updates) {
   return withRetry(async () => {
-    const { data, error } = await supabase.from(table).update(updates).eq(matchCol, matchVal).select().maybeSingle();
+    let q = supabase.from(table).update(updates);
+    for (const [col, val] of Object.entries(match)) q = q.eq(col, val);
+    const { data, error } = await q.select().maybeSingle();
     if (error) throw Object.assign(new Error(`Supabase update error (${table}): ${error.message}`), { status: error.code });
     return data;
   });
@@ -69,8 +74,8 @@ export async function updateRow(table, matchCol, matchVal, updates) {
 
 // soft-delete แทนการลบจริง — ตรงกับธรรมเนียมเดิมฝั่ง Sheets (blank แถวทิ้งแทนลบจริงใน
 // updateSheetRow) เพื่อให้ parity-check เทียบสองฝั่งง่าย และเก็บ audit trail ไว้เผื่อกู้คืน
-export async function softDeleteRow(table, matchCol, matchVal) {
-  return updateRow(table, matchCol, matchVal, { deleted_at: new Date().toISOString() });
+export async function softDeleteRow(table, match) {
+  return updateRow(table, match, { deleted_at: new Date().toISOString() });
 }
 
 /**
