@@ -318,6 +318,7 @@ export default async function handler(req, res) {
             }
 
             await logCyclicalTransaction(token, sheetId, {
+              shopId,
               sku: item.sku, name: item.name, source: 'ขายหน้าร้าน',
               action: returnedQty > 0 ? 'แลกเปลี่ยน' : 'ยืม',
               qty: returnedQty > 0 ? returnedQty : netBorrow,
@@ -325,6 +326,7 @@ export default async function handler(req, res) {
             });
             if (returnedQty > 0 && netBorrow > 0) {
               await logCyclicalTransaction(token, sheetId, {
+                shopId,
                 sku: item.sku, name: item.name, source: 'ขายหน้าร้าน', action: 'ยืม',
                 qty: netBorrow, customerId, customerName, branch, performedBy: cashier,
               });

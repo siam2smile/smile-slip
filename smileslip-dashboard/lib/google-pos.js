@@ -2,6 +2,7 @@
  * ตัวช่วย Google Sheets สำหรับ POS System
  * ใช้ refresh_token จาก shop_google_configs (เหมือน google-delivery.js)
  */
+import { dualWrite, insertRow } from './supabase-pos';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -485,15 +486,27 @@ export function rowToCyclicalLog(row) {
 
 // source: 'ขายหน้าร้าน'|'จัดส่ง'|'เก็บเงิน/ของ' — action: 'แลกเปลี่ยน'|'ยืม'|'คืน'
 // เรียกใช้แบบ fail-safe (ไม่ throw) กันบันทึก log พังจนกระทบ transaction หลัก
-export async function logCyclicalTransaction(token, sheetId, { sku, name, source, action, qty, customerId, customerName, branch, performedBy }) {
+// shopId: เพิ่มเข้ามาสำหรับ dual-write ไป Supabase (Tier A ของแผน migration) — ตัวเดียวที่ต่างจาก
+// เดิม ไม่กระทบ Sheets write เลย (ยังทำงานเหมือนเดิมทุกประการแม้ shopId จะว่าง/undefined)
+export async function logCyclicalTransaction(token, sheetId, { shopId, sku, name, source, action, qty, customerId, customerName, branch, performedBy }) {
   if (!qty || qty <= 0) return;
   try {
     await ensureTabExists(token, sheetId, 'บันทึกแลกเปลี่ยน', CYCLICAL_LOG_HEADERS);
     const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-    await appendSheet(token, sheetId, 'บันทึกแลกเปลี่ยน', [
-      makeCyclicalLogNo(), `'${now}`, sku || '', name || '',
-      source || '', action || '', qty, customerId || '', customerName || '', branch || '', performedBy || '',
-    ]);
+    const logNo = makeCyclicalLogNo();
+    const nowIso = new Date().toISOString();
+    await dualWrite({
+      label: 'cyclical-log',
+      primary: () => appendSheet(token, sheetId, 'บันทึกแลกเปลี่ยน', [
+        logNo, `'${now}`, sku || '', name || '',
+        source || '', action || '', qty, customerId || '', customerName || '', branch || '', performedBy || '',
+      ]),
+      secondary: () => shopId ? insertRow('pos_cyclical_log', {
+        shop_id: shopId, log_no: logNo, transaction_at: nowIso, sku: sku || '', product_name: name || '',
+        source: source || '', action: action || '', qty, customer_id: customerId || '',
+        customer_name: customerName || '', branch_name: branch || '', performed_by: performedBy || '',
+      }) : Promise.resolve(),
+    });
   } catch (err) {
     console.error('[logCyclicalTransaction]', err.message);
   }
