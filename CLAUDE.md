@@ -408,7 +408,7 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
     - **ทดสอบยิงจริงครบด้วยไฟล์ FlowAccount จริงที่ผู้ใช้ส่งมา** (`บริษัท สยาม โกลบอล เน็ทเวิร์ค เอ็นเตอร์ไพรส์ จำกัด_product.xlsx` — ตรงกับชื่อนิติบุคคลจริงของร้าน D Gas) แปลงเป็น CSV จำลองขั้นตอน Excel Save As แล้วรัน parser/mapping logic จริงผ่าน Node script (เพราะ `/pos` ทดสอบผ่านเบราว์เซอร์sandboxed ของเครื่องมือไม่ได้ — router query ไม่ hydrate ปัญหาเดิมที่เจอซ้ำหลายครั้ง ข้อ 34/35/38/45) ยืนยันว่า header row ถูกตรวจจับถูกต้อง (ข้ามแถวหัวเรื่อง+แถวว่าง), mapping ถูกต้องครบทุกคอลัมน์, ข้อความไทยไม่เพี้ยนเลย, ไม่มี SKU ซ้ำ — **นำเข้าจริงสำเร็จ 35 สินค้าเข้าร้าน D Gas จริง** (ผ่าน fetch POST ตรงด้วย Node เพราะ UI ทดสอบผ่านเบราว์เซอร์ไม่ได้ แต่เป็น backend เดียวกับที่ UI จะเรียกจริงทุกประการ — ตรวจสอบผลลัพธ์ในชีตจริงครบ: 40 SKU ไม่ซ้ำกันเลย, ข้อความไทยถูกต้อง 100%, ราคา/ต้นทุน/หมวดหมู่/รายละเอียดตรงกับไฟล์ต้นฉบับทุกแถวรวมถึงแถว edge-case "ส่วนลดท้ายบิล" ที่ราคา 0)
     - **Known gap ที่บอกไว้ชัดเจน:** ไฟล์ export ของ FlowAccount ไม่มีคอลัมน์จำนวนสต็อคคงเหลือเลย (เป็นแค่ price list ไม่ใช่ inventory report) สินค้าที่นำเข้าทั้งหมดจึงเริ่มที่สต็อค 0 เสมอ ผู้ใช้ต้องกรอกสต็อคเริ่มต้นเองผ่าน "รับสินค้า" หรือแก้ไขสินค้าทีละตัวหลังนำเข้า
     - **ยังไม่ได้ทดสอบผ่านเบราว์เซอร์จริง** (ปุ่ม/modal/การอัปโหลดไฟล์จริงผ่าน UI) เพราะ `/pos` ทดสอบผ่านเบราว์เซอร์ sandboxed ของเครื่องมือไม่ได้ (ปัญหาเดิม) — ตรวจสอบผ่าน code review + build check + ทดสอบ logic การ parse/mapping/import จริงทุกจุดผ่าน backend โดยตรงแล้ว แนะนำให้ผู้ใช้ลองอัปโหลดไฟล์เองผ่านเบราว์เซอร์จริงเพื่อยืนยันหน้าตา UI
-    - **ยังไม่ deploy** ขึ้น production (commit + push ขึ้น GitHub ตามข้อตกลง แต่ dashboard ไม่มี auto-deploy จาก push) — รอถามผู้ใช้ก่อน deploy
+    - **Deploy production แล้ว (2026-07-24)** — revision จริง `smileslip-dashboard-00280-gdv` (ข้อความ deploy โชว์ revision เดิม `00279-rnk` ผิดอีกตามเคย เช็คด้วย `gcloud run revisions list` แล้ว pin traffic เอง) — verified บน production จริงว่า `POST /api/pos/products` แบบ bulk (`products: [...]`) ทำงานถูกต้อง (ทดสอบยิงจริงแล้วลบแถวทดสอบทิ้ง ยืนยันจำนวนสินค้ากลับเป็น 40 เท่าเดิม — ระหว่างทดสอบรอบนี้ใช้ `curl -d` ผ่าน Bash tool อีกครั้งโดยไม่ทันคิด ทำให้ข้อความไทยเพี้ยนเป็น `?????` ซ้ำแบบเดียวกับที่เจอตอนทดสอบรอบแรก (ข้อ 47 เอง) — ยืนยันอีกครั้งว่าเป็นปัญหาการเข้ารหัส UTF-8 ของ `curl`/Bash บน Windows เท่านั้น ไม่ใช่บั๊กจริง เพราะการนำเข้าจริง 35 รายการก่อนหน้านี้ผ่าน Node fetch ตรงๆ ได้ผลลัพธ์ภาษาไทยถูกต้อง 100% — **บทเรียน: ห้ามใช้ `curl -d` ทดสอบ payload ที่มีภาษาไทยบนเครื่องนี้อีก ให้ใช้ Node `fetch()` เขียนเป็นสคริปต์เสมอ**)
 
 **ข้อควรระวังใหม่ที่เพิ่มจากเหตุการณ์นี้:**
 - **Git identity ของเครื่องนี้ตั้งแบบ repo-local เท่านั้น** (`user.name=Vespa`, `user.email=six.papigod@gmail.com`) ไม่ใช่ global — ถ้าย้ายเครื่อง/ไดร์อีกต้องตั้งใหม่
@@ -449,7 +449,7 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
 | Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00146-5vj` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00279-rnk` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00280-gdv` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
