@@ -57,10 +57,13 @@ export default async function handler(req, res) {
 
   try {
     // แอปพนักงานส่งของ (pos-staff.js) ล็อกที่ Shop Pro ตาม feature gating matrix — advance ขึ้นไปใช้ได้
-    // purpose='cash_shift' (เปิด/ปิดกะเงินสดจากหน้า pos.js เอง) ไม่เกี่ยวกับแอปพนักงานส่งของเลย
-    // ทุก tier ต้องเปิด-ปิดกะเงินสดได้เสมอ — ข้ามการเช็ค tier gate นี้ไปเมื่อระบุ purpose นี้
+    // purpose='cash_shift' (เปิด/ปิดกะเงินสดจากหน้า pos.js เอง) และ purpose='pos_cashier' (ลิงก์
+    // แคชเชียร์ที่ /pos?mode=cashier) ไม่เกี่ยวกับแอปพนักงานส่งของเลย ทั้งสองเป็นฟีเจอร์ความปลอดภัย
+    // พื้นฐาน (แยกสิทธิ์แคชเชียร์ออกจากบัญชีเจ้าของร้าน) ที่ต้องเปิดให้ทุก tier ใช้ได้เสมอ — ไม่ผูก
+    // กับกลยุทธ์ upsell ของแอปพนักงานส่งของแบบเต็มรูปแบบ (งานจัดส่ง/เก็บเงิน ฯลฯ ยังคงล็อกตามเดิม)
     const { data: sp } = await supabase.from('shop_profiles').select('subscription_tier').eq('id', shopId).maybeSingle();
-    if (purpose !== 'cash_shift' && sp && !hasFeature(sp.subscription_tier, 'delivery_staff_app')) {
+    const skipTierGate = purpose === 'cash_shift' || purpose === 'pos_cashier';
+    if (!skipTierGate && sp && !hasFeature(sp.subscription_tier, 'delivery_staff_app')) {
       return res.status(403).json({ error: upgradeMessage('delivery_staff_app'), featureLocked: true });
     }
 
