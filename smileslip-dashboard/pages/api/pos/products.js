@@ -13,7 +13,7 @@ import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import { requirePermission } from '../../../lib/pos-auth';
 import {
-  getAccessToken, readSheet, appendSheet, updateSheetRow,
+  getAccessToken, readSheet, appendSheet, appendRows, updateSheetRow,
   makeSKU, rowToProduct,
 } from '../../../lib/google-pos';
 
@@ -21,6 +21,14 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
+
+// บังคับให้ Google Sheets เก็บ "วันที่อัปเดต" เป็นข้อความล้วน ไม่ auto-parse ปี พ.ศ. เป็น ค.ศ.
+// ตรงๆ จนเพี้ยนไป ~543 ปี (บั๊กเดียวกับที่เจอซ้ำหลายจุดในโปรเจกต์นี้ — ไฟล์นี้ไม่เคยแก้มาก่อน
+// เพิ่งเจอตอนสร้างฟีเจอร์นำเข้าสินค้าเป็นชุด ซึ่งจะเขียนคอลัมน์นี้ซ้ำหลายร้อยแถวถ้าไม่แก้ก่อน)
+function asText(v) {
+  if (v === '' || v == null) return v;
+  return `'${v}`;
+}
 
 async function getConfig(shopId) {
   const [{ data: pc }, { data: gc }, { data: sp }] = await Promise.all([
@@ -71,6 +79,31 @@ export default async function handler(req, res) {
       return res.json({ products });
     }
 
+    // ── POST (bulk import — นำเข้าสินค้าจาก CSV จำนวนมากในคำขอเดียว) ────────
+    // ต่างจากเพิ่มทีละตัว: รับ shopId + products (array) แทน ยิง append เป็นก้อนใหญ่ผ่าน
+    // appendRows() ไม่ใช่ทีละแถว กัน rate limit ของ Google เวลานำเข้าเป็นร้อย/พันรายการ
+    // (pattern เดียวกับ bulk import ของผู้ติดต่อใน contacts.js) — ทุกรายการที่นำเข้าเป็น
+    // ประเภท "นับสต็อค" เสมอ (ไม่รองรับตั้ง "หมุนเวียน" ผ่านการนำเข้าเป็นชุด ผู้ใช้แก้เองทีหลัง
+    // ได้ถ้าต้องการ เพราะสินค้าหมุนเวียนมีผลข้างเคียงเรื่องแลกเปลี่ยน/ยืมที่ละเอียดอ่อนกว่า)
+    if (req.method === 'POST' && Array.isArray(req.body.products)) {
+      const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+      const rows = req.body.products
+        .filter(p => p?.name)
+        .map(p => [
+          makeSKU(), p.name, p.category || '',
+          Math.max(0, parseFloat(p.price) || 0), Math.max(0, parseFloat(p.cost) || 0),
+          Math.max(0, parseFloat(p.stock) || 0), p.unit || 'ชิ้น', p.aliases || '', p.notes || '', asText(now),
+          'นับสต็อค', 0, 0,
+          p.product_code || '', p.barcode || '', p.description || '',
+          p.vat_type || 'ไม่มี VAT', '1', 0, '',
+        ]);
+      const CHUNK = 500;
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        await appendRows(token, sheetId, 'สินค้า', rows.slice(i, i + CHUNK));
+      }
+      return res.json({ ok: true, imported: rows.length });
+    }
+
     // ── POST (เพิ่มสินค้าใหม่) ────────────────────────────────────────────
     if (req.method === 'POST') {
       const {
@@ -92,7 +125,7 @@ export default async function handler(req, res) {
       const sku = makeSKU();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
       await appendSheet(token, sheetId, 'สินค้า', [
-        sku, name, category, price, cost, stock, unit, aliases, notes, now,
+        sku, name, category, price, cost, stock, unit, aliases, notes, asText(now),
         type, 0, 0,
         product_code, barcode, description, vat_type, is_active ? '1' : '0', empty_ceiling || 0,
         Array.isArray(branches) ? branches.join(',') : '',
@@ -139,7 +172,7 @@ export default async function handler(req, res) {
       if (action === 'receive-back') {
         existing[11] = Math.max(0, (parseFloat(existing[11]) || 0) - qty);
         existing[12] = (parseFloat(existing[12]) || 0) + qty;
-        existing[9]  = now;
+        existing[9]  = asText(now);
         await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
         return res.json({ ok: true });
       }
@@ -148,7 +181,7 @@ export default async function handler(req, res) {
       if (action === 'refill') {
         existing[12] = Math.max(0, (parseFloat(existing[12]) || 0) - qty);
         existing[5]  = (parseFloat(existing[5]) || 0) + qty;
-        existing[9]  = now;
+        existing[9]  = asText(now);
         await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
         return res.json({ ok: true });
       }
@@ -173,7 +206,7 @@ export default async function handler(req, res) {
       if (updates.is_active     !== undefined) existing[17] = updates.is_active ? '1' : '0';
       if (updates.empty_ceiling !== undefined) existing[18] = updates.empty_ceiling;
       if (updates.branches      !== undefined) existing[19] = Array.isArray(updates.branches) ? updates.branches.join(',') : '';
-      existing[9] = now;
+      existing[9] = asText(now);
 
       await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
       return res.json({ ok: true, sku, stock: parseFloat(existing[5]) || 0 });

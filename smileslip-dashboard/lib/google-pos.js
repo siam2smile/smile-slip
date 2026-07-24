@@ -542,7 +542,10 @@ export function resolveRecordDateTime(transactionDate) {
 // ── Key Generators ────────────────────────────────────────────────────────────
 
 export function makeSKU() {
-  return 'P' + Date.now().toString(36).toUpperCase().slice(-6);
+  // เพิ่มส่วนสุ่มต่อท้าย (เจอบั๊กจริงตอนสร้างฟีเจอร์นำเข้าสินค้าเป็นชุด — เดิม Date.now() อย่าง
+  // เดียวชนกันได้ถ้าสร้างหลาย SKU ใน loop เดียวกัน (synchronous) แบบเดียวกับที่เคยแก้ makeContactId())
+  const rand = Math.random().toString(36).slice(2, 5).toUpperCase();
+  return 'P' + Date.now().toString(36).toUpperCase().slice(-6) + rand;
 }
 
 export function makeBillNo() {

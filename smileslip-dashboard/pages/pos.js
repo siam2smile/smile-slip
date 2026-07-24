@@ -659,6 +659,17 @@ export default function POSPage() {
   const [isVcfMode, setIsVcfMode] = useState(false);
   const importFileRef = useRef(null);
 
+  // products CSV import (นำเข้าจากระบบอื่น เช่น FlowAccount) — คนละ state จากผู้ติดต่อ
+  // เพราะเปิดพร้อมกันจากคนละแท็บได้ ไม่อยากให้ปนกัน
+  const [showProdImportModal, setShowProdImportModal] = useState(false);
+  const [prodImportRows, setProdImportRows] = useState([]);
+  const [prodImportHeaders, setProdImportHeaders] = useState([]);
+  const [prodImportMapping, setProdImportMapping] = useState({ name: '', price: '', cost: '', stock: '', category: '', unit: '', product_code: '', barcode: '', description: '' });
+  const [prodImportVatType, setProdImportVatType] = useState('ไม่มี VAT');
+  const [prodImportLoading, setProdImportLoading] = useState(false);
+  const [prodImportProgress, setProdImportProgress] = useState(null);
+  const prodImportFileRef = useRef(null);
+
   const [showMapPicker, setShowMapPicker] = useState(false);
   const [mapPickerSlot, setMapPickerSlot] = useState(1);
 
@@ -3046,6 +3057,166 @@ export default function POSPage() {
     setIsVcfMode(false);
   }
 
+  // ── นำเข้าสินค้าจาก CSV (เช่น export จาก FlowAccount/ระบบบัญชีอื่น) ────────────
+  // reuse parseCSVLine เดิม (generic ไม่ผูกกับผู้ติดต่อ) แต่แยก parser ของตัวเองจากผู้ติดต่อ
+  // (ไม่ใช้ parseCSVText ตรงๆ) เพราะไฟล์ export จริงจาก FlowAccount มีแถวหัวเรื่อง/แถวว่างนำ
+  // หน้าคอลัมน์จริง 2 แถว (พิสูจน์จากไฟล์ตัวอย่างจริงที่ผู้ใช้ส่งมา) ถ้าเดาว่าแถวแรกสุดคือ header
+  // เสมอแบบผู้ติดต่อจะจับคู่คอลัมน์ผิดหมด — ต้องหาแถวที่ "ดูเหมือน header จริง" ก่อน (แถวที่มีเซลล์
+  // ไม่ว่างมากที่สุดในบรรดา 10 แถวแรก มักจะเป็นแถว header จริงเสมอ ต่างจากแถวหัวเรื่อง/แถวว่าง)
+  function findBestHeaderRowIndex(lines) {
+    let bestIdx = 0, bestCount = -1;
+    for (let i = 0; i < Math.min(10, lines.length); i++) {
+      const nonEmpty = parseCSVLine(lines[i]).filter(c => c.trim()).length;
+      if (nonEmpty > bestCount) { bestCount = nonEmpty; bestIdx = i; }
+    }
+    return bestIdx;
+  }
+  function parseProductCSVText(text) {
+    const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim());
+    if (!lines.length) return { headers: [], rows: [] };
+    const headerIdx = findBestHeaderRowIndex(lines);
+    const headers = parseCSVLine(lines[headerIdx]).map(h => h.replace(/^"|"$/g, ''));
+    const rows = lines.slice(headerIdx + 1).map(line => {
+      const vals = parseCSVLine(line).map(v => v.replace(/^"|"$/g, ''));
+      return headers.reduce((obj, h, i) => { obj[h] = (vals[i] || '').trim(); return obj; }, {});
+    });
+    return { headers, rows: rows.filter(r => Object.values(r).some(v => v)) };
+  }
+
+  // จับคู่ตามลำดับความสำคัญ (ตัวแรกที่เจอชนะ) — เช็คชื่อคอลัมน์แบบ FlowAccount จริง (อังกฤษ:
+  // Name/Unit/Category/UnitPriceWithVat/BuyPriceWithVat/ProductCode/BarCode/Description) ควบคู่
+  // กับคำไทยทั่วไป กัน mapping ผิดถ้าเป็นไฟล์จากระบบอื่น — ราคา/ต้นทุนเลือกคอลัมน์ "รวม VAT" ก่อน
+  // เสมอถ้ามี เพราะพร้อมใช้เป็นราคาขายจริงทันทีโดยไม่ต้องคำนวณเพิ่ม
+  function autoDetectProdMapping(headers) {
+    const norm = headers.map(h => ({ raw: h, hl: h.toLowerCase().replace(/\s+/g, '') }));
+    const pick = (...tests) => {
+      for (const test of tests) {
+        const found = norm.find(({ hl }) => test(hl));
+        if (found) return found.raw;
+      }
+      return '';
+    };
+    return {
+      name:         pick(hl => hl === 'name', hl => hl.includes('ชื่อสินค้า'), hl => hl === 'ชื่อ', hl => hl.includes('productname')),
+      price:        pick(hl => hl === 'unitpricewithvat', hl => hl === 'unitprice', hl => hl.includes('ราคาขาย'), hl => hl.includes('saleprice'), hl => hl.includes('selling'), hl => hl === 'price', hl => hl.includes('ราคา') && !hl.includes('ทุน')),
+      cost:         pick(hl => hl === 'buypricewithvat', hl => hl === 'buyprice', hl => hl.includes('ต้นทุน'), hl => hl.includes('ทุน'), hl => hl.includes('cost')),
+      stock:        pick(hl => hl.includes('คงเหลือ'), hl => hl.includes('สต็อค'), hl => hl.includes('สต๊อก'), hl => hl.includes('stock'), hl => hl.includes('qty'), hl => hl.includes('quantity')),
+      category:     pick(hl => hl.includes('หมวดหมู่'), hl => hl.includes('ประเภทสินค้า'), hl => hl === 'category'),
+      unit:         pick(hl => hl.includes('หน่วย'), hl => hl === 'unit'),
+      product_code: pick(hl => hl.includes('รหัสสินค้า'), hl => hl.includes('รหัส'), hl => hl === 'productcode', hl => hl.includes('sku'), hl => hl.includes('code')),
+      barcode:      pick(hl => hl.includes('บาร์โค้ด'), hl => hl === 'barcode'),
+      description:  pick(hl => hl.includes('รายละเอียด'), hl => hl === 'description', hl => hl.includes('desc')),
+    };
+  }
+
+  function handleProdImportFile(file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const { headers, rows } = parseProductCSVText(e.target.result);
+      setProdImportHeaders(headers);
+      setProdImportRows(rows);
+      const mapping = autoDetectProdMapping(headers);
+      setProdImportMapping(mapping);
+      // ราคาที่จับคู่เป็นคอลัมน์ "รวม VAT" (เช่น UnitPriceWithVat) พร้อมใช้เป็นราคาขายจริงทันที
+      // ตั้ง default ประเภท VAT ให้ตรงกันอัตโนมัติ (ยังแก้ในหน้าจอได้ถ้าไม่ตรง)
+      if (mapping.price && mapping.price.toLowerCase().replace(/\s+/g, '').includes('withvat')) {
+        setProdImportVatType('รวม VAT แล้ว');
+      } else {
+        setProdImportVatType('ไม่มี VAT');
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+  }
+
+  async function runProdImport() {
+    const validRows = prodImportRows.filter(r => prodImportMapping.name && r[prodImportMapping.name]?.trim());
+    if (!validRows.length) return;
+    // กันซ้ำด้วยชื่อ (case-insensitive) หรือรหัสสินค้าถ้าจับคู่ไว้ — สินค้าไม่มีเบอร์โทรแบบผู้ติดต่อ
+    // ให้ใช้เป็นกุญแจธรรมชาติ จึงใช้ชื่อ/รหัสแทน
+    const existingNames = new Set(products.map(p => (p.name || '').trim().toLowerCase()).filter(Boolean));
+    const existingCodes = new Set(products.map(p => (p.product_code || '').trim().toLowerCase()).filter(Boolean));
+    setProdImportLoading(true);
+
+    const seenKeys = new Set();
+    const toImport = [];
+    let skipped = 0;
+    for (const row of validRows) {
+      const name = row[prodImportMapping.name] || '';
+      const code = (prodImportMapping.product_code ? row[prodImportMapping.product_code] : '') || '';
+      const key = (code || name).trim().toLowerCase();
+      const isDup = code ? existingCodes.has(key) : existingNames.has(key);
+      if (key && (isDup || seenKeys.has(key))) { skipped++; continue; }
+      if (key) seenKeys.add(key);
+      toImport.push({
+        name,
+        price:        (prodImportMapping.price        ? row[prodImportMapping.price]        : '') || 0,
+        cost:         (prodImportMapping.cost         ? row[prodImportMapping.cost]         : '') || 0,
+        stock:        (prodImportMapping.stock        ? row[prodImportMapping.stock]        : '') || 0,
+        category:     (prodImportMapping.category     ? row[prodImportMapping.category]     : '') || '',
+        unit:         (prodImportMapping.unit         ? row[prodImportMapping.unit]         : '') || 'ชิ้น',
+        product_code: code,
+        barcode:      (prodImportMapping.barcode      ? row[prodImportMapping.barcode]      : '') || '',
+        description:  (prodImportMapping.description  ? row[prodImportMapping.description]  : '') || '',
+        vat_type:     prodImportVatType,
+      });
+    }
+
+    const CHUNK = 300;
+    let imported = 0, failed = 0;
+    setProdImportProgress({ done: 0, total: toImport.length, skipped });
+    for (let i = 0; i < toImport.length; i += CHUNK) {
+      const chunk = toImport.slice(i, i + CHUNK);
+      try {
+        const r = await fetch('/api/pos/products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ shopId, products: chunk }),
+        });
+        const d = await r.json();
+        if (d.ok) imported += d.imported ?? chunk.length;
+        else failed += chunk.length;
+      } catch (_) {
+        failed += chunk.length;
+      }
+      setProdImportProgress({ done: Math.min(i + CHUNK, toImport.length), total: toImport.length, skipped });
+    }
+
+    setProdImportLoading(false);
+    setProdImportProgress(null);
+    setShowProdImportModal(false);
+    setProdImportRows([]);
+    setProdImportHeaders([]);
+    await fetchProducts(shopId);
+    if (failed > 0) {
+      showToast(`นำเข้าสำเร็จ ${imported} รายการ — ล้มเหลว ${failed} รายการ (ลองนำเข้าไฟล์เดิมซ้ำได้ ระบบจะข้ามชื่อ/รหัสที่มีอยู่แล้ว)`);
+    } else {
+      showToast(skipped > 0 ? `นำเข้า ${imported} รายการ (ข้าม ${skipped} ซ้ำ)` : `นำเข้า ${imported} สินค้าแล้ว`);
+    }
+  }
+
+  function closeProdImportModal() {
+    if (prodImportLoading) return;
+    setShowProdImportModal(false);
+    setProdImportRows([]);
+    setProdImportHeaders([]);
+    setProdImportProgress(null);
+    setProdImportVatType('ไม่มี VAT');
+  }
+
+  function downloadProductTemplateCsv() {
+    const csv = '﻿' +
+      'ชื่อสินค้า,ราคาขาย,ต้นทุน,จำนวนคงเหลือ,หมวดหมู่,หน่วย,รหัสสินค้า,บาร์โค้ด,รายละเอียด\n' +
+      '"น้ำแก๊ส 15 กก.","450","380","20","แก๊สหุงต้ม","ถัง","GAS15","8850123456789","สินค้าขายดี"\n' +
+      '"ถังแก๊ส 15 กก.","1500","1200","5","แก๊สหุงต้ม","ถัง","TANK15","",""';
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'products_template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   // ── Report helpers ────────────────────────────────────────────────────────
   async function fetchReport(type = reportType, dateFrom = reportDateFrom, dateTo = reportDateTo, branch = reportBranch, statusF = reportStatusFilter) {
     if (!shopId) return;
@@ -3866,9 +4037,15 @@ export default function POSPage() {
               <div className="p-4 max-w-4xl mx-auto">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-white font-bold">สินค้าทั้งหมด ({products.length})</h2>
-                  <button onClick={openAddProd} className="bg-green-600 hover:bg-green-500 text-white text-sm font-bold px-4 py-2 rounded-xl transition-colors">
-                    + เพิ่มสินค้า
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setShowProdImportModal(true)}
+                      className="bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm px-3 py-2 rounded-xl transition-colors">
+                      📥 นำเข้า
+                    </button>
+                    <button onClick={openAddProd} className="bg-green-600 hover:bg-green-500 text-white text-sm font-bold px-4 py-2 rounded-xl transition-colors">
+                      + เพิ่มสินค้า
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex gap-2 overflow-x-auto pb-2 mb-4 scrollbar-hide">
@@ -8049,6 +8226,149 @@ export default function POSPage() {
                       disabled={importLoading || !importMapping.name}
                       className="flex-1 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm">
                       นำเข้า {importRows.filter(r => importMapping.name && r[importMapping.name]?.trim()).length} รายการ
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ PRODUCTS CSV IMPORT MODAL (เช่น นำเข้าจาก FlowAccount) ═══════════════ */}
+      {showProdImportModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-gray-900 rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
+            <div className="p-4 border-b border-gray-800 flex items-center justify-between sticky top-0 bg-gray-900 z-10">
+              <h3 className="text-white font-bold text-base">📥 นำเข้าสินค้าจาก CSV</h3>
+              <button onClick={closeProdImportModal} disabled={prodImportLoading}
+                className="text-gray-500 hover:text-white text-xl w-8 h-8 flex items-center justify-center disabled:opacity-30">✕</button>
+            </div>
+
+            <div className="p-5">
+              {prodImportProgress ? (
+                <div className="text-center py-10">
+                  <div className="text-5xl mb-4">⏳</div>
+                  <p className="text-white font-bold text-lg mb-3">กำลังนำเข้า...</p>
+                  <div className="bg-gray-800 rounded-full h-3 overflow-hidden mb-3 max-w-xs mx-auto">
+                    <div className="bg-green-500 h-full transition-all duration-300 rounded-full"
+                      style={{ width: `${Math.round((prodImportProgress.done / prodImportProgress.total) * 100)}%` }} />
+                  </div>
+                  <p className="text-gray-400 text-sm">{prodImportProgress.done} / {prodImportProgress.total} รายการ</p>
+                  {prodImportProgress.skipped > 0 && (
+                    <p className="text-yellow-500 text-xs mt-1">ข้าม {prodImportProgress.skipped} รายการที่ซ้ำ</p>
+                  )}
+                </div>
+
+              ) : prodImportRows.length === 0 ? (
+                <div>
+                  <div onClick={() => prodImportFileRef.current?.click()}
+                    className="border-2 border-dashed border-gray-600 hover:border-green-500 rounded-xl p-10 text-center cursor-pointer transition-colors group">
+                    <div className="text-4xl mb-3 group-hover:scale-110 transition-transform">📦</div>
+                    <p className="text-gray-200 font-medium mb-1">คลิกเพื่อเลือกไฟล์ CSV</p>
+                    <p className="text-gray-500 text-xs">Export จาก FlowAccount หรือระบบบัญชี/POS อื่น แล้วอัปโหลดที่นี่</p>
+                    <input ref={prodImportFileRef} type="file" accept=".csv,text/csv" className="hidden"
+                      onChange={e => { if (e.target.files?.[0]) { handleProdImportFile(e.target.files[0]); e.target.value = ''; } }} />
+                  </div>
+                  <div className="mt-4 flex items-center justify-between">
+                    <p className="text-gray-500 text-xs">ต้องการ CSV เปล่า?</p>
+                    <button onClick={downloadProductTemplateCsv}
+                      className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded-lg border border-gray-700 transition-colors">
+                      ⬇ ดาวน์โหลด Template CSV
+                    </button>
+                  </div>
+                  <div className="mt-4 bg-gray-800/50 rounded-xl p-4 text-xs text-gray-400 space-y-1.5">
+                    <p className="font-medium text-gray-300 mb-2">💡 วิธี Export จาก FlowAccount</p>
+                    <p>• เข้าเมนู "สินค้า/บริการ" → เลือกส่งออก/Export → บันทึกเป็นไฟล์ Excel/CSV</p>
+                    <p>• ถ้าได้ไฟล์ Excel (.xlsx) ให้เปิดแล้ว Save As → CSV (Comma delimited) ก่อนอัปโหลด</p>
+                    <p>• ระบบอื่นก็ใช้วิธีเดียวกันได้ — อัปโหลดแล้วจับคู่คอลัมน์เองได้ในขั้นต่อไป ไม่จำเป็นต้องตรงชื่อเป๊ะ</p>
+                    <p>• สินค้าที่นำเข้าทั้งหมดจะเป็นประเภท "นับสต็อค" — ถ้าเป็นสินค้าหมุนเวียน (เช่น ถังแก๊ส) แก้ไขทีละรายการทีหลังได้</p>
+                  </div>
+                </div>
+
+              ) : (
+                <div className="space-y-5">
+                  <div>
+                    <h4 className="text-white font-medium text-sm mb-3">🔗 จับคู่คอลัมน์ CSV กับข้อมูลสินค้า</h4>
+                    <div className="space-y-2">
+                      {[
+                        { field: 'name',         label: 'ชื่อสินค้า *',  required: true  },
+                        { field: 'price',        label: 'ราคาขาย',       required: false },
+                        { field: 'cost',         label: 'ต้นทุน',        required: false },
+                        { field: 'stock',        label: 'จำนวนคงเหลือ',  required: false },
+                        { field: 'category',     label: 'หมวดหมู่',      required: false },
+                        { field: 'unit',         label: 'หน่วย',         required: false },
+                        { field: 'product_code', label: 'รหัสสินค้า',    required: false },
+                        { field: 'barcode',      label: 'บาร์โค้ด',      required: false },
+                        { field: 'description',  label: 'รายละเอียด',    required: false },
+                      ].map(({ field, label, required }) => (
+                        <div key={field} className="flex items-center gap-3">
+                          <span className={`text-xs w-28 shrink-0 ${required ? 'text-yellow-400' : 'text-gray-400'}`}>{label}</span>
+                          <span className="text-gray-600 text-xs shrink-0">←</span>
+                          <select value={prodImportMapping[field] || ''}
+                            onChange={e => setProdImportMapping(m => ({ ...m, [field]: e.target.value }))}
+                            className="flex-1 bg-gray-800 text-white text-xs px-3 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500">
+                            <option value="">— ไม่นำเข้า —</option>
+                            {prodImportHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="text-white font-medium text-sm mb-2">ราคาที่นำเข้า (ทุกรายการ)</h4>
+                    <div className="flex gap-2">
+                      {['ไม่มี VAT', 'รวม VAT แล้ว', 'ไม่รวม VAT'].map(t => (
+                        <button key={t} type="button" onClick={() => setProdImportVatType(t)}
+                          className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${prodImportVatType === t ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-gray-500 text-xs mt-1.5">ถ้าคอลัมน์ราคาที่เลือกไว้ด้านบนเป็นราคารวม VAT อยู่แล้ว (เช่น UnitPriceWithVat) ให้เลือก "รวม VAT แล้ว"</p>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-white font-medium text-sm">ตัวอย่าง (5 แถวแรก)</h4>
+                      <span className="text-gray-500 text-xs">พบ {prodImportRows.length} รายการ</span>
+                    </div>
+                    <div className="bg-gray-800 rounded-xl overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b border-gray-700">
+                              <th className="text-left text-gray-400 px-3 py-2 font-medium">ชื่อสินค้า</th>
+                              <th className="text-left text-gray-400 px-3 py-2 font-medium">ราคาขาย</th>
+                              <th className="text-left text-gray-400 px-3 py-2 font-medium">ต้นทุน</th>
+                              <th className="text-left text-gray-400 px-3 py-2 font-medium">คงเหลือ</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {prodImportRows.slice(0, 5).map((row, i) => (
+                              <tr key={i} className="border-b border-gray-700/50 last:border-0">
+                                <td className="px-3 py-2 text-white font-medium">{prodImportMapping.name ? (row[prodImportMapping.name] || '—') : '—'}</td>
+                                <td className="px-3 py-2 text-gray-300">{prodImportMapping.price ? (row[prodImportMapping.price] || '—') : '—'}</td>
+                                <td className="px-3 py-2 text-gray-400">{prodImportMapping.cost ? (row[prodImportMapping.cost] || '—') : '—'}</td>
+                                <td className="px-3 py-2 text-gray-400">{prodImportMapping.stock ? (row[prodImportMapping.stock] || '—') : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button onClick={() => { setProdImportRows([]); setProdImportHeaders([]); }}
+                      className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium py-3 rounded-xl transition-colors text-sm">
+                      ← เลือกไฟล์ใหม่
+                    </button>
+                    <button onClick={runProdImport}
+                      disabled={prodImportLoading || !prodImportMapping.name}
+                      className="flex-1 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm">
+                      นำเข้า {prodImportRows.filter(r => prodImportMapping.name && r[prodImportMapping.name]?.trim()).length} รายการ
                     </button>
                   </div>
                 </div>
