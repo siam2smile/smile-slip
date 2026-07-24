@@ -5,6 +5,7 @@
  */
 import { useState, useRef, useEffect } from 'react';
 import Head from 'next/head';
+import Script from 'next/script';
 import { useRouter } from 'next/router';
 import { withBrandFooter } from '../lib/branding';
 
@@ -15,7 +16,9 @@ export default function PosStaffPage() {
     staff_id: setupStaffId, setpin: setupMode,
   } = router.query;
 
-  const [step, setStep] = useState('pin'); // 'pin' | 'setpin' | 'menu' | 'bills' | 'confirm' | 'deliveries' | 'deliver-confirm' | 'collections' | 'collect-confirm' | 'manage'
+  // 'loading' | 'name' | 'pin' | 'setpin' | 'menu' | 'bills' | 'confirm' | 'deliveries' |
+  // 'deliver-confirm' | 'collections' | 'collect-confirm' | 'manage'
+  const [step, setStep] = useState('loading');
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState('');
   const [pinLoading, setPinLoading] = useState(false);
@@ -23,6 +26,14 @@ export default function PosStaffPage() {
   const [staffName, setStaffName] = useState('');
   const [staffBranch, setStaffBranch] = useState(''); // สาขาที่พนักงานคนนี้ผูกอยู่ (ตั้งค่าจากตอนอนุมัติ/เพิ่มพนักงาน)
   const [staffId, setStaffId] = useState(''); // staff_id ของคนที่ login สำเร็จ (ใช้ผูกกับ PIN)
+  // เลือกชื่อตัวเองก่อนใส่ PIN (fallback เมื่อไม่ได้เปิดจากแอปไลน์) — ระบุตัวตนก่อนแล้วค่อยเช็ค
+  // PIN เฉพาะคนนั้น แทนการค้นหา PIN ข้ามพนักงานทั้งร้านแบบเดิม (ดู verify-pin.js สำหรับเหตุผลเต็ม)
+  const [pickerList, setPickerList] = useState([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [selectedPicker, setSelectedPicker] = useState(null); // { staff_id, name, branch_name }
+  // ถ้าเปิดจากในแอปไลน์ (LIFF) จะรู้ไลไอดีอัตโนมัติทันที ข้ามหน้าเลือกชื่อไปเข้าหน้า PIN ตรงเลย
+  const [liffLineId, setLiffLineId] = useState('');
+  const authResolvedRef = useRef(false); // กันหลายเส้นทาง (setup-mode/กู้ session/LIFF) ตัดสินใจ step ซ้อนกัน
   const [staffPerms, setStaffPerms] = useState({ perm_view_revenue: false, perm_view_pl: false, perm_manage_stock: false, perm_export_vat: false });
   const [isWhiteLabel, setIsWhiteLabel] = useState(false);
   // session ที่เซ็นชื่อ (HMAC) จาก verify-pin — ใช้ ref เพราะต้องอ่านค่าล่าสุดได้ทันทีหลัง
@@ -125,8 +136,57 @@ export default function PosStaffPage() {
 
   // มาจากลิงก์ตั้งรหัส PIN ที่ส่งทาง LINE (staff_id + setpin=1) → ข้ามหน้ากรอก PIN ไปตั้งรหัสใหม่เลย
   useEffect(() => {
-    if (setupMode && setupStaffId) setStep('setpin');
+    if (setupMode && setupStaffId) { authResolvedRef.current = true; setStep('setpin'); }
   }, [setupMode, setupStaffId]);
+
+  // ดึงรายชื่อพนักงานให้เลือกก่อนใส่ PIN (ใช้ตอน fallback — ไม่ได้เปิดจากในแอปไลน์)
+  async function fetchPickerList() {
+    if (!shopId) return;
+    setPickerLoading(true);
+    try {
+      const r = await fetch(`/api/pos/staff-picker?shopId=${shopId}`);
+      const d = await r.json();
+      if (d.staff) setPickerList(d.staff);
+    } catch {}
+    setPickerLoading(false);
+  }
+
+  // ทางเลือกสุดท้ายถ้า LIFF ใช้ไม่ได้ (ไม่ได้เปิดจากแอปไลน์/โหลด SDK ไม่สำเร็จ/หมดเวลารอ) —
+  // กลับไปให้เลือกชื่อจากรายชื่อ + ใส่ PIN แบบเดิม
+  function resolveAuthFallback() {
+    if (authResolvedRef.current) return;
+    authResolvedRef.current = true;
+    setStep('name');
+    fetchPickerList();
+  }
+
+  // เผื่อเน็ตพนักงานหลุด/ช้าจนแท็ก <Script> ไม่เรียก onLoad/onError กลับมาเลยสักครั้ง (เดต็ตกต่างจาก
+  // fallbackTimer ใน initLiff() ที่เริ่มนับ "หลัง" init เริ่มทำงานแล้วเท่านั้น) — กันหน้าค้างที่
+  // "กำลังโหลด..." ตลอดไปถ้า CDN ไม่ตอบสนองอะไรเลยแม้แต่ error
+  useEffect(() => {
+    const t = setTimeout(resolveAuthFallback, 10000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // เรียกหลัง LIFF SDK โหลดจาก CDN สำเร็จ — ถ้าเปิดจากในแอปไลน์เอง รู้ไลไอดีได้อัตโนมัติทันที
+  // ข้ามหน้าเลือกชื่อไปเข้าหน้าใส่ PIN ตรงเลย (ยังต้องใส่ PIN อยู่ดี แค่ไม่ต้องเลือกชื่อเอง)
+  async function initLiff() {
+    const fallbackTimer = setTimeout(resolveAuthFallback, 8000);
+    try {
+      await window.liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID });
+      clearTimeout(fallbackTimer);
+      if (authResolvedRef.current) return; // setup-mode/กู้ session ตัดสินใจไปก่อนแล้ว
+      if (!window.liff.isInClient()) { resolveAuthFallback(); return; }
+      const profile = await window.liff.getProfile();
+      authResolvedRef.current = true;
+      setLiffLineId(profile.userId);
+      setStep('pin');
+    } catch {
+      clearTimeout(fallbackTimer);
+      resolveAuthFallback();
+    }
+  }
 
   // กู้คืน session ที่ค้างไว้จาก sessionStorage ตอนโหลดหน้า (เดิมพนักงานรีเฟรชหน้าแล้วต้องใส่ PIN
   // ใหม่ทุกครั้งเพราะ staffId เก็บใน React state อย่างเดียว) — sessionStorage อยู่ได้แค่ในแท็บ/
@@ -141,6 +201,7 @@ export default function PosStaffPage() {
       if (!raw) return;
       const saved = JSON.parse(raw);
       if (!saved?.sessionToken || !saved?.staff_id) return;
+      authResolvedRef.current = true;
       sessionRef.current = saved.sessionToken;
       setStaffName(saved.staffName || '');
       setStaffBranch(saved.staffBranch || '');
@@ -172,6 +233,11 @@ export default function PosStaffPage() {
       if (d.ok) {
         showToast(`✅ ตั้งรหัส PIN สำเร็จ${d.name ? ` — ${d.name}` : ''}`);
         setNewPin(''); setNewPinConfirm('');
+        // ตั้ง PIN เสร็จแล้ว → ไปหน้าใส่ PIN ต่อเลย ผูกกับ staff_id ที่รู้อยู่แล้วจากลิงก์
+        // (ไม่ต้องให้เลือกชื่อใหม่ซ้ำ — เว้นแต่เปิดจากในแอปไลน์ ให้ liffLineId ทำงานแทน)
+        authResolvedRef.current = true; // กัน LIFF ที่อาจโหลดช้ามาทับ step ทีหลัง
+        if (!liffLineId) setSelectedPicker({ staff_id: setupStaffId, name: d.name || '' });
+        setPin('');
         setStep('pin');
       } else {
         setNewPinError(d.error || 'เกิดข้อผิดพลาด');
@@ -189,14 +255,17 @@ export default function PosStaffPage() {
   function backspace() { setPin(p => p.slice(0, -1)); }
 
   async function verifyPin() {
-    if (pin.length !== 4 || !shopId) return;
+    // ต้องรู้ว่า "ใคร" ก่อนเสมอ (จาก LIFF หรือจากที่เลือกไว้ในหน้าเลือกชื่อ) — verify-pin.js
+    // เช็ค PIN เฉพาะคนคนนั้น ไม่ได้ค้นหาข้ามพนักงานทั้งร้านอีกต่อไป
+    const identifier = liffLineId ? { line_id: liffLineId } : (selectedPicker ? { staff_id: selectedPicker.staff_id } : null);
+    if (pin.length !== 4 || !shopId || !identifier) return;
     setPinLoading(true);
     setPinError('');
     try {
       const r = await fetch('/api/pos/verify-pin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shopId, pin }),
+        body: JSON.stringify({ shopId, pin, ...identifier }),
       });
       const d = await r.json();
       if (d.ok) {
@@ -660,6 +729,16 @@ export default function PosStaffPage() {
         <title>Staff · Smile Slip POS</title>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
       </Head>
+
+      {/* โหลด LIFF SDK จาก CDN — ถ้าเปิดจากในแอปไลน์ จะรู้ไลไอดีอัตโนมัติ ข้ามหน้าเลือกชื่อไปได้เลย
+          (ไม่ต้องติดตั้งเป็น npm package — ดู pages/login.js สำหรับ pattern เดียวกัน) */}
+      <Script
+        src="https://static.line-scdn.net/liff/edge/2/sdk.js"
+        strategy="afterInteractive"
+        onLoad={initLiff}
+        onError={resolveAuthFallback}
+      />
+
       <div className="min-h-screen bg-gray-950 text-white flex flex-col max-w-sm mx-auto">
         {/* Header */}
         <header className="bg-gray-900 border-b border-gray-800 px-5 py-4 flex items-center justify-between shrink-0">
@@ -671,12 +750,15 @@ export default function PosStaffPage() {
               </div>
             )}
           </div>
-          {step !== 'pin' && step !== 'setpin' && (
+          {step !== 'loading' && step !== 'name' && step !== 'pin' && step !== 'setpin' && (
             <button onClick={() => {
               clearSession();
-              setStep('pin'); setPin(''); setBills([]);
+              setPin('');
+              setBills([]);
               setStaffPerms({});
               setManageView(''); setManageSalesReport(null); setManagePlReport(null); setManageStockList([]);
+              // LIFF รู้ตัวตนแล้ว → กลับไปหน้าใส่ PIN ตรง, fallback ด้วยรายชื่อ → กลับไปเลือกชื่อใหม่
+              if (liffLineId) { setStep('pin'); } else { setSelectedPicker(null); setStep('name'); }
             }}
               className="text-gray-400 hover:text-white text-xs border border-gray-700 px-3 py-1.5 rounded-lg">
               ออกจากระบบ
@@ -686,11 +768,54 @@ export default function PosStaffPage() {
 
         <div className="flex-1 overflow-y-auto p-5">
 
+          {/* ══ กำลังตรวจสอบ (เช็ค LIFF/session ค้าง) ══════════════════════════ */}
+          {step === 'loading' && (
+            <div className="flex flex-col items-center pt-16">
+              <div className="text-4xl mb-4 animate-pulse">😊</div>
+              <div className="text-gray-400 text-sm">กำลังโหลด...</div>
+            </div>
+          )}
+
+          {/* ══ เลือกชื่อตัวเอง (fallback เมื่อไม่ได้เปิดจากแอปไลน์) ═══════════════ */}
+          {step === 'name' && (
+            <div className="flex flex-col items-center pt-8">
+              <div className="text-4xl mb-4">👤</div>
+              <h2 className="text-white font-bold text-xl mb-2">คุณคือใคร?</h2>
+              <p className="text-gray-400 text-sm mb-6">แตะชื่อของคุณเพื่อเข้าสู่ระบบ</p>
+
+              <div className="w-full max-w-xs space-y-2">
+                {pickerLoading ? (
+                  <div className="text-center text-gray-500 text-sm py-8 animate-pulse">กำลังโหลดรายชื่อ...</div>
+                ) : pickerList.length === 0 ? (
+                  <div className="text-center text-gray-500 text-sm py-8">
+                    ยังไม่มีพนักงานที่ตั้ง PIN ไว้ — ให้เจ้าของร้าน/แอดมินส่งลิงก์ตั้ง PIN ให้ก่อน
+                  </div>
+                ) : (
+                  pickerList.map(s => (
+                    <button key={s.staff_id}
+                      onClick={() => { setSelectedPicker(s); setPin(''); setPinError(''); setStep('pin'); }}
+                      className="w-full flex items-center gap-3 bg-gray-900 hover:bg-gray-800 border border-gray-700 rounded-2xl px-4 py-3.5 text-left transition-colors">
+                      <span className="w-10 h-10 rounded-full bg-green-900 text-green-300 flex items-center justify-center font-bold text-lg shrink-0">
+                        {s.name.trim().charAt(0)}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-white font-medium truncate">{s.name}</div>
+                        {s.branch_name && <div className="text-gray-500 text-xs truncate">{s.branch_name}</div>}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
           {/* ══ PIN entry ══════════════════════════════════════════════════ */}
           {step === 'pin' && (
             <div className="flex flex-col items-center pt-8">
               <div className="text-4xl mb-4">🔐</div>
-              <h2 className="text-white font-bold text-xl mb-2">ใส่ PIN พนักงาน</h2>
+              <h2 className="text-white font-bold text-xl mb-2">
+                {selectedPicker ? `สวัสดีคุณ ${selectedPicker.name}` : 'ใส่ PIN พนักงาน'}
+              </h2>
               <p className="text-gray-400 text-sm mb-8">กรอก PIN 4 หลักเพื่อเข้าระบบ</p>
 
               {/* PIN dots */}
@@ -734,6 +859,13 @@ export default function PosStaffPage() {
               >
                 {pinLoading ? 'กำลังตรวจสอบ...' : 'เข้าสู่ระบบ'}
               </button>
+
+              {!liffLineId && selectedPicker && (
+                <button onClick={() => { setSelectedPicker(null); setPin(''); setPinError(''); setStep('name'); }}
+                  className="mt-3 w-full max-w-xs text-gray-500 hover:text-gray-300 text-sm py-1 transition-colors">
+                  ← ไม่ใช่ฉัน เลือกชื่อใหม่
+                </button>
+              )}
             </div>
           )}
 

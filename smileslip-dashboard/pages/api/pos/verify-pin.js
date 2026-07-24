@@ -1,7 +1,12 @@
 /**
- * POST /api/pos/verify-pin { shopId, pin }
- * ค้นหาพนักงานที่ PIN ตรงกันในชีต "พนักงาน" ของร้าน (แทน PIN ร้านเดียวใช้ร่วมกันแบบเดิม —
- * ยกเลิกไปแล้ว) → คืนตัวตนพนักงานคนนั้น (staff_id, name, role) ให้ pos-staff.js ใช้ต่อ
+ * POST /api/pos/verify-pin { shopId, pin, purpose, staff_id? , line_id? }
+ *
+ * ต้องระบุ `staff_id` (เลือกจากรายชื่อในหน้า "เลือกชื่อตัวเอง" — ดู staff-picker.js) หรือ
+ * `line_id` (LIFF รู้อัตโนมัติตอนเปิดจากในแอปไลน์ — ดู pos-staff.js) มาด้วยเสมอ แล้วเช็คว่า PIN
+ * ตรงกับ "คนคนนั้นคนเดียว" เท่านั้น — เดิมค้นหา PIN เดี่ยวๆ ข้ามพนักงานทั้งร้าน (ไล่หาว่า PIN นี้
+ * เป็นของใคร) ซึ่งบังคับให้ PIN ต้องไม่ซ้ำกันทั้งร้าน และเปิดช่องให้ไล่เดาผ่าน staff-setpin.js ได้ว่า
+ * PIN ไหน "มีคนใช้แล้วบ้าง" — เปลี่ยนมาระบุตัวตนก่อนแล้วค่อยเช็ค PIN เฉพาะคนนั้น ปิดช่องโหว่ทั้งสอง
+ * และทำให้ 2 คนตั้ง PIN ซ้ำกันได้แล้วโดยไม่มีปัญหา (คนละแถวกันในชีต แยกกันด้วย staff_id/line_id)
  */
 import { createClient } from '@supabase/supabase-js';
 import { getAccessToken, readSheet, ensureTabExists, rowToStaff, STAFF_HEADERS } from '../../../lib/google-pos';
@@ -13,38 +18,40 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
-// กัน brute-force เดา PIN 4 หลัก (10,000 ความเป็นไปได้) — จำกัดจำนวนครั้งที่ผิดต่อร้านต่อหน้าต่างเวลา
-// (in-memory ต่อ instance — เพียงพอสำหรับสเกลของแอปนี้ ไม่ต้องพึ่ง Redis เหมือนฝั่งบอท)
-const failedAttempts = new Map(); // shopId -> { count, windowStart }
+// กัน brute-force เดา PIN 4 หลัก (10,000 ความเป็นไปได้) — จำกัดจำนวนครั้งที่ผิดต่อ "คนคนเดียว"
+// ต่อหน้าต่างเวลา (คนละ key กับคนอื่น กันคนหนึ่งโดนลองผิดจนล็อกไปกระทบคนอื่นในร้านเดียวกัน)
+const failedAttempts = new Map(); // `${shopId}:${who}` -> { count, windowStart }
 const MAX_ATTEMPTS = 15;
 const WINDOW_MS = 15 * 60 * 1000;
 
-function isRateLimited(shopId) {
+function isRateLimited(key) {
   const now = Date.now();
-  const entry = failedAttempts.get(shopId);
+  const entry = failedAttempts.get(key);
   if (!entry || now - entry.windowStart > WINDOW_MS) return false;
   return entry.count >= MAX_ATTEMPTS;
 }
-function recordFailedAttempt(shopId) {
+function recordFailedAttempt(key) {
   const now = Date.now();
-  const entry = failedAttempts.get(shopId);
+  const entry = failedAttempts.get(key);
   if (!entry || now - entry.windowStart > WINDOW_MS) {
-    failedAttempts.set(shopId, { count: 1, windowStart: now });
+    failedAttempts.set(key, { count: 1, windowStart: now });
   } else {
     entry.count += 1;
   }
 }
-function clearFailedAttempts(shopId) {
-  failedAttempts.delete(shopId);
+function clearFailedAttempts(key) {
+  failedAttempts.delete(key);
 }
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { shopId, pin, purpose = '' } = req.body || {};
+  const { shopId, pin, purpose = '', staff_id, line_id } = req.body || {};
   if (!shopId || !pin) return res.status(400).json({ error: 'Missing shopId or pin' });
+  if (!staff_id && !line_id) return res.status(400).json({ error: 'ต้องเลือกชื่อพนักงานก่อนใส่ PIN' });
 
-  if (isRateLimited(shopId)) {
+  const rateLimitKey = `${shopId}:${staff_id || line_id}`;
+  if (isRateLimited(rateLimitKey)) {
     return res.status(429).json({ error: 'ลองผิดหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่' });
   }
 
@@ -65,14 +72,16 @@ export default async function handler(req, res) {
     const token = await getAccessToken(gc.google_refresh_token);
     await ensureTabExists(token, pc.pos_sheet_id, 'พนักงาน', STAFF_HEADERS);
     const rows = await readSheet(token, pc.pos_sheet_id, 'พนักงาน!A:U');
-    const staffRow = rows.slice(1).find(r => r[0] && r[8] && String(r[8]) === String(pin));
+    const staffRow = staff_id
+      ? rows.slice(1).find(r => r[0] === staff_id)
+      : rows.slice(1).find(r => r[3] && r[3] === line_id);
 
-    if (!staffRow) {
-      recordFailedAttempt(shopId);
+    if (!staffRow || !staffRow[8] || String(staffRow[8]) !== String(pin)) {
+      recordFailedAttempt(rateLimitKey);
       return res.status(401).json({ error: 'PIN ไม่ถูกต้อง' });
     }
 
-    clearFailedAttempts(shopId);
+    clearFailedAttempts(rateLimitKey);
     const staff = rowToStaff(staffRow);
     // ออก session ที่เซ็นชื่อ (HMAC) ผูก shopId+staffId — ใช้แนบ header `x-staff-session` กับ
     // ทุกคำขอถัดไปแทนการส่ง staffId เปล่าๆ (ปลอมได้ตรงๆ แบบเดิม) ทั้ง /pos?mode=cashier และ

@@ -428,6 +428,11 @@ export default function POSPage() {
   const [cashierPinError, setCashierPinError] = useState('');
   const [cashierPinLoading, setCashierPinLoading] = useState(false);
   const cashierSessionKey = cashierMode && cashierShopId ? `pos_cashier_session_${cashierShopId}` : null;
+  // เลือกชื่อตัวเองก่อนใส่ PIN — แก้ปัญหา PIN ต้องไม่ซ้ำกันทั้งร้าน (เดิมพิมพ์ PIN อย่างเดียวแล้ว
+  // ให้ระบบไล่หาว่าเป็นของใคร) เปลี่ยนเป็นระบุตัวตนก่อน (แตะชื่อ) แล้วค่อยเช็ค PIN เฉพาะคนนั้น
+  const [cashierPickerList, setCashierPickerList] = useState([]);
+  const [cashierPickerLoading, setCashierPickerLoading] = useState(true);
+  const [cashierSelectedStaff, setCashierSelectedStaff] = useState(null); // { staff_id, name, branch_name }
 
   const [tab, setTab] = useState('sell');
   const [showMoreMenu, setShowMoreMenu] = useState(false); // แท็บมือถือ: ตัวเลือกรองที่ไม่ได้ใช้บ่อยซ่อนใน "เพิ่มเติม"
@@ -483,11 +488,14 @@ export default function POSPage() {
   // ── เปิดกะ/ปิดกะเงินสด (ผูกกับพนักงานรายคนผ่าน PIN ไม่ใช่สาขา/เครื่อง) ─────────
   const [activeShift, setActiveShift] = useState(null); // { shift_no, staff_id, staff_name, opening_cash, opened_at }
   const [showOpenShiftModal, setShowOpenShiftModal] = useState(false);
-  const [openShiftStep, setOpenShiftStep] = useState('pin'); // 'pin' | 'amount'
+  const [openShiftStep, setOpenShiftStep] = useState('name'); // 'name' | 'pin' | 'amount'
+  const [openShiftPickerList, setOpenShiftPickerList] = useState([]);
+  const [openShiftPickerLoading, setOpenShiftPickerLoading] = useState(false);
+  const [openShiftSelectedName, setOpenShiftSelectedName] = useState(null); // { staff_id, name, branch_name } เลือกไว้ก่อนใส่ PIN
   const [openShiftPin, setOpenShiftPin] = useState('');
   const [openShiftPinError, setOpenShiftPinError] = useState('');
   const [openShiftVerifying, setOpenShiftVerifying] = useState(false);
-  const [openShiftStaff, setOpenShiftStaff] = useState(null); // { staff_id, name }
+  const [openShiftStaff, setOpenShiftStaff] = useState(null); // { staff_id, name } — ผลลัพธ์เต็มหลังยืนยัน PIN สำเร็จ
   const [openShiftAmount, setOpenShiftAmount] = useState('');
   const [openShiftSaving, setOpenShiftSaving] = useState(false);
   const [showCloseShiftModal, setShowCloseShiftModal] = useState(false);
@@ -831,15 +839,29 @@ export default function POSPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cashierMode, cashierShopId]);
 
+  // ดึงรายชื่อพนักงานให้เลือกก่อนใส่ PIN (ไม่ต้อง auth เลย เพราะยังไม่รู้ว่าใครกำลังใช้เครื่องอยู่)
+  useEffect(() => {
+    if (!cashierMode || !cashierShopId) return;
+    (async () => {
+      setCashierPickerLoading(true);
+      try {
+        const r = await fetch(`/api/pos/staff-picker?shopId=${cashierShopId}`);
+        const d = await r.json();
+        if (d.staff) setCashierPickerList(d.staff);
+      } catch {}
+      setCashierPickerLoading(false);
+    })();
+  }, [cashierMode, cashierShopId]);
+
   async function verifyCashierPin() {
-    if (!cashierPin.trim() || cashierPinLoading || !cashierShopId) return;
+    if (!cashierPin.trim() || cashierPinLoading || !cashierShopId || !cashierSelectedStaff) return;
     setCashierPinLoading(true);
     setCashierPinError('');
     try {
       const r = await fetch('/api/pos/verify-pin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shopId: cashierShopId, pin: cashierPin.trim(), purpose: 'pos_cashier' }),
+        body: JSON.stringify({ shopId: cashierShopId, pin: cashierPin.trim(), purpose: 'pos_cashier', staff_id: cashierSelectedStaff.staff_id }),
       });
       const d = await r.json();
       if (d.ok && d.sessionToken) {
@@ -871,6 +893,7 @@ export default function POSPage() {
     setCashierSession(null);
     if (cashierSessionKey) { try { sessionStorage.removeItem(cashierSessionKey); } catch {} }
     setCashierPin('');
+    setCashierSelectedStaff(null);
     setShopInfo(null);
     setConfigured(false);
   }
@@ -911,24 +934,32 @@ export default function POSPage() {
     })();
   }, [shopId]);
 
-  function openShiftModalStart() {
-    setOpenShiftStep('pin');
+  async function openShiftModalStart() {
+    setOpenShiftStep('name');
+    setOpenShiftSelectedName(null);
     setOpenShiftPin('');
     setOpenShiftPinError('');
     setOpenShiftStaff(null);
     setOpenShiftAmount('');
     setShowOpenShiftModal(true);
+    setOpenShiftPickerLoading(true);
+    try {
+      const r = await fetch(`/api/pos/staff-picker?shopId=${shopId}`);
+      const d = await r.json();
+      if (d.staff) setOpenShiftPickerList(d.staff);
+    } catch {}
+    setOpenShiftPickerLoading(false);
   }
 
   async function verifyOpenShiftPin() {
-    if (!openShiftPin.trim() || openShiftVerifying) return;
+    if (!openShiftPin.trim() || openShiftVerifying || !openShiftSelectedName) return;
     setOpenShiftVerifying(true);
     setOpenShiftPinError('');
     try {
       const r = await fetch('/api/pos/verify-pin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shopId, pin: openShiftPin.trim(), purpose: 'cash_shift' }),
+        body: JSON.stringify({ shopId, pin: openShiftPin.trim(), purpose: 'cash_shift', staff_id: openShiftSelectedName.staff_id }),
       });
       const d = await r.json();
       if (d.ok) {
@@ -3211,16 +3242,54 @@ export default function POSPage() {
       </div>
     );
   }
-  if (cashierMode && !cashierSession) {
+  if (cashierMode && !cashierSession && !cashierSelectedStaff) {
+    // ── ขั้นที่ 1: เลือกชื่อตัวเอง ── (ระบุตัวตนก่อน แล้วค่อยเช็ค PIN เฉพาะคนนั้น — PIN ของแต่ละ
+    // คนไม่ต้องไม่ซ้ำกันทั้งร้านอีกต่อไป เพราะไม่ได้ค้นหาข้ามคนแบบเดิม)
+    return (
+      <div className="min-h-screen bg-gray-950 flex flex-col items-center p-4 pt-10">
+        <Head><title>เข้าสู่ระบบแคชเชียร์ · Smile Slip POS</title></Head>
+        <div className="text-4xl mb-4">👤</div>
+        <h2 className="text-white font-bold text-xl mb-2">คุณคือใคร?</h2>
+        <p className="text-gray-400 text-sm mb-6">แตะชื่อของคุณเพื่อเข้าสู่ระบบ</p>
+
+        <div className="w-full max-w-sm space-y-2">
+          {cashierPickerLoading ? (
+            <div className="text-center text-gray-500 text-sm py-8 animate-pulse">กำลังโหลดรายชื่อ...</div>
+          ) : cashierPickerList.length === 0 ? (
+            <div className="text-center text-gray-500 text-sm py-8">
+              ยังไม่มีพนักงานที่ตั้ง PIN ไว้ — ให้เจ้าของร้าน/แอดมินเพิ่มพนักงานและส่งลิงก์ตั้ง PIN ให้ก่อน
+            </div>
+          ) : (
+            cashierPickerList.map(s => (
+              <button key={s.staff_id}
+                onClick={() => { setCashierSelectedStaff(s); setCashierPin(''); setCashierPinError(''); }}
+                className="w-full flex items-center gap-3 bg-gray-900 hover:bg-gray-800 border border-gray-700 rounded-2xl px-4 py-3.5 text-left transition-colors">
+                <span className="w-10 h-10 rounded-full bg-green-900 text-green-300 flex items-center justify-center font-bold text-lg shrink-0">
+                  {s.name.trim().charAt(0)}
+                </span>
+                <div className="min-w-0">
+                  <div className="text-white font-medium truncate">{s.name}</div>
+                  {s.branch_name && <div className="text-gray-500 text-xs truncate">{s.branch_name}</div>}
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (cashierMode && !cashierSession && cashierSelectedStaff) {
+    // ── ขั้นที่ 2: ใส่ PIN ของคนที่เลือกไว้ ──
     return (
       <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center p-4">
         <Head><title>เข้าสู่ระบบแคชเชียร์ · Smile Slip POS</title></Head>
         <div className="text-4xl mb-4">🔐</div>
-        <h2 className="text-white font-bold text-xl mb-2">ใส่ PIN แคชเชียร์</h2>
-        <p className="text-gray-400 text-sm mb-8">กรอก PIN ส่วนตัวของคุณเพื่อเข้าระบบขายหน้าร้าน</p>
+        <h2 className="text-white font-bold text-xl mb-1">สวัสดีคุณ {cashierSelectedStaff.name}</h2>
+        <p className="text-gray-400 text-sm mb-8">ใส่ PIN ส่วนตัวของคุณเพื่อเข้าระบบ</p>
 
         <div className="w-full max-w-xs">
-          <input type="password" inputMode="numeric" maxLength={4} value={cashierPin}
+          <input type="password" inputMode="numeric" maxLength={4} value={cashierPin} autoFocus
             onChange={e => setCashierPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
             onKeyDown={e => { if (e.key === 'Enter') verifyCashierPin(); }}
             placeholder="••••"
@@ -3229,8 +3298,12 @@ export default function POSPage() {
           {cashierPinError && <div className="text-red-400 text-sm text-center mb-4">{cashierPinError}</div>}
 
           <button onClick={verifyCashierPin} disabled={cashierPin.length !== 4 || cashierPinLoading}
-            className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-4 rounded-2xl text-lg transition-colors">
+            className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-4 rounded-2xl text-lg transition-colors mb-3">
             {cashierPinLoading ? 'กำลังตรวจสอบ...' : 'เข้าสู่ระบบ'}
+          </button>
+          <button onClick={() => { setCashierSelectedStaff(null); setCashierPin(''); setCashierPinError(''); }}
+            className="w-full text-gray-500 hover:text-gray-300 text-sm py-2 transition-colors">
+            ← ไม่ใช่ฉัน เลือกชื่อใหม่
           </button>
         </div>
       </div>
@@ -4823,9 +4896,34 @@ export default function POSPage() {
                     <button onClick={() => setShowOpenShiftModal(false)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
                   </div>
 
-                  {openShiftStep === 'pin' ? (
+                  {openShiftStep === 'name' ? (
                     <>
-                      <div className="text-gray-400 text-xs mb-3">กรอก PIN พนักงานเพื่อยืนยันตัวตนก่อนเปิดกะของตัวเอง</div>
+                      <div className="text-gray-400 text-xs mb-3">เลือกชื่อของคุณก่อนเปิดกะ</div>
+                      {openShiftPickerLoading ? (
+                        <div className="text-center text-gray-500 text-sm py-6 animate-pulse">กำลังโหลดรายชื่อ...</div>
+                      ) : openShiftPickerList.length === 0 ? (
+                        <div className="text-center text-gray-500 text-sm py-6">ยังไม่มีพนักงานที่ตั้ง PIN ไว้</div>
+                      ) : (
+                        <div className="space-y-2 max-h-64 overflow-y-auto">
+                          {openShiftPickerList.map(s => (
+                            <button key={s.staff_id}
+                              onClick={() => { setOpenShiftSelectedName(s); setOpenShiftPin(''); setOpenShiftPinError(''); setOpenShiftStep('pin'); }}
+                              className="w-full flex items-center gap-3 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl px-3 py-2.5 text-left transition-colors">
+                              <span className="w-8 h-8 rounded-full bg-green-900 text-green-300 flex items-center justify-center font-bold text-sm shrink-0">
+                                {s.name.trim().charAt(0)}
+                              </span>
+                              <div className="min-w-0">
+                                <div className="text-white text-sm font-medium truncate">{s.name}</div>
+                                {s.branch_name && <div className="text-gray-500 text-xs truncate">{s.branch_name}</div>}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : openShiftStep === 'pin' ? (
+                    <>
+                      <div className="text-gray-400 text-xs mb-3">ใส่ PIN ของ {openShiftSelectedName?.name} เพื่อยืนยันตัวตนก่อนเปิดกะ</div>
                       <input
                         type="password" inputMode="numeric" autoFocus
                         value={openShiftPin}
@@ -4836,8 +4934,12 @@ export default function POSPage() {
                       />
                       {openShiftPinError && <div className="text-red-400 text-xs mb-3">{openShiftPinError}</div>}
                       <button onClick={verifyOpenShiftPin} disabled={openShiftVerifying || !openShiftPin.trim()}
-                        className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm">
+                        className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm mb-2">
                         {openShiftVerifying ? 'กำลังตรวจสอบ...' : 'ยืนยันตัวตน'}
+                      </button>
+                      <button onClick={() => { setOpenShiftStep('name'); setOpenShiftPin(''); setOpenShiftPinError(''); }}
+                        className="w-full text-gray-500 hover:text-gray-300 text-xs py-1 transition-colors">
+                        ← ไม่ใช่ฉัน เลือกชื่อใหม่
                       </button>
                     </>
                   ) : (
