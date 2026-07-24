@@ -715,6 +715,19 @@ const EMPTY_STAFF_PERMS = {
   perm_manage_delivery: false, perm_manage_receiving: false, perm_issue_tax_invoice: false, perm_manage_staff: false,
 };
 
+// สิทธิ์ที่ถือว่า "เกี่ยวกับหน้าขายเต็มรูปแบบ" (/pos?mode=cashier) — ตั้งใจไม่รวม perm_manage_delivery
+// เพราะพนักงานส่งของล้วนๆ (preset "พนักงานส่งของ" มีแค่สิทธิ์นี้อย่างเดียว) ไม่ควรเข้าหน้าขายเต็มรูปแบบ
+// ได้เลย ต้องใช้ /pos-staff (แอปพนักงาน) แทนเสมอ — ผู้จัดการสาขาที่มีสิทธิ์อื่นควบคู่ไปด้วย (เช่น
+// perm_view_revenue) จะยังผ่านเงื่อนไขนี้ได้ปกติแม้จะมี perm_manage_delivery ติดมาด้วยก็ตาม
+const CASHIER_SURFACE_PERMS = [
+  'perm_process_sales', 'perm_void_sales', 'perm_manage_customers', 'perm_manage_stock',
+  'perm_manage_expenses', 'perm_manage_receiving', 'perm_view_revenue', 'perm_view_pl',
+  'perm_export_vat', 'perm_issue_tax_invoice', 'perm_manage_staff',
+];
+export function staffQualifiesForCashier(staff) {
+  return CASHIER_SURFACE_PERMS.some(k => staff[k]);
+}
+
 // ตรวจสิทธิ์เชิงลึกของพนักงานคนหนึ่ง (จาก pos-staff.js "📊 จัดการร้าน" และ session แคชเชียร์ที่
 // เซ็นชื่อของ /pos?mode=cashier) — ใช้บังคับฝั่ง API จริง ไม่ใช่แค่ซ่อน UI เฉยๆ (กันพนักงานเรียก
 // API ตรงข้ามหน้าบ้าน) — คืน false ทั้งหมดถ้าไม่พบพนักงานหรือ error ใดๆ (fail-safe: ไม่มีสิทธิ์

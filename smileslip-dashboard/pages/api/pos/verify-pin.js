@@ -9,7 +9,7 @@
  * และทำให้ 2 คนตั้ง PIN ซ้ำกันได้แล้วโดยไม่มีปัญหา (คนละแถวกันในชีต แยกกันด้วย staff_id/line_id)
  */
 import { createClient } from '@supabase/supabase-js';
-import { getAccessToken, readSheet, ensureTabExists, rowToStaff, STAFF_HEADERS } from '../../../lib/google-pos';
+import { getAccessToken, readSheet, ensureTabExists, rowToStaff, staffQualifiesForCashier, STAFF_HEADERS } from '../../../lib/google-pos';
 import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import { issueStaffSession } from '../../../lib/staff-session';
 
@@ -86,6 +86,17 @@ export default async function handler(req, res) {
 
     clearFailedAttempts(rateLimitKey);
     const staff = rowToStaff(staffRow);
+
+    // พนักงานที่มีแค่สิทธิ์งานจัดส่ง/เก็บเงินล้วนๆ (เช่น preset "พนักงานส่งของ") ต้องใช้ /pos-staff
+    // เท่านั้น ห้ามเข้าหน้าขายเต็มรูปแบบ (/pos?mode=cashier) เด็ดขาด แม้ PIN จะถูกก็ตาม — เช็คที่นี่
+    // (ไม่ใช่แค่ซ่อน UI ฝั่ง client) กันพนักงานยิง staff_id ตรงเข้า verify-pin เองข้ามหน้าเลือกชื่อ
+    if (purpose === 'pos_cashier' && !staffQualifiesForCashier(staff)) {
+      return res.status(403).json({
+        error: 'บัญชีนี้มีสิทธิ์เฉพาะงานจัดส่ง/เก็บเงิน ไม่สามารถเข้าหน้าขายเต็มรูปแบบได้ — กรุณาใช้ลิงก์หน้าพนักงาน (/pos-staff) แทน',
+        deliveryOnly: true,
+      });
+    }
+
     // ออก session ที่เซ็นชื่อ (HMAC) ผูก shopId+staffId — ใช้แนบ header `x-staff-session` กับ
     // ทุกคำขอถัดไปแทนการส่ง staffId เปล่าๆ (ปลอมได้ตรงๆ แบบเดิม) ทั้ง /pos?mode=cashier และ
     // /pos-staff ใช้ session เดียวกันนี้ร่วมกัน — คืน null ถ้ายังไม่ได้ตั้ง STAFF_SESSION_SECRET

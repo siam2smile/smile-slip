@@ -426,6 +426,7 @@ export default function POSPage() {
   const [cashierSessionChecked, setCashierSessionChecked] = useState(false); // เช็ค sessionStorage ครั้งแรกเสร็จหรือยัง
   const [cashierPin, setCashierPin] = useState('');
   const [cashierPinError, setCashierPinError] = useState('');
+  const [cashierPinDeliveryOnly, setCashierPinDeliveryOnly] = useState(false);
   const [cashierPinLoading, setCashierPinLoading] = useState(false);
   const cashierSessionKey = cashierMode && cashierShopId ? `pos_cashier_session_${cashierShopId}` : null;
   // เลือกชื่อตัวเองก่อนใส่ PIN — แก้ปัญหา PIN ต้องไม่ซ้ำกันทั้งร้าน (เดิมพิมพ์ PIN อย่างเดียวแล้ว
@@ -845,7 +846,7 @@ export default function POSPage() {
     (async () => {
       setCashierPickerLoading(true);
       try {
-        const r = await fetch(`/api/pos/staff-picker?shopId=${cashierShopId}`);
+        const r = await fetch(`/api/pos/staff-picker?shopId=${cashierShopId}&mode=cashier`);
         const d = await r.json();
         if (d.staff) setCashierPickerList(d.staff);
       } catch {}
@@ -857,6 +858,7 @@ export default function POSPage() {
     if (!cashierPin.trim() || cashierPinLoading || !cashierShopId || !cashierSelectedStaff) return;
     setCashierPinLoading(true);
     setCashierPinError('');
+    setCashierPinDeliveryOnly(false);
     try {
       const r = await fetch('/api/pos/verify-pin', {
         method: 'POST',
@@ -881,6 +883,7 @@ export default function POSPage() {
         setLoading(false);
       } else {
         setCashierPinError(d.error || 'PIN ไม่ถูกต้อง');
+        setCashierPinDeliveryOnly(!!d.deliveryOnly);
         setCashierPin('');
       }
     } catch (err) {
@@ -894,6 +897,8 @@ export default function POSPage() {
     if (cashierSessionKey) { try { sessionStorage.removeItem(cashierSessionKey); } catch {} }
     setCashierPin('');
     setCashierSelectedStaff(null);
+    setCashierPinError('');
+    setCashierPinDeliveryOnly(false);
     setShopInfo(null);
     setConfigured(false);
   }
@@ -3262,7 +3267,7 @@ export default function POSPage() {
           ) : (
             cashierPickerList.map(s => (
               <button key={s.staff_id}
-                onClick={() => { setCashierSelectedStaff(s); setCashierPin(''); setCashierPinError(''); }}
+                onClick={() => { setCashierSelectedStaff(s); setCashierPin(''); setCashierPinError(''); setCashierPinDeliveryOnly(false); }}
                 className="w-full flex items-center gap-3 bg-gray-900 hover:bg-gray-800 border border-gray-700 rounded-2xl px-4 py-3.5 text-left transition-colors">
                 <span className="w-10 h-10 rounded-full bg-green-900 text-green-300 flex items-center justify-center font-bold text-lg shrink-0">
                   {s.name.trim().charAt(0)}
@@ -3295,13 +3300,22 @@ export default function POSPage() {
             placeholder="••••"
             className="w-full bg-gray-900 border border-gray-700 text-white text-center text-3xl tracking-[0.5em] px-4 py-4 rounded-2xl mb-4 focus:outline-none focus:border-green-500" />
 
-          {cashierPinError && <div className="text-red-400 text-sm text-center mb-4">{cashierPinError}</div>}
+          {cashierPinError && (
+            <div className="text-red-400 text-sm text-center mb-4">
+              {cashierPinError}
+              {cashierPinDeliveryOnly && (
+                <a href={`/pos-staff?shopId=${cashierShopId}`} className="block text-green-400 hover:text-green-300 underline mt-2">
+                  🔗 ไปหน้าพนักงาน (pos-staff) แทน
+                </a>
+              )}
+            </div>
+          )}
 
           <button onClick={verifyCashierPin} disabled={cashierPin.length !== 4 || cashierPinLoading}
             className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-4 rounded-2xl text-lg transition-colors mb-3">
             {cashierPinLoading ? 'กำลังตรวจสอบ...' : 'เข้าสู่ระบบ'}
           </button>
-          <button onClick={() => { setCashierSelectedStaff(null); setCashierPin(''); setCashierPinError(''); }}
+          <button onClick={() => { setCashierSelectedStaff(null); setCashierPin(''); setCashierPinError(''); setCashierPinDeliveryOnly(false); }}
             className="w-full text-gray-500 hover:text-gray-300 text-sm py-2 transition-colors">
             ← ไม่ใช่ฉัน เลือกชื่อใหม่
           </button>
