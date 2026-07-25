@@ -90,12 +90,14 @@ export default async function handler(req, res) {
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
       const validProducts = req.body.products.filter(p => p?.name);
       const skus = validProducts.map(() => makeSKU());
+      // รหัสสินค้า/บาร์โค้ดที่ขึ้นต้นด้วย 0 (พบได้ทั่วไปในบาร์โค้ด EAN-13) ต้องผ่าน asText() ใน
+      // แถวที่เขียนลง Sheets เสมอ (Postgres ใน supaRows ด้านล่างไม่ต้อง — ไม่มีปัญหา auto-parse นี้)
       const rows = validProducts.map((p, i) => [
         skus[i], p.name, p.category || '',
         Math.max(0, parseFloat(p.price) || 0), Math.max(0, parseFloat(p.cost) || 0),
         Math.max(0, parseFloat(p.stock) || 0), p.unit || 'ชิ้น', p.aliases || '', p.notes || '', asText(now),
         'นับสต็อค', 0, 0,
-        p.product_code || '', p.barcode || '', p.description || '',
+        asText(p.product_code || ''), asText(p.barcode || ''), p.description || '',
         p.vat_type || 'ไม่มี VAT', '1', 0, '',
       ]);
       const supaRows = validProducts.map((p, i) => ({
@@ -141,12 +143,15 @@ export default async function handler(req, res) {
       const sku = makeSKU();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
       const branchesStr = Array.isArray(branches) ? branches.join(',') : '';
+      // รหัสสินค้า/บาร์โค้ดที่ขึ้นต้นด้วย 0 (พบได้ทั่วไปในบาร์โค้ด EAN-13) ต้องผ่าน asText() ตั้งแต่
+      // สร้างสินค้าเลยในแถว Sheets ไม่งั้นถูกตีความเป็นตัวเลขแล้วตัด 0 นำหน้าทิ้งตั้งแต่แถวแรกที่เขียน
+      // (Postgres ใน secondary write ด้านล่างไม่ต้อง asText — ไม่มีปัญหา auto-parse นี้)
       await dualWrite({
         label: 'products-create',
         primary: () => appendSheet(token, sheetId, 'สินค้า', [
           sku, name, category, price, cost, stock, unit, aliases, notes, asText(now),
           type, 0, 0,
-          product_code, barcode, description, vat_type, is_active ? '1' : '0', empty_ceiling || 0,
+          asText(product_code), asText(barcode), description, vat_type, is_active ? '1' : '0', empty_ceiling || 0,
           branchesStr,
         ]),
         secondary: () => insertRow('pos_products', {
@@ -201,6 +206,10 @@ export default async function handler(req, res) {
         existing[11] = newAtCustomer;
         existing[12] = newEmptyWaiting;
         existing[9]  = asText(now);
+        // รหัสสินค้า/บาร์โค้ดที่ขึ้นต้นด้วย 0 (พบได้ทั่วไปในบาร์โค้ด EAN-13) ต้อง re-wrap ทุกครั้ง
+        // ที่เขียนทั้งแถวกลับ ไม่ว่า action นี้จะแก้ไขฟิลด์นี้เองหรือไม่ — กันตัดเลข 0 นำหน้าทิ้ง
+        existing[13] = asText(existing[13]);
+        existing[14] = asText(existing[14]);
         await dualWrite({
           label: 'products-receive-back',
           primary: () => updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing),
@@ -218,6 +227,8 @@ export default async function handler(req, res) {
         existing[12] = newEmptyWaiting;
         existing[5]  = newStock;
         existing[9]  = asText(now);
+        existing[13] = asText(existing[13]);
+        existing[14] = asText(existing[14]);
         await dualWrite({
           label: 'products-refill',
           primary: () => updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing),
@@ -249,6 +260,10 @@ export default async function handler(req, res) {
       if (updates.empty_ceiling !== undefined) existing[18] = updates.empty_ceiling;
       if (updates.branches      !== undefined) existing[19] = Array.isArray(updates.branches) ? updates.branches.join(',') : '';
       existing[9] = asText(now);
+      // รหัสสินค้า/บาร์โค้ดที่ขึ้นต้นด้วย 0 ต้อง re-wrap ทุกครั้งไม่ว่า PATCH นี้จะแก้ฟิลด์นี้
+      // หรือไม่ (เดิม assign ตรงๆ ไม่ผ่าน asText() เลยแม้ตอนแก้ในคำขอนี้ด้วย)
+      existing[13] = asText(existing[13]);
+      existing[14] = asText(existing[14]);
 
       // payload ฝั่ง Supabase สร้างจาก `updates`/`stockDelta` ดิบโดยตรง (ไม่ผ่าน existing[] ที่มี
       // asText() ฝังอยู่ในคอลัมน์วันที่) เหมือน pattern ที่ใช้ใน contacts.js

@@ -11,6 +11,12 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
+// บังคับให้ Google Sheets เก็บเป็นข้อความล้วน กันเบอร์โทรที่ขึ้นต้นด้วย 0 โดนตัด 0 ทิ้ง
+function asText(v) {
+  if (v === '' || v == null) return v;
+  return `'${v}`;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -43,6 +49,9 @@ export default async function handler(req, res) {
     const existing = [...dataRows[idx]];
     while (existing.length < 21) existing.push('');
     existing[8] = String(pin);
+    // เบอร์โทรที่ readSheet() อ่านมาไม่มี apostrophe ต้อง re-wrap เสมอก่อนเขียนทั้งแถวกลับ —
+    // endpoint นี้ไม่ได้ตั้งใจแก้เบอร์โทรเลย แต่เขียนทั้งแถวทับทุกครั้งที่ตั้ง PIN
+    existing[2] = asText(existing[2]);
     await updateSheetRow(token, pc.pos_sheet_id, 'พนักงาน', idx + 2, existing);
 
     return res.json({ ok: true, name: existing[1] || '' });

@@ -253,7 +253,13 @@ export default async function handler(req, res) {
             const existing = [...custDataRows[custIdx]];
             while (existing.length < 20) existing.push('');
             existing[13] = (cust.debt || 0) + total; // ยอดค้างชำระ (col N)
-            existing[19] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }); // updated_at
+            existing[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })); // updated_at
+            // เขียนทั้งแถวผู้ติดต่อกลับ (เท่าที่อ่านมา A:T) — เบอร์โทร/เลขภาษีที่ readSheet() อ่านมา
+            // ไม่มี apostrophe ต้อง re-wrap เสมอ กันตัดเลข 0 นำหน้าทิ้งเงียบๆ (endpoint นี้ไม่ได้ตั้งใจ
+            // แก้ฟิลด์เหล่านี้เลย แต่เขียนทั้งแถวทับทุกครั้งที่อัปเดตยอดค้างชำระ) — ไม่แตะ index 22
+            // (เบอร์ผู้ติดต่อนิติบุคคล) เพราะช่วง A:T ที่อ่านมาไม่ครอบคลุมถึงคอลัมน์นั้นตั้งแต่แรก
+            existing[3]  = asText(existing[3]);
+            existing[10] = asText(existing[10]);
             await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, existing);
           }
         } catch (debtErr) {
@@ -281,10 +287,15 @@ export default async function handler(req, res) {
             while (existing.length < 24) existing.push('');
             const newCylinders = (cust.cylinders || 0) + cylinders_delivered;
             existing[14] = newCylinders; // ถังอยู่กับลูกค้า (col O)
-            existing[19] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }); // updated_at
+            existing[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })); // updated_at
             if (cust.cylinder_limit > 0 && newCylinders > cust.cylinder_limit) {
               deliveryWarnings.push(`⚠️ ลูกค้ายืมสินค้าหมุนเวียนเกินวงเงินที่ตั้งไว้ (${newCylinders}/${cust.cylinder_limit})`);
             }
+            // เขียนทั้งแถวผู้ติดต่อกลับ — เบอร์โทร/เลขภาษี/เบอร์ผู้ติดต่อนิติบุคคลต้อง re-wrap เสมอ
+            // กันตัดเลข 0 นำหน้าทิ้งเงียบๆ (ดูคอมเมนต์เดียวกันที่จุดอัปเดตยอดค้างชำระด้านบน)
+            existing[3]  = asText(existing[3]);
+            existing[10] = asText(existing[10]);
+            existing[22] = asText(existing[22]);
             await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, existing);
           }
         } catch (cylErr) {
@@ -335,7 +346,7 @@ export default async function handler(req, res) {
       while (existing.length < 21) existing.push('');
       if (customer_id     !== undefined) existing[2]  = customer_id;
       if (customer_name   !== undefined) existing[3]  = customer_name;
-      if (phone           !== undefined) existing[4]  = asText(phone);
+      if (phone           !== undefined) existing[4]  = phone;
       if (address         !== undefined) existing[5]  = address;
       if (maps_link       !== undefined) existing[6]  = maps_link;
       if (items           !== undefined) existing[7]  = JSON.stringify(items);
@@ -366,7 +377,11 @@ export default async function handler(req, res) {
               const custExisting = [...custDataRows[custIdx]];
               while (custExisting.length < 23) custExisting.push('');
               custExisting[13] = Math.max(0, (custRow.debt || 0) - orderTotal); // ยอดค้างชำระ
-              custExisting[19] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+              custExisting[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
+              // เขียนทั้งแถวผู้ติดต่อกลับ — เบอร์โทร/เลขภาษี/เบอร์ผู้ติดต่อนิติบุคคลต้อง re-wrap เสมอ
+              custExisting[3]  = asText(custExisting[3]);
+              custExisting[10] = asText(custExisting[10]);
+              custExisting[22] = asText(custExisting[22]);
               await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
             }
           } catch (debtErr) {
@@ -378,7 +393,7 @@ export default async function handler(req, res) {
       let debtAdded = 0;
       if (confirm_delivery) {
         existing[12] = 'ส่งแล้ว'; // ใช้ label เดียวกับสถานะที่แอดมินกดเปลี่ยนเองในหน้า pos.js
-        existing[15] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+        existing[15] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
         if (confirmed_by !== undefined) existing[16] = confirmed_by;
 
         // อัปเดตสต็อคสินค้าหมุนเวียน + ยอดถังอยู่กับลูกค้า — mirror ตรรกะเดียวกับ api/pos/sales.js checkout
@@ -409,7 +424,10 @@ export default async function handler(req, res) {
                 const custExisting = [...custDataRows[custIdx]];
                 while (custExisting.length < 23) custExisting.push('');
                 custExisting[13] = (custRow.debt || 0) + debtAdded; // ยอดค้างชำระ
-                custExisting[19] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+                custExisting[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
+                custExisting[3]  = asText(custExisting[3]);
+                custExisting[10] = asText(custExisting[10]);
+                custExisting[22] = asText(custExisting[22]);
                 await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
               }
             } catch (debtErr) {
@@ -439,7 +457,10 @@ export default async function handler(req, res) {
               prodExisting[5]  = Math.max(0, (parseFloat(prodExisting[5]) || 0) - qty); // เต็ม — ออกจากร้านไปกับลูกค้า
               prodExisting[11] = Math.max(0, (parseFloat(prodExisting[11]) || 0) + netBorrow); // กับลูกค้า สุทธิ
               prodExisting[12] = (parseFloat(prodExisting[12]) || 0) + returnedQty; // เปล่ารอรีฟิล
-              prodExisting[9]  = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+              prodExisting[9]  = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
+              // รหัสสินค้า/บาร์โค้ดที่ขึ้นต้นด้วย 0 ต้อง re-wrap เสมอเมื่อเขียนทั้งแถวกลับ
+              prodExisting[13] = asText(prodExisting[13]);
+              prodExisting[14] = asText(prodExisting[14]);
               await updateSheetRow(token, sheetId, 'สินค้า', pIdx + 2, prodExisting);
               prodDataRows[pIdx] = prodExisting;
               netCylinderDeltaForCustomer += netBorrow;
@@ -478,7 +499,10 @@ export default async function handler(req, res) {
               const custExisting = [...custDataRows[custIdx]];
               while (custExisting.length < 23) custExisting.push('');
               custExisting[14] = Math.max(0, (custRow.cylinders || 0) + netCylinderDeltaForCustomer); // ถังอยู่กับลูกค้า
-              custExisting[19] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+              custExisting[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
+              custExisting[3]  = asText(custExisting[3]);
+              custExisting[10] = asText(custExisting[10]);
+              custExisting[22] = asText(custExisting[22]);
               await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
             }
           } catch (custErr) {
@@ -487,13 +511,16 @@ export default async function handler(req, res) {
         }
       }
 
+      // เบอร์โทรลูกค้าของแถวออเดอร์นี้เอง — ต้อง re-wrap เสมอไม่ว่า PATCH ครั้งนี้จะแก้ไข field นี้
+      // หรือไม่ (กันตัดเลข 0 นำหน้าทิ้งเมื่อ PATCH แก้แค่สถานะ/พิกัด/ยืนยันจัดส่งโดยไม่แตะเบอร์โทร)
+      existing[4] = asText(existing[4]);
+
       await dualWrite({
         label: 'delivery-update',
         primary: () => updateSheetRow(token, sheetId, 'ออเดอร์จัดส่ง', idx + 2, existing),
         secondary: () => updateRow('pos_delivery_orders', { shop_id: shopId, order_no }, {
-          // existing[4] อาจเป็น asText(phone) สดๆ (มี ' นำหน้าจริงในสตริง JS) ถ้า phone ถูกแก้ใน
-          // request นี้ — ต้องตัด ' ทิ้งก่อนเก็บ Supabase เพราะ Supabase ไม่มีกลไก USER_ENTERED
-          // แบบ Sheets ที่ตัด ' ให้อัตโนมัติตอนอ่านกลับ
+          // existing[4] ตอนนี้ผ่าน asText() เสมอ (มี ' นำหน้าจริงในสตริง JS) ต้องตัด ' ทิ้งก่อนเก็บ
+          // Supabase เพราะ Supabase ไม่มีกลไก USER_ENTERED แบบ Sheets ที่ตัด ' ให้อัตโนมัติตอนอ่านกลับ
           customer_id: existing[2], customer_name: existing[3],
           phone: String(existing[4] || '').replace(/^'/, ''),
           address: existing[5], maps_link: existing[6], items: JSON.parse(existing[7] || '[]'),

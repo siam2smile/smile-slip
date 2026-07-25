@@ -132,7 +132,7 @@ export default async function handler(req, res) {
       const existing = [...dataRows[idx]];
       while (existing.length < 21) existing.push('');
       if (name        !== undefined) existing[1] = name;
-      if (phone       !== undefined) existing[2] = asText(phone);
+      if (phone       !== undefined) existing[2] = phone;
       if (line_id     !== undefined) existing[3] = line_id;
       if (role        !== undefined) existing[4] = role;
       if (notes       !== undefined) existing[5] = notes;
@@ -151,6 +151,10 @@ export default async function handler(req, res) {
       if (perm_manage_receiving !== undefined) existing[18] = perm_manage_receiving ? 'TRUE' : 'FALSE';
       if (perm_issue_tax_invoice!== undefined) existing[19] = perm_issue_tax_invoice ? 'TRUE' : 'FALSE';
       if (perm_manage_staff     !== undefined) existing[20] = perm_manage_staff ? 'TRUE' : 'FALSE';
+
+      // เบอร์โทรต้อง re-wrap เสมอไม่ว่า PATCH นี้จะแก้ไข field นี้หรือไม่ — กันตัดเลข 0 นำหน้าทิ้ง
+      // เมื่อ PATCH แก้แค่สิทธิ์/บทบาทโดยไม่แตะเบอร์โทรเลย (บั๊กคลาสเดียวกับ contacts.js)
+      existing[2] = asText(existing[2]);
 
       await updateSheetRow(token, sheetId, 'พนักงาน', idx + 2, existing);
 

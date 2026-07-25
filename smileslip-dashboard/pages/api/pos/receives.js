@@ -43,6 +43,14 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
+// บังคับให้ Google Sheets เก็บเป็นข้อความล้วน กันบาร์โค้ด/รหัสสินค้าที่ขึ้นต้นด้วย 0 โดนตัด 0 ทิ้ง
+// (valueInputOption=USER_ENTERED ตีความค่าที่หน้าตาเป็นตัวเลขแล้วแปลงเป็นเลขเอง) — ไฟล์นี้ไม่เคย
+// ผ่าน asText() มาก่อนเลยทั้งไฟล์
+function asText(v) {
+  if (v === '' || v == null) return v;
+  return `'${v}`;
+}
+
 async function getConfig(shopId) {
   const [{ data: pc }, { data: gc }, { data: sp }] = await Promise.all([
     supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
@@ -208,13 +216,17 @@ export default async function handler(req, res) {
 
         existing[4] = Math.round(newAvgCost * 100) / 100;  // col E: ราคาทุนเฉลี่ย
         existing[5] = newStock;                              // col F: สต็อค
-        existing[9] = now;                                   // col J: วันที่อัปเดต
+        existing[9] = asText(now);                            // col J: วันที่อัปเดต
 
         // สินค้าหมุนเวียน: รับสินค้าเข้า = ได้ของที่รีฟิล/บรรจุกลับมาแล้ว ต้องหักออกจาก
         // "เปล่ารอรีฟิล" ด้วยเสมอ (เดิมเพิ่มแค่ "เต็ม" อย่างเดียว เปล่าค้างไม่ลดลงเลย)
         if (prodType === 'หมุนเวียน') {
           existing[12] = Math.max(0, (parseFloat(existing[12]) || 0) - numQty);
         }
+
+        // รหัสสินค้า/บาร์โค้ดที่ขึ้นต้นด้วย 0 ต้อง re-wrap เสมอเมื่อเขียนทั้งแถวกลับ
+        existing[13] = asText(existing[13]);
+        existing[14] = asText(existing[14]);
 
         await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
 
@@ -241,10 +253,13 @@ export default async function handler(req, res) {
         };
       });
 
+      // recordDT.full เป็นสตริงวันที่ไทย (มีปี พ.ศ.) ต้องผ่าน asText() เสมอก่อนเขียนลง Sheets ไม่งั้น
+      // ถูกตีความเป็นตัวเลข/วันที่เองแล้วเพี้ยนเป็นเลข serial ดิบ (บั๊ก "~543 ปี") — ยืนยันเกิดขึ้นจริง
+      // ระหว่างทดสอบ (เห็นค่า "244555.7175" แทนวันที่อ่านได้จริงในแถวที่เพิ่งสร้าง)
       await dualWrite({
         label: 'receives-create',
         primary: () => appendSheet(token, sheetId, 'รับสินค้า', [
-          receiveNo, recordDT.full, supplier, JSON.stringify(itemsForRow),
+          receiveNo, asText(recordDT.full), supplier, JSON.stringify(itemsForRow),
           grandTotal, notes, supplierId, roundedSubtotal, roundedVat, photoUrl,
         ]),
         secondary: () => insertRow('pos_receives', {
