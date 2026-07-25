@@ -8,8 +8,8 @@ import { createClient } from '@supabase/supabase-js';
 import * as XLSX from 'xlsx';
 import {
   getAccessToken, readSheet, ensureTabExists,
-  rowToSale, rowToProduct, rowToLoan, rowToExpense, rowToReceive, rowToContact, rowToTaxInvoice,
-  SALE_HEADERS, LOAN_HEADERS, EXPENSE_HEADERS, RECEIVE_HEADERS, CONTACT_HEADERS, TAX_INVOICE_HEADERS,
+  rowToProduct, rowToContact,
+  CONTACT_HEADERS,
 } from '../../../lib/google-pos';
 import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import { sanitizeFilenamePart } from '../../../lib/branding';
@@ -83,6 +83,93 @@ function inRange(dateStr, from, to) {
 function thb(n) { return parseFloat(n || 0); }
 function fmt(n) { return Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
+// pos_loans ไม่มีคอลัมน์ transaction_at แยก (ไม่รองรับ backdate) ใช้ created_at (timestamptz จริง)
+// ของ Supabase เองแทน — เทียบแบบ Date ตรงๆ ไม่ผ่าน parseThaiBEDate (ซึ่งพึ่ง string รูปแบบไทยเท่านั้น)
+function inRangeISO(isoStr, from, to) {
+  if (!isoStr) return true;
+  const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return true;
+  if (from && d < from) return false;
+  if (to && d > to) return false;
+  return true;
+}
+
+// ── Tier E: อ่าน transaction log จาก Supabase แทน Sheets — adapter แปลง row → shape เดียวกับ
+// rowToX() เดิมทุกฟิลด์ (ดูเหตุผลเต็มในหัวไฟล์ reports.js ซึ่งใช้ pattern เดียวกันนี้) ──────────
+function saleFromRow(r) {
+  return {
+    bill_no: r.bill_no || '', created_at: r.transaction_at || '', items: r.items || [],
+    subtotal: Number(r.subtotal) || 0, discount: Number(r.discount) || 0, total: Number(r.total) || 0,
+    payment_method: r.payment_method || '', cashier: r.cashier || '', notes: r.notes || '',
+    status: r.status || 'ชำระแล้ว', customer_id: r.customer_id || '', customer_name: r.customer_name || '',
+    paid_at: r.paid_at || '', branch: r.branch_name || '', vat_subtotal: Number(r.vat_subtotal) || 0,
+    vat_amount: Number(r.vat_amount) || 0,
+  };
+}
+function loanFromRow(r) {
+  const dt = r.created_at ? new Date(r.created_at) : null;
+  return {
+    loan_no: r.loan_no || '',
+    created_at: dt && !isNaN(dt.getTime()) ? dt.toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : '',
+    _createdAtRaw: r.created_at,
+    due_date: r.due_date || '', contact_id: r.contact_id || '', contact_name: r.contact_name || '',
+    contact_phone: r.contact_phone || '', items: r.items || [], notes: r.notes || '',
+    status: r.status || 'ยืมอยู่', returned_at: r.returned_at || '', branch: r.branch_name || '',
+  };
+}
+function expenseFromRow(r) {
+  return {
+    expense_no: r.expense_no || '', created_at: r.transaction_at || '', label: r.label || '',
+    total: Number(r.total) || 0, subtotal: Number(r.subtotal) || 0, vat_amount: Number(r.vat_amount) || 0,
+    payment_method: r.payment_method || '', notes: r.notes || '', branch: r.branch_name || '',
+  };
+}
+function receiveFromRow(r) {
+  return {
+    receive_no: r.receive_no || '', created_at: r.transaction_at || '', supplier: r.supplier || '',
+    items: r.items || [], total_cost: Number(r.total_cost) || 0, supplier_id: r.supplier_id || '',
+    subtotal: Number(r.subtotal) || 0, vat_total: Number(r.vat_total) || 0,
+  };
+}
+function taxInvoiceFromRow(r) {
+  return {
+    invoice_no: r.invoice_no || '', issued_at: r.issued_at || '', ref_bill_no: r.ref_bill_no || '',
+    customer_id: r.customer_id || '', buyer_name: r.buyer_name || '', buyer_tax_id: r.buyer_tax_id || '',
+    subtotal: Number(r.subtotal) || 0, vat: Number(r.vat) || 0, total: Number(r.total) || 0,
+  };
+}
+
+async function fetchSales(supabase, shopId) {
+  const { data, error } = await supabase.from('pos_sales').select('*')
+    .eq('shop_id', shopId).is('deleted_at', null).order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(saleFromRow).filter(s => s.bill_no);
+}
+async function fetchLoans(supabase, shopId) {
+  const { data, error } = await supabase.from('pos_loans').select('*')
+    .eq('shop_id', shopId).order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(loanFromRow).filter(l => l.loan_no);
+}
+async function fetchExpenses(supabase, shopId) {
+  const { data, error } = await supabase.from('pos_expenses').select('*')
+    .eq('shop_id', shopId).is('deleted_at', null).order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(expenseFromRow).filter(e => e.expense_no);
+}
+async function fetchReceives(supabase, shopId) {
+  const { data, error } = await supabase.from('pos_receives').select('*')
+    .eq('shop_id', shopId).order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(receiveFromRow).filter(r => r.receive_no);
+}
+async function fetchTaxInvoices(supabase, shopId) {
+  const { data, error } = await supabase.from('pos_tax_invoices').select('*')
+    .eq('shop_id', shopId).order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(taxInvoiceFromRow).filter(v => v.invoice_no);
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   const { shopId, dateFrom, dateTo, branch, types = 'sales,inventory,credit,loans,topsellers,pl,expenses,vat' } = req.query;
@@ -113,9 +200,7 @@ export default async function handler(req, res) {
 
     // ── ยอดขาย (bank-statement) ──────────────────────────────────────────
     if (typeList.includes('sales')) {
-      await ensureTabExists(token, sheetId, 'ยอดขาย', SALE_HEADERS);
-      const rows = await readSheet(token, sheetId, 'ยอดขาย!A:R');
-      let sales = rows.slice(1).map(r => rowToSale(r)).filter(s => s.bill_no);
+      let sales = await fetchSales(supabase, shopId);
       if (branch) sales = sales.filter(s => s.branch === branch || (!s.branch && branch === branchName));
       sales = sales.filter(s => inRange(s.created_at, from, to));
 
@@ -169,9 +254,8 @@ export default async function handler(req, res) {
 
     // ── เงินเชื่อ ─────────────────────────────────────────────────────────
     if (typeList.includes('credit')) {
-      await ensureTabExists(token, sheetId, 'ยอดขาย', SALE_HEADERS);
-      const rows = await readSheet(token, sheetId, 'ยอดขาย!A:R');
-      let credits = rows.slice(1).map(r => rowToSale(r)).filter(s => s.bill_no && s.payment_method === 'เชื่อ');
+      const allSalesForCredit = await fetchSales(supabase, shopId);
+      let credits = allSalesForCredit.filter(s => s.bill_no && s.payment_method === 'เชื่อ');
       if (branch) credits = credits.filter(s => s.branch === branch);
       credits = credits.filter(s => inRange(s.created_at, from, to));
 
@@ -193,11 +277,9 @@ export default async function handler(req, res) {
 
     // ── ยืมสินค้า ─────────────────────────────────────────────────────────
     if (typeList.includes('loans')) {
-      await ensureTabExists(token, sheetId, 'ยืมสินค้า', LOAN_HEADERS);
-      const rows = await readSheet(token, sheetId, 'ยืมสินค้า!A:K');
-      let loans = rows.slice(1).map(r => rowToLoan(r)).filter(l => l.loan_no);
+      let loans = await fetchLoans(supabase, shopId);
       if (branch) loans = loans.filter(l => l.branch === branch);
-      loans = loans.filter(l => inRange(l.created_at, from, to));
+      loans = loans.filter(l => inRangeISO(l._createdAtRaw, from, to)).map(({ _createdAtRaw, ...rest }) => rest);
 
       const headers = ['เลขที่ยืม', 'วันที่ยืม', 'กำหนดคืน', 'ชื่อผู้ยืม', 'เบอร์โทร', 'รายการ', 'สถานะ', 'วันที่คืน', 'หมายเหตุ', 'สาขา'];
       const data = [
@@ -215,17 +297,16 @@ export default async function handler(req, res) {
       XLSX.utils.book_append_sheet(wb, ws, 'ยืมสินค้า');
     }
 
-    // ── สินค้าขายดี ───────────────────────────────────────────────────────
+    // ── สินค้าขายดี (ต้นทุนต่อ SKU ยังอ่านจากแค็ตตาล็อกสินค้าเต็มรูปแบบใน Sheets — ดูเหตุผลที่หัวไฟล์) ──
     if (typeList.includes('topsellers')) {
-      await ensureTabExists(token, sheetId, 'ยอดขาย', SALE_HEADERS);
-      const [saleRows, prodRows] = await Promise.all([
-        readSheet(token, sheetId, 'ยอดขาย!A:R'),
+      const [allSalesForTop, prodRows] = await Promise.all([
+        fetchSales(supabase, shopId),
         readSheet(token, sheetId, 'สินค้า!A:R'),
       ]);
       const costMap = {};
       prodRows.slice(1).forEach(r => { if (r[0]) costMap[r[0]] = parseFloat(r[4]) || 0; });
 
-      let sales = saleRows.slice(1).map(r => rowToSale(r)).filter(s => s.bill_no && s.status !== 'ยกเลิก');
+      let sales = allSalesForTop.filter(s => s.bill_no && s.status !== 'ยกเลิก');
       if (branch) sales = sales.filter(s => s.branch === branch);
       sales = sales.filter(s => inRange(s.created_at, from, to));
 
@@ -250,17 +331,16 @@ export default async function handler(req, res) {
       XLSX.utils.book_append_sheet(wb, ws, 'สินค้าขายดี');
     }
 
-    // ── กำไรขาดทุน ────────────────────────────────────────────────────────
+    // ── กำไรขาดทุน (ต้นทุน/หมวดหมู่ยังอ่านจากแค็ตตาล็อกสินค้าเต็มรูปแบบใน Sheets — ดูเหตุผลที่หัวไฟล์) ──
     if (typeList.includes('pl')) {
-      await ensureTabExists(token, sheetId, 'ยอดขาย', SALE_HEADERS);
-      const [saleRows, prodRows] = await Promise.all([
-        readSheet(token, sheetId, 'ยอดขาย!A:R'),
+      const [allSalesForPl, prodRows] = await Promise.all([
+        fetchSales(supabase, shopId),
         readSheet(token, sheetId, 'สินค้า!A:R'),
       ]);
       const costMap = {}, catMap = {};
       prodRows.slice(1).forEach(r => { if (r[0]) { costMap[r[0]] = parseFloat(r[4]) || 0; catMap[r[0]] = r[2] || 'ไม่ระบุ'; } });
 
-      let sales = saleRows.slice(1).map(r => rowToSale(r)).filter(s => s.bill_no && s.status !== 'ยกเลิก' && s.status !== 'ค้างชำระ');
+      let sales = allSalesForPl.filter(s => s.bill_no && s.status !== 'ยกเลิก' && s.status !== 'ค้างชำระ');
       if (branch) sales = sales.filter(s => s.branch === branch);
       sales = sales.filter(s => inRange(s.created_at, from, to));
 
@@ -294,9 +374,7 @@ export default async function handler(req, res) {
 
     // ── รายจ่าย (ไม่เกี่ยวกับสต็อคสินค้า) ────────────────────────────────────
     if (typeList.includes('expenses')) {
-      await ensureTabExists(token, sheetId, 'รายจ่าย', EXPENSE_HEADERS);
-      const rows = await readSheet(token, sheetId, 'รายจ่าย!A:L');
-      let expenses = rows.slice(1).map(r => rowToExpense(r)).filter(e => e.expense_no);
+      let expenses = await fetchExpenses(supabase, shopId);
       if (branch) expenses = expenses.filter(e => e.branch === branch);
       expenses = expenses.filter(e => inRange(e.created_at, from, to));
 
@@ -315,20 +393,15 @@ export default async function handler(req, res) {
 
     // ── ภาษี VAT (ภาษีขายแยกสาขา + ภาษีซื้อจากรับสินค้า+รายจ่าย) ────────────────
     if (typeList.includes('vat')) {
-      await ensureTabExists(token, sheetId, 'ยอดขาย', SALE_HEADERS);
-      await ensureTabExists(token, sheetId, 'รับสินค้า', RECEIVE_HEADERS);
-      await ensureTabExists(token, sheetId, 'รายจ่าย', EXPENSE_HEADERS);
-      const [saleRows, receiveRows, expenseRows] = await Promise.all([
-        readSheet(token, sheetId, 'ยอดขาย!A:R'),
-        readSheet(token, sheetId, 'รับสินค้า!A:I'),
-        readSheet(token, sheetId, 'รายจ่าย!A:L'),
+      const [allSalesForVat, allReceivesForVat, allExpensesForVat] = await Promise.all([
+        fetchSales(supabase, shopId), fetchReceives(supabase, shopId), fetchExpenses(supabase, shopId),
       ]);
 
-      let sales = saleRows.slice(1).map(r => rowToSale(r)).filter(s => s.bill_no && s.status !== 'ยกเลิก' && s.status !== 'ค้างชำระ');
+      let sales = allSalesForVat.filter(s => s.bill_no && s.status !== 'ยกเลิก' && s.status !== 'ค้างชำระ');
       sales = sales.filter(s => inRange(s.created_at, from, to));
-      let receives = receiveRows.slice(1).map(r => rowToReceive(r)).filter(r => r.receive_no);
+      let receives = allReceivesForVat.filter(r => r.receive_no);
       receives = receives.filter(r => inRange(r.created_at, from, to));
-      let expensesForVat = expenseRows.slice(1).map(r => rowToExpense(r)).filter(e => e.expense_no);
+      let expensesForVat = allExpensesForVat.filter(e => e.expense_no);
       expensesForVat = expensesForVat.filter(e => inRange(e.created_at, from, to));
 
       const byBranch = {};
@@ -372,24 +445,20 @@ export default async function handler(req, res) {
     // ภาษีซื้อ: จากรับสินค้า (มีรหัสผู้จำหน่าย → คืนเลขภาษีจากผู้ติดต่อได้) + รายจ่าย (ไม่มีเลขภาษีคู่ค้าเก็บไว้
     // ในระบบตอนนี้ — โชว์ "-" แทนตามจริง ไม่ใช่บั๊ก เป็น known gap ที่ EXPENSE_HEADERS ไม่มีช่องนี้)
     if (typeList.includes('vat30')) {
-      await ensureTabExists(token, sheetId, 'ใบกำกับภาษี', TAX_INVOICE_HEADERS);
-      await ensureTabExists(token, sheetId, 'รับสินค้า', RECEIVE_HEADERS);
-      await ensureTabExists(token, sheetId, 'รายจ่าย', EXPENSE_HEADERS);
       await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
-      const [invoiceRows, receiveRows, expenseRows, contactRows] = await Promise.all([
-        readSheet(token, sheetId, 'ใบกำกับภาษี!A:P'),
-        readSheet(token, sheetId, 'รับสินค้า!A:J'),
-        readSheet(token, sheetId, 'รายจ่าย!A:L'),
+      const [contactRows, allInvoices, allReceivesForVat30, allExpensesForVat30] = await Promise.all([
         readSheet(token, sheetId, 'ผู้ติดต่อ!A:W'),
+        fetchTaxInvoices(supabase, shopId),
+        fetchReceives(supabase, shopId),
+        fetchExpenses(supabase, shopId),
       ]);
       const contactTaxId = {};
       contactRows.slice(1).forEach(r => { if (r[0]) contactTaxId[r[0]] = r[10] || ''; });
 
-      let invoices = invoiceRows.slice(1).map(rowToTaxInvoice).filter(v => v.invoice_no);
-      invoices = invoices.filter(v => inRange(v.issued_at, from, to));
-      let receives = receiveRows.slice(1).map(rowToReceive).filter(r => r.receive_no);
+      let invoices = allInvoices.filter(v => inRange(v.issued_at, from, to));
+      let receives = allReceivesForVat30.filter(r => r.receive_no);
       receives = receives.filter(r => inRange(r.created_at, from, to));
-      let expensesForVat30 = expenseRows.slice(1).map(rowToExpense).filter(e => e.expense_no && e.vat_amount > 0);
+      let expensesForVat30 = allExpensesForVat30.filter(e => e.expense_no && e.vat_amount > 0);
       expensesForVat30 = expensesForVat30.filter(e => inRange(e.created_at, from, to));
 
       const outputRows = invoices.map(v => [v.issued_at, v.invoice_no, v.buyer_name, v.buyer_tax_id || '-', fmt(v.subtotal), fmt(v.vat), fmt(v.total)]);
@@ -423,9 +492,8 @@ export default async function handler(req, res) {
 
     // ── แม่แบบ 2: สรุปยอดขายแยกสาขา + วิธีชำระเงิน — Business+ ────────────────
     if (typeList.includes('sales_by_branch')) {
-      await ensureTabExists(token, sheetId, 'ยอดขาย', SALE_HEADERS);
-      const rows = await readSheet(token, sheetId, 'ยอดขาย!A:R');
-      let sales = rows.slice(1).map(rowToSale).filter(s => s.bill_no && s.status !== 'ยกเลิก' && s.status !== 'ค้างชำระ');
+      const allSalesForBranch = await fetchSales(supabase, shopId);
+      let sales = allSalesForBranch.filter(s => s.bill_no && s.status !== 'ยกเลิก' && s.status !== 'ค้างชำระ');
       sales = sales.filter(s => inRange(s.created_at, from, to));
 
       const methods = ['เงินสด', 'โอน', 'เชื่อ'];
