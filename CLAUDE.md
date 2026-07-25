@@ -410,6 +410,15 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
     - **ยังไม่ได้ทดสอบผ่านเบราว์เซอร์จริง** (ปุ่ม/modal/การอัปโหลดไฟล์จริงผ่าน UI) เพราะ `/pos` ทดสอบผ่านเบราว์เซอร์ sandboxed ของเครื่องมือไม่ได้ (ปัญหาเดิม) — ตรวจสอบผ่าน code review + build check + ทดสอบ logic การ parse/mapping/import จริงทุกจุดผ่าน backend โดยตรงแล้ว แนะนำให้ผู้ใช้ลองอัปโหลดไฟล์เองผ่านเบราว์เซอร์จริงเพื่อยืนยันหน้าตา UI
     - **Deploy production แล้ว (2026-07-24)** — revision จริง `smileslip-dashboard-00280-gdv` (ข้อความ deploy โชว์ revision เดิม `00279-rnk` ผิดอีกตามเคย เช็คด้วย `gcloud run revisions list` แล้ว pin traffic เอง) — verified บน production จริงว่า `POST /api/pos/products` แบบ bulk (`products: [...]`) ทำงานถูกต้อง (ทดสอบยิงจริงแล้วลบแถวทดสอบทิ้ง ยืนยันจำนวนสินค้ากลับเป็น 40 เท่าเดิม — ระหว่างทดสอบรอบนี้ใช้ `curl -d` ผ่าน Bash tool อีกครั้งโดยไม่ทันคิด ทำให้ข้อความไทยเพี้ยนเป็น `?????` ซ้ำแบบเดียวกับที่เจอตอนทดสอบรอบแรก (ข้อ 47 เอง) — ยืนยันอีกครั้งว่าเป็นปัญหาการเข้ารหัส UTF-8 ของ `curl`/Bash บน Windows เท่านั้น ไม่ใช่บั๊กจริง เพราะการนำเข้าจริง 35 รายการก่อนหน้านี้ผ่าน Node fetch ตรงๆ ได้ผลลัพธ์ภาษาไทยถูกต้อง 100% — **บทเรียน: ห้ามใช้ `curl -d` ทดสอบ payload ที่มีภาษาไทยบนเครื่องนี้อีก ให้ใช้ Node `fetch()` เขียนเป็นสคริปต์เสมอ**)
 
+48. **แก้ CI/CD ของบอทที่พังมานาน (ตั้งแต่ข้อ 11) จนสำเร็จจริงครั้งแรก — สาเหตุแท้จริงมี 2 ชั้นซ้อนกัน ไม่ใช่แค่ IAM อย่างที่สงสัยไว้เดิม:**
+    - **ชั้นที่ 1 (บั๊กที่บังไว้มานาน):** `cloudbuild.yaml` อ้าง builder image `gcr.io/google-cloud-builders/gcloud` ซึ่ง**ไม่มีอยู่จริง** (พิมพ์ผิด/คนละที่กับที่ตั้งใจ — registry จริงของ Google คือ `gcr.io/cloud-builders/gcloud` ไม่มีคำว่า `google-` นำหน้า `cloud-builders`) ทำให้ error ที่เห็นมาตลอด (`artifactregistry.repositories.downloadArtifacts` denied) **หน้าตาเหมือนปัญหา IAM แต่จริงๆ คือ path ผิด** — แก้แค่บรรทัดเดียวในไฟล์นี้ (commit `5cb37b2`)
+    - **ชั้นที่ 2 (ถูกบังไว้อยู่หลังชั้นที่ 1 มาตลอด ไม่เคยเห็นมาก่อนเพราะ build ตายตั้งแต่ pull image ไม่ได้):** พอ image path ถูกแล้ว เจอว่า service account ที่ Cloud Build ใช้รัน deploy จริง (`832247688217-compute@developer.gserviceaccount.com` — compute default SA ไม่ใช่ `@cloudbuild.gserviceaccount.com` ตัวเก่า) **ไม่มีสิทธิ์ deploy Cloud Run เลยสักอย่าง** ต้องเพิ่มทีละสิทธิ์ตามลำดับ error ที่โผล่มาเรื่อยๆ (ถามผู้ใช้ยืนยันก่อนแก้ IAM ทุกครั้งเพราะเป็นการเปลี่ยนสิทธิ์ระบบจริง):
+      1. `roles/run.admin` (ระดับโปรเจกต์) — แก้ error `run.services.get` denied
+      2. `roles/cloudbuild.builds.editor` (ระดับโปรเจกต์) — `--source=` deploy ต้องยิง Cloud Build ซ้อนอีกชั้นเพื่อ build image ก่อน deploy
+      3. `roles/iam.serviceAccountUser` **bind เฉพาะบน resource ของ service account ตัวนี้เอง** (ไม่ใช่ระดับโปรเจกต์ — แคบกว่า ปลอดภัยกว่า) — แก้ error `iam.serviceaccounts.actAs` denied ตอนต้อง "ทำตัวเป็นตัวเอง" ระหว่าง deploy (auto-mode classifier บล็อกการ bind ระดับโปรเจกต์ของ role นี้ไว้เองเพราะเป็นสิทธิ์อ่อนไหว/ช่องทาง privilege escalation ที่พบบ่อย — ต้องขอยืนยันจากผู้ใช้แยกอีกรอบ แล้ว bind แบบ resource-level แทน)
+    - **ทดสอบยืนยันจริงด้วยการ trigger build ด้วยมือ 3 รอบ** (`gcloud builds triggers run deploy-bot-on-push`) จนกว่าจะ SUCCESS จริง (ไม่ใช่แค่เชื่อ exit code) แล้วเจอปัญหาเดิมที่เคยบันทึกไว้ซ้ำอีกครั้ง: **build SUCCESS ไม่ได้แปลว่า traffic ไปที่ revision ใหม่อัตโนมัติ** (traffic ยังค้างที่ revision เก่า `00146-5vj` แม้ deploy revision ใหม่ `00147-jtg` สำเร็จแล้ว) เพราะ service นี้เคย pin traffic แบบ fix ตายตัวไว้ก่อนหน้า (ไม่ใช่ "always latest") — ต้อง `gcloud run services update-traffic --to-revisions=...=100` เองอีกเหมือนเดิมทุกครั้งหลัง deploy (ตรงกับข้อควรระวัง #35 เป๊ะ ใช้ได้กับทั้งบอทและ dashboard)
+    - **สรุป:** CI/CD auto-deploy ของบอท (`deploy-bot-on-push` trigger) **ใช้งานได้จริงแล้วตอนนี้** (push ขึ้น `main` แล้ว Cloud Build จะ build+deploy ให้อัตโนมัติ) — **แต่ยังต้อง pin traffic เองด้วยมือทุกครั้งหลัง build สำเร็จ** เหมือนเดิม ไม่ได้แก้ปัญหานี้ไปด้วย (คนละสาเหตุกัน) — verified ด้วย log จริงว่า revision ใหม่ boot สำเร็จ (Redis connected) หลัง pin traffic แล้ว
+
 **ข้อควรระวังใหม่ที่เพิ่มจากเหตุการณ์นี้:**
 - **Git identity ของเครื่องนี้ตั้งแบบ repo-local เท่านั้น** (`user.name=Vespa`, `user.email=six.papigod@gmail.com`) ไม่ใช่ global — ถ้าย้ายเครื่อง/ไดร์อีกต้องตั้งใหม่
 - **ผู้ใช้ต้องการให้ commit + push ขึ้น GitHub ทันทีทุกครั้งที่แก้ไฟล์** ไม่ต้องรอถามก่อน (แต่ยังต้องเช็คไม่ให้ commit secret และไม่ bundle ไฟล์เก่าที่ค้างอยู่โดยไม่ถามก่อน)
@@ -448,7 +457,7 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
 
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
-| Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00146-5vj` |
+| Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00147-jtg` |
 | Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00280-gdv` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 

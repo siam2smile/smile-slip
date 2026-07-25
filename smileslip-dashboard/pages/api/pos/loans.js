@@ -9,6 +9,7 @@ import {
   getAccessToken, readSheet, appendSheet, updateSheetRow,
   ensureTabExists, makeLoanNo, rowToLoan, rowToProduct, LOAN_HEADERS,
 } from '../../../lib/google-pos';
+import { dualWrite, insertRow, updateRow } from '../../../lib/supabase-pos';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -101,10 +102,17 @@ export default async function handler(req, res) {
       const loanNo = makeLoanNo();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
 
-      await appendSheet(token, sheetId, 'ยืมสินค้า', [
-        loanNo, now, due_date, contact_id, contact_name, contact_phone,
-        JSON.stringify(items), notes, 'ยืมอยู่', '', branch,
-      ]);
+      await dualWrite({
+        label: 'loans-create',
+        primary: () => appendSheet(token, sheetId, 'ยืมสินค้า', [
+          loanNo, now, due_date, contact_id, contact_name, contact_phone,
+          JSON.stringify(items), notes, 'ยืมอยู่', '', branch,
+        ]),
+        secondary: () => insertRow('pos_loans', {
+          shop_id: shopId, loan_no: loanNo, due_date, contact_id, contact_name,
+          contact_phone, items, notes, status: 'ยืมอยู่', returned_at: null, branch_name: branch,
+        }),
+      });
 
       // ตัดสต็อคออกถ้าขอ (optional)
       if (deduct_stock) {
@@ -149,7 +157,13 @@ export default async function handler(req, res) {
       existing[8] = 'คืนแล้ว';
       existing[9] = now;
       if (notes) existing[7] = [existing[7], notes].filter(Boolean).join(' | ');
-      await updateSheetRow(token, sheetId, 'ยืมสินค้า', idx + 2, existing);
+      const mergedNotes = existing[7];
+      await dualWrite({
+        label: 'loans-return',
+        primary: () => updateSheetRow(token, sheetId, 'ยืมสินค้า', idx + 2, existing),
+        secondary: () => updateRow('pos_loans', { shop_id: shopId, loan_no },
+          { status: 'คืนแล้ว', returned_at: now, notes: mergedNotes }),
+      });
 
       // คืนสต็อค
       try {
