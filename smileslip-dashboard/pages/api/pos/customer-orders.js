@@ -17,6 +17,7 @@ import {
   getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
   rowToCustomerOrder, CUSTOMER_ORDER_HEADERS, makeCustomerOrderNo, rowToProduct,
 } from '../../../lib/google-pos';
+import { dualWrite, insertRow, softDeleteRow } from '../../../lib/supabase-pos';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -123,10 +124,18 @@ export default async function handler(req, res) {
       const order_no = makeCustomerOrderNo();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
 
-      await appendSheet(token, sheetId, 'ออเดอร์ลูกค้ารอยืนยัน', [
-        order_no, now, customer_name.trim(), asText(phone.trim()), address.trim(),
-        branch || '', JSON.stringify(resolvedItems), total, payment_method, slip_url, notes, 'รอตรวจสอบ',
-      ]);
+      await dualWrite({
+        label: 'customer-orders-create',
+        primary: () => appendSheet(token, sheetId, 'ออเดอร์ลูกค้ารอยืนยัน', [
+          order_no, now, customer_name.trim(), asText(phone.trim()), address.trim(),
+          branch || '', JSON.stringify(resolvedItems), total, payment_method, slip_url, notes, 'รอตรวจสอบ',
+        ]),
+        secondary: () => insertRow('pos_customer_orders', {
+          shop_id: shopId, order_no, transaction_at: now, customer_name: customer_name.trim(),
+          phone: phone.trim(), address: address.trim(), branch_name: branch || '',
+          items: resolvedItems, total, payment_method, slip_url, notes, status: 'รอตรวจสอบ',
+        }),
+      });
 
       recordAttempt(rlKey);
       return res.json({ ok: true, order_no, total });
@@ -139,7 +148,11 @@ export default async function handler(req, res) {
       const rows = await readSheet(token, sheetId, 'ออเดอร์ลูกค้ารอยืนยัน!A:L');
       const idx = rows.slice(1).findIndex(r => r[0] === order_no);
       if (idx === -1) return res.status(404).json({ error: 'ไม่พบรายการ' });
-      await updateSheetRow(token, sheetId, 'ออเดอร์ลูกค้ารอยืนยัน', idx + 2, new Array(12).fill(''));
+      await dualWrite({
+        label: 'customer-orders-delete',
+        primary: () => updateSheetRow(token, sheetId, 'ออเดอร์ลูกค้ารอยืนยัน', idx + 2, new Array(12).fill('')),
+        secondary: () => softDeleteRow('pos_customer_orders', { shop_id: shopId, order_no }),
+      });
       return res.json({ ok: true });
     }
 
