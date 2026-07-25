@@ -9,7 +9,11 @@
 #   ถ้าต้องเพิ่ม/แก้ env ให้ทำผ่านคอนโซล Cloud Run หรือรัน deploy-bot.sh จากเครื่อง (อ่านจาก .env)
 # ============================================================
 steps:
-  - name: 'gcr.io/google-cloud-builders/gcloud'
+  # แก้บั๊ก CI/CD ที่พังมานาน (ดู CLAUDE.md ข้อ 11/43) — "gcr.io/google-cloud-builders/gcloud"
+  # ไม่ใช่ registry ทางการของ Google เลย (พิมพ์ผิด/คนละที่กับที่ตั้งใจ) ทำให้ดึง image ไม่ได้เพราะ
+  # ไม่มีสิทธิ์ artifactregistry.repositories.downloadArtifacts — registry ทางการที่ Google ดูแล
+  # จริงคือ "gcr.io/cloud-builders/gcloud" (ไม่มีคำว่า google- นำหน้า cloud-builders)
+  - name: 'gcr.io/cloud-builders/gcloud'
     id: 'deploy-bot'
     args:
       - 'run'
