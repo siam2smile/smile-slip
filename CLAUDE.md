@@ -2,7 +2,7 @@
 
 โปรเจกต์ของ Vespa / Siam Global Network Enterprise
 ภาษาหลักในโค้ดและ comment: **ไทย**
-อัปเดตล่าสุด: 2026-07-25 (ต่อจากข้อ 49-51 (Sheets→Supabase migration Tier A-D) — ทำ **ข้อ 52: Tier E เสร็จสมบูรณ์** `reports.js`/`export.js` ของ dashboard อ่านรายงานประเภท transaction log (ยอดขาย/เงินเชื่อ/ยืมสินค้า/สินค้าขายดี/กำไรขาดทุน/รายจ่าย/VAT) จาก Supabase แทน Sheets แล้ว (คงแค็ตตาล็อกสินค้า/ผู้ติดต่อเต็มรูปแบบไว้อ่าน Sheets ต่อไปโดยเจตนา เพราะไม่เคย backfill) — **migration ทั้งหมดตามแผนเดิมเสร็จสมบูรณ์ครบทุก Tier แล้ว (Phase 0 + A + B + C + D + E)** เหลือแค่ write-primary flip ขั้นสุดท้ายที่ยังไม่ทำ — เจอบั๊กจริงที่ไม่เกี่ยวกับ migration ระหว่างทดสอบ 2 จุด: `parseThaiBEDate()` ทำให้ตัวกรอง `dateFrom`/`dateTo` ของทุกรายงานไม่เคยมีผลอะไรมาตลอด (แก้แล้ว), `loans.js` คืนสต็อคผิดเมื่อยืนยันคืนของที่ไม่เคยถูกตัดสต็อคออกจริง (flag เป็น background task แยกต่างหาก) — **ยังไม่ได้ deploy ขึ้น production** (push GitHub แล้วเท่านั้น รอถามผู้ใช้ก่อน) — เหลือเดิม: Tier 2-4 ของระบบสิทธิ์แคชเชียร์ (deferred), เปิดลิ้นชักเงินสดอัตโนมัติ (ต้องมีเครื่องพิมพ์จริง), โอนย้ายสต็อกข้ามสาขา (deferred), White-Label แบบ LINE OA เต็มรูปแบบ (ยังไม่เริ่ม), QR สั่งอาหารที่โต๊ะ (วางแผนแล้ว ยังไม่เริ่ม))
+อัปเดตล่าสุด: 2026-07-25 (ต่อจากข้อ 49-51 (Sheets→Supabase migration Tier A-D) — ทำ **ข้อ 52: Tier E เสร็จสมบูรณ์** `reports.js`/`export.js` ของ dashboard อ่านรายงานประเภท transaction log (ยอดขาย/เงินเชื่อ/ยืมสินค้า/สินค้าขายดี/กำไรขาดทุน/รายจ่าย/VAT) จาก Supabase แทน Sheets แล้ว (คงแค็ตตาล็อกสินค้า/ผู้ติดต่อเต็มรูปแบบไว้อ่าน Sheets ต่อไปโดยเจตนา เพราะไม่เคย backfill) — **migration ทั้งหมดตามแผนเดิมเสร็จสมบูรณ์ครบทุก Tier แล้ว (Phase 0 + A + B + C + D + E)** เหลือแค่ write-primary flip ขั้นสุดท้ายที่ยังไม่ทำ — เจอบั๊กจริงที่ไม่เกี่ยวกับ migration ระหว่างทดสอบ 2 จุด: `parseThaiBEDate()` ทำให้ตัวกรอง `dateFrom`/`dateTo` ของทุกรายงานไม่เคยมีผลอะไรมาตลอด (แก้แล้ว), `loans.js` คืนสต็อคผิดเมื่อยืนยันคืนของที่ไม่เคยถูกตัดสต็อคออกจริง (flag เป็น background task แยกต่างหาก) **Deploy production แล้ว (dashboard revision จริง `smileslip-dashboard-00283-wn2`)** verified บน production จริง — เหลือเดิม: Tier 2-4 ของระบบสิทธิ์แคชเชียร์ (deferred), เปิดลิ้นชักเงินสดอัตโนมัติ (ต้องมีเครื่องพิมพ์จริง), โอนย้ายสต็อกข้ามสาขา (deferred), White-Label แบบ LINE OA เต็มรูปแบบ (ยังไม่เริ่ม), QR สั่งอาหารที่โต๊ะ (วางแผนแล้ว ยังไม่เริ่ม))
 
 ---
 
@@ -460,6 +460,7 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
     - **ทดสอบยิงจริงกับร้าน D Gas ผ่าน dev server + `TZ=UTC`** (จำลอง container จริง): seed บิลขาย/รายจ่าย/ใบยืม/ใบกำกับภาษีจริงผ่าน API แต่ละประเภท → เรียก `reports.js` ยืนยันตัวเลขสรุปตรงกับข้อมูลที่บันทึกจริงทุกประเภท (sales/topsellers/pl/vat/expenses/loans/credit) รวมถึงยืนยัน `dateFrom`/`dateTo` filter ทำงานถูกต้องหลังแก้บั๊กข้างบน → ดาวน์โหลด+parse ไฟล์ Excel จาก `export.js` จริงด้วย `xlsx` library ยืนยันทุก sheet มีข้อมูลถูกต้องครบทุกประเภท (รวม `vat30`/`sales_by_branch`/`cyclical_inventory`) — ลบข้อมูลทดสอบออกจากทั้ง Sheets และ Supabase ครบทุกรอบ (หลีกเลี่ยงเรียก `loans.js` PATCH คืนของตอน cleanup เพื่อไม่กระตุ้นบั๊กที่เพิ่งเจอ — ลบ row ตรงแทน) รวมถึงคืนค่าสต็อคสินค้าที่กระทบกลับเป๊ะ
     - **Deploy production:** ยังไม่ได้ deploy — push ขึ้น GitHub แล้วเท่านั้น (dashboard ไม่มี auto-deploy จาก git push ตามที่บันทึกไว้ด้านล่าง) รอถามผู้ใช้ก่อน deploy จริง
     - **สรุปสถานะ migration ทั้งหมด ณ จุดนี้:** Phase 0 + Tier A + Tier B + Tier C + Tier D (เขียน+อ่าน) + Tier E เสร็จสมบูรณ์ครบตามแผนเดิมทุกข้อแล้ว — เหลือแค่ write-primary flip (สลับให้ Supabase เป็น primary/Sheets เป็นแค่ secondary/snapshot export) ตามที่ระบุไว้ใน `tingly-napping-moth.md` ขั้นตอนที่ 5-6 ซึ่งเป็นขั้นถัดไปที่ยังไม่ได้ทำ (รอ burn-in เพิ่มเติม/ตัดสินใจเพิ่มเติมจากผู้ใช้ก่อน)
+    - **Deploy production แล้ว (2026-07-25)** — revision จริง `smileslip-dashboard-00283-wn2` (ข้อความ deploy โชว์ revision เดิม `00282-vr4` ผิดอีกตามเคย เช็คด้วย `gcloud run revisions list` แล้ว pin traffic เอง) — verified บน production จริงว่า `GET /api/pos/reports?type=sales` และ `GET /api/pos/export?types=sales,inventory` ทำงานถูกต้องกับร้าน D Gas จริง (คืนโครงสร้างถูกต้อง, ไฟล์ Excel ดาวน์โหลด+parse ได้จริง) — **migration ทั้งชุด (Phase 0 → Tier E) อยู่บน production ครบทุกส่วนแล้วตั้งแต่ตอนนี้**
 
 **ข้อควรระวังใหม่ที่เพิ่มจากเหตุการณ์นี้:**
 - **Git identity ของเครื่องนี้ตั้งแบบ repo-local เท่านั้น** (`user.name=Vespa`, `user.email=six.papigod@gmail.com`) ไม่ใช่ global — ถ้าย้ายเครื่อง/ไดร์อีกต้องตั้งใหม่
@@ -500,7 +501,7 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
 | Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00165-gbg` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00282-vr4` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00283-wn2` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
