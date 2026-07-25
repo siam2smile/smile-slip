@@ -16,6 +16,7 @@ import {
   getAccessToken, readSheet, appendSheet, appendRows, updateSheetRow, ensureTabExists,
   makeContactId, rowToContact, CONTACT_HEADERS,
 } from '../../../lib/google-pos';
+import { dualWrite, insertRow, insertRows, updateRow, softDeleteRow } from '../../../lib/supabase-pos';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -90,19 +91,37 @@ export default async function handler(req, res) {
     // ไม่ใช่ทีละแถว กัน rate limit ของ Google เวลานำเข้าเป็นพันรายชื่อ
     if (req.method === 'POST' && Array.isArray(req.body.contacts)) {
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-      const rows = req.body.contacts
-        .filter(c => c?.name)
-        .map(c => [
-          makeContactId(), c.name, c.contact_type || 'ผู้จำหน่าย', asText(c.phone || ''), c.email || '',
-          c.address_1 || '', c.maps_1 || '', c.address_2 || '', c.maps_2 || '',
-          c.company_name || '', asText(c.tax_id || ''), c.tax_address || '', c.tax_branch || '',
-          c.debt || 0, c.cylinders || 0, c.shop_name || '', c.aliases || '', c.notes || '', asText(now), asText(now),
-          c.person_type || 'บุคคลธรรมดา', c.contact_person_name || '', asText(c.contact_person_phone || ''),
-        ]);
-      // ยิงเป็น chunk กัน request เดียวใหญ่เกินไป/timeout ฝั่ง Google
+      const contactIds = req.body.contacts.filter(c => c?.name).map(() => makeContactId());
+      const validContacts = req.body.contacts.filter(c => c?.name);
+      const rows = validContacts.map((c, i) => [
+        contactIds[i], c.name, c.contact_type || 'ผู้จำหน่าย', asText(c.phone || ''), c.email || '',
+        c.address_1 || '', c.maps_1 || '', c.address_2 || '', c.maps_2 || '',
+        c.company_name || '', asText(c.tax_id || ''), c.tax_address || '', c.tax_branch || '',
+        c.debt || 0, c.cylinders || 0, c.shop_name || '', c.aliases || '', c.notes || '', asText(now), asText(now),
+        c.person_type || 'บุคคลธรรมดา', c.contact_person_name || '', asText(c.contact_person_phone || ''),
+      ]);
+      const supaRows = validContacts.map((c, i) => ({
+        shop_id: shopId, contact_id: contactIds[i], name: c.name, contact_type: c.contact_type || 'ผู้จำหน่าย',
+        phone: c.phone || '', email: c.email || '', address_1: c.address_1 || '', maps_1: c.maps_1 || '',
+        address_2: c.address_2 || '', maps_2: c.maps_2 || '', company_name: c.company_name || '',
+        tax_id: c.tax_id || '', tax_address: c.tax_address || '', tax_branch: c.tax_branch || '',
+        debt: c.debt || 0, cylinders: c.cylinders || 0, shop_name: c.shop_name || '', aliases: c.aliases || '',
+        notes: c.notes || '', contact_created_at: now, contact_updated_at: now,
+        person_type: c.person_type || 'บุคคลธรรมดา', contact_person_name: c.contact_person_name || '',
+        contact_person_phone: c.contact_person_phone || '',
+      }));
+
+      // ยิงเป็น chunk กัน request เดียวใหญ่เกินไป/timeout ฝั่ง Google (Sheets เป็น primary — ต้องสำเร็จ
+      // เสมอ) ส่วน Supabase เป็น secondary แบบ fire-and-forget เหมือนทุกจุดอื่น
       const CHUNK = 500;
       for (let i = 0; i < rows.length; i += CHUNK) {
-        await appendRows(token, sheetId, 'ผู้ติดต่อ', rows.slice(i, i + CHUNK));
+        const sheetChunk = rows.slice(i, i + CHUNK);
+        const supaChunk = supaRows.slice(i, i + CHUNK);
+        await dualWrite({
+          label: 'contacts-bulk-import',
+          primary: () => appendRows(token, sheetId, 'ผู้ติดต่อ', sheetChunk),
+          secondary: () => insertRows('pos_contacts', supaChunk),
+        });
       }
       return res.json({ ok: true, imported: rows.length });
     }
@@ -126,13 +145,22 @@ export default async function handler(req, res) {
 
       const contact_id = makeContactId();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-      await appendSheet(token, sheetId, 'ผู้ติดต่อ', [
-        contact_id, name, contact_type, asText(phone), email,
-        address_1, maps_1, address_2, maps_2,
-        company_name, asText(tax_id), tax_address, tax_branch,
-        debt, cylinders, shop_name, aliases, notes, asText(now), asText(now),
-        person_type, contact_person_name, asText(contact_person_phone), cylinder_limit || 0,
-      ]);
+      await dualWrite({
+        label: 'contacts-create',
+        primary: () => appendSheet(token, sheetId, 'ผู้ติดต่อ', [
+          contact_id, name, contact_type, asText(phone), email,
+          address_1, maps_1, address_2, maps_2,
+          company_name, asText(tax_id), tax_address, tax_branch,
+          debt, cylinders, shop_name, aliases, notes, asText(now), asText(now),
+          person_type, contact_person_name, asText(contact_person_phone), cylinder_limit || 0,
+        ]),
+        secondary: () => insertRow('pos_contacts', {
+          shop_id: shopId, contact_id, name, contact_type, phone, email,
+          address_1, maps_1, address_2, maps_2, company_name, tax_id, tax_address, tax_branch,
+          debt, cylinders, shop_name, aliases, notes, contact_created_at: now, contact_updated_at: now,
+          person_type, contact_person_name, contact_person_phone, cylinder_limit: cylinder_limit || 0,
+        }),
+      });
       return res.json({ ok: true, contact_id, name });
     }
 
@@ -178,9 +206,41 @@ export default async function handler(req, res) {
       if (updates.contact_person_name !== undefined) existing[21] = updates.contact_person_name;
       if (updates.contact_person_phone!== undefined) existing[22] = asText(updates.contact_person_phone);
       if (updates.cylinder_limit      !== undefined) existing[23] = updates.cylinder_limit;
-      existing[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })); // updated_at
+      const updatedAt = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+      existing[19] = asText(updatedAt); // updated_at
 
-      await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', idx + 2, existing);
+      // สร้าง payload ฝั่ง Supabase จาก `updates` ดิบโดยตรง (ไม่ผ่าน asText()) แทนอ่านจาก `existing[]`
+      // เพราะ existing[] บางช่องอาจมี ' นำหน้าฝังอยู่จริงในหน่วยความจำถ้าฟิลด์นั้นถูกแก้ใน request นี้
+      const supaUpdates = { contact_updated_at: updatedAt };
+      if (updates.name                 !== undefined) supaUpdates.name = updates.name;
+      if (updates.contact_type         !== undefined) supaUpdates.contact_type = updates.contact_type;
+      if (updates.phone                !== undefined) supaUpdates.phone = updates.phone;
+      if (updates.email                !== undefined) supaUpdates.email = updates.email;
+      if (updates.address_1            !== undefined) supaUpdates.address_1 = updates.address_1;
+      if (updates.maps_1               !== undefined) supaUpdates.maps_1 = updates.maps_1;
+      if (updates.address_2            !== undefined) supaUpdates.address_2 = updates.address_2;
+      if (updates.maps_2               !== undefined) supaUpdates.maps_2 = updates.maps_2;
+      if (updates.company_name         !== undefined) supaUpdates.company_name = updates.company_name;
+      if (updates.tax_id               !== undefined) supaUpdates.tax_id = updates.tax_id;
+      if (updates.tax_address          !== undefined) supaUpdates.tax_address = updates.tax_address;
+      if (updates.tax_branch           !== undefined) supaUpdates.tax_branch = updates.tax_branch;
+      if (updates.debt                 !== undefined) supaUpdates.debt = updates.debt;
+      if (updates.cylinders            !== undefined) supaUpdates.cylinders = updates.cylinders;
+      if (updates.shop_name            !== undefined) supaUpdates.shop_name = updates.shop_name;
+      if (updates.aliases              !== undefined) supaUpdates.aliases = updates.aliases;
+      if (updates.notes                !== undefined) supaUpdates.notes = updates.notes;
+      if (updates.person_type          !== undefined) supaUpdates.person_type = updates.person_type;
+      if (updates.contact_person_name  !== undefined) supaUpdates.contact_person_name = updates.contact_person_name;
+      if (updates.contact_person_phone !== undefined) supaUpdates.contact_person_phone = updates.contact_person_phone;
+      if (updates.cylinder_limit       !== undefined) supaUpdates.cylinder_limit = updates.cylinder_limit;
+
+      await dualWrite({
+        label: 'contacts-update',
+        primary: () => updateSheetRow(token, sheetId, 'ผู้ติดต่อ', idx + 2, existing),
+        // ผู้ติดต่อเก่า (ก่อน migration นี้) จะไม่มีแถวใน pos_contacts เลย — updateRow หาไม่เจอก็แค่
+        // ไม่มีผลอะไร (ไม่ throw) ตรงตามที่ตั้งใจว่าจะไม่ backfill ข้อมูลเก่า
+        secondary: () => updateRow('pos_contacts', { shop_id: shopId, contact_id }, supaUpdates),
+      });
       return res.json({ ok: true, contact_id });
     }
 
@@ -195,7 +255,11 @@ export default async function handler(req, res) {
       const idx = rows.slice(1).findIndex(r => r[0] === contact_id);
       if (idx === -1) return res.status(404).json({ error: 'ไม่พบผู้ติดต่อ' });
 
-      await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', idx + 2, Array(24).fill(''));
+      await dualWrite({
+        label: 'contacts-delete',
+        primary: () => updateSheetRow(token, sheetId, 'ผู้ติดต่อ', idx + 2, Array(24).fill('')),
+        secondary: () => softDeleteRow('pos_contacts', { shop_id: shopId, contact_id }),
+      });
       return res.json({ ok: true });
     }
 
