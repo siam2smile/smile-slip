@@ -434,7 +434,7 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
     - **พบบั๊กเชิงระบบที่กว้างกว่า migration นี้ระหว่างทดสอบ `collections.js` — แยกเป็น background task ต่างหาก (`task_8c0d885a`) ไม่ปนกับ migration:** `updateSheetRow()` เขียนด้วย `USER_ENTERED` เสมอ — pattern "อ่านทั้งแถว→แก้บางฟิลด์→เขียนทั้งแถวกลับ" ที่หลายไฟล์ PATCH handler ใช้ ทำให้ฟิลด์ที่หน้าตาเหมือนตัวเลข (เบอร์โทร/เลขภาษี) เสี่ยงหาย 0 นำหน้าทุกครั้งที่ PATCH แก้ฟิลด์อื่นโดยไม่แตะฟิลด์นั้นเลย (พิสูจน์จริงกับ `collections.js`) — ต้องไล่ตรวจ `delivery.js`/`sales.js`/`staff.js`/`loans.js`/`cash-shifts.js` เพิ่มเติม
     - **ทดสอบยิงจริงทุกตารางกับร้าน "D Gas"** ผ่าน Node `fetch()` เขียนเป็นสคริปต์เสมอ (ห้ามใช้ `curl -d` กับ payload ภาษาไทยบนเครื่องนี้ — ทำให้ข้อความเพี้ยนเป็น `?????` ตามที่เคยเจอมาแล้วหลายรอบ) ยืนยัน parity ตรงกัน 100% ทุกตาราง ครอบคลุมทุก action/branch (POST/PATCH ทุกเฟส/DELETE/bulk import) รวมถึงกรณีข้อมูลเก่าที่ไม่มีใน Supabase เลย (contacts) ไม่ throw แล้วเก็บกวาดข้อมูลทดสอบออกจากทั้ง Sheets และ Supabase สะอาดทุกรอบ (รวมถึง revert สต็อค/ยอดค้างชำระของลูกค้าจริงกลับเป๊ะ)
     - **ยังไม่ได้ทำ (ตามแผน — เฟสถัดไปหลัง burn-in):** Tier D (ledger หลักของบอทเอง `smileslip-pro/index.js` + เขียนคำสั่ง `#สรุป...` ใหม่ให้ query Supabase แทนอ่านทั้งชีต), Tier E (`reports.js`/`export.js` query Supabase ตรงแทนต่อ Sheets หลายแท็บ) — ทุก tier ที่ทำไปแล้ว (A+B+C) ยังเป็นแค่ dual-write เท่านั้น **ยังไม่ตัดการอ่านจาก Sheets มา Supabase เลยสักจุด** (read-cutover เป็นขั้นถัดไปหลัง burn-in ~2 สัปดาห์ตามแผน แล้วค่อย flip ให้ Supabase เป็น primary/Sheets กลายเป็นแค่ snapshot export) — ดูรายละเอียดเต็มในไฟล์แผน `tingly-napping-moth.md`
-    - **ยังไม่ได้ deploy ขึ้น production เลย** — งานทั้งหมด (Phase 0 + Tier A+B+C) push ขึ้น GitHub แล้วทุก commit แต่ dashboard ไม่มี auto-deploy จาก git push (ต่างจากบอทที่ auto-deploy แล้วตั้งแต่ข้อ 48) ต้อง `gcloud run deploy` เองเมื่อพร้อม — **สำคัญ: ต้อง deploy จริงก่อนถึงจะเริ่มนับ burn-in period ได้** เพราะโค้ด dual-write ที่ยัง sit อยู่แค่ใน git ไม่มีทางเก็บข้อมูลจริงเข้า Supabase ได้เลยจนกว่าจะขึ้น production จริง
+    - **Deploy production แล้ว (2026-07-25)** — revision จริง `smileslip-dashboard-00281-ghq` (ข้อความ deploy โชว์ revision เดิม `00280-gdv` ผิดอีกตามเคย เช็คด้วย `gcloud run revisions list` แล้ว pin traffic เอง) — deploy ผ่าน PowerShell (parse `.env` เองแบบเดียวกับ `deploy-web.sh` เพราะ Bash tool รันสคริปต์นี้บน Windows ไม่ได้) — **verified บน production จริงว่า dual-write ทำงานจริง**: ยิง `POST /api/pos/loans` ตรงกับ production URL แล้วเช็คว่าแถวเข้าทั้ง Sheets และ `pos_loans` บน Supabase จริง (ไม่ใช่แค่ทดสอบผ่าน dev server) แล้วลบข้อมูลทดสอบออกสะอาด — **เริ่มนับ burn-in period ของ migration ได้แล้วตั้งแต่ตอนนี้**
 
 **ข้อควรระวังใหม่ที่เพิ่มจากเหตุการณ์นี้:**
 - **Git identity ของเครื่องนี้ตั้งแบบ repo-local เท่านั้น** (`user.name=Vespa`, `user.email=six.papigod@gmail.com`) ไม่ใช่ global — ถ้าย้ายเครื่อง/ไดร์อีกต้องตั้งใหม่
@@ -475,7 +475,7 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
 | Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00147-jtg` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00280-gdv` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00281-ghq` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
