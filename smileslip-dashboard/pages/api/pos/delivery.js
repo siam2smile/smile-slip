@@ -25,6 +25,7 @@ import {
   makeOrderNo, rowToOrder, rowToContact, rowToProduct, ORDER_HEADERS, CONTACT_HEADERS,
   logCyclicalTransaction,
 } from '../../../lib/google-pos';
+import { dualWrite, insertRow, updateRow, softDeleteRow } from '../../../lib/supabase-pos';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -225,12 +226,20 @@ export default async function handler(req, res) {
       const order_no = makeOrderNo();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
 
-      await appendSheet(token, sheetId, 'ออเดอร์จัดส่ง', [
-        order_no, now, customer_id, customer_name, asText(phone),
-        address, maps_link, JSON.stringify(items), total,
-        payment_method, staff_id, staff_name, 'รอจัดส่ง', notes,
-        '', '', '', '', '', created_by,
-      ]);
+      await dualWrite({
+        label: 'delivery-create',
+        primary: () => appendSheet(token, sheetId, 'ออเดอร์จัดส่ง', [
+          order_no, now, customer_id, customer_name, asText(phone),
+          address, maps_link, JSON.stringify(items), total,
+          payment_method, staff_id, staff_name, 'รอจัดส่ง', notes,
+          '', '', '', '', '', created_by,
+        ]),
+        secondary: () => insertRow('pos_delivery_orders', {
+          shop_id: shopId, order_no, transaction_at: now, customer_id, customer_name,
+          phone, address, maps_link, items, total, payment_method,
+          staff_id, staff_name, status: 'รอจัดส่ง', notes, created_by,
+        }),
+      });
 
       // ถ้าค้างจ่าย → อัปเดตยอดหนี้ผู้ติดต่ออัตโนมัติ
       if (payment_method === 'ค้างจ่าย' && customer_id) {
@@ -478,7 +487,23 @@ export default async function handler(req, res) {
         }
       }
 
-      await updateSheetRow(token, sheetId, 'ออเดอร์จัดส่ง', idx + 2, existing);
+      await dualWrite({
+        label: 'delivery-update',
+        primary: () => updateSheetRow(token, sheetId, 'ออเดอร์จัดส่ง', idx + 2, existing),
+        secondary: () => updateRow('pos_delivery_orders', { shop_id: shopId, order_no }, {
+          // existing[4] อาจเป็น asText(phone) สดๆ (มี ' นำหน้าจริงในสตริง JS) ถ้า phone ถูกแก้ใน
+          // request นี้ — ต้องตัด ' ทิ้งก่อนเก็บ Supabase เพราะ Supabase ไม่มีกลไก USER_ENTERED
+          // แบบ Sheets ที่ตัด ' ให้อัตโนมัติตอนอ่านกลับ
+          customer_id: existing[2], customer_name: existing[3],
+          phone: String(existing[4] || '').replace(/^'/, ''),
+          address: existing[5], maps_link: existing[6], items: JSON.parse(existing[7] || '[]'),
+          total: parseFloat(existing[8]) || 0, payment_method: existing[9],
+          staff_id: existing[10], staff_name: existing[11], status: existing[12], notes: existing[13],
+          slip_url: existing[14], confirmed_at: existing[15], confirmed_by: existing[16],
+          cash_received: existing[17] === 'TRUE', goods_received: existing[18] === 'TRUE',
+          created_by: existing[19], credit_settled: existing[20] === 'TRUE',
+        }),
+      });
       return res.json({ ok: true, order_no, debtAdded });
     }
 
@@ -491,7 +516,11 @@ export default async function handler(req, res) {
       const idx = rows.slice(1).findIndex(r => r[0] === order_no);
       if (idx === -1) return res.status(404).json({ error: 'ไม่พบออเดอร์' });
 
-      await updateSheetRow(token, sheetId, 'ออเดอร์จัดส่ง', idx + 2, Array(21).fill(''));
+      await dualWrite({
+        label: 'delivery-delete',
+        primary: () => updateSheetRow(token, sheetId, 'ออเดอร์จัดส่ง', idx + 2, Array(21).fill('')),
+        secondary: () => softDeleteRow('pos_delivery_orders', { shop_id: shopId, order_no }),
+      });
       return res.json({ ok: true });
     }
 
