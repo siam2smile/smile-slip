@@ -20,6 +20,15 @@ import { dualWrite, insertRow, updateRow, softDeleteRow, LEDGER_TYPE } from '../
 
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 
+// บังคับให้ Google Sheets เก็บเป็นข้อความล้วน กันเบอร์โทร/เลขภาษี/บาร์โค้ดที่ขึ้นต้นด้วย 0 โดนตัด
+// 0 ทิ้ง (valueInputOption=USER_ENTERED ตีความค่าที่หน้าตาเป็นตัวเลขแล้วแปลงเป็นเลขเอง) — ไฟล์นี้
+// เขียนทั้งแถวของ "ผู้ติดต่อ"/"สินค้า" กลับซ้ำๆ เป็น side effect ของการขาย/ยกเลิกบิล จึงต้องมี asText()
+// ของตัวเองเหมือนไฟล์อื่นที่แตะชีตเดียวกัน
+function asText(v) {
+  if (v === '' || v == null) return v;
+  return `'${v}`;
+}
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
@@ -188,7 +197,7 @@ export default async function handler(req, res) {
 
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
       existing[11] = 'ชำระแล้ว';
-      existing[14] = now; // paid_at
+      existing[14] = asText(now); // paid_at
       if (patchNotes) existing[10] = [existing[10], patchNotes].filter(Boolean).join(' | ');
       const mergedNotes = existing[10];
       await dualWrite({
@@ -219,7 +228,13 @@ export default async function handler(req, res) {
             const custExisting = [...custDataRows[custIdx]];
             while (custExisting.length < 24) custExisting.push('');
             custExisting[13] = Math.max(0, (parseFloat(custExisting[13]) || 0) - sale.total); // ยอดค้างชำระ
-            custExisting[19] = now; // updated_at
+            custExisting[19] = asText(now); // updated_at
+            // เขียนทั้งแถวผู้ติดต่อกลับ — เบอร์โทร/เลขภาษี/เบอร์ผู้ติดต่อนิติบุคคลที่ readSheet() อ่าน
+            // มาไม่มี apostrophe ต้อง re-wrap เสมอ กันตัดเลข 0 นำหน้าทิ้งเงียบๆ (endpoint นี้ไม่ได้
+            // ตั้งใจแก้ฟิลด์เหล่านี้เลย แต่เขียนทั้งแถวทับทุกครั้งที่รับชำระเงินเชื่อ)
+            custExisting[3]  = asText(custExisting[3]);
+            custExisting[10] = asText(custExisting[10]);
+            custExisting[22] = asText(custExisting[22]);
             await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
           }
         } catch (debtErr) {
@@ -296,10 +311,14 @@ export default async function handler(req, res) {
       }
 
       // 1. บันทึกลง POS Sheets tab "ยอดขาย" (19 คอลัมน์ A-S — เพิ่มเลขที่กะท้ายสุด)
+      // recordDT.full เป็นสตริงวันที่ไทย (มีปี พ.ศ.) ต้องผ่าน asText() เสมอในแถว Sheets ไม่งั้น Sheets
+      // ตีความเป็นตัวเลข/วันที่เองแล้วเพี้ยนเป็นเลข serial ดิบ (บั๊ก "~543 ปี" ที่เจอซ้ำหลายจุดในโปรเจกต์นี้
+      // — จุดนี้ไม่เคยถูกแก้มาก่อนแม้ expenses.js ที่ใช้ helper เดียวกันจะแก้ไปแล้ว) — Postgres (secondary)
+      // ไม่ต้อง asText เพราะไม่มีปัญหา auto-parse แบบ Sheets
       await dualWrite({
         label: 'sales-create',
         primary: () => appendSheet(token, sheetId, 'ยอดขาย', [
-          billNo, recordDT.full, JSON.stringify(items),
+          billNo, asText(recordDT.full), JSON.stringify(items),
           subtotal, discount, total,
           payment_method, cash_received, change,
           cashier, fullNotes, billStatus,
@@ -360,7 +379,7 @@ export default async function handler(req, res) {
             existing[5]  = Math.max(0, (parseFloat(existing[5]) || 0) - stockDelta); // เต็ม (stock) ลด — ออกจากร้านไปกับลูกค้า
             existing[11] = Math.max(0, (parseFloat(existing[11]) || 0) + netBorrow); // กับลูกค้า สุทธิ
             existing[12] = (parseFloat(existing[12]) || 0) + returnedQty; // เปล่ารอรีฟิล
-            existing[9]  = now;
+            existing[9]  = asText(now);
             netCylinderDeltaForCustomer += netBorrow;
 
             // เพดานเปล่ารอรีฟิล — เตือนถ้าเกิน (ไม่บล็อคการขาย)
@@ -386,8 +405,12 @@ export default async function handler(req, res) {
           } else {
             const stockDelta = item.actual_stock_deducted ?? Math.min(parseFloat(item.qty) || 0, parseFloat(existing[5]) || 0);
             existing[5] = Math.max(0, (parseFloat(existing[5]) || 0) - stockDelta); // stock ลด
-            existing[9] = now;
+            existing[9] = asText(now);
           }
+          // รหัสสินค้า/บาร์โค้ดที่ขึ้นต้นด้วย 0 ต้อง re-wrap เสมอเมื่อเขียนทั้งแถวกลับ (ทั้งสอง branch
+          // ด้านบนไม่เคยแตะฟิลด์นี้เลย แต่แถวถูกเขียนทับทั้งแถวทุกครั้งที่ขาย)
+          existing[13] = asText(existing[13]);
+          existing[14] = asText(existing[14]);
           await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
           dataRows[idx] = existing;
         }
@@ -408,11 +431,15 @@ export default async function handler(req, res) {
             if (isCredit) {
               custExisting[13] = (parseFloat(custExisting[13]) || 0) + total; // ยอดค้างชำระ
             }
-            custExisting[19] = now; // updated_at
+            custExisting[19] = asText(now); // updated_at
             const limit = parseFloat(custExisting[23]) || 0;
             if (limit > 0 && newCylinders > limit) {
               warnings.push(`⚠️ ลูกค้ายืมสินค้าหมุนเวียนเกินวงเงินที่ตั้งไว้ (${newCylinders}/${limit})`);
             }
+            // เขียนทั้งแถวผู้ติดต่อกลับ — เบอร์โทร/เลขภาษี/เบอร์ผู้ติดต่อนิติบุคคลต้อง re-wrap เสมอ
+            custExisting[3]  = asText(custExisting[3]);
+            custExisting[10] = asText(custExisting[10]);
+            custExisting[22] = asText(custExisting[22]);
             await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
           }
         }
@@ -474,7 +501,10 @@ export default async function handler(req, res) {
           } else {
             existing[5] = (parseFloat(existing[5]) || 0) + stockRestore;
           }
-          existing[9] = now;
+          existing[9] = asText(now);
+          // รหัสสินค้า/บาร์โค้ดที่ขึ้นต้นด้วย 0 ต้อง re-wrap เสมอเมื่อเขียนทั้งแถวกลับ
+          existing[13] = asText(existing[13]);
+          existing[14] = asText(existing[14]);
           await updateSheetRow(token, sheetId, 'สินค้า', pIdx + 2, existing);
           prodDataRows[pIdx] = existing;
         }
@@ -498,7 +528,11 @@ export default async function handler(req, res) {
             if (isCredit) {
               custExisting[13] = Math.max(0, (parseFloat(custExisting[13]) || 0) - sale.total);
             }
-            custExisting[19] = now;
+            custExisting[19] = asText(now);
+            // เขียนทั้งแถวผู้ติดต่อกลับ — เบอร์โทร/เลขภาษี/เบอร์ผู้ติดต่อนิติบุคคลต้อง re-wrap เสมอ
+            custExisting[3]  = asText(custExisting[3]);
+            custExisting[10] = asText(custExisting[10]);
+            custExisting[22] = asText(custExisting[22]);
             await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
           }
         } catch (err) {

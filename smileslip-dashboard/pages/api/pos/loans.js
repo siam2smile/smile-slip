@@ -11,6 +11,14 @@ import {
 } from '../../../lib/google-pos';
 import { dualWrite, insertRow, updateRow } from '../../../lib/supabase-pos';
 
+// บังคับให้ Google Sheets เก็บเป็นข้อความล้วน กันเบอร์โทร/บาร์โค้ดที่ขึ้นต้นด้วย 0 โดนตัด 0 ทิ้ง
+// (valueInputOption=USER_ENTERED ตีความค่าที่หน้าตาเป็นตัวเลขแล้วแปลงเป็นเลขเอง) — ไฟล์นี้ไม่เคย
+// ผ่าน asText() มาก่อนเลยทั้งไฟล์
+function asText(v) {
+  if (v === '' || v == null) return v;
+  return `'${v}`;
+}
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
@@ -105,7 +113,7 @@ export default async function handler(req, res) {
       await dualWrite({
         label: 'loans-create',
         primary: () => appendSheet(token, sheetId, 'ยืมสินค้า', [
-          loanNo, now, due_date, contact_id, contact_name, contact_phone,
+          loanNo, asText(now), due_date, contact_id, contact_name, asText(contact_phone),
           JSON.stringify(items), notes, 'ยืมอยู่', '', branch,
         ]),
         secondary: () => insertRow('pos_loans', {
@@ -127,7 +135,10 @@ export default async function handler(req, res) {
             const prodType = (existing[10] || 'นับสต็อค') === 'ทั่วไป' ? 'นับสต็อค' : (existing[10] || 'นับสต็อค');
             if (prodType === 'นับสต็อค') {
               existing[5] = Math.max(0, (parseFloat(existing[5]) || 0) - item.qty);
-              existing[9] = now;
+              existing[9] = asText(now);
+              // รหัสสินค้า/บาร์โค้ดที่ขึ้นต้นด้วย 0 ต้อง re-wrap เสมอเมื่อเขียนทั้งแถวกลับ
+              existing[13] = asText(existing[13]);
+              existing[14] = asText(existing[14]);
               await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
               dataRows[idx] = existing;
             }
@@ -155,9 +166,12 @@ export default async function handler(req, res) {
 
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
       existing[8] = 'คืนแล้ว';
-      existing[9] = now;
+      existing[9] = asText(now);
       if (notes) existing[7] = [existing[7], notes].filter(Boolean).join(' | ');
       const mergedNotes = existing[7];
+      // เบอร์โทร (col F) ไม่เคยถูกแก้ผ่าน PATCH นี้เลย แต่ถูกเขียนทับกลับทุกครั้งที่บันทึกคืนสินค้า —
+      // ต้อง re-wrap เสมอกันตัดเลข 0 นำหน้าทิ้ง
+      existing[5] = asText(existing[5]);
       await dualWrite({
         label: 'loans-return',
         primary: () => updateSheetRow(token, sheetId, 'ยืมสินค้า', idx + 2, existing),
@@ -177,7 +191,10 @@ export default async function handler(req, res) {
           const prodType = (pe[10] || 'นับสต็อค') === 'ทั่วไป' ? 'นับสต็อค' : (pe[10] || 'นับสต็อค');
           if (prodType === 'นับสต็อค') {
             pe[5] = (parseFloat(pe[5]) || 0) + item.qty;
-            pe[9] = now;
+            pe[9] = asText(now);
+            // รหัสสินค้า/บาร์โค้ดที่ขึ้นต้นด้วย 0 ต้อง re-wrap เสมอเมื่อเขียนทั้งแถวกลับ
+            pe[13] = asText(pe[13]);
+            pe[14] = asText(pe[14]);
             await updateSheetRow(token, sheetId, 'สินค้า', pIdx + 2, pe);
           }
         }

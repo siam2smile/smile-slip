@@ -249,7 +249,7 @@ export default async function handler(req, res) {
         existing[12] = collected_amount || 0;
         existing[13] = JSON.stringify(collected_items || []);
         existing[14] = slip_url || '';
-        existing[15] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+        existing[15] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
         if (confirmed_by !== undefined) existing[16] = confirmed_by;
         existing[17] = staff_note || '';
 
@@ -272,7 +272,13 @@ export default async function handler(req, res) {
                 while (custExisting.length < 23) custExisting.push('');
                 if (amountCollected > 0) custExisting[13] = Math.max(0, (custRow.debt || 0) - amountCollected);
                 if (totalItemsQty > 0) custExisting[14] = Math.max(0, (custRow.cylinders || 0) - totalItemsQty);
-                custExisting[19] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+                custExisting[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
+                // เขียนทั้งแถวของผู้ติดต่อกลับ — เบอร์โทร/เลขภาษี/เบอร์ผู้ติดต่อนิติบุคคลที่ readSheet()
+                // อ่านกลับมาไม่มี apostrophe ต้อง re-wrap เสมอ ไม่งั้น Sheets ตีความเป็นตัวเลขแล้วตัด
+                // เลข 0 นำหน้าทิ้งเงียบๆ แม้ endpoint นี้จะไม่ได้ตั้งใจแก้ไขฟิลด์เหล่านี้เลยก็ตาม
+                custExisting[3]  = asText(custExisting[3]);
+                custExisting[10] = asText(custExisting[10]);
+                custExisting[22] = asText(custExisting[22]);
                 await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
               }
             } catch (custErr) {
@@ -295,7 +301,11 @@ export default async function handler(req, res) {
                 const prodExisting = [...prodDataRows[pIdx]];
                 while (prodExisting.length < 18) prodExisting.push('');
                 prodExisting[12] = (prod.empty_waiting || 0) + qty;
-                prodExisting[9] = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+                prodExisting[9] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
+                // รหัสสินค้า/บาร์โค้ดที่ขึ้นต้นด้วย 0 ต้อง re-wrap เสมอเมื่อเขียนทั้งแถวกลับ (บั๊กคลาส
+                // เดียวกับเบอร์โทร/เลขภาษี — ดูคอมเมนต์เดียวกันด้านบนที่จุดอัปเดตผู้ติดต่อ)
+                prodExisting[13] = asText(prodExisting[13]);
+                prodExisting[14] = asText(prodExisting[14]);
                 await updateSheetRow(token, sheetId, 'สินค้า', pIdx + 2, prodExisting);
                 prodDataRows[pIdx] = prodExisting;
 
@@ -316,6 +326,11 @@ export default async function handler(req, res) {
       // ── แอดมิน/ผู้จัดการยืนยันรับเข้าร้านจริง (สองชั้นกันเงิน/ของหาย) ────────────
       if (cash_received !== undefined) existing[18] = cash_received ? 'TRUE' : 'FALSE';
       if (goods_received !== undefined) existing[19] = goods_received ? 'TRUE' : 'FALSE';
+
+      // เบอร์โทร (col E) ไม่เคยถูกแก้ผ่าน PATCH นี้เลย (ไม่มีอยู่ใน body ที่รับ) แต่ถูกเขียนทับ
+      // กลับทุกครั้งที่ PATCH ตัวอื่นในแถวเดียวกัน — ต้อง re-wrap เสมอกันตัดเลข 0 นำหน้าทิ้ง
+      // (บั๊กที่พบจริง: PATCH แก้แค่ result ทำให้เบอร์ 0898887777 เพี้ยนเป็น 898887777)
+      existing[4] = asText(existing[4]);
 
       await dualWrite({
         label: 'collections-update',

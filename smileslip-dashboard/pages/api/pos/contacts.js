@@ -187,14 +187,14 @@ export default async function handler(req, res) {
 
       if (updates.name                !== undefined) existing[1]  = updates.name;
       if (updates.contact_type        !== undefined) existing[2]  = updates.contact_type;
-      if (updates.phone               !== undefined) existing[3]  = asText(updates.phone);
+      if (updates.phone               !== undefined) existing[3]  = updates.phone;
       if (updates.email               !== undefined) existing[4]  = updates.email;
       if (updates.address_1           !== undefined) existing[5]  = updates.address_1;
       if (updates.maps_1              !== undefined) existing[6]  = updates.maps_1;
       if (updates.address_2           !== undefined) existing[7]  = updates.address_2;
       if (updates.maps_2              !== undefined) existing[8]  = updates.maps_2;
       if (updates.company_name        !== undefined) existing[9]  = updates.company_name;
-      if (updates.tax_id              !== undefined) existing[10] = asText(updates.tax_id);
+      if (updates.tax_id              !== undefined) existing[10] = updates.tax_id;
       if (updates.tax_address         !== undefined) existing[11] = updates.tax_address;
       if (updates.tax_branch          !== undefined) existing[12] = updates.tax_branch;
       if (updates.debt                !== undefined) existing[13] = updates.debt;
@@ -204,10 +204,18 @@ export default async function handler(req, res) {
       if (updates.notes               !== undefined) existing[17] = updates.notes;
       if (updates.person_type         !== undefined) existing[20] = updates.person_type;
       if (updates.contact_person_name !== undefined) existing[21] = updates.contact_person_name;
-      if (updates.contact_person_phone!== undefined) existing[22] = asText(updates.contact_person_phone);
+      if (updates.contact_person_phone!== undefined) existing[22] = updates.contact_person_phone;
       if (updates.cylinder_limit      !== undefined) existing[23] = updates.cylinder_limit;
       const updatedAt = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
       existing[19] = asText(updatedAt); // updated_at
+
+      // ต้อง re-wrap ทุกครั้งไม่ว่า field นี้จะถูกแก้ในคำขอนี้หรือไม่ — ถ้า wrap แค่ตอนถูกแก้
+      // (เดิม) ค่าที่ readSheet() อ่านกลับมา (ไม่มี apostrophe) จะถูกเขียนทับกลับแบบดิบตอน
+      // PATCH ที่ไม่ได้แตะ field นี้เลย (เช่น แก้แค่ debt) ทำให้ Sheets ตีความเป็นตัวเลขแล้ว
+      // ตัดเลข 0 นำหน้าทิ้งเงียบๆ (เจอบั๊กนี้จริงกับ phone ใน collections.js — บั๊กคลาสเดียวกัน)
+      existing[3]  = asText(existing[3]);
+      existing[10] = asText(existing[10]);
+      existing[22] = asText(existing[22]);
 
       // สร้าง payload ฝั่ง Supabase จาก `updates` ดิบโดยตรง (ไม่ผ่าน asText()) แทนอ่านจาก `existing[]`
       // เพราะ existing[] บางช่องอาจมี ' นำหน้าฝังอยู่จริงในหน่วยความจำถ้าฟิลด์นั้นถูกแก้ใน request นี้
