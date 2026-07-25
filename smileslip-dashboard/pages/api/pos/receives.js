@@ -36,6 +36,7 @@ import {
 } from '../../../lib/google-pos';
 import { getShopDistrictProvince, checkProcurementFraud, insertAnonymousMarketPrices, MARKET_PRICE_FEATURE_LIVE } from '../../../lib/market-price';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
+import { dualWrite, insertRow, LEDGER_TYPE } from '../../../lib/supabase-pos';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -61,7 +62,7 @@ async function getConfig(shopId) {
 
 // เขียนต้นทุนรับสินค้าลง Sheets บัญชีหลัก (tab ปี ค.ศ.) ด้วย เพื่อให้แสดงในหน้ากราฟวิเคราะห์/Ledger ของ
 // Dashboard และนับรวมใน #กำไรขาดทุน ของบอท LINE เหมือนกับที่ยอดขาย/รายจ่าย POS ทำอยู่แล้ว
-async function writeReceiveToMainSheets(token, mainSheetId, { total, supplier, notes, shopName, branchName, transactionDate }) {
+async function writeReceiveToMainSheets(token, mainSheetId, { shopId, total, supplier, notes, shopName, branchName, transactionDate }) {
   if (!mainSheetId) return;
   try {
     const now = new Date();
@@ -88,18 +89,35 @@ async function writeReceiveToMainSheets(token, mainSheetId, { total, supplier, n
     }
 
     const noteText = ['รับสินค้าเข้าสต็อค POS', notes].filter(Boolean).join(' | ');
+    const category = 'ซื้อสินค้าเข้าสต็อค (POS)';
 
-    await appendSheet(token, mainSheetId, year, [
-      thaiDate, thaiTime, 'รายจ่าย', total,
-      shopName,               // E ผู้โอน (ฝั่งจ่าย)
-      supplier || '-',        // F ผู้รับ (ผู้จำหน่าย)
-      noteText,               // G หมายเหตุ
-      '', todayISO, branchName || shopName,
-      '', '', '', '', '',     // K-O เลขอ้างอิง/ภาษี — ไม่เกี่ยวกับรับสินค้านี้
-      'ซื้อสินค้าเข้าสต็อค (POS)', // P หมวดหมู่ — แยกจากรายจ่ายทั่วไปให้ดูออกว่าเป็นต้นทุนขาย
-      'เงินสด',               // Q วิธีรับ-จ่าย — ไม่ได้เก็บวิธีชำระตอนรับสินค้า ใส่ค่า default
-      '',                     // R ผู้บันทึก
-    ]);
+    const txDate = transactionDate ? new Date(`${transactionDate}T00:00:00+07:00`) : now;
+    const transactionAt = new Date(
+      txDate.getFullYear(), txDate.getMonth(), txDate.getDate(),
+      now.getHours(), now.getMinutes(), now.getSeconds()
+    );
+
+    await dualWrite({
+      label: 'receives-mainledger',
+      primary: () => appendSheet(token, mainSheetId, year, [
+        thaiDate, thaiTime, 'รายจ่าย', total,
+        shopName,               // E ผู้โอน (ฝั่งจ่าย)
+        supplier || '-',        // F ผู้รับ (ผู้จำหน่าย)
+        noteText,               // G หมายเหตุ
+        '', todayISO, branchName || shopName,
+        '', '', '', '', '',     // K-O เลขอ้างอิง/ภาษี — ไม่เกี่ยวกับรับสินค้านี้
+        category,                // P หมวดหมู่ — แยกจากรายจ่ายทั่วไปให้ดูออกว่าเป็นต้นทุนขาย
+        'เงินสด',               // Q วิธีรับ-จ่าย — ไม่ได้เก็บวิธีชำระตอนรับสินค้า ใส่ค่า default
+        '',                     // R ผู้บันทึก
+      ]),
+      secondary: () => insertRow('ledger_transactions', {
+        shop_id: shopId, type: LEDGER_TYPE.EXPENSE, amount: total, category,
+        note: noteText, sender_name: shopName, receiver_name: supplier || '-',
+        branch_name: branchName || shopName, payment_method: 'เงินสด',
+        transaction_at: transactionAt.toISOString(),
+        raw_data: { source: 'pos-receives', supplier, notes },
+      }),
+    });
   } catch (err) {
     console.error('[pos/receives] writeReceiveToMainSheets error:', err.message);
   }
@@ -209,33 +227,36 @@ export default async function handler(req, res) {
       const grandTotal = Math.round((subtotal + vatTotal) * 100) / 100;
 
       // บันทึกใบรับสินค้าลง tab "รับสินค้า"
-      await appendSheet(token, sheetId, 'รับสินค้า', [
-        receiveNo,
-        recordDT.full,
-        supplier,
-        JSON.stringify(items.map(i => {
-          const q = parseFloat(i.qty) || 0;
-          const c = parseFloat(i.unitCost) || 0;
-          const { base, vat: unitVat } = splitVat(c, i.vatType);
-          const lineSub = q * base;
-          const lineVat = q * unitVat;
-          return {
-            sku: i.sku, name: i.name, qty: q, unit: i.unit || '', unitCost: c,
-            vatType: i.vatType || 'ไม่มี VAT',
-            vatAmount: Math.round(lineVat * 100) / 100,
-            lineTotal: Math.round((lineSub + lineVat) * 100) / 100,
-          };
-        })),
-        grandTotal,
-        notes,
-        supplierId,
-        roundedSubtotal,
-        roundedVat,
-        photoUrl,
-      ]);
+      const itemsForRow = items.map(i => {
+        const q = parseFloat(i.qty) || 0;
+        const c = parseFloat(i.unitCost) || 0;
+        const { base, vat: unitVat } = splitVat(c, i.vatType);
+        const lineSub = q * base;
+        const lineVat = q * unitVat;
+        return {
+          sku: i.sku, name: i.name, qty: q, unit: i.unit || '', unitCost: c,
+          vatType: i.vatType || 'ไม่มี VAT',
+          vatAmount: Math.round(lineVat * 100) / 100,
+          lineTotal: Math.round((lineSub + lineVat) * 100) / 100,
+        };
+      });
+
+      await dualWrite({
+        label: 'receives-create',
+        primary: () => appendSheet(token, sheetId, 'รับสินค้า', [
+          receiveNo, recordDT.full, supplier, JSON.stringify(itemsForRow),
+          grandTotal, notes, supplierId, roundedSubtotal, roundedVat, photoUrl,
+        ]),
+        secondary: () => insertRow('pos_receives', {
+          shop_id: shopId, receive_no: receiveNo, transaction_at: recordDT.full,
+          supplier, items: itemsForRow, total_cost: grandTotal, notes,
+          supplier_id: supplierId, subtotal: roundedSubtotal, vat_total: roundedVat,
+          photo_url: photoUrl, branch_name: branch || branchName,
+        }),
+      });
 
       await writeReceiveToMainSheets(token, mainSheetId, {
-        total: grandTotal, supplier, notes, shopName, branchName: branch || branchName, transactionDate,
+        shopId, total: grandTotal, supplier, notes, shopName, branchName: branch || branchName, transactionDate,
       });
 
       // Market Price Index + Procurement Fraud Detection (v1 retail-only, fail-safe เสมอ)
