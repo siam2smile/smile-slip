@@ -2041,11 +2041,28 @@ app.post('/webhook', async (req, res) => {
               if (posConfigR?.pos_sheet_id) {
                 await ensurePendingReceiveSheet(accessTokenR, posConfigR.pos_sheet_id);
                 const nowR = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+                const pendingReceiveNo = makePendingReceiveNo();
                 await appendPendingReceive(accessTokenR, posConfigR.pos_sheet_id, [
-                  makePendingReceiveNo(), nowR, receiveData.supplier || '-', receiveData.invoice_no || '-',
+                  pendingReceiveNo, nowR, receiveData.supplier || '-', receiveData.invoice_no || '-',
                   receiveData.invoice_date || '-', JSON.stringify(receiveData.items), imageUrl || '',
                   awaitingReceive.branchName || branchName || '', 'รอตรวจสอบ',
                 ]);
+                // dual-write ระยะ migration ไป Supabase (ตาราง pos_pending_receives) — Sheets ยัง
+                // เป็นตัวจริง ทำเป็น secondary แบบ fire-and-forget ไม่กระทบ flow หลักถ้า error —
+                // .insert() คืน { error } แทนที่จะ throw ตอน DB error ต้องเช็คเองแล้ว throw เอง
+                // ในนี้ถึงจะเข้า catch ได้จริง (ไม่งั้น error หลุดเงียบๆ ไม่ log อะไรเลย)
+                try {
+                  const { error: supaInsErr } = await supabase.from('pos_pending_receives').insert({
+                    shop_id: shop.id, pending_no: pendingReceiveNo,
+                    supplier: receiveData.supplier || '-', invoice_no: receiveData.invoice_no || '-',
+                    invoice_date: receiveData.invoice_date || '-', items: receiveData.items,
+                    image_url: imageUrl || '', branch_name: awaitingReceive.branchName || branchName || '',
+                    status: 'รอตรวจสอบ',
+                  });
+                  if (supaInsErr) throw supaInsErr;
+                } catch (supaErr) {
+                  console.error('[pending-receive] Supabase dual-write error:', supaErr.message);
+                }
               }
             }
 
@@ -2095,12 +2112,28 @@ app.post('/webhook', async (req, res) => {
               if (posConfigE?.pos_sheet_id) {
                 await ensurePendingExpenseSheet(accessTokenE, posConfigE.pos_sheet_id);
                 const nowE = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+                const pendingExpenseNo = makePendingExpenseNo();
                 await appendPendingExpense(accessTokenE, posConfigE.pos_sheet_id, [
-                  makePendingExpenseNo(), nowE, expenseData.label || '-', expenseData.vendor || '-',
+                  pendingExpenseNo, nowE, expenseData.label || '-', expenseData.vendor || '-',
                   expenseData.amount || 0, expenseData.vatType || 'ไม่มี VAT',
                   expenseData.invoice_no || '-', expenseData.invoice_date || '-', imageUrlE || '',
                   awaitingExpense.branchName || branchName || '', 'รอตรวจสอบ',
                 ]);
+                // dual-write ระยะ migration ไป Supabase (ตาราง pos_pending_expenses) — เหมือน
+                // รับสินค้ารอยืนยัน: Sheets ยังเป็นตัวจริง, Supabase เป็น secondary fire-and-forget
+                try {
+                  const { error: supaInsErrE } = await supabase.from('pos_pending_expenses').insert({
+                    shop_id: shop.id, pending_no: pendingExpenseNo,
+                    label: expenseData.label || '-', vendor: expenseData.vendor || '-',
+                    amount: expenseData.amount || 0, vat_type: expenseData.vatType || 'ไม่มี VAT',
+                    invoice_no: expenseData.invoice_no || '-', invoice_date: expenseData.invoice_date || '-',
+                    image_url: imageUrlE || '', branch_name: awaitingExpense.branchName || branchName || '',
+                    status: 'รอตรวจสอบ',
+                  });
+                  if (supaInsErrE) throw supaInsErrE;
+                } catch (supaErrE) {
+                  console.error('[pending-expense] Supabase dual-write error:', supaErrE.message);
+                }
               }
             }
 

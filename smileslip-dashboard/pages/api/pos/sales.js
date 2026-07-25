@@ -254,6 +254,23 @@ export default async function handler(req, res) {
       const productsForVat = dataRows.map(r => rowToProduct(r));
       const { subtotal: vatSubtotal, vat: vatAmount } = computeVatBreakdown(items, productsForVat);
 
+      // คำนวณจำนวนที่จะถูกหักจาก "เต็ม" (stock) จริงต่อรายการไว้ล่วงหน้า แล้วฝังเข้า item ก่อนบันทึก
+      // เป็น JSON — เพราะการหักสต็อคด้านล่าง clamp ไว้ที่ 0 (`Math.max(0, stock - qty)`) ถ้าสต็อคมีไม่พอ
+      // "จำนวนที่หักจริง" อาจน้อยกว่า item.qty ต้องจำค่าจริงไว้ ไม่งั้นตอนยกเลิกบิล (DELETE) จะคืนสต็อค
+      // เกินกว่าที่หักไปจริง (over-restore) โดยเฉพาะสินค้าที่สต็อคเหลือ 0 อยู่แล้วตอนขาย
+      for (const item of items) {
+        const pIdx = dataRows.findIndex(r => r[0] === item.sku);
+        if (pIdx === -1) { item.actual_stock_deducted = 0; continue; }
+        const rawType = dataRows[pIdx][10] || 'นับสต็อค';
+        const prodType = rawType === 'ทั่วไป' ? 'นับสต็อค' : rawType;
+        if (prodType === 'ไม่นับสต็อค') {
+          item.actual_stock_deducted = 0;
+        } else {
+          const currentStock = parseFloat(dataRows[pIdx][5]) || 0;
+          item.actual_stock_deducted = Math.min(parseFloat(item.qty) || 0, currentStock);
+        }
+      }
+
       // 1. บันทึกลง POS Sheets tab "ยอดขาย" (19 คอลัมน์ A-S — เพิ่มเลขที่กะท้ายสุด)
       await appendSheet(token, sheetId, 'ยอดขาย', [
         billNo, recordDT.full, JSON.stringify(items),
@@ -305,7 +322,8 @@ export default async function handler(req, res) {
           } else if (prodType === 'หมุนเวียน') {
             const returnedQty = parseInt(item.returned_qty) || 0;
             const netBorrow = item.qty - returnedQty;
-            existing[5]  = Math.max(0, (parseFloat(existing[5]) || 0) - item.qty); // เต็ม (stock) ลด — ออกจากร้านไปกับลูกค้า
+            const stockDelta = item.actual_stock_deducted ?? Math.min(parseFloat(item.qty) || 0, parseFloat(existing[5]) || 0);
+            existing[5]  = Math.max(0, (parseFloat(existing[5]) || 0) - stockDelta); // เต็ม (stock) ลด — ออกจากร้านไปกับลูกค้า
             existing[11] = Math.max(0, (parseFloat(existing[11]) || 0) + netBorrow); // กับลูกค้า สุทธิ
             existing[12] = (parseFloat(existing[12]) || 0) + returnedQty; // เปล่ารอรีฟิล
             existing[9]  = now;
@@ -332,7 +350,8 @@ export default async function handler(req, res) {
               });
             }
           } else {
-            existing[5] = Math.max(0, (parseFloat(existing[5]) || 0) - item.qty); // stock ลด
+            const stockDelta = item.actual_stock_deducted ?? Math.min(parseFloat(item.qty) || 0, parseFloat(existing[5]) || 0);
+            existing[5] = Math.max(0, (parseFloat(existing[5]) || 0) - stockDelta); // stock ลด
             existing[9] = now;
           }
           await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
@@ -405,15 +424,21 @@ export default async function handler(req, res) {
           const rawType = existing[10] || 'นับสต็อค';
           const prodType = rawType === 'ทั่วไป' ? 'นับสต็อค' : rawType;
           if (prodType === 'ไม่นับสต็อค') continue;
+          // คืนเท่าที่ "หักจริง" ตอนขาย ไม่ใช่ item.qty เสมอ — ตอนขายถ้าสต็อคไม่พอ (เช่นเหลือ 0)
+          // การหักจะถูก clamp ที่ 0 (`Math.max(0, stock - qty)`) ทำให้หักจริงน้อยกว่า qty ที่สั่งขาย
+          // ถ้าคืนแบบ + item.qty ตรงๆ จะ over-restore สต็อคเกินกว่าที่เคยหักไปจริง — ใช้ค่าที่บันทึกไว้
+          // ตอนขาย (actual_stock_deducted) แทน ถ้าเป็นบิลเก่าก่อนแก้บั๊กนี้ (ไม่มีฟิลด์นี้) fallback เป็น
+          // item.qty ตามพฤติกรรมเดิม (ไม่มีทางรู้ค่าจริงย้อนหลังได้)
+          const stockRestore = (typeof item.actual_stock_deducted === 'number') ? item.actual_stock_deducted : item.qty;
           if (prodType === 'หมุนเวียน') {
             const returnedQty = parseInt(item.returned_qty) || 0;
             const netBorrow = item.qty - returnedQty;
-            existing[5]  = (parseFloat(existing[5]) || 0) + item.qty; // คืนเต็มกลับ
+            existing[5]  = (parseFloat(existing[5]) || 0) + stockRestore; // คืนเต็มกลับ
             existing[11] = Math.max(0, (parseFloat(existing[11]) || 0) - netBorrow); // กับลูกค้าลดกลับ
             existing[12] = Math.max(0, (parseFloat(existing[12]) || 0) - returnedQty); // เปล่ารอรีฟิลลดกลับ
             netCylinderDeltaForCustomer -= netBorrow;
           } else {
-            existing[5] = (parseFloat(existing[5]) || 0) + item.qty;
+            existing[5] = (parseFloat(existing[5]) || 0) + stockRestore;
           }
           existing[9] = now;
           await updateSheetRow(token, sheetId, 'สินค้า', pIdx + 2, existing);
