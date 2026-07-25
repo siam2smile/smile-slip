@@ -16,6 +16,7 @@ import {
   getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
   makeExpenseNo, rowToExpense, EXPENSE_HEADERS, resolveRecordDateTime,
 } from '../../../lib/google-pos';
+import { dualWrite, insertRow, softDeleteRow, LEDGER_TYPE } from '../../../lib/supabase-pos';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -63,7 +64,7 @@ const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 
 // เขียนรายจ่ายลง Sheets บัญชีหลัก (tab ปี ค.ศ.) ด้วย เพื่อให้แสดงในหน้ากราฟวิเคราะห์/Ledger ของ Dashboard
 // และนับรวมใน #กำไรขาดทุน ของบอท LINE เหมือนกับที่ยอดขาย POS ทำอยู่แล้ว (writeToMainSheets ใน sales.js)
-async function writeExpenseToMainSheets(token, mainSheetId, { total, label, payment_method, notes, shopName, branchName, recordedBy, transactionDate }) {
+async function writeExpenseToMainSheets(token, mainSheetId, { shopId, total, label, payment_method, notes, shopName, branchName, recordedBy, transactionDate }) {
   if (!mainSheetId) return;
   try {
     const now = new Date();
@@ -90,18 +91,37 @@ async function writeExpenseToMainSheets(token, mainSheetId, { total, label, paym
     }
 
     const noteText = ['รายจ่าย POS', notes].filter(Boolean).join(' | ');
+    const paymentMethodFinal = payment_method === 'โอน' ? 'โอน' : 'เงินสด';
 
-    await appendSheet(token, mainSheetId, year, [
-      thaiDate, thaiTime, 'รายจ่าย', total,
-      shopName,               // E ผู้โอน (ฝั่งจ่าย)
-      label,                  // F ผู้รับ (รายการ/หมวดหมู่ ใช้แทนชื่อผู้รับเงินจริงเพราะไม่ได้เก็บ)
-      noteText,               // G หมายเหตุ
-      '', todayISO, branchName || shopName,
-      '', '', '', '', '',     // K-O เลขอ้างอิง/ภาษี — ไม่เกี่ยวกับรายจ่ายทั่วไปนี้
-      label,                  // P หมวดหมู่
-      payment_method === 'โอน' ? 'โอน' : 'เงินสด', // Q วิธีรับ-จ่าย
-      recordedBy || '',       // R ผู้บันทึก
-    ]);
+    // transaction_at ของ ledger_transactions ต้องเป็น timestamp จริง (ไม่ใช่สตริงไทย) — ประกอบจาก
+    // transactionDate (ถ้า backdate) + เวลาปัจจุบัน กัน parity เพี้ยนแบบเดียวกับที่ Sheets เคยเจอ
+    const txDate = transactionDate ? new Date(`${transactionDate}T00:00:00+07:00`) : now;
+    const transactionAt = new Date(
+      txDate.getFullYear(), txDate.getMonth(), txDate.getDate(),
+      now.getHours(), now.getMinutes(), now.getSeconds()
+    );
+
+    await dualWrite({
+      label: 'expenses-mainledger',
+      primary: () => appendSheet(token, mainSheetId, year, [
+        thaiDate, thaiTime, 'รายจ่าย', total,
+        shopName,               // E ผู้โอน (ฝั่งจ่าย)
+        label,                  // F ผู้รับ (รายการ/หมวดหมู่ ใช้แทนชื่อผู้รับเงินจริงเพราะไม่ได้เก็บ)
+        noteText,               // G หมายเหตุ
+        '', todayISO, branchName || shopName,
+        '', '', '', '', '',     // K-O เลขอ้างอิง/ภาษี — ไม่เกี่ยวกับรายจ่ายทั่วไปนี้
+        label,                  // P หมวดหมู่
+        paymentMethodFinal,     // Q วิธีรับ-จ่าย
+        recordedBy || '',       // R ผู้บันทึก
+      ]),
+      secondary: () => insertRow('ledger_transactions', {
+        shop_id: shopId, type: LEDGER_TYPE.EXPENSE, amount: total, category: label,
+        note: noteText, sender_name: shopName, receiver_name: label,
+        branch_name: branchName || shopName, payment_method: paymentMethodFinal,
+        recorder_name: recordedBy || '', transaction_at: transactionAt.toISOString(),
+        raw_data: { source: 'pos-expenses', label, payment_method: paymentMethodFinal, notes },
+      }),
+    });
   } catch (err) {
     console.error('[pos/expenses] writeExpenseToMainSheets error:', err.message);
   }
@@ -157,16 +177,24 @@ export default async function handler(req, res) {
       const recordDT = resolveRecordDateTime(transactionDate); // วันที่ของรายจ่าย — backdate ได้ถ้าระบุ transactionDate
       const expenseNo = makeExpenseNo();
 
-      await appendSheet(token, sheetId, 'รายจ่าย', [
-        expenseNo, asText(recordDT.full), label.trim(), numAmount,
-        vatType, subtotal, vatAmount, payment_method,
-        photo_url, notes, recordedBy, branch, shift_no,
-      ]);
+      await dualWrite({
+        label: 'expenses-create',
+        primary: () => appendSheet(token, sheetId, 'รายจ่าย', [
+          expenseNo, asText(recordDT.full), label.trim(), numAmount,
+          vatType, subtotal, vatAmount, payment_method,
+          photo_url, notes, recordedBy, branch, shift_no,
+        ]),
+        secondary: () => insertRow('pos_expenses', {
+          shop_id: shopId, expense_no: expenseNo, transaction_at: recordDT.full,
+          label: label.trim(), total: numAmount, vat_type: vatType, subtotal, vat_amount: vatAmount,
+          payment_method, photo_url, notes, recorded_by: recordedBy, branch_name: branch, shift_no,
+        }),
+      });
 
       // branch (สาขาที่เลือกไว้ในหน้า POS) ต้องมาก่อน branchName (ค่า default ของร้าน) เสมอ —
       // ไม่งั้นรายจ่ายทุกสาขาจะถูกนับรวมเป็นสาขาเดียวกันหมดในบัญชีหลัก/กราฟวิเคราะห์
       await writeExpenseToMainSheets(token, mainSheetId, {
-        total: numAmount, label: label.trim(), payment_method, notes, shopName,
+        shopId, total: numAmount, label: label.trim(), payment_method, notes, shopName,
         branchName: branch || branchName, recordedBy, transactionDate,
       });
 
@@ -183,7 +211,11 @@ export default async function handler(req, res) {
       const idx = dataRows.findIndex(r => r[0] === expense_no);
       if (idx === -1) return res.status(404).json({ error: 'ไม่พบรายการนี้' });
 
-      await updateSheetRow(token, sheetId, 'รายจ่าย', idx + 2, Array(12).fill(''));
+      await dualWrite({
+        label: 'expenses-delete',
+        primary: () => updateSheetRow(token, sheetId, 'รายจ่าย', idx + 2, Array(12).fill('')),
+        secondary: () => softDeleteRow('pos_expenses', { shop_id: shopId, expense_no }),
+      });
       return res.json({ ok: true });
     }
 

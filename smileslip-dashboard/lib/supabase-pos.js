@@ -95,4 +95,10 @@ export async function dualWrite({ primary, secondary, label }) {
   return result;
 }
 
+// ledger_transactions.type มี CHECK constraint รับแค่ 'income'/'expense' (อังกฤษ) เท่านั้น —
+// พิสูจน์จริงด้วยการยิงทดสอบ (ตอน migrate expenses.js) พบว่า 'รายจ่าย'/'รายรับ' ตรงๆ (ตามที่ Sheets
+// column C ใช้) ถูก constraint ปฏิเสธ — ทุกจุดที่ dual-write เข้าตารางนี้ (expenses.js, receives.js,
+// sales.js ฯลฯ) ต้องแปลงเป็น 'income'/'expense' ก่อนเสมอ ห้ามใช้ค่าภาษาไทยตรงๆ
+export const LEDGER_TYPE = { INCOME: 'income', EXPENSE: 'expense' };
+
 export { supabase };
