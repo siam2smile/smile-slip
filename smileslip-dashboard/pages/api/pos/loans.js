@@ -37,11 +37,14 @@ async function getConfig(shopId) {
   };
 }
 
+// รองรับทั้ง "D/M/BE, H:MM:SS" (มี comma) และ "D/M/BE H:MM:SS" (คั่นด้วยวรรค ไม่มี comma —
+// รูปแบบจริงที่ toLocaleString('th-TH') คืนมา) — เดิม split(',') อย่างเดียวทำให้ parse เพี้ยนเป็น
+// Invalid Date เงียบๆ เมื่อไม่มี comma (ตัวกรอง dateFrom/dateTo จึงไม่มีผลอะไรเลยมาตลอด)
 function parseThaiBEDate(str) {
-  // "D/M/YYYY, HH:MM:SS" ที่ YYYY เป็น พ.ศ.
   try {
-    const [datePart] = str.split(',');
+    const datePart = str.split(/[, ]/)[0];
     const [d, m, by] = datePart.trim().split('/').map(Number);
+    if (!d || !m || !by) return null;
     const year = by > 2400 ? by - 543 : by; // แปลง พ.ศ. → ค.ศ.
     return new Date(year, m - 1, d);
   } catch { return null; }

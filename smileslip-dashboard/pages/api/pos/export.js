@@ -57,11 +57,16 @@ async function getConfig(shopId) {
   };
 }
 
+// รองรับทั้ง "D/M/BE, H:MM:SS" (มี comma) และ "D/M/BE H:MM:SS" (คั่นด้วยวรรค ไม่มี comma — รูปแบบจริง
+// ที่ toLocaleString('th-TH')/resolveRecordDateTime().full ใช้อยู่ทั่วโปรเจกต์) — เดิม split(',')
+// อย่างเดียวทำให้ parse เพี้ยนเป็น Invalid Date เงียบๆ เมื่อไม่มี comma (ตัวกรอง dateFrom/dateTo
+// จึงไม่มีผลอะไรเลยมาตลอด เพราะเทียบกับ Invalid Date เสมอเป็น false)
 function parseThaiBEDate(str) {
   if (!str) return null;
   try {
-    const [datePart] = str.split(',');
+    const datePart = str.split(/[, ]/)[0];
     const [d, m, by] = datePart.trim().split('/').map(Number);
+    if (!d || !m || !by) return null;
     const year = by > 2400 ? by - 543 : by;
     return new Date(year, m - 1, d);
   } catch { return null; }
