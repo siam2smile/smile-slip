@@ -16,6 +16,7 @@ import {
   ensureTabExists, makeBillNo, rowToSale, SALE_HEADERS, rowToProduct, CONTACT_HEADERS,
   computeVatBreakdown, logCyclicalTransaction, resolveRecordDateTime,
 } from '../../../lib/google-pos';
+import { dualWrite, insertRow, updateRow, softDeleteRow, LEDGER_TYPE } from '../../../lib/supabase-pos';
 
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 
@@ -43,7 +44,7 @@ async function getConfig(shopId) {
 }
 
 // เขียนรายการขายลง Sheets บัญชีหลัก (tab ปี ค.ศ.) เพื่อให้แสดงใน Dashboard Ledger
-async function writeToMainSheets(token, mainSheetId, { billNo, items, total, payMethod, customerName, notes, shopName, branchName, slipUrl, slipSender, slipRefNo, transactionDate }) {
+async function writeToMainSheets(token, mainSheetId, { shopId, billNo, items, total, payMethod, customerName, notes, shopName, branchName, slipUrl, slipSender, slipRefNo, transactionDate }) {
   if (!mainSheetId) return;
   try {
     const now = new Date();
@@ -86,23 +87,39 @@ async function writeToMainSheets(token, mainSheetId, { billNo, items, total, pay
     // ถ้ามีสลิปที่อ่านด้วย OCR ให้ใช้ชื่อผู้โอนจริงจากสลิป
     const senderName = slipSender || customerName || 'cash sale / ขายเงินสด';
 
-    await appendSheet(token, mainSheetId, year, [
-      thaiDate,               // A วันที่สลิป
-      thaiTime,               // B เวลา
-      'รายรับ',               // C ประเภท
-      total,                  // D จำนวนเงิน
-      senderName,             // E ผู้โอน
-      shopName,               // F ผู้รับ
-      noteText,               // G หมายเหตุ
-      slipUrl || '',          // H ลิงก์สลิป (Drive URL ถ้ามี)
-      todayISO,               // I วันที่บันทึก
-      branchName || shopName, // J ชื่อสาขา
-      slipRefNo || billNo,    // K เลขอ้างอิง (ref_no จากสลิป ถ้ามี หรือ billNo)
-      '', '', '', '',         // L-O ภาษี
-      'ขายหน้าร้าน',         // P หมวดหมู่
-      payMethodLabel,         // Q วิธีรับ-จ่าย
-      '',                     // R ผู้บันทึก
-    ]);
+    const txDate = transactionDate ? new Date(`${transactionDate}T00:00:00+07:00`) : now;
+    const transactionAt = new Date(
+      txDate.getFullYear(), txDate.getMonth(), txDate.getDate(),
+      now.getHours(), now.getMinutes(), now.getSeconds()
+    );
+
+    await dualWrite({
+      label: 'sales-mainledger',
+      primary: () => appendSheet(token, mainSheetId, year, [
+        thaiDate,               // A วันที่สลิป
+        thaiTime,               // B เวลา
+        'รายรับ',               // C ประเภท
+        total,                  // D จำนวนเงิน
+        senderName,             // E ผู้โอน
+        shopName,               // F ผู้รับ
+        noteText,               // G หมายเหตุ
+        slipUrl || '',          // H ลิงก์สลิป (Drive URL ถ้ามี)
+        todayISO,               // I วันที่บันทึก
+        branchName || shopName, // J ชื่อสาขา
+        slipRefNo || billNo,    // K เลขอ้างอิง (ref_no จากสลิป ถ้ามี หรือ billNo)
+        '', '', '', '',         // L-O ภาษี
+        'ขายหน้าร้าน',         // P หมวดหมู่
+        payMethodLabel,         // Q วิธีรับ-จ่าย
+        '',                     // R ผู้บันทึก
+      ]),
+      secondary: () => insertRow('ledger_transactions', {
+        shop_id: shopId, type: LEDGER_TYPE.INCOME, amount: total, category: 'ขายหน้าร้าน',
+        note: noteText, sender_name: senderName, receiver_name: shopName,
+        branch_name: branchName || shopName, payment_method: payMethodLabel,
+        slip_url: slipUrl || null, transaction_at: transactionAt.toISOString(),
+        raw_data: { source: 'pos-sales', bill_no: billNo, ref_no: slipRefNo || billNo },
+      }),
+    });
   } catch (err) {
     // ไม่หยุดระบบถ้าเขียน main Sheets ไม่ได้
     console.error('[pos/sales] writeToMainSheets error:', err.message);
@@ -173,12 +190,19 @@ export default async function handler(req, res) {
       existing[11] = 'ชำระแล้ว';
       existing[14] = now; // paid_at
       if (patchNotes) existing[10] = [existing[10], patchNotes].filter(Boolean).join(' | ');
-      await updateSheetRow(token, sheetId, 'ยอดขาย', idx + 2, existing);
+      const mergedNotes = existing[10];
+      await dualWrite({
+        label: 'sales-settle-credit',
+        primary: () => updateSheetRow(token, sheetId, 'ยอดขาย', idx + 2, existing),
+        secondary: () => updateRow('pos_sales', { shop_id: shopId, bill_no }, {
+          status: 'ชำระแล้ว', paid_at: now, notes: mergedNotes,
+        }),
+      });
 
       // เขียนลง Main Sheets หลังชำระ
       const sale = rowToSale(existing);
       await writeToMainSheets(token, mainSheetId, {
-        billNo: sale.bill_no, items: sale.items, total: sale.total,
+        shopId, billNo: sale.bill_no, items: sale.items, total: sale.total,
         payMethod: 'เชื่อ/ชำระแล้ว',
         customerName: sale.customer_name, notes: sale.notes,
         shopName, branchName, slipUrl: '', slipSender: '', slipRefNo: '',
@@ -272,21 +296,31 @@ export default async function handler(req, res) {
       }
 
       // 1. บันทึกลง POS Sheets tab "ยอดขาย" (19 คอลัมน์ A-S — เพิ่มเลขที่กะท้ายสุด)
-      await appendSheet(token, sheetId, 'ยอดขาย', [
-        billNo, recordDT.full, JSON.stringify(items),
-        subtotal, discount, total,
-        payment_method, cash_received, change,
-        cashier, fullNotes, billStatus,
-        customerId, customerName, '', branch,
-        vatSubtotal, vatAmount, shift_no,
-      ]);
+      await dualWrite({
+        label: 'sales-create',
+        primary: () => appendSheet(token, sheetId, 'ยอดขาย', [
+          billNo, recordDT.full, JSON.stringify(items),
+          subtotal, discount, total,
+          payment_method, cash_received, change,
+          cashier, fullNotes, billStatus,
+          customerId, customerName, '', branch,
+          vatSubtotal, vatAmount, shift_no,
+        ]),
+        secondary: () => insertRow('pos_sales', {
+          shop_id: shopId, bill_no: billNo, transaction_at: recordDT.full, items,
+          subtotal, discount, total, payment_method, cash_received, change_amount: change,
+          cashier, notes: fullNotes, status: billStatus, customer_id: customerId,
+          customer_name: customerName, paid_at: null, branch_name: branch,
+          vat_subtotal: vatSubtotal, vat_amount: vatAmount, shift_no,
+        }),
+      });
 
       // 2. บันทึกลง Main shop Sheets เฉพาะเมื่อชำระแล้ว (ไม่บันทึกถ้าค้างชำระ/รอยืนยัน)
       // branch (สาขาที่เลือกไว้ในหน้า POS) ต้องมาก่อน branchName (ค่า default ของร้าน) เสมอ
       // ไม่งั้นยอดขายทุกสาขาจะถูกนับรวมเป็นสาขาเดียวกันหมดในบัญชีหลัก/กราฟวิเคราะห์
       if (!isTransferPending && !isCredit) {
         await writeToMainSheets(token, mainSheetId, {
-          billNo, items, total, payMethod: payment_method,
+          shopId, billNo, items, total, payMethod: payment_method,
           customerName, notes, shopName, branchName: branch || branchName,
           slipUrl, slipSender, slipRefNo, transactionDate,
         });
@@ -473,7 +507,11 @@ export default async function handler(req, res) {
       }
 
       // ลบแถวบิลทิ้ง (blank ทั้งแถว แบบเดียวกับ products/contacts)
-      await updateSheetRow(token, sheetId, 'ยอดขาย', idx + 2, Array(18).fill(''));
+      await dualWrite({
+        label: 'sales-delete',
+        primary: () => updateSheetRow(token, sheetId, 'ยอดขาย', idx + 2, Array(18).fill('')),
+        secondary: () => softDeleteRow('pos_sales', { shop_id: shopId, bill_no }),
+      });
 
       return res.json({ ok: true });
     }
