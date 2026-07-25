@@ -718,24 +718,30 @@ async function checkDuplicateInSheets(accessToken, sheetId, fingerprint, year) {
   }
 }
 
-// 2.8 อ่านข้อมูลจาก Google Sheets แล้ว filter ตามวันที่และสาขา
+// Tier D read-cutover (2026-07-25) — แปลง "เที่ยงคืนตามเวลาไทย" ของวัน year-month-day ให้เป็น
+// UTC ISO timestamp (Date.UTC จัดการ overflow ของ hour ติดลบ/เดือน-วันเกินขอบเขตให้อัตโนมัติ
+// เช่น hour=-7 จะถอยไปวันก่อนหน้าให้เอง, month=13 จะเลื่อนไปปีถัดไปให้เอง) ใช้สร้างขอบเขตช่วงเวลา
+// สำหรับ query ledger_transactions.created_at แทนการอ่าน Sheets เต็มช่วงแล้ว filter ใน JS แบบเดิม
+function bangkokMidnightUTC(year, month, day) {
+  return new Date(Date.UTC(year, month - 1, day, -7, 0, 0)).toISOString();
+}
+
+// 2.8 อ่านสรุปยอดจาก Supabase (ledger_transactions) ระหว่าง [startISO, endISO) กรองตามสาขาถ้าระบุ
+// ใช้ created_at กรอง (เวลาที่บันทึกจริงในระบบ — เทียบเท่า "วันที่บันทึก (recorded_at)" คอลัมน์ I เดิม
+// ของ Sheets เพราะบอทเขียนแบบ real-time เสมอไม่มี backdate ในฝั่งนี้)
 // branchFilter = null → รวมทุกสาขา, string → เฉพาะสาขานั้น
-async function readSheetSummary(accessToken, spreadsheetId, filterFn, branchFilter = null, sheetYear = null) {
-  const range = sheetYear ? encodeURIComponent(sheetYear + '!A:J') : 'A:J';
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`;
-  const res = await axios.get(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-  const rows = (res.data.values || []).slice(1); // ข้าม header
+async function readSheetSummary(shopId, startISO, endISO, branchFilter = null) {
+  let query = supabase.from('ledger_transactions').select('type, amount')
+    .eq('shop_id', shopId).gte('created_at', startISO).lt('created_at', endISO);
+  if (branchFilter) query = query.eq('branch_name', branchFilter);
+  const { data, error } = await query;
+  if (error) throw error;
 
   let totalIncome = 0, totalExpense = 0, countIncome = 0, countExpense = 0;
-  for (const row of rows) {
-    const recordedAt = row[8] || '';   // คอลัมน์ I
-    const rowBranch  = row[9] || '';   // คอลัมน์ J
-    if (!filterFn(recordedAt)) continue;
-    if (branchFilter && rowBranch !== branchFilter) continue;
-    const type = row[2] || '';
-    const amount = parseFloat(row[3]) || 0;
-    if (type === 'รายรับ') { totalIncome += amount; countIncome++; }
-    if (type === 'รายจ่าย') { totalExpense += amount; countExpense++; }
+  for (const row of (data || [])) {
+    const amount = parseFloat(row.amount) || 0;
+    if (row.type === 'income') { totalIncome += amount; countIncome++; }
+    else if (row.type === 'expense') { totalExpense += amount; countExpense++; }
   }
   return { totalIncome, totalExpense, countIncome, countExpense, net: totalIncome - totalExpense };
 }
@@ -787,25 +793,21 @@ function createSummaryFlexMessage(title, summary, period) {
   };
 }
 
-// 2.8b อ่าน Sheets แล้วแตก per-branch breakdown
-async function readAllBranchesSummary(accessToken, spreadsheetId, filterFn, sheetYear = null) {
-  const range = sheetYear ? encodeURIComponent(sheetYear + '!A:J') : 'A:J';
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`;
-  const res = await axios.get(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-  const rows = (res.data.values || []).slice(1);
+// 2.8b อ่านสรุปยอดจาก Supabase (ledger_transactions) แล้วแตก per-branch breakdown — [startISO, endISO)
+async function readAllBranchesSummary(shopId, startISO, endISO) {
+  const { data, error } = await supabase.from('ledger_transactions').select('type, amount, branch_name')
+    .eq('shop_id', shopId).gte('created_at', startISO).lt('created_at', endISO);
+  if (error) throw error;
 
   const branchMap = {}; // { branchName: { totalIncome, totalExpense, countIn, countOut } }
   let grandIncome = 0, grandExpense = 0, grandCountIn = 0, grandCountOut = 0;
 
-  for (const row of rows) {
-    const recordedAt = row[8] || '';
-    if (!filterFn(recordedAt)) continue;
-    const branch = (row[9] || 'สาขาหลัก').trim() || 'สาขาหลัก';
-    const type = row[2] || '';
-    const amount = parseFloat(row[3]) || 0;
+  for (const row of (data || [])) {
+    const branch = (row.branch_name || 'สาขาหลัก').trim() || 'สาขาหลัก';
+    const amount = parseFloat(row.amount) || 0;
     if (!branchMap[branch]) branchMap[branch] = { totalIncome: 0, totalExpense: 0, countIn: 0, countOut: 0 };
-    if (type === 'รายรับ') { branchMap[branch].totalIncome += amount; branchMap[branch].countIn++; grandIncome += amount; grandCountIn++; }
-    if (type === 'รายจ่าย') { branchMap[branch].totalExpense += amount; branchMap[branch].countOut++; grandExpense += amount; grandCountOut++; }
+    if (row.type === 'income') { branchMap[branch].totalIncome += amount; branchMap[branch].countIn++; grandIncome += amount; grandCountIn++; }
+    else if (row.type === 'expense') { branchMap[branch].totalExpense += amount; branchMap[branch].countOut++; grandExpense += amount; grandCountOut++; }
   }
   return { branches: branchMap, grand: { totalIncome: grandIncome, totalExpense: grandExpense, countIn: grandCountIn, countOut: grandCountOut } };
 }
@@ -1955,68 +1957,65 @@ app.post('/webhook', async (req, res) => {
           continue;
         }
 
-        const accessToken = await getAccessToken(gConfig.google_refresh_token);
+        // Tier D read-cutover — อ่านสรุปยอดจาก Supabase (ledger_transactions) แทน Sheets แล้ว
+        // ไม่ต้องขอ accessToken/getOrCreateYearSheet อีกต่อไปสำหรับคำสั่งสรุปกลุ่มนี้ (เช็ค
+        // gConfig ด้านบนไว้เหมือนเดิมแค่เพื่อยืนยันว่าร้านเชื่อม Google แล้วจริง — ร้านที่ไม่เคย
+        // เชื่อมจะไม่มีข้อมูลใน ledger_transactions เลยอยู่แล้วเพราะบอทเขียนคู่กับ Sheets เสมอ)
         const { isoDate, year, month } = getThaiDateTime();
-
-        // กัน 400 error เมื่อร้านยังไม่มี tab ปีนี้เลย (เช่น ร้านใหม่ยังไม่เคยมีรายการปีนี้)
-        // — สร้าง/เช็ค tab ให้พร้อมก่อนอ่านสรุปเสมอ เหมือนตอนบันทึกสลิป
-        await getOrCreateYearSheet(accessToken, cmdSheetId, year);
 
         let summaryMsg;
 
         if (text.startsWith('#สรุปวันนี้') || text.startsWith('#สรุปวัน')) {
-          const summary = await readSheetSummary(accessToken, cmdSheetId,
-            (d) => d === isoDate, null, year);
+          const [y, m, d] = isoDate.split('-').map(Number);
+          const summary = await readSheetSummary(shop.id, bangkokMidnightUTC(y, m, d), bangkokMidnightUTC(y, m, d + 1));
           summaryMsg = createSummaryFlexMessage('สรุปยอดวันนี้', summary, isoDate);
 
         } else if (text.startsWith('#สรุปเดือนนี้') || text.startsWith('#สรุปเดือน')) {
-          const prefix = `${year}-${month}`;
-          const summary = await readSheetSummary(accessToken, cmdSheetId,
-            (d) => d.startsWith(prefix), null, year);
+          const y = parseInt(year), m = parseInt(month);
+          const summary = await readSheetSummary(shop.id, bangkokMidnightUTC(y, m, 1), bangkokMidnightUTC(y, m + 1, 1));
           summaryMsg = createSummaryFlexMessage('สรุปยอดเดือนนี้', summary, `${month}/${year}`);
 
         } else if (text.startsWith('#กำไรขาดทุน') || text.startsWith('#กำไร')) {
-          const prefix = `${year}-${month}`;
-          const summary = await readSheetSummary(accessToken, cmdSheetId,
-            (d) => d.startsWith(prefix), null, year);
+          const y = parseInt(year), m = parseInt(month);
+          const summary = await readSheetSummary(shop.id, bangkokMidnightUTC(y, m, 1), bangkokMidnightUTC(y, m + 1, 1));
           summaryMsg = createSummaryFlexMessage('กำไร / ขาดทุน เดือนนี้', summary, `${month}/${year}`);
 
         } else if (text.startsWith('#สรุปอาทิตย์นี้') || text.startsWith('#สรุปสัปดาห์')) {
           const now = new Date(new Date().getTime() + 7 * 60 * 60 * 1000);
           const dow = now.getDay() === 0 ? 6 : now.getDay() - 1; // จันทร์=0
           const toISO = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-          const weekStart = toISO(new Date(now.getTime() - dow * 86400000));
-          const weekEnd = toISO(new Date(now.getTime() + (6 - dow) * 86400000));
-          const summary = await readSheetSummary(accessToken, cmdSheetId,
-            (d) => d >= weekStart && d <= weekEnd, null, year);
+          const weekStartDate = new Date(now.getTime() - dow * 86400000);
+          const weekEndDate = new Date(now.getTime() + (6 - dow) * 86400000);
+          const weekStart = toISO(weekStartDate);
+          const weekEnd = toISO(weekEndDate);
+          const startISO = bangkokMidnightUTC(weekStartDate.getFullYear(), weekStartDate.getMonth() + 1, weekStartDate.getDate());
+          const endISO = bangkokMidnightUTC(weekEndDate.getFullYear(), weekEndDate.getMonth() + 1, weekEndDate.getDate() + 1); // +1 เพราะ weekEnd เดิม inclusive
+          const summary = await readSheetSummary(shop.id, startISO, endISO);
           summaryMsg = createSummaryFlexMessage('สรุปยอดอาทิตย์นี้', summary, `${weekStart} ถึง ${weekEnd}`);
 
         } else if (text.startsWith('#สรุปปีนี้') || text.startsWith('#สรุปปี')) {
-          const summary = await readSheetSummary(accessToken, cmdSheetId,
-            () => true, null, year);
+          const y = parseInt(year);
+          const summary = await readSheetSummary(shop.id, bangkokMidnightUTC(y, 1, 1), bangkokMidnightUTC(y + 1, 1, 1));
           summaryMsg = createSummaryFlexMessage(`สรุปยอดปี ${year}`, summary, year);
 
         } else if (text.startsWith('#สรุปวันที่') || text.startsWith('#ดูวันที่')) {
           const dateArg = text.replace(/^#สรุปวันที่|^#ดูวันที่/, '').trim();
           const parts = dateArg.split('/');
           if (parts.length >= 2) {
-            const dd = parts[0].trim().padStart(2, '0');
-            const mm = parts[1].trim().padStart(2, '0');
+            const dd = parseInt(parts[0].trim());
+            const mm = parseInt(parts[1].trim());
             let yyyy = parts[2] ? parseInt(parts[2].trim()) : parseInt(year);
             if (yyyy > 2500) yyyy -= 543;
-            const targetDate = `${yyyy}-${mm}-${dd}`;
-            if (String(yyyy) !== year) await getOrCreateYearSheet(accessToken, cmdSheetId, String(yyyy));
-            const summary = await readSheetSummary(accessToken, cmdSheetId,
-              (d) => d === targetDate, null, String(yyyy));
-            summaryMsg = createSummaryFlexMessage(`สรุปยอด ${dd}/${mm}/${yyyy}`, summary, targetDate);
+            const targetDate = `${yyyy}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+            const summary = await readSheetSummary(shop.id, bangkokMidnightUTC(yyyy, mm, dd), bangkokMidnightUTC(yyyy, mm, dd + 1));
+            summaryMsg = createSummaryFlexMessage(`สรุปยอด ${String(dd).padStart(2,'0')}/${String(mm).padStart(2,'0')}/${yyyy}`, summary, targetDate);
           } else {
             summaryMsg = { type: 'text', text: '⚠️ รูปแบบวันที่ไม่ถูกต้อง\nใช้: #สรุปวันที่ 07/06 หรือ 07/06/2026' };
           }
 
         } else if (text.startsWith('#รายงาน')) {
-          const prefix = `${year}-${month}`;
-          const summary = await readSheetSummary(accessToken, cmdSheetId,
-            (d) => d.startsWith(prefix), null, year);
+          const y = parseInt(year), m = parseInt(month);
+          const summary = await readSheetSummary(shop.id, bangkokMidnightUTC(y, m, 1), bangkokMidnightUTC(y, m + 1, 1));
           summaryMsg = createSummaryFlexMessage(`รายงานผล ${month}/${year}`, summary, `${month}/${year}`);
 
         } else if (text.startsWith('#สรุปทุกสาขา')) {
@@ -2024,9 +2023,8 @@ app.post('/webhook', async (req, res) => {
             await replyToLine(replyToken, [{ type: "text", text: `🔒 ฟีเจอร์นี้สำหรับแพ็กเกจ Advance ขึ้นไปค่ะ` }]);
             continue;
           }
-          const prefix = `${year}-${month}`;
-          const allBranchData = await readAllBranchesSummary(accessToken, cmdSheetId,
-            (d) => d.startsWith(prefix), year);
+          const y = parseInt(year), m = parseInt(month);
+          const allBranchData = await readAllBranchesSummary(shop.id, bangkokMidnightUTC(y, m, 1), bangkokMidnightUTC(y, m + 1, 1));
           summaryMsg = createBranchBreakdownFlexMessage('สรุปทุกสาขา เดือนนี้', allBranchData, `${month}/${year}`);
         }
 
@@ -2476,22 +2474,12 @@ app.post('/cron/daily-summary', async (req, res) => {
     if (!shop.owner_line_id) { skipped++; continue; }
 
     try {
-      // แลก access token
-      const tokenRes = await axios.post('https://oauth2.googleapis.com/token', {
-        refresh_token: cfg.google_refresh_token,
-        client_id: process.env.GOOGLE_CLIENT_ID,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET,
-        grant_type: 'refresh_token',
-      });
-      const accessToken = tokenRes.data.access_token;
-
-      // อ่านสรุปเฉพาะวันนี้
+      // อ่านสรุปเฉพาะวันนี้ (Tier D: อ่านจาก Supabase แทน Sheets แล้ว ไม่ต้องแลก access token อีก)
+      const [cy, cm, cd] = isoToday.split('-').map(Number);
       const summary = await readSheetSummary(
-        accessToken,
-        cfg.google_sheet_id,
-        (recordedAt) => recordedAt === isoToday,
-        null,
-        year
+        shop.id,
+        bangkokMidnightUTC(cy, cm, cd),
+        bangkokMidnightUTC(cy, cm, cd + 1)
       );
 
       // ส่งเฉพาะถ้ามีรายการ
@@ -2580,18 +2568,12 @@ app.post('/cron/weekly-summary', async (req, res) => {
     if (!shop.owner_line_id) { skipped++; continue; }
 
     try {
-      const tokenRes = await axios.post('https://oauth2.googleapis.com/token', {
-        refresh_token: cfg.google_refresh_token,
-        client_id: process.env.GOOGLE_CLIENT_ID,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET,
-        grant_type: 'refresh_token',
-      });
-      const accessToken = tokenRes.data.access_token;
-
-      // อ่านสรุปสัปดาห์นี้ และสัปดาห์ที่แล้ว
+      // อ่านสรุปสัปดาห์นี้ และสัปดาห์ที่แล้ว (Tier D: อ่านจาก Supabase แทน Sheets แล้ว ไม่ต้องแลก
+      // access token อีก — ใช้ thisMonday/lastMonday/lastSunday แบบ UTC ดิบตามของเดิมเป๊ะ ไม่ผ่าน
+      // bangkokMidnightUTC() เพราะ Date object เหล่านี้ไม่ได้แทนวันปฏิทินกรุงเทพ)
       const [thisWeek, lastWeek] = await Promise.all([
-        readSheetSummary(accessToken, cfg.google_sheet_id, (d) => thisWeekDates.has(d), null, year),
-        readSheetSummary(accessToken, cfg.google_sheet_id, (d) => lastWeekDates.has(d), null, year),
+        readSheetSummary(shop.id, thisMonday.toISOString(), new Date(thisMonday.getTime() + 7 * 86400000).toISOString()),
+        readSheetSummary(shop.id, lastMonday.toISOString(), thisMonday.toISOString()),
       ]);
 
       if (thisWeek.countIncome === 0 && thisWeek.countExpense === 0) { skipped++; continue; }
@@ -2715,38 +2697,21 @@ app.post('/cron/trial-day25-nudge', async (req, res) => {
     return res.json({ sent: 0, skipped: 0, failed: 0 });
   }
 
-  const shopIds = dueShops.map(s => s.id);
-  const { data: configs } = await supabase
-    .from('shop_google_configs')
-    .select('shop_id, google_refresh_token, google_sheet_id')
-    .in('shop_id', shopIds);
-  const configMap = {};
-  for (const c of (configs || [])) configMap[c.shop_id] = c;
-
+  // Tier D: ไม่ต้อง query shop_google_configs อีกแล้ว (อ่านสรุปใช้งานจาก Supabase ตรงๆ ไม่ผ่าน Sheets)
   let sent = 0, skipped = 0, failed = 0;
 
   for (const shop of dueShops) {
     if (!shop.owner_line_id) { skipped++; continue; }
-    const cfg = configMap[shop.id];
     const daysLeft = Math.max(0, Math.ceil((new Date(shop.trial_ends_at).getTime() - nowMs) / (24 * 60 * 60 * 1000)));
 
     try {
-      // สรุปการใช้งานช่วงทดลอง (best-effort — ถ้ายังไม่เชื่อม Google/อ่านชีตไม่ได้ ก็ยังส่งข้อความเตือนได้อยู่)
+      // สรุปการใช้งานช่วงทดลอง (best-effort — Tier D: อ่านจาก Supabase แทน Sheets แล้ว ไม่ต้องเช็ค
+      // Google connection/แลก access token อีก — ถ้าอ่านไม่ได้ ก็ยังส่งข้อความเตือนได้อยู่ตามปกติ)
       let usageText = null;
-      if (cfg?.google_refresh_token && cfg?.google_sheet_id && shop.trial_started_at) {
+      if (shop.trial_started_at) {
         try {
-          const tokenRes = await axios.post('https://oauth2.googleapis.com/token', {
-            refresh_token: cfg.google_refresh_token,
-            client_id: process.env.GOOGLE_CLIENT_ID,
-            client_secret: process.env.GOOGLE_CLIENT_SECRET,
-            grant_type: 'refresh_token',
-          });
-          const accessToken = tokenRes.data.access_token;
-          const startIso = new Date(shop.trial_started_at).toISOString().split('T')[0];
-          const summary = await readSheetSummary(
-            accessToken, cfg.google_sheet_id,
-            (recordedAt) => recordedAt >= startIso, null, year
-          );
+          const startIso = new Date(shop.trial_started_at).toISOString();
+          const summary = await readSheetSummary(shop.id, startIso, new Date().toISOString());
           const totalTx = summary.countIncome + summary.countExpense;
           if (totalTx > 0) {
             usageText = `\n\n📊 สรุปการใช้งานช่วงทดลอง:\n• บันทึกรายการแล้ว ${totalTx} รายการ\n• รายรับรวม ฿${summary.totalIncome.toLocaleString('th-TH')}\n• รายจ่ายรวม ฿${summary.totalExpense.toLocaleString('th-TH')}`;
