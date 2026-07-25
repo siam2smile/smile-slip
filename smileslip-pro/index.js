@@ -621,9 +621,32 @@ ${cats.join(' | ')}
   }
 }
 
+// Tier D migration — แปลงวันที่-เวลาของสลิป/รายการ (สตริงไทย อาจเป็น พ.ศ., รูปแบบไม่แน่นอนเพราะ
+// OCR อ่านมา) เป็น timestamp จริงสำหรับ ledger_transactions.transaction_at — เป็นแค่ฟิลด์รอง
+// (secondary/best-effort, ยังไม่มีใครอ่านจากตารางนี้จริงจนกว่าจะทำ read-cutover) เลยไม่พยายาม parse
+// ให้สมบูรณ์แบบ ผิดพลาดตรงไหน fallback เป็นเวลาปัจจุบันเสมอ ไม่ throw ออกไปกระทบการบันทึกจริง
+function parseTransactionAt(dateStr, timeStr) {
+  try {
+    const parts = (dateStr || '').split('/');
+    if (parts.length === 3) {
+      let [d, m, y] = parts.map(p => parseInt(p.trim(), 10));
+      if (y > 2500) y -= 543; // แปลง พ.ศ. → ค.ศ.
+      if (y < 100) y += 2000;
+      const currentYear = new Date(new Date().getTime() + (7 * 60 * 60 * 1000)).getFullYear();
+      if (y < currentYear - 1 || y > currentYear + 1) y = currentYear; // OCR อ่านปีผิด — ใช้ปีปัจจุบันแทน
+      const [hh, mm, ss] = (timeStr || '00:00:00').split(':').map(p => parseInt(p, 10) || 0);
+      if (d && m && y) {
+        const dt = new Date(Date.UTC(y, m - 1, d, (hh || 0) - 7, mm || 0, ss || 0)); // -7 ชม. แปลง Bangkok → UTC
+        if (!isNaN(dt.getTime())) return dt.toISOString();
+      }
+    }
+  } catch { /* ignore — fallback ด้านล่าง */ }
+  return new Date().toISOString();
+}
+
 // 2.7 บันทึกข้อมูลลง Google Sheets (tab แยกตามปี)
 // คอลัมน์: A=วันที่สลิป B=เวลา C=ประเภท D=ยอด E=ผู้โอน F=ผู้รับ G=หมายเหตุ H=ลิงก์รูป I=recorded_at J=สาขา K=เลขอ้างอิง/Hash L=เลขภาษี M=ชื่อผู้เสียภาษี N=ยอดภาษี O=ที่อยู่ผู้เสียภาษี P=หมวดหมู่ Q=วิธีรับ-จ่าย R=ผู้บันทึก
-async function appendToGoogleSheet(accessToken, spreadsheetId, slipData, imageUrl, branchName = '-', sheetYear = null, fingerprint = '-', category = '-', method = '-', recorder = '-') {
+async function appendToGoogleSheet(accessToken, spreadsheetId, slipData, imageUrl, branchName = '-', sheetYear = null, fingerprint = '-', category = '-', method = '-', recorder = '-', shopId = null) {
   console.log(`[LOG] 📊 กำลังบันทึกข้อมูลลง Google Sheet${sheetYear ? ' tab ' + sheetYear : ''}...`);
   const range = sheetYear ? encodeURIComponent(sheetYear + '!A1') : 'A1';
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}:append?valueInputOption=USER_ENTERED`;
@@ -647,6 +670,37 @@ async function appendToGoogleSheet(accessToken, spreadsheetId, slipData, imageUr
   ]];
   await axios.post(url, { values }, { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } });
   console.log(`[LOG] ✅ บันทึกลง Google Sheet สำเร็จ (สาขา: ${branchName})`);
+
+  // Tier D migration — เขียนคู่เข้า ledger_transactions (Supabase) แบบ fire-and-forget เสมอ
+  // (Sheets ยังเป็น primary/บังคับสำเร็จเหมือนเดิมทุกประการ อันนี้แค่เก็บสำเนาไว้เผื่ออนาคต)
+  if (shopId) {
+    try {
+      const isNoImage = !imageUrl || imageUrl === 'ไม่มีรูปภาพ' || imageUrl === 'ไม่มีรูปภาพ (คีย์เอง)';
+      const { error: ledgerErr } = await supabase.from('ledger_transactions').insert({
+        shop_id: shopId,
+        type: slipData.type === 'income' ? 'income' : 'expense',
+        amount: slipData.amount,
+        category: category === '-' ? null : category,
+        note: slipData.note || '-',
+        slip_url: isNoImage ? null : imageUrl,
+        slip_hash: fingerprint === '-' ? null : fingerprint,
+        sender_name: slipData.sender || '-',
+        receiver_name: slipData.receiver || '-',
+        branch_name: branchName,
+        tax_id: (slipData.tax_id && slipData.tax_id !== '-') ? slipData.tax_id : null,
+        taxpayer_name: (slipData.taxpayer_name && slipData.taxpayer_name !== '-') ? slipData.taxpayer_name : null,
+        tax_amount: (slipData.tax_amount && slipData.tax_amount !== '-') ? slipData.tax_amount : null,
+        tax_address: (slipData.tax_address && slipData.tax_address !== '-') ? slipData.tax_address : null,
+        payment_method: method === '-' ? null : method,
+        recorder_name: recorder === '-' ? null : recorder,
+        transaction_at: parseTransactionAt(slipData.date, slipData.time),
+        raw_data: { source: 'bot-ledger', fingerprint },
+      });
+      if (ledgerErr) throw ledgerErr;
+    } catch (e) {
+      console.error('[LOG] ledger_transactions dual-write error (ข้าม):', e.message);
+    }
+  }
 }
 
 // 2.7b ตรวจสอบสลิปซ้ำใน Google Sheets column K (long-term, ข้ามการ restart)
@@ -1551,13 +1605,13 @@ app.post('/webhook', async (req, res) => {
             const manualRecorder = await getDisplayName(event.source);
             try {
               await getOrCreateYearSheet(mAccessToken, mSheetId, thaiNow.year);
-              await appendToGoogleSheet(mAccessToken, mSheetId, manualSlipData, 'ไม่มีรูปภาพ (คีย์เอง)', cmdBranchName, thaiNow.year, manualFingerprint, manualCategory, manualEntry.method, manualRecorder || '-');
+              await appendToGoogleSheet(mAccessToken, mSheetId, manualSlipData, 'ไม่มีรูปภาพ (คีย์เอง)', cmdBranchName, thaiNow.year, manualFingerprint, manualCategory, manualEntry.method, manualRecorder || '-', shop.id);
             } catch (sheetErr) {
               if (sheetErr.response?.status === 404) {
                 const healed = await recreateShopGoogleAssets(mAccessToken, shop);
                 mSheetId = healed.sheetId;
                 await getOrCreateYearSheet(mAccessToken, mSheetId, thaiNow.year);
-                await appendToGoogleSheet(mAccessToken, mSheetId, manualSlipData, 'ไม่มีรูปภาพ (คีย์เอง)', cmdBranchName, thaiNow.year, manualFingerprint, manualCategory, manualEntry.method, manualRecorder || '-');
+                await appendToGoogleSheet(mAccessToken, mSheetId, manualSlipData, 'ไม่มีรูปภาพ (คีย์เอง)', cmdBranchName, thaiNow.year, manualFingerprint, manualCategory, manualEntry.method, manualRecorder || '-', shop.id);
               } else {
                 throw sheetErr;
               }
@@ -2262,7 +2316,7 @@ app.post('/webhook', async (req, res) => {
                 // ตรวจจับหมวดหมู่ (Business+ เท่านั้น)
                 const category = hasFeature(shop, 'business') ? await detectCategory(slipData, shop.id) : '-';
                 // สลิปรูปภาพ = หลักฐานการโอนเงินเสมอ
-                await appendToGoogleSheet(accessToken, sId, slipData, fileUrl, branchName, folderYear, fingerprint, category, 'โอน', recorderName || '-');
+                await appendToGoogleSheet(accessToken, sId, slipData, fileUrl, branchName, folderYear, fingerprint, category, 'โอน', recorderName || '-', shop.id);
                 return fileUrl;
               };
 
