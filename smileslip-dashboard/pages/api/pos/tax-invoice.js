@@ -123,8 +123,8 @@ export default async function handler(req, res) {
         label: 'tax-invoice-create',
         primary: () => appendSheet(token, sheetId, 'ใบกำกับภาษี', [
           invoice_no, asText(now), ref_bill_no, customer_id,
-          buyer_name, buyer_tax_id, buyer_address, buyer_branch,
-          JSON.stringify(items), subtotal, vat, total, issued_by, buyer_phone,
+          buyer_name, asText(buyer_tax_id), buyer_address, buyer_branch,
+          JSON.stringify(items), subtotal, vat, total, issued_by, asText(buyer_phone),
           seller_name, seller_address,
         ]),
         secondary: () => insertRow('pos_tax_invoices', {
