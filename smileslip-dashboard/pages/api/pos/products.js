@@ -16,6 +16,7 @@ import {
   getAccessToken, readSheet, appendSheet, appendRows, updateSheetRow,
   makeSKU, rowToProduct,
 } from '../../../lib/google-pos';
+import { dualWrite, insertRow, insertRows, updateRow, softDeleteRow } from '../../../lib/supabase-pos';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -87,19 +88,34 @@ export default async function handler(req, res) {
     // ได้ถ้าต้องการ เพราะสินค้าหมุนเวียนมีผลข้างเคียงเรื่องแลกเปลี่ยน/ยืมที่ละเอียดอ่อนกว่า)
     if (req.method === 'POST' && Array.isArray(req.body.products)) {
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-      const rows = req.body.products
-        .filter(p => p?.name)
-        .map(p => [
-          makeSKU(), p.name, p.category || '',
-          Math.max(0, parseFloat(p.price) || 0), Math.max(0, parseFloat(p.cost) || 0),
-          Math.max(0, parseFloat(p.stock) || 0), p.unit || 'ชิ้น', p.aliases || '', p.notes || '', asText(now),
-          'นับสต็อค', 0, 0,
-          p.product_code || '', p.barcode || '', p.description || '',
-          p.vat_type || 'ไม่มี VAT', '1', 0, '',
-        ]);
+      const validProducts = req.body.products.filter(p => p?.name);
+      const skus = validProducts.map(() => makeSKU());
+      const rows = validProducts.map((p, i) => [
+        skus[i], p.name, p.category || '',
+        Math.max(0, parseFloat(p.price) || 0), Math.max(0, parseFloat(p.cost) || 0),
+        Math.max(0, parseFloat(p.stock) || 0), p.unit || 'ชิ้น', p.aliases || '', p.notes || '', asText(now),
+        'นับสต็อค', 0, 0,
+        p.product_code || '', p.barcode || '', p.description || '',
+        p.vat_type || 'ไม่มี VAT', '1', 0, '',
+      ]);
+      const supaRows = validProducts.map((p, i) => ({
+        shop_id: shopId, sku: skus[i], name: p.name, category: p.category || '',
+        price: Math.max(0, parseFloat(p.price) || 0), cost: Math.max(0, parseFloat(p.cost) || 0),
+        stock: Math.max(0, parseFloat(p.stock) || 0), unit: p.unit || 'ชิ้น', aliases: p.aliases || '',
+        notes: p.notes || '', product_updated_at: now, type: 'นับสต็อค', at_customer: 0, empty_waiting: 0,
+        product_code: p.product_code || '', barcode: p.barcode || '', description: p.description || '',
+        vat_type: p.vat_type || 'ไม่มี VAT', is_active: true, empty_ceiling: 0, branches: '',
+      }));
+
       const CHUNK = 500;
       for (let i = 0; i < rows.length; i += CHUNK) {
-        await appendRows(token, sheetId, 'สินค้า', rows.slice(i, i + CHUNK));
+        const sheetChunk = rows.slice(i, i + CHUNK);
+        const supaChunk = supaRows.slice(i, i + CHUNK);
+        await dualWrite({
+          label: 'products-bulk-import',
+          primary: () => appendRows(token, sheetId, 'สินค้า', sheetChunk),
+          secondary: () => insertRows('pos_products', supaChunk),
+        });
       }
       return res.json({ ok: true, imported: rows.length });
     }
@@ -124,12 +140,22 @@ export default async function handler(req, res) {
 
       const sku = makeSKU();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-      await appendSheet(token, sheetId, 'สินค้า', [
-        sku, name, category, price, cost, stock, unit, aliases, notes, asText(now),
-        type, 0, 0,
-        product_code, barcode, description, vat_type, is_active ? '1' : '0', empty_ceiling || 0,
-        Array.isArray(branches) ? branches.join(',') : '',
-      ]);
+      const branchesStr = Array.isArray(branches) ? branches.join(',') : '';
+      await dualWrite({
+        label: 'products-create',
+        primary: () => appendSheet(token, sheetId, 'สินค้า', [
+          sku, name, category, price, cost, stock, unit, aliases, notes, asText(now),
+          type, 0, 0,
+          product_code, barcode, description, vat_type, is_active ? '1' : '0', empty_ceiling || 0,
+          branchesStr,
+        ]),
+        secondary: () => insertRow('pos_products', {
+          shop_id: shopId, sku, name, category, price, cost, stock, unit, aliases, notes,
+          product_updated_at: now, type, at_customer: 0, empty_waiting: 0,
+          product_code, barcode, description, vat_type, is_active: !!is_active,
+          empty_ceiling: empty_ceiling || 0, branches: branchesStr,
+        }),
+      });
       return res.json({ ok: true, sku, name });
     }
 
@@ -170,19 +196,35 @@ export default async function handler(req, res) {
 
       // action: รับถังเปล่าคืนจากลูกค้า
       if (action === 'receive-back') {
-        existing[11] = Math.max(0, (parseFloat(existing[11]) || 0) - qty);
-        existing[12] = (parseFloat(existing[12]) || 0) + qty;
+        const newAtCustomer = Math.max(0, (parseFloat(existing[11]) || 0) - qty);
+        const newEmptyWaiting = (parseFloat(existing[12]) || 0) + qty;
+        existing[11] = newAtCustomer;
+        existing[12] = newEmptyWaiting;
         existing[9]  = asText(now);
-        await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
+        await dualWrite({
+          label: 'products-receive-back',
+          primary: () => updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing),
+          secondary: () => updateRow('pos_products', { shop_id: shopId, sku }, {
+            at_customer: newAtCustomer, empty_waiting: newEmptyWaiting, product_updated_at: now,
+          }),
+        });
         return res.json({ ok: true });
       }
 
       // action: รีฟิลเสร็จ พร้อมขาย
       if (action === 'refill') {
-        existing[12] = Math.max(0, (parseFloat(existing[12]) || 0) - qty);
-        existing[5]  = (parseFloat(existing[5]) || 0) + qty;
+        const newEmptyWaiting = Math.max(0, (parseFloat(existing[12]) || 0) - qty);
+        const newStock = (parseFloat(existing[5]) || 0) + qty;
+        existing[12] = newEmptyWaiting;
+        existing[5]  = newStock;
         existing[9]  = asText(now);
-        await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
+        await dualWrite({
+          label: 'products-refill',
+          primary: () => updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing),
+          secondary: () => updateRow('pos_products', { shop_id: shopId, sku }, {
+            empty_waiting: newEmptyWaiting, stock: newStock, product_updated_at: now,
+          }),
+        });
         return res.json({ ok: true });
       }
 
@@ -208,7 +250,34 @@ export default async function handler(req, res) {
       if (updates.branches      !== undefined) existing[19] = Array.isArray(updates.branches) ? updates.branches.join(',') : '';
       existing[9] = asText(now);
 
-      await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
+      // payload ฝั่ง Supabase สร้างจาก `updates`/`stockDelta` ดิบโดยตรง (ไม่ผ่าน existing[] ที่มี
+      // asText() ฝังอยู่ในคอลัมน์วันที่) เหมือน pattern ที่ใช้ใน contacts.js
+      const supaUpdates = { product_updated_at: now };
+      if (updates.name          !== undefined) supaUpdates.name = updates.name;
+      if (updates.category      !== undefined) supaUpdates.category = updates.category;
+      if (updates.price         !== undefined) supaUpdates.price = updates.price;
+      if (updates.cost          !== undefined) supaUpdates.cost = updates.cost;
+      if (updates.stock         !== undefined) supaUpdates.stock = updates.stock;
+      if (stockDelta            !== undefined) supaUpdates.stock = parseFloat(existing[5]) || 0;
+      if (updates.unit          !== undefined) supaUpdates.unit = updates.unit;
+      if (updates.aliases       !== undefined) supaUpdates.aliases = updates.aliases;
+      if (updates.notes         !== undefined) supaUpdates.notes = updates.notes;
+      if (updates.type          !== undefined) supaUpdates.type = updates.type;
+      if (updates.at_customer   !== undefined) supaUpdates.at_customer = updates.at_customer;
+      if (updates.empty_waiting !== undefined) supaUpdates.empty_waiting = updates.empty_waiting;
+      if (updates.product_code  !== undefined) supaUpdates.product_code = updates.product_code;
+      if (updates.barcode       !== undefined) supaUpdates.barcode = updates.barcode;
+      if (updates.description   !== undefined) supaUpdates.description = updates.description;
+      if (updates.vat_type      !== undefined) supaUpdates.vat_type = updates.vat_type;
+      if (updates.is_active     !== undefined) supaUpdates.is_active = !!updates.is_active;
+      if (updates.empty_ceiling !== undefined) supaUpdates.empty_ceiling = updates.empty_ceiling;
+      if (updates.branches      !== undefined) supaUpdates.branches = Array.isArray(updates.branches) ? updates.branches.join(',') : '';
+
+      await dualWrite({
+        label: 'products-update',
+        primary: () => updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing),
+        secondary: () => updateRow('pos_products', { shop_id: shopId, sku }, supaUpdates),
+      });
       return res.json({ ok: true, sku, stock: parseFloat(existing[5]) || 0 });
     }
 
@@ -222,7 +291,11 @@ export default async function handler(req, res) {
       const idx = dataRows.findIndex(r => r[0] === sku);
       if (idx === -1) return res.status(404).json({ error: `ไม่พบสินค้า ${sku}` });
 
-      await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, Array(20).fill(''));
+      await dualWrite({
+        label: 'products-delete',
+        primary: () => updateSheetRow(token, sheetId, 'สินค้า', idx + 2, Array(20).fill('')),
+        secondary: () => softDeleteRow('pos_products', { shop_id: shopId, sku }),
+      });
       return res.json({ ok: true, sku });
     }
 
