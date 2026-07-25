@@ -25,6 +25,7 @@ import {
   makeCollectionNo, rowToCollection, rowToContact, rowToProduct,
   COLLECTION_HEADERS, CONTACT_HEADERS, CYCLICAL_LOG_HEADERS, rowToCyclicalLog, logCyclicalTransaction,
 } from '../../../lib/google-pos';
+import { dualWrite, insertRow, updateRow, softDeleteRow } from '../../../lib/supabase-pos';
 
 // คำนวณจำนวนสินค้าหมุนเวียนที่ลูกค้าคนนี้ถืออยู่จริง แยกตาม SKU (ไม่ใช่แค่ยอดรวมเดียว) จากประวัติ
 // "บันทึกแลกเปลี่ยน" — ยืม = +qty (ถืออยู่เพิ่ม), คืน = -qty (คืนแล้ว), แลกเปลี่ยน = สุทธิ 0 (คืนเก่า+ยืมใหม่พร้อมกัน)
@@ -203,12 +204,20 @@ export default async function handler(req, res) {
       const collection_no = makeCollectionNo();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
 
-      await appendSheet(token, sheetId, 'งานเก็บเงิน', [
-        collection_no, now, customer_id, customer_name, asText(phone),
-        task_type, debt_amount, JSON.stringify(items),
-        staff_id, staff_name, 'รอดำเนินการ', notes,
-        '', '', '', '', '', '', '', '', created_by,
-      ]);
+      await dualWrite({
+        label: 'collections-create',
+        primary: () => appendSheet(token, sheetId, 'งานเก็บเงิน', [
+          collection_no, now, customer_id, customer_name, asText(phone),
+          task_type, debt_amount, JSON.stringify(items),
+          staff_id, staff_name, 'รอดำเนินการ', notes,
+          '', '', '', '', '', '', '', '', created_by,
+        ]),
+        secondary: () => insertRow('pos_collections', {
+          shop_id: shopId, collection_no, transaction_at: now, customer_id, customer_name,
+          phone, task_type, debt_amount, items, staff_id, staff_name, status: 'รอดำเนินการ',
+          notes, created_by,
+        }),
+      });
 
       if (staff_line_id) {
         const flexMsg = buildCollectionFlex({ collection_no, customer_name, phone, task_type, debt_amount, items, notes }, shopId);
@@ -308,7 +317,16 @@ export default async function handler(req, res) {
       if (cash_received !== undefined) existing[18] = cash_received ? 'TRUE' : 'FALSE';
       if (goods_received !== undefined) existing[19] = goods_received ? 'TRUE' : 'FALSE';
 
-      await updateSheetRow(token, sheetId, 'งานเก็บเงิน', idx + 2, existing);
+      await dualWrite({
+        label: 'collections-update',
+        primary: () => updateSheetRow(token, sheetId, 'งานเก็บเงิน', idx + 2, existing),
+        secondary: () => updateRow('pos_collections', { shop_id: shopId, collection_no }, {
+          status: existing[10], notes: existing[11], collected_amount: parseFloat(existing[12]) || 0,
+          collected_items: JSON.parse(existing[13] || '[]'), slip_url: existing[14],
+          confirmed_at: existing[15], confirmed_by: existing[16], staff_note: existing[17],
+          cash_received: existing[18] === 'TRUE', goods_received: existing[19] === 'TRUE',
+        }),
+      });
       return res.json({ ok: true, collection_no });
     }
 
@@ -321,7 +339,11 @@ export default async function handler(req, res) {
       const idx = rows.slice(1).findIndex(r => r[0] === collection_no);
       if (idx === -1) return res.status(404).json({ error: 'ไม่พบงาน' });
 
-      await updateSheetRow(token, sheetId, 'งานเก็บเงิน', idx + 2, new Array(21).fill(''));
+      await dualWrite({
+        label: 'collections-delete',
+        primary: () => updateSheetRow(token, sheetId, 'งานเก็บเงิน', idx + 2, new Array(21).fill('')),
+        secondary: () => softDeleteRow('pos_collections', { shop_id: shopId, collection_no }),
+      });
       return res.json({ ok: true });
     }
 
