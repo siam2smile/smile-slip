@@ -1,16 +1,16 @@
 /**
  * GET /api/pos/export?shopId&dateFrom&dateTo&branch&types=sales,inventory,credit,loans,topsellers,pl,expenses,vat
  * → ดาวน์โหลด Excel (.xlsx) หลาย sheet ในไฟล์เดียว
+ *
+ * Phase 2 Tier 142 (write-primary flip, 2026-07-29): แค็ตตาล็อกสินค้า/ผู้ติดต่อ (inventory,
+ * ต้นทุน/หมวดหมู่ใน topsellers/pl, vat30 ผู้จำหน่าย/ผู้ติดต่อ, cyclical_inventory) ตัดมาอ่าน
+ * Supabase (pos_products/pos_contacts) แล้ว แทน Sheets — ดูเหตุผลเต็มในหัวไฟล์ reports.js
  */
 import fs from 'fs';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import * as XLSX from 'xlsx';
-import {
-  getAccessToken, readSheet, ensureTabExists,
-  rowToProduct, rowToContact,
-  CONTACT_HEADERS,
-} from '../../../lib/google-pos';
+import { productFromRow, contactFromRow } from '../../../lib/google-pos';
 import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import { sanitizeFilenamePart } from '../../../lib/branding';
 import { requirePermission } from '../../../lib/pos-auth';
@@ -41,19 +41,12 @@ const supabase = createClient(
 );
 
 async function getConfig(shopId) {
-  const [{ data: pc }, { data: gc }, { data: sp }] = await Promise.all([
-    supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
-    supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single(),
-    supabase.from('shop_profiles').select('shop_name, branch_name, subscription_tier').eq('id', shopId).single(),
-  ]);
-  if (!pc?.pos_sheet_id) throw new Error('ยังไม่ได้ตั้งค่า POS');
-  if (!gc?.google_refresh_token) throw new Error('ยังไม่ได้เชื่อมต่อ Google');
+  const { data: sp } = await supabase.from('shop_profiles')
+    .select('shop_name, branch_name, subscription_tier').eq('id', shopId).single();
   return {
-    sheetId: pc.pos_sheet_id,
     shopName: sp?.shop_name || '',
     branchName: sp?.branch_name || '',
     tier: sp?.subscription_tier || 'normal',
-    token: await getAccessToken(gc.google_refresh_token),
   };
 }
 
@@ -169,6 +162,18 @@ async function fetchTaxInvoices(supabase, shopId) {
   if (error) throw error;
   return (data || []).map(taxInvoiceFromRow).filter(v => v.invoice_no);
 }
+async function fetchProducts(supabase, shopId) {
+  const { data, error } = await supabase.from('pos_products').select('*')
+    .eq('shop_id', shopId).is('deleted_at', null);
+  if (error) throw error;
+  return (data || []).map(productFromRow).filter(p => p.sku);
+}
+async function fetchContacts(supabase, shopId) {
+  const { data, error } = await supabase.from('pos_contacts').select('*')
+    .eq('shop_id', shopId).is('deleted_at', null);
+  if (error) throw error;
+  return (data || []).map(contactFromRow).filter(c => c.contact_id);
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
@@ -176,7 +181,7 @@ export default async function handler(req, res) {
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
 
   try {
-    const { sheetId, token, shopName, branchName, tier } = await getConfig(shopId);
+    const { shopName, branchName, tier } = await getConfig(shopId);
     const from = dateFrom ? new Date(dateFrom) : null;
     const to   = dateTo   ? new Date(dateTo + 'T23:59:59') : null;
     const typeList = types.split(',').map(t => t.trim());
@@ -231,8 +236,7 @@ export default async function handler(req, res) {
 
     // ── สินค้าคงเหลือ ────────────────────────────────────────────────────
     if (typeList.includes('inventory')) {
-      const prodRows = await readSheet(token, sheetId, 'สินค้า!A:R');
-      const products = prodRows.slice(1).map(r => rowToProduct(r)).filter(p => p.sku);
+      const products = await fetchProducts(supabase, shopId);
 
       const headers = ['รหัสสินค้า', 'ชื่อสินค้า', 'หมวดหมู่', 'สต็อคคงเหลือ', 'หน่วย', 'ราคาทุน (฿)', 'ราคาขาย (฿)', 'มูลค่าสต็อค (฿)', 'สถานะ'];
       const data = [
@@ -297,14 +301,14 @@ export default async function handler(req, res) {
       XLSX.utils.book_append_sheet(wb, ws, 'ยืมสินค้า');
     }
 
-    // ── สินค้าขายดี (ต้นทุนต่อ SKU ยังอ่านจากแค็ตตาล็อกสินค้าเต็มรูปแบบใน Sheets — ดูเหตุผลที่หัวไฟล์) ──
+    // ── สินค้าขายดี ──────────────────────────────────────────────────────
     if (typeList.includes('topsellers')) {
-      const [allSalesForTop, prodRows] = await Promise.all([
+      const [allSalesForTop, products] = await Promise.all([
         fetchSales(supabase, shopId),
-        readSheet(token, sheetId, 'สินค้า!A:R'),
+        fetchProducts(supabase, shopId),
       ]);
       const costMap = {};
-      prodRows.slice(1).forEach(r => { if (r[0]) costMap[r[0]] = parseFloat(r[4]) || 0; });
+      products.forEach(p => { costMap[p.sku] = p.cost; });
 
       let sales = allSalesForTop.filter(s => s.bill_no && s.status !== 'ยกเลิก');
       if (branch) sales = sales.filter(s => s.branch === branch);
@@ -331,14 +335,14 @@ export default async function handler(req, res) {
       XLSX.utils.book_append_sheet(wb, ws, 'สินค้าขายดี');
     }
 
-    // ── กำไรขาดทุน (ต้นทุน/หมวดหมู่ยังอ่านจากแค็ตตาล็อกสินค้าเต็มรูปแบบใน Sheets — ดูเหตุผลที่หัวไฟล์) ──
+    // ── กำไรขาดทุน ────────────────────────────────────────────────────────
     if (typeList.includes('pl')) {
-      const [allSalesForPl, prodRows] = await Promise.all([
+      const [allSalesForPl, products] = await Promise.all([
         fetchSales(supabase, shopId),
-        readSheet(token, sheetId, 'สินค้า!A:R'),
+        fetchProducts(supabase, shopId),
       ]);
       const costMap = {}, catMap = {};
-      prodRows.slice(1).forEach(r => { if (r[0]) { costMap[r[0]] = parseFloat(r[4]) || 0; catMap[r[0]] = r[2] || 'ไม่ระบุ'; } });
+      products.forEach(p => { costMap[p.sku] = p.cost; catMap[p.sku] = p.category || 'ไม่ระบุ'; });
 
       let sales = allSalesForPl.filter(s => s.bill_no && s.status !== 'ยกเลิก' && s.status !== 'ค้างชำระ');
       if (branch) sales = sales.filter(s => s.branch === branch);
@@ -445,15 +449,14 @@ export default async function handler(req, res) {
     // ภาษีซื้อ: จากรับสินค้า (มีรหัสผู้จำหน่าย → คืนเลขภาษีจากผู้ติดต่อได้) + รายจ่าย (ไม่มีเลขภาษีคู่ค้าเก็บไว้
     // ในระบบตอนนี้ — โชว์ "-" แทนตามจริง ไม่ใช่บั๊ก เป็น known gap ที่ EXPENSE_HEADERS ไม่มีช่องนี้)
     if (typeList.includes('vat30')) {
-      await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
-      const [contactRows, allInvoices, allReceivesForVat30, allExpensesForVat30] = await Promise.all([
-        readSheet(token, sheetId, 'ผู้ติดต่อ!A:W'),
+      const [contacts, allInvoices, allReceivesForVat30, allExpensesForVat30] = await Promise.all([
+        fetchContacts(supabase, shopId),
         fetchTaxInvoices(supabase, shopId),
         fetchReceives(supabase, shopId),
         fetchExpenses(supabase, shopId),
       ]);
       const contactTaxId = {};
-      contactRows.slice(1).forEach(r => { if (r[0]) contactTaxId[r[0]] = r[10] || ''; });
+      contacts.forEach(c => { contactTaxId[c.contact_id] = c.tax_id || ''; });
 
       let invoices = allInvoices.filter(v => inRange(v.issued_at, from, to));
       let receives = allReceivesForVat30.filter(r => r.receive_no);
@@ -524,12 +527,12 @@ export default async function handler(req, res) {
 
     // ── แม่แบบ 3: คลังสินค้าหมุนเวียนคงเหลือ + มูลค่าสินทรัพย์ — Business+ ───────
     if (typeList.includes('cyclical_inventory')) {
-      const [prodRows3, contactRows3] = await Promise.all([
-        readSheet(token, sheetId, 'สินค้า!A:S'),
-        readSheet(token, sheetId, 'ผู้ติดต่อ!A:W'),
+      const [allProducts3, contacts3All] = await Promise.all([
+        fetchProducts(supabase, shopId),
+        fetchContacts(supabase, shopId),
       ]);
-      const cyclicalProducts = prodRows3.slice(1).map(rowToProduct).filter(p => p.sku && p.type === 'หมุนเวียน');
-      const contacts3 = contactRows3.slice(1).map(rowToContact).filter(c => c.contact_id && c.cylinders > 0);
+      const cyclicalProducts = allProducts3.filter(p => p.type === 'หมุนเวียน');
+      const contacts3 = contacts3All.filter(c => c.cylinders > 0);
 
       const prodHeaders = ['รหัสสินค้า', 'ชื่อสินค้า', 'หน่วย', 'เต็มพร้อมขาย', 'อยู่กับลูกค้า', 'เปล่ารอรีฟิล', 'รวมจำนวน', 'ราคาทุน/หน่วย (฿)', 'มูลค่าสินทรัพย์รวม (฿)'];
       let totalAssetValue = 0;

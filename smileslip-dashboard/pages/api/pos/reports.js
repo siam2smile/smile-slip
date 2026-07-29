@@ -14,39 +14,25 @@
  *
  * Tier E (2026-07-25): รายการที่เป็น transaction log ล้วนๆ (ขาย/ยืม/รับสินค้า/รายจ่าย/ออเดอร์จัดส่ง)
  * อ่านจาก Supabase (pos_sales/pos_loans/pos_receives/pos_expenses/pos_delivery_orders) แทน Sheets แล้ว
- * — **ยกเว้น** แค็ตตาล็อกสินค้าเต็มรูปแบบ (inventory, ต้นทุน/หมวดหมู่ใน topsellers/pl, รายชื่อสินค้า
- * หมุนเวียนใน cyclical) และรายชื่อผู้ติดต่อเต็มรูปแบบ (cyclical.customers) **ยังคงอ่านจาก Sheets ต่อไป
- * โดยเจตนา** เพราะ `pos_products`/`pos_contacts` เป็นตาราง "current state" ที่ไม่เคย backfill ข้อมูลเก่า
- * เลย (ตามธรรมเนียม migration นี้) ร้านจริงที่มีสินค้า/ผู้ติดต่อสะสมมานาน (เช่น D Gas 40 สินค้า/2,000+
- * ผู้ติดต่อ) จะเห็นแค็ตตาล็อกที่หายไปเกือบหมดทันทีถ้าตัดมาอ่าน Supabase ตอนนี้ — ต่างจากรายงาน log
- * (ยอดขาย/รายจ่าย ฯลฯ) ที่แค่เห็นประวัติสั้นลงเป็นที่ยอมรับได้ (ผู้ใช้อนุมัติแล้วสำหรับ Tier D/E)
+ *
+ * Phase 2 Tier 142 (write-primary flip, 2026-07-29): แค็ตตาล็อกสินค้า/ผู้ติดต่อ (inventory, ต้นทุน/
+ * หมวดหมู่ใน topsellers/pl, รายชื่อสินค้าหมุนเวียน+ผู้ถือใน cyclical) ตัดมาอ่าน Supabase
+ * (pos_products/pos_contacts) ด้วยแล้ว — เดิม Tier E จงใจคงอ่าน Sheets ไว้เพราะกลัวแค็ตตาล็อกเก่า
+ * (ไม่เคย backfill) หายไปกะทันหัน แต่ตอนนี้ products.js/contacts.js (Tier 138) ตัด Sheets ออกไปแล้ว
+ * เช่นกัน ทำให้ Sheets ไม่ใช่ source of truth ของสองตารางนี้อีกต่อไป (ข้อมูลจะค้าง/นิ่งตายตัวถ้ายังอ่านต่อ)
  */
 import { createClient } from '@supabase/supabase-js';
 import { requirePermission } from '../../../lib/pos-auth';
-import {
-  getAccessToken, readSheet, ensureTabExists,
-  rowToProduct, rowToContact, CONTACT_HEADERS,
-} from '../../../lib/google-pos';
+import { productFromRow, contactFromRow } from '../../../lib/google-pos';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
-async function getConfig(shopId) {
-  const [{ data: pc }, { data: gc }, { data: sp }] = await Promise.all([
-    supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
-    supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single(),
-    supabase.from('shop_profiles').select('shop_name, branch_name').eq('id', shopId).single(),
-  ]);
-  if (!pc?.pos_sheet_id) throw Object.assign(new Error('ยังไม่ได้ตั้งค่า POS'), { notSetup: true });
-  if (!gc?.google_refresh_token) throw Object.assign(new Error('ยังไม่ได้เชื่อมต่อ Google'), { notConnected: true });
-  return {
-    sheetId: pc.pos_sheet_id,
-    shopName: sp?.shop_name || '',
-    branchName: sp?.branch_name || '',
-    token: await getAccessToken(gc.google_refresh_token),
-  };
+async function getBranchName(shopId) {
+  const { data: sp } = await supabase.from('shop_profiles').select('branch_name').eq('id', shopId).maybeSingle();
+  return sp?.branch_name || '';
 }
 
 // รองรับทั้ง "D/M/BE, H:MM:SS" (มี comma) และ "D/M/BE H:MM:SS" (คั่นด้วยวรรค ไม่มี comma —
@@ -162,6 +148,18 @@ async function fetchReceives(shopId) {
   if (error) throw error;
   return (data || []).map(receiveFromRow).filter(r => r.receive_no);
 }
+async function fetchProducts(shopId) {
+  const { data, error } = await supabase.from('pos_products').select('*')
+    .eq('shop_id', shopId).is('deleted_at', null);
+  if (error) throw error;
+  return (data || []).map(productFromRow).filter(p => p.sku);
+}
+async function fetchContacts(shopId) {
+  const { data, error } = await supabase.from('pos_contacts').select('*')
+    .eq('shop_id', shopId).is('deleted_at', null);
+  if (error) throw error;
+  return (data || []).map(contactFromRow).filter(c => c.contact_id);
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
@@ -169,7 +167,7 @@ export default async function handler(req, res) {
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
 
   try {
-    const { sheetId, token, branchName } = await getConfig(shopId);
+    const branchName = await getBranchName(shopId);
     const from = dateFrom ? new Date(dateFrom) : null;
     const to   = dateTo   ? new Date(dateTo + 'T23:59:59') : null;
 
@@ -183,12 +181,9 @@ export default async function handler(req, res) {
       if (!(await requirePermission(req, res, shopId, 'perm_view_pl'))) return;
     }
 
-    // ── สินค้าคงเหลือ (ยังอ่านจาก Sheets — ดูเหตุผลที่หัวไฟล์) ────────────────
+    // ── สินค้าคงเหลือ ────────────────────────────────────────────────────────
     if (type === 'inventory') {
-      const prodRows = await readSheet(token, sheetId, 'สินค้า!A:R');
-      const products = prodRows.slice(1)
-        .map(r => rowToProduct(r))
-        .filter(p => p.sku && p.is_active !== false);
+      const products = (await fetchProducts(shopId)).filter(p => p.is_active !== false);
 
       const totalValue = products.reduce((s, p) => s + p.cost * p.stock, 0);
       const totalRetail = products.reduce((s, p) => s + p.price * p.stock, 0);
@@ -314,7 +309,6 @@ export default async function handler(req, res) {
     }
 
     // ── สินค้าขายดี (Top Sellers) ─────────────────────────────────────────
-    // ต้นทุนต่อ SKU ยังต้องอ่านจากแค็ตตาล็อกสินค้าเต็มรูปแบบใน Sheets (ดูเหตุผลที่หัวไฟล์)
     if (type === 'topsellers') {
       const allSales = await fetchSales(shopId);
       const sales = allSales
@@ -331,10 +325,10 @@ export default async function handler(req, res) {
         }
       }
 
-      // ดึงราคาทุนจาก products sheet
-      const prodRows = await readSheet(token, sheetId, 'สินค้า!A:R');
+      // ดึงราคาทุนจาก pos_products
+      const products = await fetchProducts(shopId);
       const costMap = {};
-      prodRows.slice(1).forEach(r => { if (r[0]) costMap[r[0]] = parseFloat(r[4]) || 0; });
+      products.forEach(p => { costMap[p.sku] = p.cost; });
 
       const topSellers = Object.values(tally)
         .map(t => ({
@@ -359,13 +353,12 @@ export default async function handler(req, res) {
 
     // ── กำไรขาดทุน (P&L) ──────────────────────────────────────────────────
     // กำไรขั้นต้น (gross profit) คำนวณจากยอดขาย - ต้นทุนสินค้าต่อหมวดหมู่ ตามเดิม
-    // net_profit หักค่าใช้จ่ายร้าน (จาก pos_expenses) ออกเพิ่มด้วย — ต้นทุน/หมวดหมู่สินค้ายังอ่านจาก
-    // แค็ตตาล็อกเต็มรูปแบบใน Sheets (ดูเหตุผลที่หัวไฟล์)
+    // net_profit หักค่าใช้จ่ายร้าน (จาก pos_expenses) ออกเพิ่มด้วย
     if (type === 'pl') {
-      const [allSales, expenses, prodRows] = await Promise.all([
+      const [allSales, expenses, products] = await Promise.all([
         fetchSales(shopId),
         fetchExpenses(shopId),
-        readSheet(token, sheetId, 'สินค้า!A:R'),
+        fetchProducts(shopId),
       ]);
 
       const filteredExpenses = expenses.filter(e => inRange(e.created_at, from, to));
@@ -373,9 +366,7 @@ export default async function handler(req, res) {
 
       const costMap = {};
       const catMap = {};
-      prodRows.slice(1).forEach(r => {
-        if (r[0]) { costMap[r[0]] = parseFloat(r[4]) || 0; catMap[r[0]] = r[2] || 'ไม่ระบุหมวด'; }
-      });
+      products.forEach(p => { costMap[p.sku] = p.cost; catMap[p.sku] = p.category || 'ไม่ระบุหมวด'; });
 
       const sales = allSales
         .filter(s => s.bill_no && s.status !== 'ยกเลิก' && s.status !== 'ค้างชำระ')
@@ -420,23 +411,20 @@ export default async function handler(req, res) {
     }
 
     // ── สินค้าหมุนเวียน (ถัง/ขวด/ฯลฯ) ────────────────────────────────────────
-    // รวม 3 มุม: (1) ใครถืออยู่กี่ชิ้น — จาก contact.cylinders (ยังอ่าน Sheets, ดูเหตุผลที่หัวไฟล์)
-    // (2) ภาพรวมสต็อคจริงต่อสินค้า (ยังอ่าน Sheets เช่นกัน) (3) ต้นทุนรีฟิล/ซื้อใหม่ — จาก pos_receives แล้ว
+    // รวม 3 มุม: (1) ใครถืออยู่กี่ชิ้น — จาก contact.cylinders (2) ภาพรวมสต็อคจริงต่อสินค้า
+    // (3) ต้นทุนรีฟิล/ซื้อใหม่ — จาก pos_receives
     if (type === 'cyclical') {
-      await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
-      const [custRows, prodRows, receives] = await Promise.all([
-        readSheet(token, sheetId, 'ผู้ติดต่อ!A:W'),
-        readSheet(token, sheetId, 'สินค้า!A:S'),
+      const [allContacts, allProducts, receives] = await Promise.all([
+        fetchContacts(shopId),
+        fetchProducts(shopId),
         fetchReceives(shopId),
       ]);
 
-      const customers = custRows.slice(1)
-        .map(r => rowToContact(r))
-        .filter(c => c.contact_id && (c.cylinders || 0) > 0)
+      const customers = allContacts
+        .filter(c => (c.cylinders || 0) > 0)
         .map(c => ({ contact_id: c.contact_id, name: c.name, phone: c.phone, cylinders: c.cylinders }))
         .sort((a, b) => b.cylinders - a.cylinders);
 
-      const allProducts = prodRows.slice(1).map(r => rowToProduct(r)).filter(p => p.sku);
       const cyclicalSkus = new Set(allProducts.filter(p => p.type === 'หมุนเวียน').map(p => p.sku));
 
       const products = allProducts
@@ -574,8 +562,6 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Unknown report type' });
   } catch (err) {
     console.error('[pos/reports]', err.message);
-    if (err.notSetup)     return res.status(400).json({ error: err.message, notSetup: true });
-    if (err.notConnected) return res.status(400).json({ error: err.message, notConnected: true });
     return res.status(500).json({ error: err.message });
   }
 }
