@@ -64,7 +64,7 @@ export default async function handler(req, res) {
 
     // ── GET ──────────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'ยืมสินค้า!A:K');
+      const rows = await readSheet(token, sheetId, 'ยืมสินค้า!A:L');
       let loans = rows.slice(1).map(r => rowToLoan(r)).filter(l => l.loan_no);
 
       const { status, dateFrom, dateTo, branch } = req.query;
@@ -118,10 +118,12 @@ export default async function handler(req, res) {
         primary: () => appendSheet(token, sheetId, 'ยืมสินค้า', [
           loanNo, asText(now), due_date, contact_id, contact_name, asText(contact_phone),
           JSON.stringify(items), notes, 'ยืมอยู่', '', branch,
+          deduct_stock ? 'TRUE' : 'FALSE', // คอลัมน์ L — ให้ตอนคืนรู้ว่าใบนี้เคยตัดสต็อคจริงไหม
         ]),
         secondary: () => insertRow('pos_loans', {
           shop_id: shopId, loan_no: loanNo, due_date, contact_id, contact_name,
           contact_phone, items, notes, status: 'ยืมอยู่', returned_at: null, branch_name: branch,
+          stock_deducted: !!deduct_stock,
         }),
       });
 
@@ -157,13 +159,13 @@ export default async function handler(req, res) {
       const { loan_no, notes = '' } = req.body;
       if (!loan_no) return res.status(400).json({ error: 'Missing loan_no' });
 
-      const rows = await readSheet(token, sheetId, 'ยืมสินค้า!A:K');
+      const rows = await readSheet(token, sheetId, 'ยืมสินค้า!A:L');
       const dataRows = rows.slice(1);
       const idx = dataRows.findIndex(r => r[0] === loan_no);
       if (idx === -1) return res.status(404).json({ error: 'ไม่พบใบยืม' });
 
       const existing = [...dataRows[idx]];
-      while (existing.length < 11) existing.push('');
+      while (existing.length < 12) existing.push('');
       const loan = rowToLoan(existing);
       if (loan.status === 'คืนแล้ว') return res.status(400).json({ error: 'คืนไปแล้ว' });
 
@@ -182,8 +184,10 @@ export default async function handler(req, res) {
           { status: 'คืนแล้ว', returned_at: now, notes: mergedNotes }),
       });
 
-      // คืนสต็อค
-      try {
+      // คืนสต็อค — เฉพาะใบยืมที่เคยตัดสต็อคออกจริงตอนสร้างเท่านั้น (คอลัมน์ L) — ใบที่สร้างด้วย
+      // deduct_stock:false ไม่เคยตัดสต็อคออก ถ้าบวกกลับตอนคืนจะทำให้สต็อคเฟ้อขึ้นเรื่อยๆ
+      // (ใบเก่าก่อนมีคอลัมน์นี้ค่าจะว่าง = ถือว่าเคยตัด คงพฤติกรรมเดิม)
+      if (loan.stock_deducted) try {
         const prodRows = await readSheet(token, sheetId, 'สินค้า!A:R');
         const prodDataRows = prodRows.slice(1);
         for (const item of loan.items) {
