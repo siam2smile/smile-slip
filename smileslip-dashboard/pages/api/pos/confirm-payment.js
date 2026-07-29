@@ -2,12 +2,13 @@
  * POST /api/pos/confirm-payment
  * { shopId, billNo, slipUrl, slipSender, slipRefNo }
  * อัปเดตสถานะบิล "รอยืนยัน" → "ชำระแล้ว" + เขียน main Sheets
+ *
+ * Phase 2 (write-primary flip, 2026-07-29): อัปเดตสถานะบิลใน Supabase (pos_sales) แทน Sheets แล้ว
+ * — การเขียนเข้า Sheets บัญชีหลักของร้าน (มี google_sheet_id) ยังคงไว้ตามเดิมโดยเจตนา (out of
+ * scope — ดูเหตุผลเต็มในหัวไฟล์ sales.js) เป็น best-effort เสมอ ไม่บล็อคการยืนยันบิล
  */
 import { createClient } from '@supabase/supabase-js';
-import {
-  getAccessToken, readSheet, updateSheetRow, appendSheet, ensureTabExists,
-  rowToSale, SALE_HEADERS,
-} from '../../../lib/google-pos';
+import { getAccessToken, appendSheet, saleFromRow } from '../../../lib/google-pos';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -23,41 +24,27 @@ export default async function handler(req, res) {
   if (!shopId || !billNo) return res.status(400).json({ error: 'Missing shopId or billNo' });
 
   try {
-    const [{ data: pc }, { data: gc }, { data: sp }] = await Promise.all([
-      supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
-      supabase.from('shop_google_configs').select('google_refresh_token, google_sheet_id').eq('shop_id', shopId).single(),
+    const [{ data: existing, error: fetchErr }, { data: gc }, { data: sp }] = await Promise.all([
+      supabase.from('pos_sales').select('*').eq('shop_id', shopId).eq('bill_no', billNo).is('deleted_at', null).maybeSingle(),
+      supabase.from('shop_google_configs').select('google_refresh_token, google_sheet_id').eq('shop_id', shopId).maybeSingle(),
       supabase.from('shop_profiles').select('shop_name, branch_name').eq('id', shopId).single(),
     ]);
+    if (fetchErr) throw fetchErr;
+    if (!existing) return res.status(404).json({ error: 'ไม่พบบิล' });
 
-    if (!pc?.pos_sheet_id || !gc?.google_refresh_token) {
-      return res.status(400).json({ error: 'ยังไม่ได้ตั้งค่า POS หรือ Google' });
-    }
-
-    const token = await getAccessToken(gc.google_refresh_token);
-    await ensureTabExists(token, pc.pos_sheet_id, 'ยอดขาย', SALE_HEADERS);
-
-    // หาแถวบิลนั้นใน POS Sheets
-    const rows = await readSheet(token, pc.pos_sheet_id, 'ยอดขาย!A:L');
-    const dataRows = rows.slice(1);
-    const idx = dataRows.findIndex(r => r[0] === billNo);
-    if (idx === -1) return res.status(404).json({ error: 'ไม่พบบิล' });
-
-    const rowNum = idx + 2;
-    const existing = [...dataRows[idx]];
-    while (existing.length < 12) existing.push('');
-
-    if (existing[11] === 'ชำระแล้ว') {
+    if (existing.status === 'ชำระแล้ว') {
       return res.json({ ok: true, message: 'บิลนี้ยืนยันแล้ว' });
     }
 
-    // อัปเดตสถานะ → ชำระแล้ว
-    existing[11] = 'ชำระแล้ว';
-    await updateSheetRow(token, pc.pos_sheet_id, 'ยอดขาย', rowNum, existing);
+    const { error } = await supabase.from('pos_sales').update({ status: 'ชำระแล้ว' })
+      .eq('shop_id', shopId).eq('bill_no', billNo);
+    if (error) throw error;
 
-    // เขียนรายได้เข้า Main Sheets
-    if (gc.google_sheet_id) {
+    // เขียนรายได้เข้า Main Sheets — best-effort (ไม่บล็อคการยืนยันบิลถ้ายังไม่เชื่อม Google/เขียนไม่สำเร็จ)
+    if (gc?.google_refresh_token && gc?.google_sheet_id) {
       try {
-        const sale = rowToSale(dataRows[idx]);
+        const token = await getAccessToken(gc.google_refresh_token);
+        const sale = saleFromRow(existing);
         const now = new Date();
         const thaiLocale = { timeZone: 'Asia/Bangkok' };
         const year = now.getFullYear().toString();

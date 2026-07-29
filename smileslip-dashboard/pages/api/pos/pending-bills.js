@@ -1,9 +1,11 @@
 /**
  * GET /api/pos/pending-bills?shopId=xxx
  * คืนบิลที่มีสถานะ "รอยืนยัน" (transfer ที่ยังไม่ได้รับสลิป)
+ *
+ * Phase 2 (write-primary flip, 2026-07-29): อ่านจาก Supabase (pos_sales) แทน Sheets แล้ว
  */
 import { createClient } from '@supabase/supabase-js';
-import { getAccessToken, readSheet, ensureTabExists, rowToSale, SALE_HEADERS } from '../../../lib/google-pos';
+import { saleFromRow } from '../../../lib/google-pos';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -17,25 +19,13 @@ export default async function handler(req, res) {
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
 
   try {
-    const [{ data: pc }, { data: gc }, { data: sp }] = await Promise.all([
-      supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
-      supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single(),
-      supabase.from('shop_profiles').select('shop_name').eq('id', shopId).single(),
-    ]);
+    const { data: sp } = await supabase.from('shop_profiles').select('shop_name').eq('id', shopId).maybeSingle();
+    const { data, error } = await supabase.from('pos_sales').select('*')
+      .eq('shop_id', shopId).is('deleted_at', null).eq('status', 'รอยืนยัน')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
 
-    if (!pc?.pos_sheet_id || !gc?.google_refresh_token) {
-      return res.json({ bills: [], shopName: sp?.shop_name || '' });
-    }
-
-    const token = await getAccessToken(gc.google_refresh_token);
-    await ensureTabExists(token, pc.pos_sheet_id, 'ยอดขาย', SALE_HEADERS);
-
-    const rows = await readSheet(token, pc.pos_sheet_id, 'ยอดขาย!A:L');
-    const bills = rows.slice(1)
-      .map((r, i) => ({ ...rowToSale(r), _row: i + 2 }))
-      .filter(b => b.bill_no && b.status === 'รอยืนยัน')
-      .reverse(); // ล่าสุดก่อน
-
+    const bills = (data || []).map(saleFromRow).filter(b => b.bill_no);
     return res.json({ bills, shopName: sp?.shop_name || '' });
 
   } catch (err) {

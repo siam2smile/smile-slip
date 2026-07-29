@@ -10,23 +10,29 @@
  *
  * ไฟล์นี้ไม่สร้างออเดอร์จัดส่งจริงเอง — แอดมินตรวจ/แก้ไขที่นี่ก่อน แล้วกดยืนยันผ่านฟอร์มสร้างออเดอร์จัดส่งปกติ
  * ใน pos.js (พรีฟิลข้อมูลจากที่นี่ให้) เหมือน pattern เดียวกับ รับสินค้ารอยืนยัน/รายจ่ายรอยืนยัน จาก LINE
+ *
+ * Phase 2 (write-primary flip, 2026-07-29): อ่าน/เขียนจาก Supabase (pos_customer_orders/pos_products)
+ * โดยตรงแล้ว ไม่ผ่าน Google Sheets/Google connection อีกต่อไป
  */
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../../../lib/supabase-pos';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
-import {
-  getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
-  rowToCustomerOrder, CUSTOMER_ORDER_HEADERS, makeCustomerOrderNo, rowToProduct,
-} from '../../../lib/google-pos';
-import { dualWrite, insertRow, softDeleteRow } from '../../../lib/supabase-pos';
+import { makeCustomerOrderNo, productFromRow } from '../../../lib/google-pos';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
-);
-
-function asText(v) {
-  if (v === '' || v == null) return v;
-  return `'${v}`;
+function orderFromRow(r) {
+  return {
+    order_no: r.order_no,
+    created_at: r.transaction_at,
+    customer_name: r.customer_name,
+    phone: r.phone,
+    address: r.address,
+    branch: r.branch_name,
+    items: r.items || [],
+    total: parseFloat(r.total) || 0,
+    payment_method: r.payment_method,
+    slip_url: r.slip_url || '',
+    notes: r.notes || '',
+    status: r.status,
+  };
 }
 
 // กันสแปม/ยิงรัวจากหน้าเว็บสาธารณะที่ไม่ต้อง login — จำกัดจำนวนคำสั่งซื้อต่อ IP ต่อร้านต่อหน้าต่างเวลา
@@ -51,16 +57,6 @@ function recordAttempt(key) {
   }
 }
 
-async function getConfig(shopId) {
-  const [{ data: pc }, { data: gc }] = await Promise.all([
-    supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
-    supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single(),
-  ]);
-  if (!pc?.pos_sheet_id) throw Object.assign(new Error('ยังไม่ได้ตั้งค่า POS'), { notSetup: true });
-  if (!gc?.google_refresh_token) throw Object.assign(new Error('ยังไม่ได้เชื่อมต่อ Google'), { notConnected: true });
-  return { sheetId: pc.pos_sheet_id, token: await getAccessToken(gc.google_refresh_token) };
-}
-
 export default async function handler(req, res) {
   const shopId = req.query.shopId || req.body?.shopId;
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
@@ -69,16 +65,13 @@ export default async function handler(req, res) {
   if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
 
   try {
-    const { sheetId, token } = await getConfig(shopId);
-    await ensureTabExists(token, sheetId, 'ออเดอร์ลูกค้ารอยืนยัน', CUSTOMER_ORDER_HEADERS);
-
     // ── GET (แอดมิน/พนักงาน) ─────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'ออเดอร์ลูกค้ารอยืนยัน!A:L');
-      const pending = rows.slice(1)
-        .map(r => rowToCustomerOrder(r))
-        .filter(o => o.order_no && o.status === 'รอตรวจสอบ')
-        .reverse();
+      const { data, error } = await supabase.from('pos_customer_orders').select('*')
+        .eq('shop_id', shopId).is('deleted_at', null).eq('status', 'รอตรวจสอบ')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      const pending = (data || []).map(orderFromRow).filter(o => o.order_no);
       return res.json({ pending });
     }
 
@@ -102,8 +95,10 @@ export default async function handler(req, res) {
 
       // คำนวณยอดรวมใหม่จากราคาสินค้าจริงเสมอ (ไม่เชื่อราคาที่ฝั่งลูกค้าส่งมา กันปลอมราคา) —
       // ไม่รับสินค้าประเภท "หมุนเวียน" จากช่องทางนี้ (ต้องมีพนักงานคุยเรื่องแลก/ยืมของเก่าโดยตรง)
-      const prodRows = await readSheet(token, sheetId, 'สินค้า!A:T');
-      const products = prodRows.slice(1).map(r => rowToProduct(r)).filter(p => p.sku && p.is_active !== false);
+      const { data: prodRows, error: prodErr } = await supabase.from('pos_products').select('*')
+        .eq('shop_id', shopId).is('deleted_at', null);
+      if (prodErr) throw prodErr;
+      const products = (prodRows || []).map(productFromRow).filter(p => p.sku && p.is_active !== false);
       const resolvedItems = [];
       for (const item of items) {
         const prod = products.find(p => p.sku === item.sku);
@@ -124,18 +119,12 @@ export default async function handler(req, res) {
       const order_no = makeCustomerOrderNo();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
 
-      await dualWrite({
-        label: 'customer-orders-create',
-        primary: () => appendSheet(token, sheetId, 'ออเดอร์ลูกค้ารอยืนยัน', [
-          order_no, now, customer_name.trim(), asText(phone.trim()), address.trim(),
-          branch || '', JSON.stringify(resolvedItems), total, payment_method, slip_url, notes, 'รอตรวจสอบ',
-        ]),
-        secondary: () => insertRow('pos_customer_orders', {
-          shop_id: shopId, order_no, transaction_at: now, customer_name: customer_name.trim(),
-          phone: phone.trim(), address: address.trim(), branch_name: branch || '',
-          items: resolvedItems, total, payment_method, slip_url, notes, status: 'รอตรวจสอบ',
-        }),
+      const { error } = await supabase.from('pos_customer_orders').insert({
+        shop_id: shopId, order_no, transaction_at: now, customer_name: customer_name.trim(),
+        phone: phone.trim(), address: address.trim(), branch_name: branch || '',
+        items: resolvedItems, total, payment_method, slip_url, notes, status: 'รอตรวจสอบ',
       });
+      if (error) throw error;
 
       recordAttempt(rlKey);
       return res.json({ ok: true, order_no, total });
@@ -145,22 +134,22 @@ export default async function handler(req, res) {
     if (req.method === 'DELETE') {
       const { order_no } = req.body;
       if (!order_no) return res.status(400).json({ error: 'Missing order_no' });
-      const rows = await readSheet(token, sheetId, 'ออเดอร์ลูกค้ารอยืนยัน!A:L');
-      const idx = rows.slice(1).findIndex(r => r[0] === order_no);
-      if (idx === -1) return res.status(404).json({ error: 'ไม่พบรายการ' });
-      await dualWrite({
-        label: 'customer-orders-delete',
-        primary: () => updateSheetRow(token, sheetId, 'ออเดอร์ลูกค้ารอยืนยัน', idx + 2, new Array(12).fill('')),
-        secondary: () => softDeleteRow('pos_customer_orders', { shop_id: shopId, order_no }),
-      });
+
+      const { data: existing, error: fetchErr } = await supabase.from('pos_customer_orders').select('order_no')
+        .eq('shop_id', shopId).eq('order_no', order_no).is('deleted_at', null).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!existing) return res.status(404).json({ error: 'ไม่พบรายการ' });
+
+      const { error } = await supabase.from('pos_customer_orders')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('shop_id', shopId).eq('order_no', order_no);
+      if (error) throw error;
       return res.json({ ok: true });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     console.error('[pos/customer-orders]', err.message);
-    if (err.notSetup) return res.status(400).json({ error: err.message, notSetup: true });
-    if (err.notConnected) return res.status(400).json({ error: err.message, notConnected: true });
     return res.status(500).json({ error: err.message });
   }
 }
