@@ -422,6 +422,17 @@ export function rowToExpense(row) {
   };
 }
 
+// Phase 2 (write-primary flip, 2026-07-29): adapter สำหรับ pos_expenses row → shape เดียวกับ rowToExpense
+export function expenseFromRow(r) {
+  return {
+    expense_no: r.expense_no || '', created_at: r.transaction_at || '', label: r.label || '',
+    total: Number(r.total) || 0, vat_type: r.vat_type || 'ไม่มี VAT', subtotal: Number(r.subtotal) || 0,
+    vat_amount: Number(r.vat_amount) || 0, payment_method: r.payment_method || '',
+    photo_url: r.photo_url || '', notes: r.notes || '', recorded_by: r.recorded_by || '',
+    branch: r.branch_name || '', shift_no: r.shift_no || '',
+  };
+}
+
 // tab "กะเงินสด" — เปิดกะ/ปิดกะต่อพนักงาน (ผูกกับ staff_id ไม่ใช่สาขา/เครื่อง — พนักงานหมุนเวียน
 // กันหลายคนต่อเครื่องเดียวได้ แต่ละคนเปิด-ปิดกะของตัวเอง) ใช้กระทบยอดเงินสด/รายจ่ายเงินสดที่เกิดขึ้น
 // ระหว่างกะ (ผูกผ่านคอลัมน์ "เลขที่กะ" ใน SALE_HEADERS/EXPENSE_HEADERS) คำนวณเงินสดที่ควรมีตอนปิดกะ
@@ -679,6 +690,17 @@ export function saleFromRow(r) {
   };
 }
 
+// Phase 2 (write-primary flip, 2026-07-29): adapter สำหรับ pos_loans row → shape เดียวกับ rowToLoan
+export function loanFromRow(r) {
+  return {
+    loan_no: r.loan_no || '', created_at: r.created_at || '', due_date: r.due_date || '',
+    contact_id: r.contact_id || '', contact_name: r.contact_name || '', contact_phone: r.contact_phone || '',
+    items: r.items || [], notes: r.notes || '', status: r.status || 'ยืมอยู่',
+    returned_at: r.returned_at || '', branch: r.branch_name || '',
+    stock_deducted: r.stock_deducted !== false,
+  };
+}
+
 export function rowToLoan(row) {
   let items = [];
   try { items = JSON.parse(row[6] || '[]'); } catch {}
@@ -868,6 +890,21 @@ export function rowToOrder(row) {
   };
 }
 
+// Phase 2 (write-primary flip, 2026-07-29): adapter สำหรับ pos_delivery_orders row → shape
+// เดียวกับ rowToOrder เต็มรูปแบบ (ต่างจาก orderFromRow แบบย่อใน reports.js ที่ตัดฟิลด์ที่ไม่ใช้ในรายงานออก)
+export function deliveryOrderFromRow(r) {
+  return {
+    order_no: r.order_no || '', created_at: r.transaction_at || '', customer_id: r.customer_id || '',
+    customer_name: r.customer_name || '', phone: r.phone || '', address: r.address || '',
+    maps_link: r.maps_link || '', items: r.items || [], total: Number(r.total) || 0,
+    payment_method: r.payment_method || '', staff_id: r.staff_id || '', staff_name: r.staff_name || '',
+    status: r.status || 'รอจัดส่ง', notes: r.notes || '', slip_url: r.slip_url || '',
+    confirmed_at: r.confirmed_at || '', confirmed_by: r.confirmed_by || '',
+    cash_received: !!r.cash_received, goods_received: !!r.goods_received,
+    created_by: r.created_by || '', credit_settled: !!r.credit_settled,
+  };
+}
+
 // tab "งานเก็บเงิน/ของ" — ส่งพนักงานไปเก็บเงินเชื่อค้างชำระ และ/หรือสินค้าหมุนเวียนที่ลูกค้ายืมค้างอยู่
 // A-U (21 คอลัมน์) mirror pattern เดียวกับ ORDER_HEADERS (สร้าง/ยืนยันโดยพนักงาน แล้วแอดมินยืนยันรับเข้าร้านอีกชั้น)
 export const COLLECTION_HEADERS = [
@@ -909,6 +946,21 @@ export function rowToCollection(row) {
   };
 }
 
+// Phase 2 (write-primary flip, 2026-07-29): adapter สำหรับ pos_collections row → shape เดียวกับ rowToCollection
+export function collectionFromRow(r) {
+  return {
+    collection_no: r.collection_no || '', created_at: r.transaction_at || '',
+    customer_id: r.customer_id || '', customer_name: r.customer_name || '', phone: r.phone || '',
+    task_type: r.task_type || 'เงินเชื่อ', debt_amount: Number(r.debt_amount) || 0,
+    items: r.items || [], staff_id: r.staff_id || '', staff_name: r.staff_name || '',
+    status: r.status || 'รอดำเนินการ', notes: r.notes || '',
+    collected_amount: Number(r.collected_amount) || 0, collected_items: r.collected_items || [],
+    slip_url: r.slip_url || '', confirmed_at: r.confirmed_at || '', confirmed_by: r.confirmed_by || '',
+    staff_note: r.staff_note || '', cash_received: !!r.cash_received, goods_received: !!r.goods_received,
+    created_by: r.created_by || '',
+  };
+}
+
 export function makeCollectionNo() {
   const now = new Date();
   const pad = (n, len = 2) => String(n).padStart(len, '0');
@@ -935,6 +987,16 @@ export function rowToPendingReceive(row) {
   };
 }
 
+// Phase 2 (write-primary flip, 2026-07-29): adapter สำหรับ pos_pending_receives row (เขียนจากบอท
+// LINE ตอน #รับสินค้า) → shape เดียวกับ rowToPendingReceive
+export function pendingReceiveFromRow(r) {
+  return {
+    pending_no: r.pending_no || '', created_at: r.created_at || '', supplier: r.supplier || '',
+    invoice_no: r.invoice_no || '', invoice_date: r.invoice_date || '', items: r.items || [],
+    image_url: r.image_url || '', branch: r.branch_name || '', status: r.status || 'รอตรวจสอบ',
+  };
+}
+
 // tab "รายจ่ายรอยืนยัน" — มาจากบอท LINE #รายจ่าย (คนละ tab กับ "รายจ่าย" ที่ยืนยันแล้ว)
 export const PENDING_EXPENSE_HEADERS = ['เลขที่รอยืนยัน', 'วันที่-เวลา', 'รายการ/หมวดหมู่ (OCR)', 'ผู้รับเงิน (OCR)', 'จำนวนเงิน (OCR)', 'ประเภท VAT (OCR)', 'เลขที่เอกสาร', 'วันที่ในเอกสาร', 'ลิงก์รูปภาพ', 'สาขา', 'สถานะ'];
 
@@ -954,6 +1016,17 @@ export function rowToPendingExpense(row) {
   };
 }
 
+// Phase 2 (write-primary flip, 2026-07-29): adapter สำหรับ pos_pending_expenses row (เขียนจากบอท
+// LINE ตอน #รายจ่าย) → shape เดียวกับ rowToPendingExpense
+export function pendingExpenseFromRow(r) {
+  return {
+    pending_no: r.pending_no || '', created_at: r.created_at || '', label: r.label || '',
+    vendor: r.vendor || '', amount: Number(r.amount) || 0, vat_type: r.vat_type || 'ไม่มี VAT',
+    invoice_no: r.invoice_no || '', invoice_date: r.invoice_date || '', image_url: r.image_url || '',
+    branch: r.branch_name || '', status: r.status || 'รอตรวจสอบ',
+  };
+}
+
 export function rowToReceive(row) {
   let items = [];
   try { items = JSON.parse(row[3] || '[]'); } catch {}
@@ -968,6 +1041,16 @@ export function rowToReceive(row) {
     subtotal:    parseFloat(row[7]) || 0,
     vat_total:   parseFloat(row[8]) || 0,
     photo_url:   row[9] || '',
+  };
+}
+
+// Phase 2 (write-primary flip, 2026-07-29): adapter สำหรับ pos_receives row → shape เดียวกับ rowToReceive
+export function receiveFromRow(r) {
+  return {
+    receive_no: r.receive_no || '', created_at: r.transaction_at || '', supplier: r.supplier || '',
+    items: r.items || [], total_cost: Number(r.total_cost) || 0, notes: r.notes || '',
+    supplier_id: r.supplier_id || '', subtotal: Number(r.subtotal) || 0,
+    vat_total: Number(r.vat_total) || 0, photo_url: r.photo_url || '', branch: r.branch_name || '',
   };
 }
 

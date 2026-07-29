@@ -5,15 +5,18 @@
  *   → vatType ต่อรายการ: 'รวม VAT แล้ว' (unitCost รวม VAT แยกกลับออกมา) | 'ไม่รวม VAT' (unitCost ก่อน VAT บวก 7% เพิ่ม)
  *     | 'ไม่มี VAT' (ไม่มี VAT เลย) — แบบเดียวกับ vat_type ของสินค้า — ต้นทุนถ่วงน้ำหนักคำนวณจากฐานก่อน VAT เสมอ
  *
- * ข้อมูลเก็บสองที่ (แบบเดียวกับ sales.js/expenses.js):
- * 1. POS Sheets tab "รับสินค้า" — รายละเอียด (รายการสินค้า, VAT breakdown, ผู้จำหน่าย ฯลฯ)
+ * ข้อมูลเก็บสองที่:
+ * 1. Supabase (pos_receives) — รายละเอียด (รายการสินค้า, VAT breakdown, ผู้จำหน่าย ฯลฯ) — Phase 2
+ *    (write-primary flip, 2026-07-29): เป็น primary/สมบูรณ์แล้ว ไม่ผ่าน Sheets อีกต่อไป
  * 2. Main shop Sheets (sheet ปี) — รายจ่ายเข้าบัญชีหลัก (ให้แสดงใน Dashboard Ledger/Analytics/#กำไรขาดทุน)
- *    หมวดหมู่ "ซื้อสินค้าเข้าสต็อค (POS)" แยกจากรายจ่ายทั่วไป ให้ดูออกว่าเป็นต้นทุนขายไม่ใช่ค่าใช้จ่ายดำเนินงาน
+ *    หมวดหมู่ "ซื้อสินค้าเข้าสต็อค (POS)" แยกจากรายจ่ายทั่วไป — คนละระบบ (บอท LINE เอง) จงใจไม่แตะ
+ *    ในรอบ migration นี้ (ดู CLAUDE.md Phase 2 Context) ยังเป็น best-effort เหมือนเดิม เปลี่ยนแค่
+ *    requirement ของ Google connection จากบังคับเป็น optional
  *
  * + Verified Market Price Index / Procurement Fraud Detection (v1 retail-only, lib/market-price.js):
  *   ทุกครั้งที่รับสินค้าเข้า เทียบราคาที่ซื้อจริงกับราคากลางอำเภอ/จังหวัด ถ้าแพงผิดปกติจะคืน `warnings`
  *   กลับไปด้วย + บันทึก procurement_alerts — นับเข้าตารางกลางนิรนาม (anonymous_market_prices) เฉพาะ
- *   ตอนมี photoUrl แนบมาด้วยเท่านั้น (verified data filter) ต้องรัน SQL ก่อนถึงจะทำงานจริง (ดู CLAUDE.md)
+ *   ตอนมี photoUrl แนบมาด้วยเท่านั้น (verified data filter) — คนละตารางกับ pos_receives ไม่ต้องแก้
  */
 const VAT_RATE = 0.07;
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -31,8 +34,7 @@ function splitVat(unitCost, vatType) {
 }
 import { createClient } from '@supabase/supabase-js';
 import {
-  getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
-  makeReceiveNo, rowToReceive, rowToProduct, RECEIVE_HEADERS, resolveRecordDateTime,
+  getAccessToken, appendSheet, makeReceiveNo, receiveFromRow, productFromRow, resolveRecordDateTime,
 } from '../../../lib/google-pos';
 import { getShopDistrictProvince, checkProcurementFraud, insertAnonymousMarketPrices, MARKET_PRICE_FEATURE_LIVE } from '../../../lib/market-price';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
@@ -43,36 +45,26 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
-// บังคับให้ Google Sheets เก็บเป็นข้อความล้วน กันบาร์โค้ด/รหัสสินค้าที่ขึ้นต้นด้วย 0 โดนตัด 0 ทิ้ง
-// (valueInputOption=USER_ENTERED ตีความค่าที่หน้าตาเป็นตัวเลขแล้วแปลงเป็นเลขเอง) — ไฟล์นี้ไม่เคย
-// ผ่าน asText() มาก่อนเลยทั้งไฟล์
-function asText(v) {
-  if (v === '' || v == null) return v;
-  return `'${v}`;
-}
-
-async function getConfig(shopId) {
-  const [{ data: pc }, { data: gc }, { data: sp }] = await Promise.all([
-    supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
-    supabase.from('shop_google_configs').select('google_refresh_token, google_sheet_id').eq('shop_id', shopId).single(),
-    supabase.from('shop_profiles').select('shop_name, branch_name').eq('id', shopId).single(),
+// Google connection ตอนนี้เป็น optional (แค่จำเป็นถ้าจะเขียนเข้าบัญชีหลักของบอทด้วย)
+async function getMainLedgerConfig(shopId) {
+  const [{ data: gc }, { data: sp }] = await Promise.all([
+    supabase.from('shop_google_configs').select('google_refresh_token, google_sheet_id').eq('shop_id', shopId).maybeSingle(),
+    supabase.from('shop_profiles').select('shop_name, branch_name').eq('id', shopId).maybeSingle(),
   ]);
-  if (!pc?.pos_sheet_id) throw Object.assign(new Error('ยังไม่ได้ตั้งค่า POS'), { notSetup: true });
-  if (!gc?.google_refresh_token) throw Object.assign(new Error('ยังไม่ได้เชื่อมต่อ Google'), { notConnected: true });
   return {
-    sheetId: pc.pos_sheet_id,
-    mainSheetId: gc.google_sheet_id || null,
+    mainSheetId: gc?.google_sheet_id || null,
+    refreshToken: gc?.google_refresh_token || null,
     shopName: sp?.shop_name || '',
     branchName: sp?.branch_name || '',
-    token: await getAccessToken(gc.google_refresh_token),
   };
 }
 
 // เขียนต้นทุนรับสินค้าลง Sheets บัญชีหลัก (tab ปี ค.ศ.) ด้วย เพื่อให้แสดงในหน้ากราฟวิเคราะห์/Ledger ของ
 // Dashboard และนับรวมใน #กำไรขาดทุน ของบอท LINE เหมือนกับที่ยอดขาย/รายจ่าย POS ทำอยู่แล้ว
-async function writeReceiveToMainSheets(token, mainSheetId, { shopId, total, supplier, notes, shopName, branchName, transactionDate }) {
-  if (!mainSheetId) return;
+async function writeReceiveToMainSheets(refreshToken, mainSheetId, { shopId, total, supplier, notes, shopName, branchName, transactionDate }) {
+  if (!mainSheetId || !refreshToken) return;
   try {
+    const token = await getAccessToken(refreshToken);
     const now = new Date();
     const thaiLocale = { timeZone: 'Asia/Bangkok' };
     const { thaiDate, thaiTime, isoYear: year } = resolveRecordDateTime(transactionDate);
@@ -138,19 +130,12 @@ export default async function handler(req, res) {
   // เขียนไม่ได้ถ้าทดลองใช้ 30 วันหมดอายุแล้ว (อ่าน/GET ยังทำได้ปกติเสมอ)
   if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
 
-
   try {
-    const { sheetId, mainSheetId, shopName, branchName, token } = await getConfig(shopId);
-
-    // ตรวจว่ามี tab "รับสินค้า" ไหม (บัญชีเก่าอาจยังไม่มี)
-    await ensureTabExists(token, sheetId, 'รับสินค้า', RECEIVE_HEADERS);
-
     // ── GET ─────────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'รับสินค้า!A:J');
-      let receives = rows.slice(1)
-        .map((r, i) => ({ ...rowToReceive(r), _row: i + 2 }))
-        .filter(r => r.receive_no);
+      const { data, error } = await supabase.from('pos_receives').select('*').eq('shop_id', shopId);
+      if (error) throw error;
+      let receives = (data || []).map(receiveFromRow).filter(r => r.receive_no);
 
       // filter by date (YYYY-MM-DD)
       if (req.query.date) {
@@ -162,7 +147,8 @@ export default async function handler(req, res) {
         receives = receives.filter(r => r.supplier_id === req.query.supplierId);
       }
 
-      return res.json({ receives: receives.reverse() });
+      receives.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      return res.json({ receives });
     }
 
     // ── POST ─────────────────────────────────────────────────────────────────
@@ -170,13 +156,7 @@ export default async function handler(req, res) {
       const { supplierId = '', supplier = '', items = [], notes = '', branch = '', photoUrl = '', transactionDate = '' } = req.body;
       if (!items.length) return res.status(400).json({ error: 'ต้องมีรายการสินค้าอย่างน้อย 1 รายการ' });
 
-      // อ่านข้อมูลสินค้าทั้งหมดเพื่อคำนวณ weighted avg cost — ต้องอ่านเต็ม A:R (18 คอลัมน์)
-      // ไม่ใช่แค่ A:J เพราะเดิมอ่าน/เขียนแค่ 10 คอลัมน์ทำให้ข้อมูล K-R (ประเภท, บาร์โค้ด,
-      // รายละเอียด, VAT, สถานะ ฯลฯ) ของสินค้าถูกล้างทิ้งทุกครั้งที่รับสินค้าเข้า
-      const prodRows = await readSheet(token, sheetId, 'สินค้า!A:R');
-      const prodDataRows = prodRows.slice(1);
-
-      const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }); // เวลาจริงที่ปรับสต็อค — ไม่ backdate
+      const nowThai = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }); // เวลาจริงที่ปรับสต็อค — ไม่ backdate
       const recordDT = resolveRecordDateTime(transactionDate); // วันที่ของ "รายการ" — backdate ได้ถ้าระบุ transactionDate
       const receiveNo = makeReceiveNo();
       let subtotal = 0;   // ยอดก่อน VAT (ต้นทุนถ่วงน้ำหนักของสินค้าคำนวณจากยอดนี้เสมอ)
@@ -197,48 +177,37 @@ export default async function handler(req, res) {
         vatTotal += numQty * unitVat;
         itemsForMarket.push({ name: item.name, unit: item.unit || '', unitBase });
 
-        const idx = prodDataRows.findIndex(r => r[0] === sku);
-        if (idx === -1) continue;
-
-        const existing = [...prodDataRows[idx]];
-        while (existing.length < 18) existing.push('');
-
-        const oldStock = parseFloat(existing[5]) || 0;
-        const oldAvgCost = parseFloat(existing[4]) || 0;
-        const rawType = existing[10] || 'นับสต็อค';
-        const prodType = rawType === 'ทั่วไป' ? 'นับสต็อค' : rawType;
+        const { data: prodRow } = await supabase.from('pos_products').select('*')
+          .eq('shop_id', shopId).eq('sku', sku).is('deleted_at', null).maybeSingle();
+        if (!prodRow) continue;
+        const prod = productFromRow(prodRow);
 
         // Weighted average cost: (เก่า × ต้นทุนเก่า + ใหม่ × ต้นทุนใหม่ก่อน VAT) / (เก่า + ใหม่)
-        const newStock = oldStock + numQty;
+        const newStock = prod.stock + numQty;
         const newAvgCost = newStock > 0
-          ? (oldStock * oldAvgCost + numQty * unitBase) / newStock
+          ? (prod.stock * prod.cost + numQty * unitBase) / newStock
           : unitBase;
 
-        existing[4] = Math.round(newAvgCost * 100) / 100;  // col E: ราคาทุนเฉลี่ย
-        existing[5] = newStock;                              // col F: สต็อค
-        existing[9] = asText(now);                            // col J: วันที่อัปเดต
+        const prodUpdates = {
+          cost: Math.round(newAvgCost * 100) / 100,
+          stock: newStock,
+          product_updated_at: nowThai,
+        };
 
         // สินค้าหมุนเวียน: รับสินค้าเข้า = ได้ของที่รีฟิล/บรรจุกลับมาแล้ว ต้องหักออกจาก
-        // "เปล่ารอรีฟิล" ด้วยเสมอ (เดิมเพิ่มแค่ "เต็ม" อย่างเดียว เปล่าค้างไม่ลดลงเลย)
-        if (prodType === 'หมุนเวียน') {
-          existing[12] = Math.max(0, (parseFloat(existing[12]) || 0) - numQty);
+        // "เปล่ารอรีฟิล" ด้วยเสมอ
+        if (prod.type === 'หมุนเวียน') {
+          prodUpdates.empty_waiting = Math.max(0, prod.empty_waiting - numQty);
         }
 
-        // รหัสสินค้า/บาร์โค้ดที่ขึ้นต้นด้วย 0 ต้อง re-wrap เสมอเมื่อเขียนทั้งแถวกลับ
-        existing[13] = asText(existing[13]);
-        existing[14] = asText(existing[14]);
-
-        await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
-
-        // อัปเดต cache ใน memory ด้วยเพื่อการ loop ถัดไปถูกต้อง
-        prodDataRows[idx] = existing;
+        await supabase.from('pos_products').update(prodUpdates).eq('shop_id', shopId).eq('sku', sku);
       }
 
       const roundedSubtotal = Math.round(subtotal * 100) / 100;
       const roundedVat = Math.round(vatTotal * 100) / 100;
       const grandTotal = Math.round((subtotal + vatTotal) * 100) / 100;
 
-      // บันทึกใบรับสินค้าลง tab "รับสินค้า"
+      // บันทึกใบรับสินค้าลง Supabase
       const itemsForRow = items.map(i => {
         const q = parseFloat(i.qty) || 0;
         const c = parseFloat(i.unitCost) || 0;
@@ -253,33 +222,21 @@ export default async function handler(req, res) {
         };
       });
 
-      // recordDT.full เป็นสตริงวันที่ไทย (มีปี พ.ศ.) ต้องผ่าน asText() เสมอก่อนเขียนลง Sheets ไม่งั้น
-      // ถูกตีความเป็นตัวเลข/วันที่เองแล้วเพี้ยนเป็นเลข serial ดิบ (บั๊ก "~543 ปี") — ยืนยันเกิดขึ้นจริง
-      // ระหว่างทดสอบ (เห็นค่า "244555.7175" แทนวันที่อ่านได้จริงในแถวที่เพิ่งสร้าง)
-      await dualWrite({
-        label: 'receives-create',
-        primary: () => appendSheet(token, sheetId, 'รับสินค้า', [
-          receiveNo, asText(recordDT.full), supplier, JSON.stringify(itemsForRow),
-          grandTotal, notes, supplierId, roundedSubtotal, roundedVat, photoUrl,
-        ]),
-        secondary: () => insertRow('pos_receives', {
-          shop_id: shopId, receive_no: receiveNo, transaction_at: recordDT.full,
-          supplier, items: itemsForRow, total_cost: grandTotal, notes,
-          supplier_id: supplierId, subtotal: roundedSubtotal, vat_total: roundedVat,
-          photo_url: photoUrl, branch_name: branch || branchName,
-        }),
+      const { error } = await supabase.from('pos_receives').insert({
+        shop_id: shopId, receive_no: receiveNo, transaction_at: recordDT.full,
+        supplier, items: itemsForRow, total_cost: grandTotal, notes,
+        supplier_id: supplierId, subtotal: roundedSubtotal, vat_total: roundedVat,
+        photo_url: photoUrl, branch_name: branch,
       });
+      if (error) throw error;
 
-      await writeReceiveToMainSheets(token, mainSheetId, {
+      const { mainSheetId, refreshToken, shopName, branchName } = await getMainLedgerConfig(shopId);
+      await writeReceiveToMainSheets(refreshToken, mainSheetId, {
         shopId, total: grandTotal, supplier, notes, shopName, branchName: branch || branchName, transactionDate,
       });
 
       // Market Price Index + Procurement Fraud Detection (v1 retail-only, fail-safe เสมอ)
       // — ดูรายละเอียดการตัดสินใจ/สิ่งที่ยังไม่ชัวร์ใน CLAUDE.md ข้อ 30
-      // เก็บข้อมูล/ตรวจ red flag ทำงานเบื้องหลังเสมอไม่ว่า MARKET_PRICE_FEATURE_LIVE จะเป็นอะไร
-      // (รอทนายยืนยันเรื่อง anti-trust ก่อนถึงจะ "เปิด" ให้ลูกค้าเห็นผลลัพธ์ — ข้อมูลต้องสะสมไว้รอ
-      // ระหว่างนี้แล้ว ไม่ใช่เริ่มนับตอนเปิดใช้งานจริง) — ที่ตัดคือแค่ตอนส่ง response กลับ ไม่ส่ง warnings
-      // ออกไปให้ frontend โชว์ toast จนกว่าจะเปิดใช้งานจริง
       let warnings = [];
       try {
         const { district, province } = await getShopDistrictProvince(shopId);
@@ -304,8 +261,6 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error('[pos/receives]', err.message);
-    if (err.notSetup) return res.status(400).json({ error: err.message, notSetup: true });
-    if (err.notConnected) return res.status(400).json({ error: err.message, notConnected: true });
     return res.status(500).json({ error: err.message });
   }
 }

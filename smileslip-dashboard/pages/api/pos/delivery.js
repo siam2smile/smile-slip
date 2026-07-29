@@ -1,6 +1,6 @@
 /**
  * POST /api/pos/delivery
- * สร้าง delivery order → บันทึก Sheets "ออเดอร์จัดส่ง" → LINE push หาพนักงาน
+ * สร้าง delivery order → บันทึก Supabase (pos_delivery_orders) → LINE push หาพนักงาน
  *
  * Body: {
  *   shopId, customer_id, customer_name, phone, address, maps_link,
@@ -16,38 +16,23 @@
  *   cash_received, goods_received,   ← แอดมิน/ผู้จัดการกดยืนยันรับเงิน/รับของเข้าร้านจริง (Phase B)
  *   confirm_delivery, payment_method, slip_url, confirmed_by, items[].returned_qty  ← พนักงานส่งกดยืนยันจัดส่งสำเร็จ (Phase A)
  * } → อัปเดตสถานะ/พิกัด/รายละเอียด
+ *
+ * Phase 2 (write-primary flip, 2026-07-29): อ่าน/เขียนจาก Supabase (pos_delivery_orders/
+ * pos_products/pos_contacts) โดยตรงแล้ว ไม่ผ่าน Google Sheets/Google connection อีกต่อไป
  */
 import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
-import {
-  getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
-  makeOrderNo, rowToOrder, rowToContact, rowToProduct, ORDER_HEADERS, CONTACT_HEADERS,
-  logCyclicalTransaction,
-} from '../../../lib/google-pos';
-import { dualWrite, insertRow, updateRow, softDeleteRow } from '../../../lib/supabase-pos';
+import { makeOrderNo, deliveryOrderFromRow, productFromRow, logCyclicalTransaction } from '../../../lib/google-pos';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
-// บังคับให้ Google Sheets เก็บเป็นข้อความล้วน กันเบอร์โทรที่ขึ้นต้นด้วย 0 โดนตัด 0 ทิ้ง
-// (valueInputOption=USER_ENTERED ตีความค่าที่หน้าตาเป็นตัวเลขแล้วแปลงเป็นเลขเอง)
-function asText(v) {
-  if (v === '' || v == null) return v;
-  return `'${v}`;
-}
-
-async function getConfig(shopId) {
-  const [{ data: pc }, { data: gc }, { data: sp }] = await Promise.all([
-    supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
-    supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single(),
-    supabase.from('shop_profiles').select('subscription_tier').eq('id', shopId).maybeSingle(),
-  ]);
-  if (!pc?.pos_sheet_id) throw Object.assign(new Error('ยังไม่ได้ตั้งค่า POS'), { notSetup: true });
-  if (!gc?.google_refresh_token) throw Object.assign(new Error('ยังไม่ได้เชื่อมต่อ Google'), { notConnected: true });
-  return { sheetId: pc.pos_sheet_id, tier: sp?.subscription_tier || 'normal', token: await getAccessToken(gc.google_refresh_token) };
+async function getTier(shopId) {
+  const { data: sp } = await supabase.from('shop_profiles').select('subscription_tier').eq('id', shopId).maybeSingle();
+  return sp?.subscription_tier || 'normal';
 }
 
 // ── LINE Flex Message สำหรับพนักงานส่ง ─────────────────────────────────────
@@ -179,18 +164,13 @@ export default async function handler(req, res) {
   // เขียนไม่ได้ถ้าทดลองใช้ 30 วันหมดอายุแล้ว (อ่าน/GET ยังทำได้ปกติเสมอ)
   if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
 
-
   try {
-    const { sheetId, tier, token } = await getConfig(shopId);
-    await ensureTabExists(token, sheetId, 'ออเดอร์จัดส่ง', ORDER_HEADERS);
-
     // ── GET — รายการออเดอร์ ─────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:U');
-      const orders = rows.slice(1)
-        .map((r, i) => ({ ...rowToOrder(r), _row: i + 2 }))
-        .filter(o => o.order_no)
-        .reverse(); // ล่าสุดก่อน
+      const { data, error } = await supabase.from('pos_delivery_orders').select('*')
+        .eq('shop_id', shopId).is('deleted_at', null).order('created_at', { ascending: false });
+      if (error) throw error;
+      const orders = (data || []).map(deliveryOrderFromRow).filter(o => o.order_no);
 
       // ถ้าระบุ order_no → คืนเดี่ยว
       if (req.query.order_no) {
@@ -200,6 +180,8 @@ export default async function handler(req, res) {
 
       return res.json({ orders });
     }
+
+    const tier = await getTier(shopId);
 
     // ── POST — สร้างออเดอร์ใหม่ ─────────────────────────────────────────────
     if (req.method === 'POST') {
@@ -226,41 +208,23 @@ export default async function handler(req, res) {
       const order_no = makeOrderNo();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
 
-      await dualWrite({
-        label: 'delivery-create',
-        primary: () => appendSheet(token, sheetId, 'ออเดอร์จัดส่ง', [
-          order_no, now, customer_id, customer_name, asText(phone),
-          address, maps_link, JSON.stringify(items), total,
-          payment_method, staff_id, staff_name, 'รอจัดส่ง', notes,
-          '', '', '', '', '', created_by,
-        ]),
-        secondary: () => insertRow('pos_delivery_orders', {
-          shop_id: shopId, order_no, transaction_at: now, customer_id, customer_name,
-          phone, address, maps_link, items, total, payment_method,
-          staff_id, staff_name, status: 'รอจัดส่ง', notes, created_by,
-        }),
+      const { error } = await supabase.from('pos_delivery_orders').insert({
+        shop_id: shopId, order_no, transaction_at: now, customer_id, customer_name,
+        phone, address, maps_link, items, total, payment_method,
+        staff_id, staff_name, status: 'รอจัดส่ง', notes, created_by,
       });
+      if (error) throw error;
 
       // ถ้าค้างจ่าย → อัปเดตยอดหนี้ผู้ติดต่ออัตโนมัติ
       if (payment_method === 'ค้างจ่าย' && customer_id) {
         try {
-          await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
-          const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:T');
-          const custDataRows = custRows.slice(1);
-          const custIdx = custDataRows.findIndex(r => r[0] === customer_id);
-          if (custIdx !== -1) {
-            const cust = rowToContact(custDataRows[custIdx]);
-            const existing = [...custDataRows[custIdx]];
-            while (existing.length < 20) existing.push('');
-            existing[13] = (cust.debt || 0) + total; // ยอดค้างชำระ (col N)
-            existing[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })); // updated_at
-            // เขียนทั้งแถวผู้ติดต่อกลับ (เท่าที่อ่านมา A:T) — เบอร์โทร/เลขภาษีที่ readSheet() อ่านมา
-            // ไม่มี apostrophe ต้อง re-wrap เสมอ กันตัดเลข 0 นำหน้าทิ้งเงียบๆ (endpoint นี้ไม่ได้ตั้งใจ
-            // แก้ฟิลด์เหล่านี้เลย แต่เขียนทั้งแถวทับทุกครั้งที่อัปเดตยอดค้างชำระ) — ไม่แตะ index 22
-            // (เบอร์ผู้ติดต่อนิติบุคคล) เพราะช่วง A:T ที่อ่านมาไม่ครอบคลุมถึงคอลัมน์นั้นตั้งแต่แรก
-            existing[3]  = asText(existing[3]);
-            existing[10] = asText(existing[10]);
-            await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, existing);
+          const { data: cust } = await supabase.from('pos_contacts').select('debt')
+            .eq('shop_id', shopId).eq('contact_id', customer_id).is('deleted_at', null).maybeSingle();
+          if (cust) {
+            await supabase.from('pos_contacts').update({
+              debt: (Number(cust.debt) || 0) + total,
+              contact_updated_at: now,
+            }).eq('shop_id', shopId).eq('contact_id', customer_id);
           }
         } catch (debtErr) {
           console.error('[delivery] update customer debt error:', debtErr.message);
@@ -277,26 +241,16 @@ export default async function handler(req, res) {
       if (total <= 0 && items.length) deliveryWarnings.push('⚠️ ยอดรวมออเดอร์เป็น 0 บาท ทั้งที่มีรายการสินค้า');
       if (cylinders_delivered > 0 && customer_id) {
         try {
-          await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
-          const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:X');
-          const custDataRows = custRows.slice(1);
-          const custIdx = custDataRows.findIndex(r => r[0] === customer_id);
-          if (custIdx !== -1) {
-            const cust = rowToContact(custDataRows[custIdx]);
-            const existing = [...custDataRows[custIdx]];
-            while (existing.length < 24) existing.push('');
-            const newCylinders = (cust.cylinders || 0) + cylinders_delivered;
-            existing[14] = newCylinders; // ถังอยู่กับลูกค้า (col O)
-            existing[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })); // updated_at
-            if (cust.cylinder_limit > 0 && newCylinders > cust.cylinder_limit) {
+          const { data: cust } = await supabase.from('pos_contacts').select('cylinders, cylinder_limit')
+            .eq('shop_id', shopId).eq('contact_id', customer_id).is('deleted_at', null).maybeSingle();
+          if (cust) {
+            const newCylinders = (Number(cust.cylinders) || 0) + cylinders_delivered;
+            await supabase.from('pos_contacts').update({
+              cylinders: newCylinders, contact_updated_at: now,
+            }).eq('shop_id', shopId).eq('contact_id', customer_id);
+            if (Number(cust.cylinder_limit) > 0 && newCylinders > Number(cust.cylinder_limit)) {
               deliveryWarnings.push(`⚠️ ลูกค้ายืมสินค้าหมุนเวียนเกินวงเงินที่ตั้งไว้ (${newCylinders}/${cust.cylinder_limit})`);
             }
-            // เขียนทั้งแถวผู้ติดต่อกลับ — เบอร์โทร/เลขภาษี/เบอร์ผู้ติดต่อนิติบุคคลต้อง re-wrap เสมอ
-            // กันตัดเลข 0 นำหน้าทิ้งเงียบๆ (ดูคอมเมนต์เดียวกันที่จุดอัปเดตยอดค้างชำระด้านบน)
-            existing[3]  = asText(existing[3]);
-            existing[10] = asText(existing[10]);
-            existing[22] = asText(existing[22]);
-            await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, existing);
           }
         } catch (cylErr) {
           console.error('[delivery] update customer cylinders error:', cylErr.message);
@@ -337,52 +291,44 @@ export default async function handler(req, res) {
       } = req.body;
       if (!order_no) return res.status(400).json({ error: 'Missing order_no' });
 
-      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:U');
-      const dataRows = rows.slice(1);
-      const idx = dataRows.findIndex(r => r[0] === order_no);
-      if (idx === -1) return res.status(404).json({ error: 'ไม่พบออเดอร์' });
+      const { data: orderRow, error: fetchErr } = await supabase.from('pos_delivery_orders').select('*')
+        .eq('shop_id', shopId).eq('order_no', order_no).is('deleted_at', null).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!orderRow) return res.status(404).json({ error: 'ไม่พบออเดอร์' });
 
-      const existing = [...dataRows[idx]];
-      while (existing.length < 21) existing.push('');
-      if (customer_id     !== undefined) existing[2]  = customer_id;
-      if (customer_name   !== undefined) existing[3]  = customer_name;
-      if (phone           !== undefined) existing[4]  = phone;
-      if (address         !== undefined) existing[5]  = address;
-      if (maps_link       !== undefined) existing[6]  = maps_link;
-      if (items           !== undefined) existing[7]  = JSON.stringify(items);
-      if (total           !== undefined) existing[8]  = total;
-      if (payment_method  !== undefined) existing[9]  = payment_method;
-      if (staff_id        !== undefined) existing[10] = staff_id;
-      if (staff_name      !== undefined) existing[11] = staff_name;
-      if (status          !== undefined) existing[12] = status;
-      if (notes           !== undefined) existing[13] = notes;
-      if (slip_url        !== undefined) existing[14] = slip_url;
-      if (cash_received   !== undefined) existing[17] = cash_received ? 'TRUE' : 'FALSE';
-      if (goods_received  !== undefined) existing[18] = goods_received ? 'TRUE' : 'FALSE';
+      const existing = deliveryOrderFromRow(orderRow);
+      const updates = {};
+      if (customer_id     !== undefined) updates.customer_id  = customer_id;
+      if (customer_name   !== undefined) updates.customer_name = customer_name;
+      if (phone           !== undefined) updates.phone        = phone;
+      if (address         !== undefined) updates.address      = address;
+      if (maps_link       !== undefined) updates.maps_link     = maps_link;
+      if (items           !== undefined) updates.items        = items;
+      if (total           !== undefined) updates.total        = total;
+      if (payment_method  !== undefined) updates.payment_method = payment_method;
+      if (staff_id        !== undefined) updates.staff_id      = staff_id;
+      if (staff_name      !== undefined) updates.staff_name    = staff_name;
+      if (status          !== undefined) updates.status        = status;
+      if (notes           !== undefined) updates.notes         = notes;
+      if (slip_url        !== undefined) updates.slip_url       = slip_url;
+      if (cash_received   !== undefined) updates.cash_received  = !!cash_received;
+      if (goods_received  !== undefined) updates.goods_received = !!goods_received;
 
       // ── ยืนยันรับชำระเงินเชื่อ (ออเดอร์จัดส่งที่จ่ายแบบ "ค้างจ่าย") ──────────────
       // ลดยอด "ยอดค้างชำระ" ของผู้ติดต่อกลับลง (ตอนสร้างออเดอร์ ค้างจ่าย เคยบวกยอดนี้ไว้แล้ว)
-      if (credit_settled === true && !existing[20]) {
-        existing[20] = 'TRUE';
-        const custId = customer_id !== undefined ? customer_id : existing[2];
-        const orderTotal = parseFloat(existing[8]) || 0;
+      if (credit_settled === true && !existing.credit_settled) {
+        updates.credit_settled = true;
+        const custId = customer_id !== undefined ? customer_id : existing.customer_id;
+        const orderTotal = total !== undefined ? parseFloat(total) || 0 : existing.total;
         if (custId && orderTotal > 0) {
           try {
-            await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
-            const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:W');
-            const custDataRows = custRows.slice(1);
-            const custIdx = custDataRows.findIndex(r => r[0] === custId);
-            if (custIdx !== -1) {
-              const custRow = rowToContact(custDataRows[custIdx]);
-              const custExisting = [...custDataRows[custIdx]];
-              while (custExisting.length < 23) custExisting.push('');
-              custExisting[13] = Math.max(0, (custRow.debt || 0) - orderTotal); // ยอดค้างชำระ
-              custExisting[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
-              // เขียนทั้งแถวผู้ติดต่อกลับ — เบอร์โทร/เลขภาษี/เบอร์ผู้ติดต่อนิติบุคคลต้อง re-wrap เสมอ
-              custExisting[3]  = asText(custExisting[3]);
-              custExisting[10] = asText(custExisting[10]);
-              custExisting[22] = asText(custExisting[22]);
-              await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
+            const { data: cust } = await supabase.from('pos_contacts').select('debt')
+              .eq('shop_id', shopId).eq('contact_id', custId).is('deleted_at', null).maybeSingle();
+            if (cust) {
+              await supabase.from('pos_contacts').update({
+                debt: Math.max(0, (Number(cust.debt) || 0) - orderTotal),
+                contact_updated_at: new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }),
+              }).eq('shop_id', shopId).eq('contact_id', custId);
             }
           } catch (debtErr) {
             console.error('[delivery] settle credit debt error:', debtErr.message);
@@ -392,43 +338,29 @@ export default async function handler(req, res) {
 
       let debtAdded = 0;
       if (confirm_delivery) {
-        existing[12] = 'ส่งแล้ว'; // ใช้ label เดียวกับสถานะที่แอดมินกดเปลี่ยนเองในหน้า pos.js
-        existing[15] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
-        if (confirmed_by !== undefined) existing[16] = confirmed_by;
+        updates.status = 'ส่งแล้ว'; // ใช้ label เดียวกับสถานะที่แอดมินกดเปลี่ยนเองในหน้า pos.js
+        updates.confirmed_at = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+        if (confirmed_by !== undefined) updates.confirmed_by = confirmed_by;
 
         // อัปเดตสต็อคสินค้าหมุนเวียน + ยอดถังอยู่กับลูกค้า — mirror ตรรกะเดียวกับ api/pos/sales.js checkout
-        // เดิมโค้ดนี้ทำงานเฉพาะตอนมี returnedQty>0 (ลูกค้าคืนถังมา) เท่านั้น ทำให้:
-        //   (1) เคสยืมล้วนๆ (returned_qty=0/ไม่ส่งมา) ไม่ถูกนับเป็น "กับลูกค้า" ที่สินค้าเลย (at_customer ค้างเดิม)
-        //   (2) contact.cylinders ถูกลบด้วย returnedTotal ตรงๆ ทั้งที่ไม่เคยถูกบวกเพิ่มตอนส่งของเลยสักครั้ง
-        // แก้โดยไล่ทุกรายการสินค้าหมุนเวียนในออเดอร์เสมอ คำนวณ netBorrow = qty - returnedQty ต่อชิ้น
-        // แล้วอัปเดตทั้งสต็อคสินค้า (เต็ม/กับลูกค้า/เปล่ารอรีฟิล) และยอดถังของลูกค้าด้วยผลสุทธิจริง
-        const cust = customer_id !== undefined ? customer_id : existing[2];
+        const cust = customer_id !== undefined ? customer_id : existing.customer_id;
         let netCylinderDeltaForCustomer = 0;
 
-        // พนักงานเลือก "ค้างจ่าย" ตอนยืนยันจัดส่ง (คนละจุดกับตอนสร้างออเดอร์ — อาจเลือกวิธีจ่ายจริง
-        // ไม่ตรงกับตอนสร้างออเดอร์ก็ได้ เช่น สร้างไว้เป็น "เก็บปลายทาง" แต่ลูกค้าจ่ายไม่ครบตอนส่งจริง)
-        // เดิมกรณีนี้ไม่เคยเพิ่มยอดค้างชำระของลูกค้าเลยสักครั้ง (บั๊กจริง เจอระหว่างทำฟีเจอร์จ่ายบางส่วน)
-        // — รองรับจ่ายมาบางส่วนได้ด้วย: ค้างชำระ = ยอดสุทธิ - จ่ายมาแล้ว (ไม่ต่ำกว่า 0)
+        // พนักงานเลือก "ค้างจ่าย" ตอนยืนยันจัดส่ง (คนละจุดกับตอนสร้างออเดอร์) — รองรับจ่ายมาบางส่วนได้ด้วย:
+        // ค้างชำระ = ยอดสุทธิ - จ่ายมาแล้ว (ไม่ต่ำกว่า 0)
         if (payment_method === 'ค้างจ่าย' && cust) {
-          const orderTotal = total !== undefined ? parseFloat(total) || 0 : parseFloat(existing[8]) || 0;
+          const orderTotal = total !== undefined ? parseFloat(total) || 0 : existing.total;
           const paidNow = Math.min(orderTotal, Math.max(0, parseFloat(partial_paid_amount) || 0));
           debtAdded = Math.round((orderTotal - paidNow) * 100) / 100;
           if (debtAdded > 0) {
             try {
-              await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
-              const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:W');
-              const custDataRows = custRows.slice(1);
-              const custIdx = custDataRows.findIndex(r => r[0] === cust);
-              if (custIdx !== -1) {
-                const custRow = rowToContact(custDataRows[custIdx]);
-                const custExisting = [...custDataRows[custIdx]];
-                while (custExisting.length < 23) custExisting.push('');
-                custExisting[13] = (custRow.debt || 0) + debtAdded; // ยอดค้างชำระ
-                custExisting[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
-                custExisting[3]  = asText(custExisting[3]);
-                custExisting[10] = asText(custExisting[10]);
-                custExisting[22] = asText(custExisting[22]);
-                await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
+              const { data: custRow } = await supabase.from('pos_contacts').select('debt')
+                .eq('shop_id', shopId).eq('contact_id', cust).is('deleted_at', null).maybeSingle();
+              if (custRow) {
+                await supabase.from('pos_contacts').update({
+                  debt: (Number(custRow.debt) || 0) + debtAdded,
+                  contact_updated_at: new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }),
+                }).eq('shop_id', shopId).eq('contact_id', cust);
               }
             } catch (debtErr) {
               console.error('[delivery] confirm_delivery add debt error:', debtErr.message);
@@ -437,14 +369,13 @@ export default async function handler(req, res) {
         }
 
         if (Array.isArray(items) && items.length) {
-          try {
-            const prodRows = await readSheet(token, sheetId, 'สินค้า!A:R');
-            const prodDataRows = prodRows.slice(1);
-            for (const item of items) {
-              if (!item.sku) continue;
-              const pIdx = prodDataRows.findIndex(r => r[0] === item.sku);
-              if (pIdx === -1) continue;
-              const prod = rowToProduct(prodDataRows[pIdx]);
+          for (const item of items) {
+            if (!item.sku) continue;
+            try {
+              const { data: prodRow } = await supabase.from('pos_products').select('*')
+                .eq('shop_id', shopId).eq('sku', item.sku).is('deleted_at', null).maybeSingle();
+              if (!prodRow) continue;
+              const prod = productFromRow(prodRow);
               if (prod.type !== 'หมุนเวียน') continue;
 
               // qty ติดลบเคยทำให้ยืนยันจัดส่ง "เพิ่ม" สต็อคแทนที่จะลด (stock - (-qty) = stock + qty)
@@ -452,17 +383,12 @@ export default async function handler(req, res) {
               const returnedQty = Math.min(qty, Math.max(0, parseInt(item.returned_qty) || 0));
               const netBorrow = qty - returnedQty;
 
-              const prodExisting = [...prodDataRows[pIdx]];
-              while (prodExisting.length < 18) prodExisting.push('');
-              prodExisting[5]  = Math.max(0, (parseFloat(prodExisting[5]) || 0) - qty); // เต็ม — ออกจากร้านไปกับลูกค้า
-              prodExisting[11] = Math.max(0, (parseFloat(prodExisting[11]) || 0) + netBorrow); // กับลูกค้า สุทธิ
-              prodExisting[12] = (parseFloat(prodExisting[12]) || 0) + returnedQty; // เปล่ารอรีฟิล
-              prodExisting[9]  = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
-              // รหัสสินค้า/บาร์โค้ดที่ขึ้นต้นด้วย 0 ต้อง re-wrap เสมอเมื่อเขียนทั้งแถวกลับ
-              prodExisting[13] = asText(prodExisting[13]);
-              prodExisting[14] = asText(prodExisting[14]);
-              await updateSheetRow(token, sheetId, 'สินค้า', pIdx + 2, prodExisting);
-              prodDataRows[pIdx] = prodExisting;
+              await supabase.from('pos_products').update({
+                stock: Math.max(0, prod.stock - qty), // เต็ม — ออกจากร้านไปกับลูกค้า
+                at_customer: Math.max(0, prod.at_customer + netBorrow), // กับลูกค้า สุทธิ
+                empty_waiting: prod.empty_waiting + returnedQty, // เปล่ารอรีฟิล
+                product_updated_at: new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }),
+              }).eq('shop_id', shopId).eq('sku', item.sku);
               netCylinderDeltaForCustomer += netBorrow;
 
               if (returnedQty > 0) {
@@ -470,7 +396,7 @@ export default async function handler(req, res) {
                   shopId,
                   sku: item.sku, name: item.name || prod.name, source: 'จัดส่ง',
                   action: netBorrow > 0 ? 'แลกเปลี่ยน' : 'คืน',
-                  qty: returnedQty, customerId: cust, customerName: existing[3],
+                  qty: returnedQty, customerId: cust, customerName: existing.customer_name,
                   performedBy: confirmed_by,
                 });
               }
@@ -478,32 +404,25 @@ export default async function handler(req, res) {
                 await logCyclicalTransaction({
                   shopId,
                   sku: item.sku, name: item.name || prod.name, source: 'จัดส่ง', action: 'ยืม',
-                  qty: netBorrow, customerId: cust, customerName: existing[3],
+                  qty: netBorrow, customerId: cust, customerName: existing.customer_name,
                   performedBy: confirmed_by,
                 });
               }
+            } catch (prodErr) {
+              console.error('[delivery] update product cyclical stock error:', prodErr.message);
             }
-          } catch (prodErr) {
-            console.error('[delivery] update product cyclical stock error:', prodErr.message);
           }
         }
 
         if (netCylinderDeltaForCustomer !== 0 && cust) {
           try {
-            await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
-            const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:W');
-            const custDataRows = custRows.slice(1);
-            const custIdx = custDataRows.findIndex(r => r[0] === cust);
-            if (custIdx !== -1) {
-              const custRow = rowToContact(custDataRows[custIdx]);
-              const custExisting = [...custDataRows[custIdx]];
-              while (custExisting.length < 23) custExisting.push('');
-              custExisting[14] = Math.max(0, (custRow.cylinders || 0) + netCylinderDeltaForCustomer); // ถังอยู่กับลูกค้า
-              custExisting[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
-              custExisting[3]  = asText(custExisting[3]);
-              custExisting[10] = asText(custExisting[10]);
-              custExisting[22] = asText(custExisting[22]);
-              await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
+            const { data: custRow } = await supabase.from('pos_contacts').select('cylinders')
+              .eq('shop_id', shopId).eq('contact_id', cust).is('deleted_at', null).maybeSingle();
+            if (custRow) {
+              await supabase.from('pos_contacts').update({
+                cylinders: Math.max(0, (Number(custRow.cylinders) || 0) + netCylinderDeltaForCustomer),
+                contact_updated_at: new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }),
+              }).eq('shop_id', shopId).eq('contact_id', cust);
             }
           } catch (custErr) {
             console.error('[delivery] update customer cylinders error:', custErr.message);
@@ -511,26 +430,9 @@ export default async function handler(req, res) {
         }
       }
 
-      // เบอร์โทรลูกค้าของแถวออเดอร์นี้เอง — ต้อง re-wrap เสมอไม่ว่า PATCH ครั้งนี้จะแก้ไข field นี้
-      // หรือไม่ (กันตัดเลข 0 นำหน้าทิ้งเมื่อ PATCH แก้แค่สถานะ/พิกัด/ยืนยันจัดส่งโดยไม่แตะเบอร์โทร)
-      existing[4] = asText(existing[4]);
-
-      await dualWrite({
-        label: 'delivery-update',
-        primary: () => updateSheetRow(token, sheetId, 'ออเดอร์จัดส่ง', idx + 2, existing),
-        secondary: () => updateRow('pos_delivery_orders', { shop_id: shopId, order_no }, {
-          // existing[4] ตอนนี้ผ่าน asText() เสมอ (มี ' นำหน้าจริงในสตริง JS) ต้องตัด ' ทิ้งก่อนเก็บ
-          // Supabase เพราะ Supabase ไม่มีกลไก USER_ENTERED แบบ Sheets ที่ตัด ' ให้อัตโนมัติตอนอ่านกลับ
-          customer_id: existing[2], customer_name: existing[3],
-          phone: String(existing[4] || '').replace(/^'/, ''),
-          address: existing[5], maps_link: existing[6], items: JSON.parse(existing[7] || '[]'),
-          total: parseFloat(existing[8]) || 0, payment_method: existing[9],
-          staff_id: existing[10], staff_name: existing[11], status: existing[12], notes: existing[13],
-          slip_url: existing[14], confirmed_at: existing[15], confirmed_by: existing[16],
-          cash_received: existing[17] === 'TRUE', goods_received: existing[18] === 'TRUE',
-          created_by: existing[19], credit_settled: existing[20] === 'TRUE',
-        }),
-      });
+      const { error } = await supabase.from('pos_delivery_orders').update(updates)
+        .eq('shop_id', shopId).eq('order_no', order_no);
+      if (error) throw error;
       return res.json({ ok: true, order_no, debtAdded });
     }
 
@@ -539,15 +441,15 @@ export default async function handler(req, res) {
       const { order_no } = req.body;
       if (!order_no) return res.status(400).json({ error: 'Missing order_no' });
 
-      const rows = await readSheet(token, sheetId, 'ออเดอร์จัดส่ง!A:U');
-      const idx = rows.slice(1).findIndex(r => r[0] === order_no);
-      if (idx === -1) return res.status(404).json({ error: 'ไม่พบออเดอร์' });
+      const { data: existing, error: fetchErr } = await supabase.from('pos_delivery_orders').select('order_no')
+        .eq('shop_id', shopId).eq('order_no', order_no).is('deleted_at', null).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!existing) return res.status(404).json({ error: 'ไม่พบออเดอร์' });
 
-      await dualWrite({
-        label: 'delivery-delete',
-        primary: () => updateSheetRow(token, sheetId, 'ออเดอร์จัดส่ง', idx + 2, Array(21).fill('')),
-        secondary: () => softDeleteRow('pos_delivery_orders', { shop_id: shopId, order_no }),
-      });
+      const { error } = await supabase.from('pos_delivery_orders')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('shop_id', shopId).eq('order_no', order_no);
+      if (error) throw error;
       return res.json({ ok: true });
     }
 
@@ -555,8 +457,6 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error('[pos/delivery]', err.message);
-    if (err.notSetup) return res.status(400).json({ error: err.message, notSetup: true });
-    if (err.notConnected) return res.status(400).json({ error: err.message, notConnected: true });
     return res.status(500).json({ error: err.message });
   }
 }

@@ -4,19 +4,21 @@
  *   → บันทึกรายจ่ายของร้านที่ไม่เกี่ยวกับสต็อคสินค้า (ค่าเช่า/ค่าน้ำไฟ/ค่าแรง ฯลฯ) คนละระบบกับ "รับสินค้า"
  *   → amount คือยอดรวมที่จ่ายจริง (ตามที่กรอก) vatType กำหนดว่าจะแยก VAT กลับออกมายังไง
  *     ('รวม VAT แล้ว'/'ไม่รวม VAT'/'ไม่มี VAT' แบบเดียวกับ vat_type สินค้า/รับสินค้า)
- * DELETE /api/pos/expenses { shopId, expense_no }  → ลบรายการ (blank แถวทิ้ง แบบเดียวกับ products/contacts)
+ * DELETE /api/pos/expenses { shopId, expense_no }  → ลบรายการ (soft-delete)
  *
- * ข้อมูลเก็บสองที่ (แบบเดียวกับ api/pos/sales.js):
- * 1. POS Sheets tab "รายจ่าย" — รายละเอียด (VAT breakdown, รูปบิล/สลิป, สาขา ฯลฯ)
+ * ข้อมูลเก็บสองที่:
+ * 1. Supabase (pos_expenses) — รายละเอียด (VAT breakdown, รูปบิล/สลิป, สาขา ฯลฯ) — Phase 2
+ *    (write-primary flip, 2026-07-29): เป็น primary/สมบูรณ์แล้ว ไม่ผ่าน Sheets อีกต่อไป
  * 2. Main shop Sheets (sheet ปี) — รายจ่ายเข้าบัญชีหลัก (ให้แสดงใน Dashboard Ledger/Analytics/#กำไรขาดทุน)
+ *    — คนละระบบ (บอท LINE เอง) จงใจไม่แตะในรอบ migration นี้ (ดู CLAUDE.md Phase 2 Context) ยังเป็น
+ *    best-effort เหมือนเดิม เปลี่ยนแค่ requirement ของ Google connection จากบังคับเป็น optional
  */
 import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import {
-  getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
-  makeExpenseNo, rowToExpense, EXPENSE_HEADERS, resolveRecordDateTime,
+  getAccessToken, appendSheet, makeExpenseNo, expenseFromRow, resolveRecordDateTime,
 } from '../../../lib/google-pos';
-import { dualWrite, insertRow, softDeleteRow, LEDGER_TYPE } from '../../../lib/supabase-pos';
+import { dualWrite, insertRow, LEDGER_TYPE } from '../../../lib/supabase-pos';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -24,13 +26,7 @@ const supabase = createClient(
 );
 
 const VAT_RATE = 0.07;
-
-// บังคับเก็บเป็นข้อความเสมอ กัน Sheets USER_ENTERED ตีความสตริงวันที่ไทย (มีปี พ.ศ.) เป็นเลข serial
-// ผิดเพี้ยน ~543 ปี (พิสูจน์แล้วว่าเกิดขึ้นจริงกับ tab ใหม่ที่ไม่เคยมีข้อมูล/format มาก่อน)
-function asText(v) {
-  if (v === '' || v == null) return v;
-  return `'${v}`;
-}
+const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 
 function splitVat(amount, vatType) {
   if (vatType === 'รวม VAT แล้ว') {
@@ -43,30 +39,27 @@ function splitVat(amount, vatType) {
   return { base: amount, vat: 0 };
 }
 
-async function getConfig(shopId) {
-  const [{ data: pc }, { data: gc }, { data: sp }] = await Promise.all([
-    supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
-    supabase.from('shop_google_configs').select('google_refresh_token, google_sheet_id').eq('shop_id', shopId).single(),
-    supabase.from('shop_profiles').select('shop_name, branch_name').eq('id', shopId).single(),
+// Google connection ตอนนี้เป็น optional (แค่จำเป็นถ้าจะเขียนเข้าบัญชีหลักของบอทด้วย) — ไม่ throw
+// ถ้ายังไม่ได้เชื่อมต่อ/ยังไม่ได้ตั้งค่า POS อีกต่อไป (products/contacts/expenses ไม่ต้องพึ่ง Sheets เลย)
+async function getMainLedgerConfig(shopId) {
+  const [{ data: gc }, { data: sp }] = await Promise.all([
+    supabase.from('shop_google_configs').select('google_refresh_token, google_sheet_id').eq('shop_id', shopId).maybeSingle(),
+    supabase.from('shop_profiles').select('shop_name, branch_name').eq('id', shopId).maybeSingle(),
   ]);
-  if (!pc?.pos_sheet_id) throw Object.assign(new Error('ยังไม่ได้ตั้งค่า POS'), { notSetup: true });
-  if (!gc?.google_refresh_token) throw Object.assign(new Error('ยังไม่ได้เชื่อมต่อ Google'), { notConnected: true });
   return {
-    sheetId: pc.pos_sheet_id,
-    mainSheetId: gc.google_sheet_id || null,
+    mainSheetId: gc?.google_sheet_id || null,
+    refreshToken: gc?.google_refresh_token || null,
     shopName: sp?.shop_name || '',
     branchName: sp?.branch_name || '',
-    token: await getAccessToken(gc.google_refresh_token),
   };
 }
 
-const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
-
 // เขียนรายจ่ายลง Sheets บัญชีหลัก (tab ปี ค.ศ.) ด้วย เพื่อให้แสดงในหน้ากราฟวิเคราะห์/Ledger ของ Dashboard
 // และนับรวมใน #กำไรขาดทุน ของบอท LINE เหมือนกับที่ยอดขาย POS ทำอยู่แล้ว (writeToMainSheets ใน sales.js)
-async function writeExpenseToMainSheets(token, mainSheetId, { shopId, total, label, payment_method, notes, shopName, branchName, recordedBy, transactionDate }) {
-  if (!mainSheetId) return;
+async function writeExpenseToMainSheets(refreshToken, mainSheetId, { shopId, total, label, payment_method, notes, shopName, branchName, recordedBy, transactionDate }) {
+  if (!mainSheetId || !refreshToken) return;
   try {
+    const token = await getAccessToken(refreshToken);
     const now = new Date();
     const thaiLocale = { timeZone: 'Asia/Bangkok' };
     const { thaiDate, thaiTime, isoYear: year } = resolveRecordDateTime(transactionDate);
@@ -134,23 +127,21 @@ export default async function handler(req, res) {
   // เขียนไม่ได้ถ้าทดลองใช้ 30 วันหมดอายุแล้ว (อ่าน/GET ยังทำได้ปกติเสมอ)
   if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
 
-
   try {
-    const { sheetId, mainSheetId, shopName, branchName, token } = await getConfig(shopId);
-    await ensureTabExists(token, sheetId, 'รายจ่าย', EXPENSE_HEADERS);
-
     // ── GET ──────────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'รายจ่าย!A:M');
-      let expenses = rows.slice(1)
-        .map((r, i) => ({ ...rowToExpense(r), _row: i + 2 }))
-        .filter(e => e.expense_no);
+      const { data, error } = await supabase.from('pos_expenses').select('*')
+        .eq('shop_id', shopId).is('deleted_at', null);
+      if (error) throw error;
+      let expenses = (data || []).map(expenseFromRow).filter(e => e.expense_no);
 
       if (req.query.date) expenses = expenses.filter(e => e.created_at.startsWith(req.query.date));
       if (req.query.branch) expenses = expenses.filter(e => e.branch === req.query.branch);
 
+      expenses.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
       return res.json({
-        expenses: expenses.reverse(),
+        expenses,
         summary: {
           count: expenses.length,
           total: expenses.reduce((s, e) => s + e.total, 0),
@@ -177,23 +168,17 @@ export default async function handler(req, res) {
       const recordDT = resolveRecordDateTime(transactionDate); // วันที่ของรายจ่าย — backdate ได้ถ้าระบุ transactionDate
       const expenseNo = makeExpenseNo();
 
-      await dualWrite({
-        label: 'expenses-create',
-        primary: () => appendSheet(token, sheetId, 'รายจ่าย', [
-          expenseNo, asText(recordDT.full), label.trim(), numAmount,
-          vatType, subtotal, vatAmount, payment_method,
-          photo_url, notes, recordedBy, branch, shift_no,
-        ]),
-        secondary: () => insertRow('pos_expenses', {
-          shop_id: shopId, expense_no: expenseNo, transaction_at: recordDT.full,
-          label: label.trim(), total: numAmount, vat_type: vatType, subtotal, vat_amount: vatAmount,
-          payment_method, photo_url, notes, recorded_by: recordedBy, branch_name: branch, shift_no,
-        }),
+      const { error } = await supabase.from('pos_expenses').insert({
+        shop_id: shopId, expense_no: expenseNo, transaction_at: recordDT.full,
+        label: label.trim(), total: numAmount, vat_type: vatType, subtotal, vat_amount: vatAmount,
+        payment_method, photo_url, notes, recorded_by: recordedBy, branch_name: branch, shift_no,
       });
+      if (error) throw error;
 
       // branch (สาขาที่เลือกไว้ในหน้า POS) ต้องมาก่อน branchName (ค่า default ของร้าน) เสมอ —
       // ไม่งั้นรายจ่ายทุกสาขาจะถูกนับรวมเป็นสาขาเดียวกันหมดในบัญชีหลัก/กราฟวิเคราะห์
-      await writeExpenseToMainSheets(token, mainSheetId, {
+      const { mainSheetId, refreshToken, shopName, branchName } = await getMainLedgerConfig(shopId);
+      await writeExpenseToMainSheets(refreshToken, mainSheetId, {
         shopId, total: numAmount, label: label.trim(), payment_method, notes, shopName,
         branchName: branch || branchName, recordedBy, transactionDate,
       });
@@ -206,16 +191,15 @@ export default async function handler(req, res) {
       const { expense_no } = req.body;
       if (!expense_no) return res.status(400).json({ error: 'Missing expense_no' });
 
-      const rows = await readSheet(token, sheetId, 'รายจ่าย!A:L');
-      const dataRows = rows.slice(1);
-      const idx = dataRows.findIndex(r => r[0] === expense_no);
-      if (idx === -1) return res.status(404).json({ error: 'ไม่พบรายการนี้' });
+      const { data: existing, error: fetchErr } = await supabase.from('pos_expenses').select('expense_no')
+        .eq('shop_id', shopId).eq('expense_no', expense_no).is('deleted_at', null).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!existing) return res.status(404).json({ error: 'ไม่พบรายการนี้' });
 
-      await dualWrite({
-        label: 'expenses-delete',
-        primary: () => updateSheetRow(token, sheetId, 'รายจ่าย', idx + 2, Array(12).fill('')),
-        secondary: () => softDeleteRow('pos_expenses', { shop_id: shopId, expense_no }),
-      });
+      const { error } = await supabase.from('pos_expenses')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('shop_id', shopId).eq('expense_no', expense_no);
+      if (error) throw error;
       return res.json({ ok: true });
     }
 
@@ -223,8 +207,6 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error('[pos/expenses]', err.message);
-    if (err.notSetup) return res.status(400).json({ error: err.message, notSetup: true });
-    if (err.notConnected) return res.status(400).json({ error: err.message, notConnected: true });
     return res.status(500).json({ error: err.message });
   }
 }

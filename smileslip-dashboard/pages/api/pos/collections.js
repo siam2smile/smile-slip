@@ -16,31 +16,36 @@
  *   collected_amount, collected_items, slip_url, confirmed_by, staff_note,
  *   cash_received, goods_received,                       ← แอดมิน/ผู้จัดการยืนยันรับเข้าร้านจริง (Phase admin)
  * } → อัปเดตสถานะ/ผลลัพธ์
+ *
+ * Phase 2 (write-primary flip, 2026-07-29): อ่าน/เขียนจาก Supabase (pos_collections/pos_products/
+ * pos_contacts/pos_cyclical_log) โดยตรงแล้ว ไม่ผ่าน Google Sheets/Google connection อีกต่อไป
  */
 import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import {
-  getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
-  makeCollectionNo, rowToCollection, rowToContact, rowToProduct,
-  COLLECTION_HEADERS, CONTACT_HEADERS, CYCLICAL_LOG_HEADERS, rowToCyclicalLog, logCyclicalTransaction,
+  makeCollectionNo, collectionFromRow, productFromRow, logCyclicalTransaction,
 } from '../../../lib/google-pos';
-import { dualWrite, insertRow, updateRow, softDeleteRow } from '../../../lib/supabase-pos';
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
+);
 
 // คำนวณจำนวนสินค้าหมุนเวียนที่ลูกค้าคนนี้ถืออยู่จริง แยกตาม SKU (ไม่ใช่แค่ยอดรวมเดียว) จากประวัติ
-// "บันทึกแลกเปลี่ยน" — ยืม = +qty (ถืออยู่เพิ่ม), คืน = -qty (คืนแล้ว), แลกเปลี่ยน = สุทธิ 0 (คืนเก่า+ยืมใหม่พร้อมกัน)
-// ใช้เติมจำนวนอัตโนมัติตอนส่งพนักงานไปเก็บ (กันต้องนับเองเวลาร้านมีสินค้าหมุนเวียนมากกว่า 1 ชนิด)
-async function getCustomerCyclicalHoldings(token, sheetId, customerId) {
+// "บันทึกแลกเปลี่ยน" (pos_cyclical_log) — ยืม = +qty (ถืออยู่เพิ่ม), คืน = -qty (คืนแล้ว),
+// แลกเปลี่ยน = สุทธิ 0 (คืนเก่า+ยืมใหม่พร้อมกัน) — ใช้เติมจำนวนอัตโนมัติตอนส่งพนักงานไปเก็บ
+async function getCustomerCyclicalHoldings(shopId, customerId) {
   if (!customerId) return {};
   try {
-    await ensureTabExists(token, sheetId, 'บันทึกแลกเปลี่ยน', CYCLICAL_LOG_HEADERS);
-    const rows = await readSheet(token, sheetId, 'บันทึกแลกเปลี่ยน!A:K');
+    const { data, error } = await supabase.from('pos_cyclical_log').select('*')
+      .eq('shop_id', shopId).eq('customer_id', customerId);
+    if (error) throw error;
     const holdings = {};
-    for (const row of rows.slice(1)) {
-      const log = rowToCyclicalLog(row);
-      if (log.customer_id !== customerId || !log.sku) continue;
-      if (log.action === 'ยืม') holdings[log.sku] = (holdings[log.sku] || 0) + log.qty;
-      else if (log.action === 'คืน') holdings[log.sku] = (holdings[log.sku] || 0) - log.qty;
+    for (const log of data || []) {
+      if (!log.sku) continue;
+      if (log.action === 'ยืม') holdings[log.sku] = (holdings[log.sku] || 0) + Number(log.qty);
+      else if (log.action === 'คืน') holdings[log.sku] = (holdings[log.sku] || 0) - Number(log.qty);
     }
     for (const sku of Object.keys(holdings)) holdings[sku] = Math.max(0, Math.round(holdings[sku]));
     return holdings;
@@ -50,26 +55,9 @@ async function getCustomerCyclicalHoldings(token, sheetId, customerId) {
   }
 }
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
-);
-
-// บังคับให้ Google Sheets เก็บเป็นข้อความล้วน กันเบอร์โทรที่ขึ้นต้นด้วย 0 โดนตัด 0 ทิ้ง
-function asText(v) {
-  if (v === '' || v == null) return v;
-  return `'${v}`;
-}
-
-async function getConfig(shopId) {
-  const [{ data: pc }, { data: gc }, { data: sp }] = await Promise.all([
-    supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
-    supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single(),
-    supabase.from('shop_profiles').select('subscription_tier').eq('id', shopId).maybeSingle(),
-  ]);
-  if (!pc?.pos_sheet_id) throw Object.assign(new Error('ยังไม่ได้ตั้งค่า POS'), { notSetup: true });
-  if (!gc?.google_refresh_token) throw Object.assign(new Error('ยังไม่ได้เชื่อมต่อ Google'), { notConnected: true });
-  return { sheetId: pc.pos_sheet_id, tier: sp?.subscription_tier || 'normal', token: await getAccessToken(gc.google_refresh_token) };
+async function getTier(shopId) {
+  const { data: sp } = await supabase.from('shop_profiles').select('subscription_tier').eq('id', shopId).maybeSingle();
+  return sp?.subscription_tier || 'normal';
 }
 
 // ── LINE Flex Message สำหรับพนักงานที่ถูกส่งไปเก็บเงิน/ของ ─────────────────────
@@ -159,24 +147,19 @@ export default async function handler(req, res) {
   // เขียนไม่ได้ถ้าทดลองใช้ 30 วันหมดอายุแล้ว (อ่าน/GET ยังทำได้ปกติเสมอ)
   if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
 
-
   try {
-    const { sheetId, tier, token } = await getConfig(shopId);
-    await ensureTabExists(token, sheetId, 'งานเก็บเงิน', COLLECTION_HEADERS);
-
     // ── GET — รายการงาน ────────────────────────────────────────────────────
     if (req.method === 'GET') {
       // ดึงจำนวนสินค้าหมุนเวียนที่ลูกค้าคนนี้ถืออยู่จริงแยกตาม SKU — ใช้เติมฟอร์มส่งพนักงานไปเก็บอัตโนมัติ
       if (req.query.holdingsFor) {
-        const holdings = await getCustomerCyclicalHoldings(token, sheetId, req.query.holdingsFor);
+        const holdings = await getCustomerCyclicalHoldings(shopId, req.query.holdingsFor);
         return res.json({ holdings });
       }
 
-      const rows = await readSheet(token, sheetId, 'งานเก็บเงิน!A:U');
-      const tasks = rows.slice(1)
-        .map((r, i) => ({ ...rowToCollection(r), _row: i + 2 }))
-        .filter(t => t.collection_no)
-        .reverse();
+      const { data, error } = await supabase.from('pos_collections').select('*')
+        .eq('shop_id', shopId).is('deleted_at', null).order('created_at', { ascending: false });
+      if (error) throw error;
+      const tasks = (data || []).map(collectionFromRow).filter(t => t.collection_no);
 
       if (req.query.collection_no) {
         const task = tasks.find(t => t.collection_no === req.query.collection_no);
@@ -185,6 +168,8 @@ export default async function handler(req, res) {
 
       return res.json({ tasks });
     }
+
+    const tier = await getTier(shopId);
 
     // ── POST — สร้างงานใหม่ ─────────────────────────────────────────────────
     if (req.method === 'POST') {
@@ -204,20 +189,12 @@ export default async function handler(req, res) {
       const collection_no = makeCollectionNo();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
 
-      await dualWrite({
-        label: 'collections-create',
-        primary: () => appendSheet(token, sheetId, 'งานเก็บเงิน', [
-          collection_no, now, customer_id, customer_name, asText(phone),
-          task_type, debt_amount, JSON.stringify(items),
-          staff_id, staff_name, 'รอดำเนินการ', notes,
-          '', '', '', '', '', '', '', '', created_by,
-        ]),
-        secondary: () => insertRow('pos_collections', {
-          shop_id: shopId, collection_no, transaction_at: now, customer_id, customer_name,
-          phone, task_type, debt_amount, items, staff_id, staff_name, status: 'รอดำเนินการ',
-          notes, created_by,
-        }),
+      const { error } = await supabase.from('pos_collections').insert({
+        shop_id: shopId, collection_no, transaction_at: now, customer_id, customer_name,
+        phone, task_type, debt_amount, items, staff_id, staff_name, status: 'รอดำเนินการ',
+        notes, created_by,
       });
+      if (error) throw error;
 
       if (staff_line_id) {
         const flexMsg = buildCollectionFlex({ collection_no, customer_name, phone, task_type, debt_amount, items, notes }, shopId);
@@ -235,26 +212,26 @@ export default async function handler(req, res) {
       } = req.body;
       if (!collection_no) return res.status(400).json({ error: 'Missing collection_no' });
 
-      const rows = await readSheet(token, sheetId, 'งานเก็บเงิน!A:U');
-      const dataRows = rows.slice(1);
-      const idx = dataRows.findIndex(r => r[0] === collection_no);
-      if (idx === -1) return res.status(404).json({ error: 'ไม่พบงาน' });
+      const { data: taskRow, error: fetchErr } = await supabase.from('pos_collections').select('*')
+        .eq('shop_id', shopId).eq('collection_no', collection_no).is('deleted_at', null).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!taskRow) return res.status(404).json({ error: 'ไม่พบงาน' });
 
-      const existing = [...dataRows[idx]];
-      while (existing.length < 21) existing.push('');
+      const existing = collectionFromRow(taskRow);
+      const updates = {};
 
       // ── พนักงานตอบกลับผลการเก็บ (ครั้งเดียว) ────────────────────────────────
-      if (result !== undefined && existing[10] === 'รอดำเนินการ') {
-        existing[10] = result === 'success' ? 'เก็บสำเร็จ' : 'เก็บไม่ได้';
-        existing[12] = collected_amount || 0;
-        existing[13] = JSON.stringify(collected_items || []);
-        existing[14] = slip_url || '';
-        existing[15] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
-        if (confirmed_by !== undefined) existing[16] = confirmed_by;
-        existing[17] = staff_note || '';
+      if (result !== undefined && existing.status === 'รอดำเนินการ') {
+        updates.status = result === 'success' ? 'เก็บสำเร็จ' : 'เก็บไม่ได้';
+        updates.collected_amount = collected_amount || 0;
+        updates.collected_items = collected_items || [];
+        updates.slip_url = slip_url || '';
+        updates.confirmed_at = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+        if (confirmed_by !== undefined) updates.confirmed_by = confirmed_by;
+        updates.staff_note = staff_note || '';
 
         if (result === 'success') {
-          const custId = existing[2];
+          const custId = existing.customer_id;
           // ค่าติดลบเคยทำให้ "เก็บเงิน/ของ" กลับเพิ่มยอดค้าง/ถังลูกค้าแทนที่จะลด (debt - (-x) = debt + x)
           const amountCollected = Math.max(0, parseFloat(collected_amount) || 0);
           const itemsCollected = Array.isArray(collected_items) ? collected_items : [];
@@ -262,24 +239,14 @@ export default async function handler(req, res) {
 
           if (custId && (amountCollected > 0 || totalItemsQty > 0)) {
             try {
-              await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
-              const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:W');
-              const custDataRows = custRows.slice(1);
-              const custIdx = custDataRows.findIndex(r => r[0] === custId);
-              if (custIdx !== -1) {
-                const custRow = rowToContact(custDataRows[custIdx]);
-                const custExisting = [...custDataRows[custIdx]];
-                while (custExisting.length < 23) custExisting.push('');
-                if (amountCollected > 0) custExisting[13] = Math.max(0, (custRow.debt || 0) - amountCollected);
-                if (totalItemsQty > 0) custExisting[14] = Math.max(0, (custRow.cylinders || 0) - totalItemsQty);
-                custExisting[19] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
-                // เขียนทั้งแถวของผู้ติดต่อกลับ — เบอร์โทร/เลขภาษี/เบอร์ผู้ติดต่อนิติบุคคลที่ readSheet()
-                // อ่านกลับมาไม่มี apostrophe ต้อง re-wrap เสมอ ไม่งั้น Sheets ตีความเป็นตัวเลขแล้วตัด
-                // เลข 0 นำหน้าทิ้งเงียบๆ แม้ endpoint นี้จะไม่ได้ตั้งใจแก้ไขฟิลด์เหล่านี้เลยก็ตาม
-                custExisting[3]  = asText(custExisting[3]);
-                custExisting[10] = asText(custExisting[10]);
-                custExisting[22] = asText(custExisting[22]);
-                await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
+              const { data: custRow } = await supabase.from('pos_contacts').select('debt, cylinders')
+                .eq('shop_id', shopId).eq('contact_id', custId).is('deleted_at', null).maybeSingle();
+              if (custRow) {
+                const custUpdates = { contact_updated_at: new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) };
+                if (amountCollected > 0) custUpdates.debt = Math.max(0, (Number(custRow.debt) || 0) - amountCollected);
+                if (totalItemsQty > 0) custUpdates.cylinders = Math.max(0, (Number(custRow.cylinders) || 0) - totalItemsQty);
+                await supabase.from('pos_contacts').update(custUpdates)
+                  .eq('shop_id', shopId).eq('contact_id', custId);
               }
             } catch (custErr) {
               console.error('[collections] update customer debt/cylinders error:', custErr.message);
@@ -288,60 +255,41 @@ export default async function handler(req, res) {
 
           // สินค้าหมุนเวียนที่เก็บคืนมา → เพิ่ม "เปล่ารอรีฟิล" ของสินค้านั้น
           if (itemsCollected.length) {
-            try {
-              const prodRows = await readSheet(token, sheetId, 'สินค้า!A:R');
-              const prodDataRows = prodRows.slice(1);
-              for (const item of itemsCollected) {
-                const qty = parseInt(item.qty) || 0;
-                if (qty <= 0 || !item.sku) continue;
-                const pIdx = prodDataRows.findIndex(r => r[0] === item.sku);
-                if (pIdx === -1) continue;
-                const prod = rowToProduct(prodDataRows[pIdx]);
+            for (const item of itemsCollected) {
+              const qty = parseInt(item.qty) || 0;
+              if (qty <= 0 || !item.sku) continue;
+              try {
+                const { data: prodRow } = await supabase.from('pos_products').select('*')
+                  .eq('shop_id', shopId).eq('sku', item.sku).is('deleted_at', null).maybeSingle();
+                if (!prodRow) continue;
+                const prod = productFromRow(prodRow);
                 if (prod.type !== 'หมุนเวียน') continue;
-                const prodExisting = [...prodDataRows[pIdx]];
-                while (prodExisting.length < 18) prodExisting.push('');
-                prodExisting[12] = (prod.empty_waiting || 0) + qty;
-                prodExisting[9] = asText(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }));
-                // รหัสสินค้า/บาร์โค้ดที่ขึ้นต้นด้วย 0 ต้อง re-wrap เสมอเมื่อเขียนทั้งแถวกลับ (บั๊กคลาส
-                // เดียวกับเบอร์โทร/เลขภาษี — ดูคอมเมนต์เดียวกันด้านบนที่จุดอัปเดตผู้ติดต่อ)
-                prodExisting[13] = asText(prodExisting[13]);
-                prodExisting[14] = asText(prodExisting[14]);
-                await updateSheetRow(token, sheetId, 'สินค้า', pIdx + 2, prodExisting);
-                prodDataRows[pIdx] = prodExisting;
+                await supabase.from('pos_products').update({
+                  empty_waiting: (prod.empty_waiting || 0) + qty,
+                  product_updated_at: new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }),
+                }).eq('shop_id', shopId).eq('sku', item.sku);
 
                 await logCyclicalTransaction({
                   shopId,
                   sku: item.sku, name: item.name || prod.name, source: 'เก็บเงิน/ของ', action: 'คืน',
-                  qty, customerId: custId, customerName: existing[3],
+                  qty, customerId: custId, customerName: existing.customer_name,
                   performedBy: confirmed_by,
                 });
+              } catch (prodErr) {
+                console.error('[collections] update product empty_waiting error:', prodErr.message);
               }
-            } catch (prodErr) {
-              console.error('[collections] update product empty_waiting error:', prodErr.message);
             }
           }
         }
       }
 
       // ── แอดมิน/ผู้จัดการยืนยันรับเข้าร้านจริง (สองชั้นกันเงิน/ของหาย) ────────────
-      if (cash_received !== undefined) existing[18] = cash_received ? 'TRUE' : 'FALSE';
-      if (goods_received !== undefined) existing[19] = goods_received ? 'TRUE' : 'FALSE';
+      if (cash_received !== undefined) updates.cash_received = !!cash_received;
+      if (goods_received !== undefined) updates.goods_received = !!goods_received;
 
-      // เบอร์โทร (col E) ไม่เคยถูกแก้ผ่าน PATCH นี้เลย (ไม่มีอยู่ใน body ที่รับ) แต่ถูกเขียนทับ
-      // กลับทุกครั้งที่ PATCH ตัวอื่นในแถวเดียวกัน — ต้อง re-wrap เสมอกันตัดเลข 0 นำหน้าทิ้ง
-      // (บั๊กที่พบจริง: PATCH แก้แค่ result ทำให้เบอร์ 0898887777 เพี้ยนเป็น 898887777)
-      existing[4] = asText(existing[4]);
-
-      await dualWrite({
-        label: 'collections-update',
-        primary: () => updateSheetRow(token, sheetId, 'งานเก็บเงิน', idx + 2, existing),
-        secondary: () => updateRow('pos_collections', { shop_id: shopId, collection_no }, {
-          status: existing[10], notes: existing[11], collected_amount: parseFloat(existing[12]) || 0,
-          collected_items: JSON.parse(existing[13] || '[]'), slip_url: existing[14],
-          confirmed_at: existing[15], confirmed_by: existing[16], staff_note: existing[17],
-          cash_received: existing[18] === 'TRUE', goods_received: existing[19] === 'TRUE',
-        }),
-      });
+      const { error } = await supabase.from('pos_collections').update(updates)
+        .eq('shop_id', shopId).eq('collection_no', collection_no);
+      if (error) throw error;
       return res.json({ ok: true, collection_no });
     }
 
@@ -350,15 +298,15 @@ export default async function handler(req, res) {
       const { collection_no } = req.body;
       if (!collection_no) return res.status(400).json({ error: 'Missing collection_no' });
 
-      const rows = await readSheet(token, sheetId, 'งานเก็บเงิน!A:U');
-      const idx = rows.slice(1).findIndex(r => r[0] === collection_no);
-      if (idx === -1) return res.status(404).json({ error: 'ไม่พบงาน' });
+      const { data: existing, error: fetchErr } = await supabase.from('pos_collections').select('collection_no')
+        .eq('shop_id', shopId).eq('collection_no', collection_no).is('deleted_at', null).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!existing) return res.status(404).json({ error: 'ไม่พบงาน' });
 
-      await dualWrite({
-        label: 'collections-delete',
-        primary: () => updateSheetRow(token, sheetId, 'งานเก็บเงิน', idx + 2, new Array(21).fill('')),
-        secondary: () => softDeleteRow('pos_collections', { shop_id: shopId, collection_no }),
-      });
+      const { error } = await supabase.from('pos_collections')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('shop_id', shopId).eq('collection_no', collection_no);
+      if (error) throw error;
       return res.json({ ok: true });
     }
 
@@ -366,8 +314,6 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error('[pos/collections]', err.message);
-    if (err.notSetup) return res.status(400).json({ error: err.message, notSetup: true });
-    if (err.notConnected) return res.status(400).json({ error: err.message, notConnected: true });
     return res.status(500).json({ error: err.message });
   }
 }
