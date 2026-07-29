@@ -2,7 +2,7 @@
 
 โปรเจกต์ของ Vespa / Siam Global Network Enterprise
 ภาษาหลักในโค้ดและ comment: **ไทย**
-อัปเดตล่าสุด: 2026-07-25 (ต่อจากข้อ 49-51 (Sheets→Supabase migration Tier A-D) — ทำ **ข้อ 52: Tier E เสร็จสมบูรณ์** `reports.js`/`export.js` ของ dashboard อ่านรายงานประเภท transaction log (ยอดขาย/เงินเชื่อ/ยืมสินค้า/สินค้าขายดี/กำไรขาดทุน/รายจ่าย/VAT) จาก Supabase แทน Sheets แล้ว (คงแค็ตตาล็อกสินค้า/ผู้ติดต่อเต็มรูปแบบไว้อ่าน Sheets ต่อไปโดยเจตนา เพราะไม่เคย backfill) — **migration ทั้งหมดตามแผนเดิมเสร็จสมบูรณ์ครบทุก Tier แล้ว (Phase 0 + A + B + C + D + E)** เหลือแค่ write-primary flip ขั้นสุดท้ายที่ยังไม่ทำ — เจอบั๊กจริงที่ไม่เกี่ยวกับ migration ระหว่างทดสอบ 2 จุด: `parseThaiBEDate()` ทำให้ตัวกรอง `dateFrom`/`dateTo` ของทุกรายงานไม่เคยมีผลอะไรมาตลอด (แก้แล้ว), `loans.js` คืนสต็อคผิดเมื่อยืนยันคืนของที่ไม่เคยถูกตัดสต็อคออกจริง (flag เป็น background task แยกต่างหาก) **Deploy production แล้ว (dashboard revision จริง `smileslip-dashboard-00283-wn2`)** verified บน production จริง — เหลือเดิม: Tier 2-4 ของระบบสิทธิ์แคชเชียร์ (deferred), เปิดลิ้นชักเงินสดอัตโนมัติ (ต้องมีเครื่องพิมพ์จริง), โอนย้ายสต็อกข้ามสาขา (deferred), White-Label แบบ LINE OA เต็มรูปแบบ (ยังไม่เริ่ม), QR สั่งอาหารที่โต๊ะ (วางแผนแล้ว ยังไม่เริ่ม))
+อัปเดตล่าสุด: 2026-07-29 (ต่อจากข้อ 52 (Tier E — migration ครบทุก Tier) — ทำ **ข้อ 53: แก้บั๊ก loans.js สต็อคเฟ้อ + รัน SQL ปิดช่องโหว่ trial ซ้ำ** — เพิ่มคอลัมน์ L `ตัดสต็อคตอนยืม` ใน LOAN_HEADERS + `pos_loans.stock_deducted` ให้ตอนคืนของคืนสต็อคเฉพาะใบยืมที่เคยตัดสต็อคออกจริงเท่านั้น (แถวเก่า = ถือว่าเคยตัด คงพฤติกรรมเดิม) ทดสอบครบสองเคสทั้ง dev และ production จริง + รัน SQL `trial_used_line_ids` แล้ว (ช่องโหว่ลบร้านแล้วสมัครใหม่ขอ trial ซ้ำปิดจริงแล้ว) **Deploy production แล้ว (dashboard revision จริง `smileslip-dashboard-00284-zhw`)** — สถานะ migration: Phase 0 + Tier A-E ครบแล้ว เหลือแค่ write-primary flip ขั้นสุดท้าย (รอ burn-in) — เหลือเดิม: Tier 2-4 ของระบบสิทธิ์แคชเชียร์ (deferred), เปิดลิ้นชักเงินสดอัตโนมัติ (ต้องมีเครื่องพิมพ์จริง), โอนย้ายสต็อกข้ามสาขา (deferred), White-Label แบบ LINE OA เต็มรูปแบบ (ยังไม่เริ่ม), QR สั่งอาหารที่โต๊ะ (วางแผนแล้ว ยังไม่เริ่ม))
 
 ---
 
@@ -462,6 +462,13 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
     - **สรุปสถานะ migration ทั้งหมด ณ จุดนี้:** Phase 0 + Tier A + Tier B + Tier C + Tier D (เขียน+อ่าน) + Tier E เสร็จสมบูรณ์ครบตามแผนเดิมทุกข้อแล้ว — เหลือแค่ write-primary flip (สลับให้ Supabase เป็น primary/Sheets เป็นแค่ secondary/snapshot export) ตามที่ระบุไว้ใน `tingly-napping-moth.md` ขั้นตอนที่ 5-6 ซึ่งเป็นขั้นถัดไปที่ยังไม่ได้ทำ (รอ burn-in เพิ่มเติม/ตัดสินใจเพิ่มเติมจากผู้ใช้ก่อน)
     - **Deploy production แล้ว (2026-07-25)** — revision จริง `smileslip-dashboard-00283-wn2` (ข้อความ deploy โชว์ revision เดิม `00282-vr4` ผิดอีกตามเคย เช็คด้วย `gcloud run revisions list` แล้ว pin traffic เอง) — verified บน production จริงว่า `GET /api/pos/reports?type=sales` และ `GET /api/pos/export?types=sales,inventory` ทำงานถูกต้องกับร้าน D Gas จริง (คืนโครงสร้างถูกต้อง, ไฟล์ Excel ดาวน์โหลด+parse ได้จริง) — **migration ทั้งชุด (Phase 0 → Tier E) อยู่บน production ครบทุกส่วนแล้วตั้งแต่ตอนนี้**
 
+53. **แก้บั๊ก loans.js สต็อคเฟ้อ (จากที่ flag ไว้ในข้อ 52) + รัน SQL trial_used_line_ids ปิดช่องโหว่ trial ซ้ำ — deploy production แล้ว (2026-07-29):**
+    - **บั๊ก:** PATCH ของ `api/pos/loans.js` (บันทึกคืนสินค้า) บวกสต็อคกลับให้สินค้าประเภท "นับสต็อค" เสมอ โดยไม่เช็คว่าตอนสร้างใบยืม (POST) ได้ตัดสต็อคออกจริงหรือไม่ (`deduct_stock` เป็น optional flag ที่ไม่เคยถูกบันทึกไว้ที่ไหนเลย) — ใบยืมที่สร้างด้วย `deduct_stock:false` ทำให้สต็อคเฟ้อขึ้นเท่าจำนวนที่ยืมทุกครั้งที่มาร์คคืน (พิสูจน์จริงตอนทดสอบ Tier E: สต็อค 0→1 จากการมาร์คคืนเฉยๆ)
+    - **แก้:** เพิ่มคอลัมน์ L `ตัดสต็อคตอนยืม` ('TRUE'/'FALSE') ใน `LOAN_HEADERS` บันทึกตอน POST + `rowToLoan()` คืน `stock_deducted` (**แถวเก่าที่คอลัมน์ว่าง = ถือว่าเคยตัด** คงพฤติกรรมเดิมของใบเก่าไม่เปลี่ยนย้อนหลัง — `ensureTabExists()` auto-widen header ให้เองตอนเปิดใช้ครั้งถัดไป) + PATCH คืนสต็อคเฉพาะเมื่อ `loan.stock_deducted` เป็นจริงเท่านั้น — มิเรอร์เข้า `pos_loans.stock_deducted` (boolean, default true เพื่อแถวเก่า — SQL: `scripts/fix-loans-stock-deducted.sql` ✅ ผู้ใช้รันแล้ว 2026-07-29)
+    - **รัน SQL `trial_used_line_ids` แล้วด้วย (2026-07-29)** — ช่องโหว่ "ลบร้านแล้วสมัครใหม่ขอ trial ฟรีซ้ำไม่จำกัดรอบ" ปิดจริงแล้วตั้งแต่ตอนนี้ (โค้ดฝั่ง `register.js`/`delete-shop.js` มีอยู่แล้วตั้งแต่ข้อ 44 Phase 2 แค่รอตารางนี้) — verified ผ่าน REST query ว่าตารางมีจริง
+    - **ทดสอบยิงจริงกับร้าน D Gas ครบทั้งสองเคสบน dev ก่อน commit:** `deduct_stock:false` → สต็อคไม่ขยับเลยทั้งตอนยืมและตอนคืน (บั๊กเดิมจะ +qty ผี), `deduct_stock:true` → สต็อค 5→3 ตอนยืม กลับมา 5 ตอนคืน สมมาตรถูกต้อง (หมายเหตุ: เคสตัดสต็อคตอนสต็อคไม่พอยังคง clamp ที่ 0 ด้วย `Math.max(0,...)` ตามพฤติกรรมเดิมของระบบ ไม่ได้แก้ในรอบนี้)
+    - **Deploy production แล้ว (2026-07-29)** — revision จริง `smileslip-dashboard-00284-zhw` (ข้อความ deploy โชว์ revision เดิม `00283-wn2` ผิดอีกตามเคย เช็คด้วย `gcloud run revisions list` แล้ว pin traffic เอง) — **verified บน production จริง**: ยิงเคสบั๊กเดิม (ยืม 3 ชิ้นแบบไม่ตัดสต็อค → มาร์คคืน) กับ production URL ตรง สต็อคนิ่งที่ 0 ตลอด (บั๊กเดิมจะ +3) + Supabase mirror เขียน `stock_deducted:false` ถูกต้องจริงหลังรัน SQL — ลบข้อมูลทดสอบออกจากทั้ง Sheets และ Supabase สะอาดครบ
+
 **ข้อควรระวังใหม่ที่เพิ่มจากเหตุการณ์นี้:**
 - **Git identity ของเครื่องนี้ตั้งแบบ repo-local เท่านั้น** (`user.name=Vespa`, `user.email=six.papigod@gmail.com`) ไม่ใช่ global — ถ้าย้ายเครื่อง/ไดร์อีกต้องตั้งใหม่
 - **ผู้ใช้ต้องการให้ commit + push ขึ้น GitHub ทันทีทุกครั้งที่แก้ไฟล์** ไม่ต้องรอถามก่อน (แต่ยังต้องเช็คไม่ให้ commit secret และไม่ bundle ไฟล์เก่าที่ค้างอยู่โดยไม่ถามก่อน)
@@ -501,7 +508,7 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
 | Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00165-gbg` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00283-wn2` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00284-zhw` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
@@ -1236,7 +1243,7 @@ CREATE TABLE IF NOT EXISTS pos_open_bills (
 );
 ```
 
-**สร้างตาราง trial_used_line_ids (ป้องกันลบร้านแล้วสมัครใหม่ขอทดลองฟรี 30 วันซ้ำไม่จำกัดรอบ — เพิ่ม 2026-07-23, ยังไม่ได้รัน):**
+**สร้างตาราง trial_used_line_ids (ป้องกันลบร้านแล้วสมัครใหม่ขอทดลองฟรี 30 วันซ้ำไม่จำกัดรอบ — เพิ่ม 2026-07-23, ✅ รันแล้ว 2026-07-29 verified ผ่าน REST query ช่องโหว่ trial ซ้ำปิดจริงแล้ว):**
 ก่อนรัน SQL นี้ การสมัครสมาชิกยังทำงานปกติทุกอย่าง (ให้ trial 30 วันตามเดิมทุกครั้ง ไม่เช็คซ้ำ) —
 `api/register.js` เช็ค error จาก Supabase ก่อนเสมอแล้ว fail-safe เป็น "ยังไม่เคยใช้ trial" ถ้าตารางนี้
 ยังไม่มี (ทดสอบแล้วจริงว่าไม่ error/ไม่บล็อกสมัครสมาชิกใหม่) — ตารางนี้แยกออกจาก `shop_profiles`
