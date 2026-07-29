@@ -186,62 +186,6 @@ export async function ensureTabExists(accessToken, sheetId, tabName, headers) {
   }
 }
 
-// สร้าง spreadsheet ที่มี 7 tabs: สินค้า, ยอดขาย, ผู้ติดต่อ, รับสินค้า, ลูกค้า, พนักงาน, ออเดอร์จัดส่ง
-export async function createPosSpreadsheet(accessToken, name, parentId) {
-  const res = await fetch(DRIVE_BASE, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name,
-      mimeType: 'application/vnd.google-apps.spreadsheet',
-      parents: [parentId],
-    }),
-  });
-  const d = await res.json();
-  if (!d.id) throw new Error('สร้าง spreadsheet ไม่ได้: ' + JSON.stringify(d));
-  const sheetId = d.id;
-
-  // ดู gid ของ sheet แรก (อาจเป็น Sheet1 หรือ แผ่น1 ขึ้นกับภาษาบัญชี Google)
-  const metaRes = await fetch(`${SHEETS_BASE}/${sheetId}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  const meta = await metaRes.json();
-  const sheet1GId = meta.sheets[0].properties.sheetId;
-
-  // Rename sheet แรก → สินค้า, เพิ่ม tab อีก 3 อัน
-  await fetch(`${SHEETS_BASE}/${sheetId}:batchUpdate`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      requests: [
-        {
-          updateSheetProperties: {
-            properties: { sheetId: sheet1GId, title: 'สินค้า' },
-            fields: 'title',
-          },
-        },
-        { addSheet: { properties: { title: 'ยอดขาย' } } },
-        { addSheet: { properties: { title: 'ผู้ติดต่อ' } } },
-        { addSheet: { properties: { title: 'รับสินค้า' } } },
-        { addSheet: { properties: { title: 'พนักงาน' } } },
-        { addSheet: { properties: { title: 'ออเดอร์จัดส่ง' } } },
-        { addSheet: { properties: { title: 'ยืมสินค้า' } } },
-      ],
-    }),
-  });
-
-  // เขียน header ทั้ง 6 tab (รวม ลูกค้า+ผู้ติดต่อ ไว้ใน "ผู้ติดต่อ" tab เดียว)
-  await appendSheet(accessToken, sheetId, 'สินค้า', PRODUCT_HEADERS);
-  await appendSheet(accessToken, sheetId, 'ยอดขาย', SALE_HEADERS);
-  await appendSheet(accessToken, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
-  await appendSheet(accessToken, sheetId, 'รับสินค้า', RECEIVE_HEADERS);
-  await appendSheet(accessToken, sheetId, 'พนักงาน', STAFF_HEADERS);
-  await appendSheet(accessToken, sheetId, 'ออเดอร์จัดส่ง', ORDER_HEADERS);
-  await appendSheet(accessToken, sheetId, 'ยืมสินค้า', LOAN_HEADERS);
-
-  return sheetId;
-}
-
 // ── Header Definitions ────────────────────────────────────────────────────────
 
 // A-M เดิม + N=รหัสผู้ใช้ O=บาร์โค้ด P=รายละเอียด Q=VAT R=สถานะ

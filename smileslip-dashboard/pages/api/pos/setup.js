@@ -1,9 +1,15 @@
 /**
  * GET  /api/pos/setup?shopId=xxx  → ตรวจว่าตั้งค่า POS แล้วหรือยัง
- * POST /api/pos/setup { shopId }  → สร้าง folder + sheet แล้ว upsert pos_configs
+ * POST /api/pos/setup { shopId }  → สร้าง Drive folder แล้ว upsert pos_configs (ใช้ `configured`
+ *   เป็นสัญญาณ "เปิดใช้งานโมดูล POS ครั้งแรกแล้ว" — ไม่ผูกกับ Google Sheets อีกต่อไป)
+ *
+ * Phase 2 Tier 143 (write-primary flip, 2026-07-29): เลิกสร้าง Google Sheets spreadsheet
+ * (pos_sheet_id) ตั้งแต่ตอนนี้ — ไม่มีไฟล์ไหนใน pages/api/pos/*.js อ่าน pos_sheet_id อีกแล้ว
+ * (ทุกตารางตัด Sheets ออกหมดแล้วในทุก Tier ก่อนหน้า) ยังคงสร้าง Drive folder ไว้เหมือนเดิม
+ * เพราะยังใช้เก็บรูปสลิป/ใบเสร็จ/รูปหลักฐานต่างๆ (upload-photo.js ฯลฯ)
  */
 import { createClient } from '@supabase/supabase-js';
-import { getAccessToken, createFolder, createPosSpreadsheet } from '../../../lib/google-pos';
+import { getAccessToken, createFolder } from '../../../lib/google-pos';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -17,7 +23,7 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const { data, error } = await supabase
       .from('pos_configs')
-      .select('pos_folder_id, pos_sheet_id, created_at')
+      .select('pos_folder_id, created_at')
       .eq('shop_id', shopId)
       .maybeSingle();
 
@@ -57,21 +63,14 @@ export default async function handler(req, res) {
         rootFolderId
       );
 
-      const sheetId = await createPosSpreadsheet(
-        accessToken,
-        `📦 สต็อคสินค้า - ${shopName}`,
-        posFolderId
-      );
-
       const { error: upsertErr } = await supabase.from('pos_configs').upsert({
         shop_id: shopId,
         pos_folder_id: posFolderId,
-        pos_sheet_id: sheetId,
       });
 
       if (upsertErr) return res.status(500).json({ error: upsertErr.message });
 
-      return res.json({ ok: true, pos_folder_id: posFolderId, pos_sheet_id: sheetId });
+      return res.json({ ok: true, pos_folder_id: posFolderId });
     } catch (err) {
       console.error('[pos/setup]', err.message);
       return res.status(500).json({ error: err.message });

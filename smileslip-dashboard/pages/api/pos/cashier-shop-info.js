@@ -31,7 +31,7 @@ export default async function handler(req, res) {
     supabase.from('shop_profiles')
       .select('shop_name, address, tax_id, phone, subscription_tier, status')
       .eq('id', shopId).maybeSingle(),
-    supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).maybeSingle(),
+    supabase.from('pos_configs').select('pos_folder_id').eq('shop_id', shopId).maybeSingle(),
   ]);
 
   if (!shop) return res.status(404).json({ error: 'ไม่พบร้านค้านี้' });
@@ -47,6 +47,8 @@ export default async function handler(req, res) {
       subscription_tier: shop.subscription_tier || 'normal',
       status: shop.status || 'active',
     },
-    configured: !!pc?.pos_sheet_id,
+    // pos_sheet_id ไม่ถูกสร้าง/อ่านที่ไหนอีกแล้วหลัง Phase 2 (write-primary flip) — ใช้
+    // pos_folder_id เป็นสัญญาณ "เปิดใช้งาน POS แล้ว" แทน
+    configured: !!pc?.pos_folder_id,
   });
 }
