@@ -7,39 +7,20 @@
  *
  * GET /api/pos/tax-invoice?shopId               → รายการใบกำกับภาษีทั้งหมด (ล่าสุดก่อน)
  * GET /api/pos/tax-invoice?shopId&invoice_no=xxx → ดึงใบเดียว (สำหรับพิมพ์ซ้ำ)
+ *
+ * Phase 2 (write-primary flip, 2026-07-29): อ่าน/เขียนจาก Supabase (pos_tax_invoices/pos_products)
+ * โดยตรงแล้ว ไม่ผ่าน Google Sheets/Google connection อีกต่อไป
  */
 import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
-import {
-  getAccessToken, readSheet, appendSheet, ensureTabExists,
-  rowToTaxInvoice, rowToProduct, TAX_INVOICE_HEADERS,
-} from '../../../lib/google-pos';
-import { dualWrite, insertRow } from '../../../lib/supabase-pos';
+import { taxInvoiceRecordFromRow, productFromRow } from '../../../lib/google-pos';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
-// บังคับเก็บเป็นข้อความเสมอ กัน Sheets USER_ENTERED ตีความสตริงวันที่ไทย (มีปี พ.ศ.) เป็นเลข serial
-// ผิดเพี้ยน ~543 ปี (เจอจริงกับ INV-2569-00002 ระหว่างทดสอบ Excel report engine — ไฟล์นี้ไม่เคยผ่าน
-// asText() มาก่อนเลยตั้งแต่สร้าง ต่างจากไฟล์ POS อื่นๆ ที่แก้ไปแล้ว)
-function asText(v) {
-  if (v === '' || v == null) return v;
-  return `'${v}`;
-}
-
 const VAT_RATE = 0.07;
-
-async function getConfig(shopId) {
-  const [{ data: pc }, { data: gc }] = await Promise.all([
-    supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
-    supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single(),
-  ]);
-  if (!pc?.pos_sheet_id) throw Object.assign(new Error('ยังไม่ได้ตั้งค่า POS'), { notSetup: true });
-  if (!gc?.google_refresh_token) throw Object.assign(new Error('ยังไม่ได้เชื่อมต่อ Google'), { notConnected: true });
-  return { sheetId: pc.pos_sheet_id, token: await getAccessToken(gc.google_refresh_token) };
-}
 
 export default async function handler(req, res) {
   const shopId = req.query.shopId || req.body?.shopId;
@@ -48,15 +29,13 @@ export default async function handler(req, res) {
   // เขียนไม่ได้ถ้าทดลองใช้ 30 วันหมดอายุแล้ว (อ่าน/GET ยังทำได้ปกติเสมอ)
   if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
 
-
   try {
-    const { sheetId, token } = await getConfig(shopId);
-    await ensureTabExists(token, sheetId, 'ใบกำกับภาษี', TAX_INVOICE_HEADERS);
-
     // ── GET ──────────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'ใบกำกับภาษี!A:P');
-      const invoices = rows.slice(1).map(rowToTaxInvoice).filter(v => v.invoice_no).reverse();
+      const { data, error } = await supabase.from('pos_tax_invoices').select('*')
+        .eq('shop_id', shopId).order('created_at', { ascending: false });
+      if (error) throw error;
+      const invoices = (data || []).map(taxInvoiceRecordFromRow).filter(v => v.invoice_no);
 
       if (req.query.invoice_no) {
         return res.json({ invoice: invoices.find(v => v.invoice_no === req.query.invoice_no) || null });
@@ -84,15 +63,19 @@ export default async function handler(req, res) {
       }
 
       // คำนวณ VAT จาก vat_type ของสินค้าแต่ละชิ้น (จับคู่ด้วย SKU)
-      const prodRows = await readSheet(token, sheetId, 'สินค้า!A:R');
-      const prodDataRows = prodRows.slice(1);
+      const skus = items.map(i => i.sku).filter(Boolean);
+      let productsBySku = {};
+      if (skus.length) {
+        const { data: prodRows } = await supabase.from('pos_products').select('*')
+          .eq('shop_id', shopId).in('sku', skus).is('deleted_at', null);
+        for (const row of prodRows || []) productsBySku[row.sku] = productFromRow(row);
+      }
       let subtotal = 0, vat = 0;
       for (const item of items) {
         const qty = parseFloat(item.qty) || 0;
         const price = parseFloat(item.price) || 0;
         const lineTotal = qty * price;
-        const prod = item.sku ? prodDataRows.find(r => r[0] === item.sku) : null;
-        const vatType = prod ? rowToProduct(prod).vat_type : 'ไม่มี VAT';
+        const vatType = item.sku && productsBySku[item.sku] ? productsBySku[item.sku].vat_type : 'ไม่มี VAT';
         if (vatType === 'รวม VAT แล้ว') {
           // ราคาที่ตั้งไว้รวม VAT อยู่แล้ว — แยกกลับออกมา
           const base = lineTotal / (1 + VAT_RATE);
@@ -114,25 +97,16 @@ export default async function handler(req, res) {
       // toLocaleDateString('th-TH') คืนสตริงแบบ "พ.ศ. 2569" (มีจุด/วรรค) ไม่เหมาะเป็นส่วนหนึ่งของ
       // เลขที่เอกสาร — ดึงเฉพาะตัวเลขปี พ.ศ. ออกมา (ปี ค.ศ. + 543)
       const yearBE = String(new Date().getFullYear() + 543);
-      const existingRows = await readSheet(token, sheetId, 'ใบกำกับภาษี!A:A');
-      const countThisYear = existingRows.slice(1)
-        .filter(r => (r[0] || '').includes(`-${yearBE}-`)).length;
-      const invoice_no = `INV-${yearBE}-${String(countThisYear + 1).padStart(5, '0')}`;
+      const { count: countThisYear } = await supabase.from('pos_tax_invoices')
+        .select('invoice_no', { count: 'exact' }).eq('shop_id', shopId).like('invoice_no', `%-${yearBE}-%`);
+      const invoice_no = `INV-${yearBE}-${String((countThisYear || 0) + 1).padStart(5, '0')}`;
 
-      await dualWrite({
-        label: 'tax-invoice-create',
-        primary: () => appendSheet(token, sheetId, 'ใบกำกับภาษี', [
-          invoice_no, asText(now), ref_bill_no, customer_id,
-          buyer_name, asText(buyer_tax_id), buyer_address, buyer_branch,
-          JSON.stringify(items), subtotal, vat, total, issued_by, asText(buyer_phone),
-          seller_name, seller_address,
-        ]),
-        secondary: () => insertRow('pos_tax_invoices', {
-          shop_id: shopId, invoice_no, issued_at: now, ref_bill_no, customer_id,
-          buyer_name, buyer_tax_id, buyer_address, buyer_branch, items,
-          subtotal, vat, total, issued_by, buyer_phone, seller_name, seller_address,
-        }),
+      const { error } = await supabase.from('pos_tax_invoices').insert({
+        shop_id: shopId, invoice_no, issued_at: now, ref_bill_no, customer_id,
+        buyer_name, buyer_tax_id, buyer_address, buyer_branch, items,
+        subtotal, vat, total, issued_by, buyer_phone, seller_name, seller_address,
       });
+      if (error) throw error;
 
       return res.json({ ok: true, invoice_no, subtotal, vat, total, issued_at: now });
     }
@@ -141,8 +115,6 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error('[pos/tax-invoice]', err.message);
-    if (err.notSetup) return res.status(400).json({ error: err.message, notSetup: true });
-    if (err.notConnected) return res.status(400).json({ error: err.message, notConnected: true });
     return res.status(500).json({ error: err.message });
   }
 }

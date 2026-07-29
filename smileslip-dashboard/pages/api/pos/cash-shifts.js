@@ -10,43 +10,18 @@
  *   → คำนวณ "เงินสดที่ควรมี" ใหม่จากข้อมูลจริงเสมอ (เงินสดตั้งต้น + ขายเงินสด − รายจ่ายเงินสด
  *     ที่ผูกกับกะนี้) ไม่เชื่อค่าที่ client ส่งมา — ถ้ายอดไม่ตรง (ส่วนต่าง ≠ 0) ต้องมีหมายเหตุ
  *     เสมอ (ไม่บล็อคการปิดกะ แค่บังคับอธิบาย) + push LINE แจ้งเจ้าของร้านอัตโนมัติถ้ามีส่วนต่าง
+ *
+ * Phase 2 (write-primary flip, 2026-07-29): อ่าน/เขียนจาก Supabase (pos_cash_shifts/pos_sales/
+ * pos_expenses) โดยตรงแล้ว ไม่ผ่าน Google Sheets/Google connection อีกต่อไป
  */
 import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
-import {
-  getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
-  makeShiftNo, rowToCashShift, CASH_SHIFT_HEADERS,
-  rowToSale, SALE_HEADERS, rowToExpense, EXPENSE_HEADERS,
-} from '../../../lib/google-pos';
-import { dualWrite, insertRow, updateRow } from '../../../lib/supabase-pos';
+import { makeShiftNo, cashShiftFromRow, saleFromRow, expenseFromRow } from '../../../lib/google-pos';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
-
-// บังคับเก็บเป็นข้อความเสมอ กัน Sheets USER_ENTERED ตีความสตริงวันที่ไทย (มีปี พ.ศ.) เป็นเลข
-// serial ผิดเพี้ยน ~543 ปี (บั๊กเดียวกับที่เจอซ้ำหลายจุดในโปรเจกต์นี้ — ดู CLAUDE.md ข้อ 19/27)
-function asText(v) {
-  if (v === '' || v == null) return v;
-  return `'${v}`;
-}
-
-async function getConfig(shopId) {
-  const [{ data: pc }, { data: gc }, { data: sp }] = await Promise.all([
-    supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
-    supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single(),
-    supabase.from('shop_profiles').select('owner_line_id, shop_name').eq('id', shopId).single(),
-  ]);
-  if (!pc?.pos_sheet_id) throw Object.assign(new Error('ยังไม่ได้ตั้งค่า POS'), { notSetup: true });
-  if (!gc?.google_refresh_token) throw Object.assign(new Error('ยังไม่ได้เชื่อมต่อ Google'), { notConnected: true });
-  return {
-    sheetId: pc.pos_sheet_id,
-    ownerLineId: sp?.owner_line_id || '',
-    shopName: sp?.shop_name || '',
-    token: await getAccessToken(gc.google_refresh_token),
-  };
-}
 
 async function pushLineMessage(lineId, message) {
   const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
@@ -65,17 +40,17 @@ async function pushLineMessage(lineId, message) {
 // คำนวณ "เงินสดที่ควรมี" ของกะนี้จากข้อมูลจริง — เงินสดตั้งต้น + ขายเงินสดที่ผูกกะนี้ − รายจ่ายเงินสดที่ผูกกะนี้
 // (payment_method='เงินสด' เท่านั้น — โอน/เชื่อไม่กระทบเงินสดในลิ้นชัก) ใช้ `total` ของบิลตรงๆ
 // (เงินทอนหักรวมอยู่ในนั้นแล้ว: รับ 500 ทอน 120 = สุทธิ 380 = total พอดี ไม่ต้องแยกคำนวณเงินทอนเอง
-async function computeExpectedCash(token, sheetId, shift) {
-  await ensureTabExists(token, sheetId, 'ยอดขาย', SALE_HEADERS);
-  await ensureTabExists(token, sheetId, 'รายจ่าย', EXPENSE_HEADERS);
-  const [saleRows, expenseRows] = await Promise.all([
-    readSheet(token, sheetId, 'ยอดขาย!A:S'),
-    readSheet(token, sheetId, 'รายจ่าย!A:M'),
+async function computeExpectedCash(shopId, shift) {
+  const [{ data: saleRows, error: saleErr }, { data: expenseRows, error: expErr }] = await Promise.all([
+    supabase.from('pos_sales').select('*').eq('shop_id', shopId).eq('shift_no', shift.shift_no).is('deleted_at', null),
+    supabase.from('pos_expenses').select('*').eq('shop_id', shopId).eq('shift_no', shift.shift_no).is('deleted_at', null),
   ]);
-  const cashSales = saleRows.slice(1).map(rowToSale)
-    .filter(s => s.bill_no && s.shift_no === shift.shift_no && s.payment_method === 'เงินสด' && s.status !== 'ยกเลิก');
-  const cashExpenses = expenseRows.slice(1).map(rowToExpense)
-    .filter(e => e.expense_no && e.shift_no === shift.shift_no && e.payment_method === 'เงินสด');
+  if (saleErr) throw saleErr;
+  if (expErr) throw expErr;
+  const cashSales = (saleRows || []).map(saleFromRow)
+    .filter(s => s.bill_no && s.payment_method === 'เงินสด' && s.status !== 'ยกเลิก');
+  const cashExpenses = (expenseRows || []).map(expenseFromRow)
+    .filter(e => e.expense_no && e.payment_method === 'เงินสด');
   const totalCashIn = cashSales.reduce((s, x) => s + x.total, 0);
   const totalCashOut = cashExpenses.reduce((s, x) => s + x.total, 0);
   const expected = Math.round((shift.opening_cash + totalCashIn - totalCashOut) * 100) / 100;
@@ -90,28 +65,28 @@ export default async function handler(req, res) {
   if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
 
   try {
-    const { sheetId, token, ownerLineId, shopName } = await getConfig(shopId);
-    await ensureTabExists(token, sheetId, 'กะเงินสด', CASH_SHIFT_HEADERS);
-
     // ── GET ──────────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'กะเงินสด!A:N');
-      const shifts = rows.slice(1).map(rowToCashShift).filter(s => s.shift_no);
-
       if (req.query.shift_no) {
-        const shift = shifts.find(s => s.shift_no === req.query.shift_no);
-        if (!shift) return res.status(404).json({ error: 'ไม่พบกะ' });
+        const { data: shiftRow, error } = await supabase.from('pos_cash_shifts').select('*')
+          .eq('shop_id', shopId).eq('shift_no', req.query.shift_no).maybeSingle();
+        if (error) throw error;
+        if (!shiftRow) return res.status(404).json({ error: 'ไม่พบกะ' });
+        const shift = cashShiftFromRow(shiftRow);
         if (shift.status === 'เปิดอยู่') {
-          const preview = await computeExpectedCash(token, sheetId, shift);
+          const preview = await computeExpectedCash(shopId, shift);
           return res.json({ shift: { ...shift, expected_cash: preview.expected } });
         }
         return res.json({ shift });
       }
 
-      let filtered = shifts;
-      if (req.query.status) filtered = filtered.filter(s => s.status === req.query.status);
-      if (req.query.staffId) filtered = filtered.filter(s => s.staff_id === req.query.staffId);
-      return res.json({ shifts: filtered.reverse() });
+      let query = supabase.from('pos_cash_shifts').select('*').eq('shop_id', shopId);
+      if (req.query.status) query = query.eq('status', req.query.status);
+      if (req.query.staffId) query = query.eq('staff_id', req.query.staffId);
+      const { data, error } = await query.order('created_at', { ascending: false });
+      if (error) throw error;
+      const shifts = (data || []).map(cashShiftFromRow).filter(s => s.shift_no);
+      return res.json({ shifts });
     }
 
     // ── POST (เปิดกะ) ────────────────────────────────────────────────────────
@@ -120,30 +95,21 @@ export default async function handler(req, res) {
       if (!staff_id || !staff_name) return res.status(400).json({ error: 'ต้องระบุพนักงานที่เปิดกะ' });
       if (parseFloat(opening_cash) < 0) return res.status(400).json({ error: 'เงินสดตั้งต้นต้องไม่ติดลบ' });
 
-      const rows = await readSheet(token, sheetId, 'กะเงินสด!A:N');
-      const existingOpen = rows.slice(1).map(rowToCashShift)
-        .find(s => s.shift_no && s.staff_id === staff_id && s.status === 'เปิดอยู่');
-      if (existingOpen) {
-        return res.status(400).json({ error: `${staff_name} มีกะที่ยังเปิดอยู่แล้ว (${existingOpen.shift_no}) กรุณาปิดกะเดิมก่อน`, shift_no: existingOpen.shift_no });
+      const { data: existingOpenRow } = await supabase.from('pos_cash_shifts').select('shift_no')
+        .eq('shop_id', shopId).eq('staff_id', staff_id).eq('status', 'เปิดอยู่').maybeSingle();
+      if (existingOpenRow) {
+        return res.status(400).json({ error: `${staff_name} มีกะที่ยังเปิดอยู่แล้ว (${existingOpenRow.shift_no}) กรุณาปิดกะเดิมก่อน`, shift_no: existingOpenRow.shift_no });
       }
 
       const shift_no = makeShiftNo();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
       const openedAtIso = new Date().toISOString();
-      // dual-write ระยะ migration: Sheets ยังเป็นตัวจริง (primary, ต้องสำเร็จ) Supabase เขียน
-      // ตามหลังแบบ best-effort (secondary) — ดู lib/supabase-pos.js สำหรับรายละเอียด
-      await dualWrite({
-        label: 'cash-shifts:open',
-        primary: () => appendSheet(token, sheetId, 'กะเงินสด', [
-          shift_no, staff_id, staff_name, branch,
-          asText(now), parseFloat(opening_cash) || 0,
-          '', '', '', '', '', '', '', 'เปิดอยู่',
-        ]),
-        secondary: () => insertRow('pos_cash_shifts', {
-          shop_id: shopId, shift_no, staff_id, staff_name, branch_name: branch,
-          opened_at: openedAtIso, opening_cash: parseFloat(opening_cash) || 0, status: 'เปิดอยู่',
-        }),
+
+      const { error } = await supabase.from('pos_cash_shifts').insert({
+        shop_id: shopId, shift_no, staff_id, staff_name, branch_name: branch,
+        opened_at: openedAtIso, opening_cash: parseFloat(opening_cash) || 0, status: 'เปิดอยู่',
       });
+      if (error) throw error;
       return res.json({ ok: true, shift_no, staff_name, opening_cash: parseFloat(opening_cash) || 0, opened_at: now });
     }
 
@@ -156,15 +122,15 @@ export default async function handler(req, res) {
       }
       if (parseFloat(withdrawn_amount) < 0) return res.status(400).json({ error: 'ยอดเก็บออกไปต้องไม่ติดลบ' });
 
-      const rows = await readSheet(token, sheetId, 'กะเงินสด!A:N');
-      const dataRows = rows.slice(1);
-      const idx = dataRows.findIndex(r => r[0] === shift_no);
-      if (idx === -1) return res.status(404).json({ error: 'ไม่พบกะ' });
+      const { data: shiftRow, error: fetchErr } = await supabase.from('pos_cash_shifts').select('*')
+        .eq('shop_id', shopId).eq('shift_no', shift_no).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!shiftRow) return res.status(404).json({ error: 'ไม่พบกะ' });
 
-      const shift = rowToCashShift(dataRows[idx]);
+      const shift = cashShiftFromRow(shiftRow);
       if (shift.status !== 'เปิดอยู่') return res.status(400).json({ error: 'กะนี้ปิดไปแล้ว' });
 
-      const { expected } = await computeExpectedCash(token, sheetId, shift);
+      const { expected } = await computeExpectedCash(shopId, shift);
       const counted = parseFloat(counted_cash) || 0;
       const variance = Math.round((counted - expected) * 100) / 100;
 
@@ -174,35 +140,28 @@ export default async function handler(req, res) {
 
       const withdrawn = Math.min(counted, Math.max(0, parseFloat(withdrawn_amount) || 0));
       const carriedForward = Math.round((counted - withdrawn) * 100) / 100;
-      const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-
-      const existing = [...dataRows[idx]];
-      while (existing.length < 14) existing.push('');
-      existing[6]  = asText(now);       // ปิดกะเมื่อ
-      existing[7]  = expected;          // เงินสดที่ควรมี
-      existing[8]  = counted;           // เงินสดที่นับได้จริง
-      existing[9]  = variance;          // ส่วนต่าง
-      existing[10] = notes;             // หมายเหตุ
-      existing[11] = withdrawn;         // ยอดเก็บออกไป
-      existing[12] = carriedForward;    // ยอดยกไปกะถัดไป
-      existing[13] = 'ปิดแล้ว';        // สถานะ
       const closedAtIso = new Date().toISOString();
-      await dualWrite({
-        label: 'cash-shifts:close',
-        primary: () => updateSheetRow(token, sheetId, 'กะเงินสด', idx + 2, existing),
-        secondary: () => updateRow('pos_cash_shifts', { shop_id: shopId, shift_no }, {
-          closed_at: closedAtIso, expected_cash: expected, counted_cash: counted,
-          variance, notes, withdrawn_amount: withdrawn, carried_forward: carriedForward, status: 'ปิดแล้ว',
-        }),
-      });
+
+      const { error } = await supabase.from('pos_cash_shifts').update({
+        closed_at: closedAtIso, expected_cash: expected, counted_cash: counted,
+        variance, notes, withdrawn_amount: withdrawn, carried_forward: carriedForward, status: 'ปิดแล้ว',
+      }).eq('shop_id', shopId).eq('shift_no', shift_no);
+      if (error) throw error;
 
       // แจ้งเจ้าของร้านทาง LINE ถ้ายอดไม่ตรง (ไม่บล็อคการปิดกะ แค่แจ้งเตือน)
-      if (variance !== 0 && ownerLineId) {
-        const overShort = variance > 0 ? 'เงินเกิน' : 'เงินขาด';
-        await pushLineMessage(ownerLineId, {
-          type: 'text',
-          text: `⚠️ ปิดกะไม่ตรงยอด — ${shopName}\nพนักงาน: ${shift.staff_name}\nเงินที่ควรมี: ฿${expected.toLocaleString()}\nนับได้จริง: ฿${counted.toLocaleString()}\n${overShort}: ฿${Math.abs(variance).toLocaleString()}\nหมายเหตุ: ${notes}`,
-        });
+      let ownerLineId = '';
+      let shopName = '';
+      if (variance !== 0) {
+        const { data: sp } = await supabase.from('shop_profiles').select('owner_line_id, shop_name').eq('id', shopId).maybeSingle();
+        ownerLineId = sp?.owner_line_id || '';
+        shopName = sp?.shop_name || '';
+        if (ownerLineId) {
+          const overShort = variance > 0 ? 'เงินเกิน' : 'เงินขาด';
+          await pushLineMessage(ownerLineId, {
+            type: 'text',
+            text: `⚠️ ปิดกะไม่ตรงยอด — ${shopName}\nพนักงาน: ${shift.staff_name}\nเงินที่ควรมี: ฿${expected.toLocaleString()}\nนับได้จริง: ฿${counted.toLocaleString()}\n${overShort}: ฿${Math.abs(variance).toLocaleString()}\nหมายเหตุ: ${notes}`,
+          });
+        }
       }
 
       return res.json({ ok: true, shift_no, expected_cash: expected, counted_cash: counted, variance, withdrawn_amount: withdrawn, carried_forward: carriedForward, notified_owner: variance !== 0 && !!ownerLineId });
@@ -212,8 +171,6 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error('[pos/cash-shifts]', err.message);
-    if (err.notSetup) return res.status(400).json({ error: err.message, notSetup: true });
-    if (err.notConnected) return res.status(400).json({ error: err.message, notConnected: true });
     return res.status(500).json({ error: err.message });
   }
 }

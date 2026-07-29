@@ -2,9 +2,12 @@
  * GET /api/pos/tax-invoice-pdf?shopId=xxx&invoice_no=INV-2569-00001
  * → สตรีม PDF ใบกำกับภาษี/ใบเสร็จรับเงินของร้าน (รูปแบบทางการ A4 แบบเดียวกับใบกำกับภาษีที่แอดมิน
  *   Smile Slip Pro ออกให้ร้านตอนซื้อแพ็กเกจ — ดู lib/pos-tax-invoice-pdf.js)
+ *
+ * Phase 2 (write-primary flip, 2026-07-29): อ่านจาก Supabase (pos_tax_invoices) โดยตรงแล้ว
+ * ไม่ผ่าน Google Sheets/Google connection อีกต่อไป
  */
 import { createClient } from '@supabase/supabase-js';
-import { getAccessToken, readSheet, rowToTaxInvoice } from '../../../lib/google-pos';
+import { taxInvoiceRecordFromRow } from '../../../lib/google-pos';
 import { generatePosTaxInvoicePdf } from '../../../lib/pos-tax-invoice-pdf';
 import { hasFeature } from '../../../lib/tier-features';
 
@@ -18,18 +21,12 @@ export default async function handler(req, res) {
   if (!shopId || !invoice_no) return res.status(400).json({ error: 'Missing shopId/invoice_no' });
 
   try {
-    const [{ data: pc }, { data: gc }, { data: shop }] = await Promise.all([
-      supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
-      supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single(),
+    const [{ data: invoiceRow }, { data: shop }] = await Promise.all([
+      supabase.from('pos_tax_invoices').select('*').eq('shop_id', shopId).eq('invoice_no', invoice_no).maybeSingle(),
       supabase.from('shop_profiles').select('shop_name, address, tax_id, phone, subscription_tier').eq('id', shopId).single(),
     ]);
-    if (!pc?.pos_sheet_id) return res.status(400).json({ error: 'ยังไม่ได้ตั้งค่า POS' });
-    if (!gc?.google_refresh_token) return res.status(400).json({ error: 'ยังไม่ได้เชื่อมต่อ Google' });
-
-    const token = await getAccessToken(gc.google_refresh_token);
-    const rows = await readSheet(token, pc.pos_sheet_id, 'ใบกำกับภาษี!A:P');
-    const invoice = rows.slice(1).map(rowToTaxInvoice).find(v => v.invoice_no === invoice_no);
-    if (!invoice) return res.status(404).json({ error: 'ไม่พบใบกำกับภาษีนี้' });
+    if (!invoiceRow) return res.status(404).json({ error: 'ไม่พบใบกำกับภาษีนี้' });
+    const invoice = taxInvoiceRecordFromRow(invoiceRow);
 
     // ถ้าใบนี้ออกโดยสาขาที่มีชื่อ/ที่อยู่แยกจากบริษัทหลัก (บันทึกไว้ตอนออกจริง) ใช้ข้อมูลนั้นแทน
     // — ไม่คำนวณจากการตั้งค่าสาขาปัจจุบันใหม่ กันเอกสารเปลี่ยนย้อนหลังถ้ามีการแก้ไขทีหลัง

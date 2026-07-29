@@ -337,6 +337,19 @@ export function rowToTaxInvoice(row) {
   };
 }
 
+// Phase 2 (write-primary flip, 2026-07-29): adapter สำหรับ pos_tax_invoices row → shape เดียวกับ
+// rowToTaxInvoice เต็มรูปแบบ (ต่างจาก taxInvoiceFromRow แบบย่อใน export.js ที่ตัดฟิลด์ที่ไม่ใช้ในรายงาน VAT30 ออก)
+export function taxInvoiceRecordFromRow(r) {
+  return {
+    invoice_no: r.invoice_no || '', issued_at: r.issued_at || '', ref_bill_no: r.ref_bill_no || '',
+    customer_id: r.customer_id || '', buyer_name: r.buyer_name || '', buyer_tax_id: r.buyer_tax_id || '',
+    buyer_address: r.buyer_address || '', buyer_branch: r.buyer_branch || '', items: r.items || [],
+    subtotal: Number(r.subtotal) || 0, vat: Number(r.vat) || 0, total: Number(r.total) || 0,
+    issued_by: r.issued_by || '', buyer_phone: r.buyer_phone || '',
+    seller_name: r.seller_name || '', seller_address: r.seller_address || '',
+  };
+}
+
 // A-W (23 คอลัมน์) — รวม ลูกค้า + ผู้จำหน่าย + ข้อมูลภาษีบริษัท + ประเภทบุคคล
 export const CONTACT_HEADERS = [
   'รหัสผู้ติดต่อ', 'ชื่อ', 'ประเภท (ลูกค้า/ผู้จำหน่าย/ทั้งคู่)', 'เบอร์โทร', 'อีเมล',
@@ -465,6 +478,24 @@ export function rowToCashShift(row) {
     withdrawn_amount: parseFloat(row[11]) || 0,
     carried_forward:  row[12] !== '' && row[12] !== undefined ? parseFloat(row[12]) : null,
     status:           row[13] || 'เปิดอยู่',
+  };
+}
+
+// Phase 2 (write-primary flip, 2026-07-29): adapter สำหรับ pos_cash_shifts row → shape เดียวกับ
+// rowToCashShift — opened_at/closed_at เก็บเป็น timestamptz จริงใน Supabase (ต่างจาก Sheets ที่เก็บ
+// เป็นสตริงไทยดิบ) ต้องแปลงกลับเป็นสตริงไทยก่อนคืนค่า เพราะหน้าเว็บ (pos.js) เอาไปแสดงผลตรงๆ
+export function cashShiftFromRow(r) {
+  const fmtThai = (iso) => iso ? new Date(iso).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : '';
+  return {
+    shift_no: r.shift_no || '', staff_id: r.staff_id || '', staff_name: r.staff_name || '',
+    branch: r.branch_name || '', opened_at: fmtThai(r.opened_at), opening_cash: Number(r.opening_cash) || 0,
+    closed_at: fmtThai(r.closed_at),
+    expected_cash: r.expected_cash != null ? Number(r.expected_cash) : null,
+    counted_cash: r.counted_cash != null ? Number(r.counted_cash) : null,
+    variance: r.variance != null ? Number(r.variance) : null,
+    notes: r.notes || '', withdrawn_amount: Number(r.withdrawn_amount) || 0,
+    carried_forward: r.carried_forward != null ? Number(r.carried_forward) : null,
+    status: r.status || 'เปิดอยู่',
   };
 }
 
