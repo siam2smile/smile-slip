@@ -629,6 +629,24 @@ export function rowToProduct(row) {
   };
 }
 
+// Supabase row (pos_products) → shape เดียวกับ rowToProduct() เดิมทุกฟิลด์ — Phase 2
+// (write-primary flip, 2026-07-29): products.js อ่าน/เขียน Supabase ตรงแล้ว ไม่ผ่าน Sheets
+export function productFromRow(r) {
+  const rawType = r.type || 'นับสต็อค';
+  return {
+    sku: r.sku || '', name: r.name || '', category: r.category || '',
+    price: Number(r.price) || 0, cost: Number(r.cost) || 0, stock: Number(r.stock) || 0,
+    unit: r.unit || 'ชิ้น', aliases: r.aliases || '', notes: r.notes || '',
+    updated_at: r.product_updated_at || '',
+    type: rawType === 'ทั่วไป' ? 'นับสต็อค' : rawType, // backward compat
+    at_customer: Number(r.at_customer) || 0, empty_waiting: Number(r.empty_waiting) || 0,
+    product_code: r.product_code || '', barcode: r.barcode || '', description: r.description || '',
+    vat_type: r.vat_type || 'ไม่มี VAT', is_active: r.is_active !== false,
+    empty_ceiling: Number(r.empty_ceiling) || 0,
+    branches: (r.branches || '').split(',').map(s => s.trim()).filter(Boolean),
+  };
+}
+
 export function rowToSale(row) {
   let items = [];
   try { items = JSON.parse(row[2] || '[]'); } catch {}
@@ -701,6 +719,22 @@ export function rowToContact(row) {
     contact_person_name: row[21] || '',
     contact_person_phone:row[22] || '',
     cylinder_limit:      parseFloat(row[23]) || 0, // 0 = ไม่จำกัด
+  };
+}
+
+// Supabase row (pos_contacts) → shape เดียวกับ rowToContact() เดิมทุกฟิลด์ — Phase 2
+// (write-primary flip, 2026-07-29): contacts.js อ่าน/เขียน Supabase ตรงแล้ว ไม่ผ่าน Sheets
+export function contactFromRow(r) {
+  return {
+    contact_id: r.contact_id || '', name: r.name || '', contact_type: r.contact_type || 'ผู้จำหน่าย',
+    phone: r.phone || '', email: r.email || '', address_1: r.address_1 || '', maps_1: r.maps_1 || '',
+    address_2: r.address_2 || '', maps_2: r.maps_2 || '', company_name: r.company_name || '',
+    tax_id: r.tax_id || '', tax_address: r.tax_address || '', tax_branch: r.tax_branch || '',
+    debt: Number(r.debt) || 0, cylinders: Number(r.cylinders) || 0, shop_name: r.shop_name || '',
+    aliases: r.aliases || '', notes: r.notes || '',
+    created_at: r.contact_created_at || '', updated_at: r.contact_updated_at || '',
+    person_type: r.person_type || 'บุคคลธรรมดา', contact_person_name: r.contact_person_name || '',
+    contact_person_phone: r.contact_person_phone || '', cylinder_limit: Number(r.cylinder_limit) || 0,
   };
 }
 

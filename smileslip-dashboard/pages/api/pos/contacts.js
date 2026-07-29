@@ -6,40 +6,15 @@
  * PATCH  /api/pos/contacts { shopId, contact_id, ...fields }
  * DELETE /api/pos/contacts { shopId, contact_id }
  *
- * Schema 23 คอลัมน์ A-W (รวม ลูกค้า + ผู้จำหน่าย + ข้อมูลภาษีบริษัท + ประเภทบุคคล)
- * ข้อมูลเก็บใน Google Sheets tab "ผู้ติดต่อ" (PDPA compliant)
+ * Phase 2 (write-primary flip, 2026-07-29): อ่าน/เขียนจาก Supabase (pos_contacts) โดยตรงแล้ว
+ * ไม่ผ่าน Google Sheets/Google connection อีกต่อไป — ผู้ติดต่อเก่าที่มีอยู่ก่อนหน้านี้ (ไม่เคย
+ * backfill ตามธรรมเนียม migration นี้ทั้งหมด ตัดสินใจไว้ตั้งแต่ Tier C ข้อ 2) จะไม่ปรากฏใน GET
+ * อีกต่อไป — ผู้ใช้ยืนยันแล้วว่ารับได้ (ยังทดสอบระบบอยู่ ข้อมูลจริงยังอยู่ครบใน Sheets เสมอ)
  */
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../../../lib/supabase-pos';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { requirePermission } from '../../../lib/pos-auth';
-import {
-  getAccessToken, readSheet, appendSheet, appendRows, updateSheetRow, ensureTabExists,
-  makeContactId, rowToContact, CONTACT_HEADERS,
-} from '../../../lib/google-pos';
-import { dualWrite, insertRow, insertRows, updateRow, softDeleteRow } from '../../../lib/supabase-pos';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
-);
-
-// บังคับให้ Google Sheets เก็บค่านี้เป็นข้อความล้วน ไม่แปลงเป็นตัวเลข/วันที่เองผ่าน
-// valueInputOption=USER_ENTERED — เจอบั๊กจริงตอนนำเข้า VCF: เบอร์โทรที่ขึ้นต้นด้วย 0 โดนตัด 0
-// ทิ้ง (ตีความเป็นตัวเลข) และบางแถวของวันที่กลายเป็นเลข serial ดิบแทนที่จะเป็นข้อความอ่านได้
-function asText(v) {
-  if (v === '' || v == null) return v;
-  return `'${v}`;
-}
-
-async function getConfig(shopId) {
-  const [{ data: pc }, { data: gc }] = await Promise.all([
-    supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
-    supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single(),
-  ]);
-  if (!pc?.pos_sheet_id) throw Object.assign(new Error('ยังไม่ได้ตั้งค่า POS'), { notSetup: true });
-  if (!gc?.google_refresh_token) throw Object.assign(new Error('ยังไม่ได้เชื่อมต่อ Google'), { notConnected: true });
-  return { sheetId: pc.pos_sheet_id, token: await getAccessToken(gc.google_refresh_token) };
-}
+import { makeContactId, contactFromRow } from '../../../lib/google-pos';
 
 export default async function handler(req, res) {
   const shopId = req.query.shopId || req.body?.shopId;
@@ -48,17 +23,13 @@ export default async function handler(req, res) {
   // เขียนไม่ได้ถ้าทดลองใช้ 30 วันหมดอายุแล้ว (อ่าน/GET ยังทำได้ปกติเสมอ)
   if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
 
-
   try {
-    const { sheetId, token } = await getConfig(shopId);
-    await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
-
     // ── GET ──────────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:X');
-      let contacts = rows.slice(1)
-        .map((r, i) => ({ ...rowToContact(r), _row: i + 2 }))
-        .filter(c => c.contact_id && c.name);
+      const { data, error } = await supabase.from('pos_contacts').select('*')
+        .eq('shop_id', shopId).is('deleted_at', null).order('created_at', { ascending: true });
+      if (error) throw error;
+      let contacts = (data || []).map(contactFromRow).filter(c => c.contact_id && c.name);
 
       // filter by type (ลูกค้า/ผู้จำหน่าย/ทั้งคู่)
       if (req.query.type) {
@@ -87,21 +58,11 @@ export default async function handler(req, res) {
     }
 
     // ── POST (bulk import — นำเข้า CSV/VCF จำนวนมากในคำขอเดียว) ──────────────
-    // ต่างจากเพิ่มทีละคน: รับ shopId + contacts (array) แทน ยิง append เป็นก้อนใหญ่
-    // ไม่ใช่ทีละแถว กัน rate limit ของ Google เวลานำเข้าเป็นพันรายชื่อ
     if (req.method === 'POST' && Array.isArray(req.body.contacts)) {
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-      const contactIds = req.body.contacts.filter(c => c?.name).map(() => makeContactId());
       const validContacts = req.body.contacts.filter(c => c?.name);
-      const rows = validContacts.map((c, i) => [
-        contactIds[i], c.name, c.contact_type || 'ผู้จำหน่าย', asText(c.phone || ''), c.email || '',
-        c.address_1 || '', c.maps_1 || '', c.address_2 || '', c.maps_2 || '',
-        c.company_name || '', asText(c.tax_id || ''), c.tax_address || '', c.tax_branch || '',
-        c.debt || 0, c.cylinders || 0, c.shop_name || '', c.aliases || '', c.notes || '', asText(now), asText(now),
-        c.person_type || 'บุคคลธรรมดา', c.contact_person_name || '', asText(c.contact_person_phone || ''),
-      ]);
-      const supaRows = validContacts.map((c, i) => ({
-        shop_id: shopId, contact_id: contactIds[i], name: c.name, contact_type: c.contact_type || 'ผู้จำหน่าย',
+      const supaRows = validContacts.map(c => ({
+        shop_id: shopId, contact_id: makeContactId(), name: c.name, contact_type: c.contact_type || 'ผู้จำหน่าย',
         phone: c.phone || '', email: c.email || '', address_1: c.address_1 || '', maps_1: c.maps_1 || '',
         address_2: c.address_2 || '', maps_2: c.maps_2 || '', company_name: c.company_name || '',
         tax_id: c.tax_id || '', tax_address: c.tax_address || '', tax_branch: c.tax_branch || '',
@@ -111,19 +72,12 @@ export default async function handler(req, res) {
         contact_person_phone: c.contact_person_phone || '',
       }));
 
-      // ยิงเป็น chunk กัน request เดียวใหญ่เกินไป/timeout ฝั่ง Google (Sheets เป็น primary — ต้องสำเร็จ
-      // เสมอ) ส่วน Supabase เป็น secondary แบบ fire-and-forget เหมือนทุกจุดอื่น
       const CHUNK = 500;
-      for (let i = 0; i < rows.length; i += CHUNK) {
-        const sheetChunk = rows.slice(i, i + CHUNK);
-        const supaChunk = supaRows.slice(i, i + CHUNK);
-        await dualWrite({
-          label: 'contacts-bulk-import',
-          primary: () => appendRows(token, sheetId, 'ผู้ติดต่อ', sheetChunk),
-          secondary: () => insertRows('pos_contacts', supaChunk),
-        });
+      for (let i = 0; i < supaRows.length; i += CHUNK) {
+        const { error } = await supabase.from('pos_contacts').insert(supaRows.slice(i, i + CHUNK));
+        if (error) throw error;
       }
-      return res.json({ ok: true, imported: rows.length });
+      return res.json({ ok: true, imported: supaRows.length });
     }
 
     // ── POST (เพิ่มทีละคน) ─────────────────────────────────────────────────
@@ -145,22 +99,13 @@ export default async function handler(req, res) {
 
       const contact_id = makeContactId();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-      await dualWrite({
-        label: 'contacts-create',
-        primary: () => appendSheet(token, sheetId, 'ผู้ติดต่อ', [
-          contact_id, name, contact_type, asText(phone), email,
-          address_1, maps_1, address_2, maps_2,
-          company_name, asText(tax_id), tax_address, tax_branch,
-          debt, cylinders, shop_name, aliases, notes, asText(now), asText(now),
-          person_type, contact_person_name, asText(contact_person_phone), cylinder_limit || 0,
-        ]),
-        secondary: () => insertRow('pos_contacts', {
-          shop_id: shopId, contact_id, name, contact_type, phone, email,
-          address_1, maps_1, address_2, maps_2, company_name, tax_id, tax_address, tax_branch,
-          debt, cylinders, shop_name, aliases, notes, contact_created_at: now, contact_updated_at: now,
-          person_type, contact_person_name, contact_person_phone, cylinder_limit: cylinder_limit || 0,
-        }),
+      const { error } = await supabase.from('pos_contacts').insert({
+        shop_id: shopId, contact_id, name, contact_type, phone, email,
+        address_1, maps_1, address_2, maps_2, company_name, tax_id, tax_address, tax_branch,
+        debt, cylinders, shop_name, aliases, notes, contact_created_at: now, contact_updated_at: now,
+        person_type, contact_person_name, contact_person_phone, cylinder_limit: cylinder_limit || 0,
       });
+      if (error) throw error;
       return res.json({ ok: true, contact_id, name });
     }
 
@@ -177,48 +122,12 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'จำนวนถังต้องไม่ติดลบ' });
       }
 
-      const rows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:X');
-      const dataRows = rows.slice(1);
-      const idx = dataRows.findIndex(r => r[0] === contact_id);
-      if (idx === -1) return res.status(404).json({ error: 'ไม่พบผู้ติดต่อ' });
+      const { data: existing, error: fetchErr } = await supabase.from('pos_contacts').select('contact_id')
+        .eq('shop_id', shopId).eq('contact_id', contact_id).is('deleted_at', null).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!existing) return res.status(404).json({ error: 'ไม่พบผู้ติดต่อ' });
 
-      const existing = [...dataRows[idx]];
-      while (existing.length < 24) existing.push('');
-
-      if (updates.name                !== undefined) existing[1]  = updates.name;
-      if (updates.contact_type        !== undefined) existing[2]  = updates.contact_type;
-      if (updates.phone               !== undefined) existing[3]  = updates.phone;
-      if (updates.email               !== undefined) existing[4]  = updates.email;
-      if (updates.address_1           !== undefined) existing[5]  = updates.address_1;
-      if (updates.maps_1              !== undefined) existing[6]  = updates.maps_1;
-      if (updates.address_2           !== undefined) existing[7]  = updates.address_2;
-      if (updates.maps_2              !== undefined) existing[8]  = updates.maps_2;
-      if (updates.company_name        !== undefined) existing[9]  = updates.company_name;
-      if (updates.tax_id              !== undefined) existing[10] = updates.tax_id;
-      if (updates.tax_address         !== undefined) existing[11] = updates.tax_address;
-      if (updates.tax_branch          !== undefined) existing[12] = updates.tax_branch;
-      if (updates.debt                !== undefined) existing[13] = updates.debt;
-      if (updates.cylinders           !== undefined) existing[14] = updates.cylinders;
-      if (updates.shop_name           !== undefined) existing[15] = updates.shop_name;
-      if (updates.aliases             !== undefined) existing[16] = updates.aliases;
-      if (updates.notes               !== undefined) existing[17] = updates.notes;
-      if (updates.person_type         !== undefined) existing[20] = updates.person_type;
-      if (updates.contact_person_name !== undefined) existing[21] = updates.contact_person_name;
-      if (updates.contact_person_phone!== undefined) existing[22] = updates.contact_person_phone;
-      if (updates.cylinder_limit      !== undefined) existing[23] = updates.cylinder_limit;
       const updatedAt = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-      existing[19] = asText(updatedAt); // updated_at
-
-      // ต้อง re-wrap ทุกครั้งไม่ว่า field นี้จะถูกแก้ในคำขอนี้หรือไม่ — ถ้า wrap แค่ตอนถูกแก้
-      // (เดิม) ค่าที่ readSheet() อ่านกลับมา (ไม่มี apostrophe) จะถูกเขียนทับกลับแบบดิบตอน
-      // PATCH ที่ไม่ได้แตะ field นี้เลย (เช่น แก้แค่ debt) ทำให้ Sheets ตีความเป็นตัวเลขแล้ว
-      // ตัดเลข 0 นำหน้าทิ้งเงียบๆ (เจอบั๊กนี้จริงกับ phone ใน collections.js — บั๊กคลาสเดียวกัน)
-      existing[3]  = asText(existing[3]);
-      existing[10] = asText(existing[10]);
-      existing[22] = asText(existing[22]);
-
-      // สร้าง payload ฝั่ง Supabase จาก `updates` ดิบโดยตรง (ไม่ผ่าน asText()) แทนอ่านจาก `existing[]`
-      // เพราะ existing[] บางช่องอาจมี ' นำหน้าฝังอยู่จริงในหน่วยความจำถ้าฟิลด์นั้นถูกแก้ใน request นี้
       const supaUpdates = { contact_updated_at: updatedAt };
       if (updates.name                 !== undefined) supaUpdates.name = updates.name;
       if (updates.contact_type         !== undefined) supaUpdates.contact_type = updates.contact_type;
@@ -242,13 +151,9 @@ export default async function handler(req, res) {
       if (updates.contact_person_phone !== undefined) supaUpdates.contact_person_phone = updates.contact_person_phone;
       if (updates.cylinder_limit       !== undefined) supaUpdates.cylinder_limit = updates.cylinder_limit;
 
-      await dualWrite({
-        label: 'contacts-update',
-        primary: () => updateSheetRow(token, sheetId, 'ผู้ติดต่อ', idx + 2, existing),
-        // ผู้ติดต่อเก่า (ก่อน migration นี้) จะไม่มีแถวใน pos_contacts เลย — updateRow หาไม่เจอก็แค่
-        // ไม่มีผลอะไร (ไม่ throw) ตรงตามที่ตั้งใจว่าจะไม่ backfill ข้อมูลเก่า
-        secondary: () => updateRow('pos_contacts', { shop_id: shopId, contact_id }, supaUpdates),
-      });
+      const { error } = await supabase.from('pos_contacts').update(supaUpdates)
+        .eq('shop_id', shopId).eq('contact_id', contact_id);
+      if (error) throw error;
       return res.json({ ok: true, contact_id });
     }
 
@@ -259,15 +164,15 @@ export default async function handler(req, res) {
       const { contact_id } = req.body;
       if (!contact_id) return res.status(400).json({ error: 'Missing contact_id' });
 
-      const rows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:X');
-      const idx = rows.slice(1).findIndex(r => r[0] === contact_id);
-      if (idx === -1) return res.status(404).json({ error: 'ไม่พบผู้ติดต่อ' });
+      const { data: existing, error: fetchErr } = await supabase.from('pos_contacts').select('contact_id')
+        .eq('shop_id', shopId).eq('contact_id', contact_id).is('deleted_at', null).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!existing) return res.status(404).json({ error: 'ไม่พบผู้ติดต่อ' });
 
-      await dualWrite({
-        label: 'contacts-delete',
-        primary: () => updateSheetRow(token, sheetId, 'ผู้ติดต่อ', idx + 2, Array(24).fill('')),
-        secondary: () => softDeleteRow('pos_contacts', { shop_id: shopId, contact_id }),
-      });
+      const { error } = await supabase.from('pos_contacts')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('shop_id', shopId).eq('contact_id', contact_id);
+      if (error) throw error;
       return res.json({ ok: true });
     }
 
@@ -275,8 +180,6 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error('[pos/contacts]', err.message);
-    if (err.notSetup) return res.status(400).json({ error: err.message, notSetup: true });
-    if (err.notConnected) return res.status(400).json({ error: err.message, notConnected: true });
     return res.status(500).json({ error: err.message });
   }
 }
