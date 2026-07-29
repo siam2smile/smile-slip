@@ -177,10 +177,10 @@ export default async function handler(req, res) {
     // เกี่ยวข้องถึงจะดูได้ (ตรวจผ่าน session ที่เซ็นชื่อ ไม่ใช่ staffId เปล่าๆ ใน query ที่ปลอมได้
     // แบบเดิม) — เจ้าของร้าน/แอดมิน (pos.js เรียกตรง ไม่มี session) ไม่ถูกกระทบเลย
     if (type === 'sales' || type === 'topsellers') {
-      if (!(await requirePermission(req, res, token, sheetId, 'perm_view_revenue'))) return;
+      if (!(await requirePermission(req, res, shopId, 'perm_view_revenue'))) return;
     }
     if (type === 'pl') {
-      if (!(await requirePermission(req, res, token, sheetId, 'perm_view_pl'))) return;
+      if (!(await requirePermission(req, res, shopId, 'perm_view_pl'))) return;
     }
 
     // ── สินค้าคงเหลือ (ยังอ่านจาก Sheets — ดูเหตุผลที่หัวไฟล์) ────────────────

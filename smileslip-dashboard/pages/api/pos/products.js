@@ -169,7 +169,7 @@ export default async function handler(req, res) {
       // เรียกจากหน้าพนักงาน (pos-staff.js/แคชเชียร์ แนบ x-staff-session มาด้วย) — ต้องมีสิทธิ์
       // "จัดการสต็อก" ถึงจะแก้ได้ (ตรวจสอบผ่าน session ที่เซ็นชื่อ ไม่ใช่ staffId เปล่าๆ ที่ปลอมได้
       // แบบเดิมอีกต่อไป) — เจ้าของร้าน/แอดมิน (pos.js เรียกตรง ไม่มี session) ไม่ถูกกระทบเลย
-      if (!(await requirePermission(req, res, token, sheetId, 'perm_manage_stock'))) return;
+      if (!(await requirePermission(req, res, shopId, 'perm_manage_stock'))) return;
 
       const { sku, action, qty, stockDelta, ...updates } = req.body;
       if (!sku) return res.status(400).json({ error: 'Missing sku' });

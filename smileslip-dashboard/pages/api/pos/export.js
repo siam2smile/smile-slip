@@ -190,7 +190,7 @@ export default async function handler(req, res) {
     // การดาวน์โหลดไฟล์ผ่าน window.open ตรงๆ แนบ custom header ไม่ได้) — ต้องมีสิทธิ์ "export
     // รายงาน VAT" ถึงจะดึงได้ — เจ้าของร้าน/แอดมิน (pos.js เรียกตรง ไม่มี session) ไม่ถูกกระทบเลย
     if (typeList.includes('vat') || typeList.includes('vat30')) {
-      if (!(await requirePermission(req, res, token, sheetId, 'perm_export_vat'))) return;
+      if (!(await requirePermission(req, res, shopId, 'perm_export_vat'))) return;
     }
 
     const wb = XLSX.utils.book_new();

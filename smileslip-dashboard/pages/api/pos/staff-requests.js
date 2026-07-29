@@ -5,23 +5,19 @@
  * มาจาก #สมัครพนักงานขนส่ง / #สมัครผู้จัดการสาขา ในกลุ่ม LINE ของแต่ละสาขา (บอทเขียนลง
  * ตาราง branch_role_requests เป็น status: pending) — เจ้าของร้าน/แอดมินมาอนุมัติที่นี่
  *
- * อนุมัติ delivery_staff → sync เข้าแท็บ "พนักงาน" ใน POS Google Sheet ทันที (ใช้งานได้เลย)
+ * อนุมัติ delivery_staff → สร้างแถวใน pos_staff ทันที (ใช้งานได้เลย)
  * อนุมัติ branch_manager → แค่เปลี่ยนสถานะ (ยังไม่มีระบบสิทธิ์แยกตามสาขาต่างหาก)
+ *
+ * Phase 2 (write-primary flip, 2026-07-29): sync เข้า Supabase (pos_staff) แทน Google Sheets แล้ว
  */
 import { createClient } from '@supabase/supabase-js';
-import { getAccessToken, appendSheet, ensureTabExists, makeStaffId, STAFF_HEADERS } from '../../../lib/google-pos';
+import { makeStaffId } from '../../../lib/google-pos';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
-
-// บังคับให้ Google Sheets เก็บเป็นข้อความล้วน กันวันที่/เบอร์โทรถูกตีความเป็นตัวเลข
-function asText(v) {
-  if (v === '' || v == null) return v;
-  return `'${v}`;
-}
 
 // ส่งลิงก์ "ตั้งรหัส PIN" ให้พนักงานหลังได้รับการอนุมัติ — ลิงก์นี้เองคือตัวยืนยันตัวตน
 async function sendPinSetupLink(lineId, shopId, staffId, staffName) {
@@ -49,7 +45,6 @@ export default async function handler(req, res) {
 
   // เขียนไม่ได้ถ้าทดลองใช้ 30 วันหมดอายุแล้ว (อ่าน/GET ยังทำได้ปกติเสมอ)
   if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
-
 
   // ── GET ───────────────────────────────────────────────────────────────────
   if (req.method === 'GET') {
@@ -83,23 +78,17 @@ export default async function handler(req, res) {
     // approve
     if (reqRow.role === 'delivery_staff') {
       try {
-        const { data: pc } = await supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single();
-        const { data: gc } = await supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single();
-        if (!pc?.pos_sheet_id) return res.status(400).json({ error: 'ยังไม่ได้ตั้งค่า POS', notSetup: true });
-        if (!gc?.google_refresh_token) return res.status(400).json({ error: 'ยังไม่ได้เชื่อมต่อ Google', notConnected: true });
-
-        const token = await getAccessToken(gc.google_refresh_token);
-        await ensureTabExists(token, pc.pos_sheet_id, 'พนักงาน', STAFF_HEADERS);
-
         const staff_id = makeStaffId();
         const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-        await appendSheet(token, pc.pos_sheet_id, 'พนักงาน', [
-          staff_id, reqRow.display_name || 'พนักงานส่ง', '', reqRow.line_user_id,
-          'พนักงานส่ง', '', asText(now), reqRow.branch_name || '', '',
-        ]);
+        const { error } = await supabase.from('pos_staff').insert({
+          shop_id: shopId, staff_id, name: reqRow.display_name || 'พนักงานส่ง',
+          phone: '', line_id: reqRow.line_user_id, role: 'พนักงานส่ง', notes: '',
+          branch_name: reqRow.branch_name || '', staff_created_at: now,
+        });
+        if (error) throw error;
         sendPinSetupLink(reqRow.line_user_id, shopId, staff_id, reqRow.display_name).catch(() => {});
       } catch (err) {
-        console.error('[staff-requests] sync to พนักงาน sheet failed:', err.message);
+        console.error('[staff-requests] sync to pos_staff failed:', err.message);
         return res.status(500).json({ error: 'อนุมัติไม่สำเร็จ: ' + err.message });
       }
     }

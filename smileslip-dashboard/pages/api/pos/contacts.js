@@ -166,7 +166,7 @@ export default async function handler(req, res) {
 
     // ── PATCH ────────────────────────────────────────────────────────────────
     if (req.method === 'PATCH') {
-      if (!(await requirePermission(req, res, token, sheetId, 'perm_manage_customers'))) return;
+      if (!(await requirePermission(req, res, shopId, 'perm_manage_customers'))) return;
 
       const { contact_id, ...updates } = req.body;
       if (!contact_id) return res.status(400).json({ error: 'Missing contact_id' });
@@ -254,7 +254,7 @@ export default async function handler(req, res) {
 
     // ── DELETE ────────────────────────────────────────────────────────────────
     if (req.method === 'DELETE') {
-      if (!(await requirePermission(req, res, token, sheetId, 'perm_manage_customers'))) return;
+      if (!(await requirePermission(req, res, shopId, 'perm_manage_customers'))) return;
 
       const { contact_id } = req.body;
       if (!contact_id) return res.status(400).json({ error: 'Missing contact_id' });

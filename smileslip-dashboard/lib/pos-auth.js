@@ -23,7 +23,7 @@ function extractSessionToken(req) {
  * คืน `true` ถ้าผ่าน (handler เรียกต่อได้ปกติ) คืน `false` ถ้าถูกบล็อก (เขียน response
  * 401/403 ให้เรียบร้อยแล้ว handler แค่ต้อง `if (!(await requirePermission(...))) return;`)
  */
-export async function requirePermission(req, res, token, sheetId, permKey) {
+export async function requirePermission(req, res, shopId, permKey) {
   const sessionToken = extractSessionToken(req);
   if (!sessionToken) return true;
 
@@ -33,7 +33,7 @@ export async function requirePermission(req, res, token, sheetId, permKey) {
     return false;
   }
 
-  const perms = await getStaffPermissions(token, sheetId, session.staffId);
+  const perms = await getStaffPermissions(shopId, session.staffId);
   if (!perms[permKey]) {
     res.status(403).json({ error: 'คุณไม่มีสิทธิ์ทำรายการนี้ — ติดต่อเจ้าของร้าน/แอดมินให้เปิดสิทธิ์ให้ก่อน' });
     return false;

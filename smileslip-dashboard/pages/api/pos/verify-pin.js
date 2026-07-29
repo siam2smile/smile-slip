@@ -6,10 +6,13 @@
  * ตรงกับ "คนคนนั้นคนเดียว" เท่านั้น — เดิมค้นหา PIN เดี่ยวๆ ข้ามพนักงานทั้งร้าน (ไล่หาว่า PIN นี้
  * เป็นของใคร) ซึ่งบังคับให้ PIN ต้องไม่ซ้ำกันทั้งร้าน และเปิดช่องให้ไล่เดาผ่าน staff-setpin.js ได้ว่า
  * PIN ไหน "มีคนใช้แล้วบ้าง" — เปลี่ยนมาระบุตัวตนก่อนแล้วค่อยเช็ค PIN เฉพาะคนนั้น ปิดช่องโหว่ทั้งสอง
- * และทำให้ 2 คนตั้ง PIN ซ้ำกันได้แล้วโดยไม่มีปัญหา (คนละแถวกันในชีต แยกกันด้วย staff_id/line_id)
+ * และทำให้ 2 คนตั้ง PIN ซ้ำกันได้แล้วโดยไม่มีปัญหา (คนละแถวกันในตาราง แยกกันด้วย staff_id/line_id)
+ *
+ * Phase 2 (write-primary flip, 2026-07-29): อ่านจาก Supabase (pos_staff) แทน Sheets แล้ว —
+ * ไม่ต้องเช็ค pos_configs.pos_sheet_id/Google connection อีกต่อไปเลย (พนักงานไม่แตะ Google Drive)
  */
 import { createClient } from '@supabase/supabase-js';
-import { getAccessToken, readSheet, ensureTabExists, rowToStaff, staffQualifiesForCashier, STAFF_HEADERS } from '../../../lib/google-pos';
+import { staffFromRow, staffQualifiesForCashier } from '../../../lib/google-pos';
 import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import { issueStaffSession } from '../../../lib/staff-session';
 
@@ -67,25 +70,18 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: upgradeMessage('delivery_staff_app'), featureLocked: true });
     }
 
-    const { data: pc } = await supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single();
-    const { data: gc } = await supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single();
-    if (!pc?.pos_sheet_id) return res.status(400).json({ error: 'ยังไม่ได้ตั้งค่า POS', notSetup: true });
-    if (!gc?.google_refresh_token) return res.status(400).json({ error: 'ยังไม่ได้เชื่อมต่อ Google', notConnected: true });
+    let query = supabase.from('pos_staff').select('*').eq('shop_id', shopId).is('deleted_at', null);
+    query = staff_id ? query.eq('staff_id', staff_id) : query.eq('line_id', line_id);
+    const { data: staffRow, error } = await query.maybeSingle();
+    if (error) throw error;
 
-    const token = await getAccessToken(gc.google_refresh_token);
-    await ensureTabExists(token, pc.pos_sheet_id, 'พนักงาน', STAFF_HEADERS);
-    const rows = await readSheet(token, pc.pos_sheet_id, 'พนักงาน!A:U');
-    const staffRow = staff_id
-      ? rows.slice(1).find(r => r[0] === staff_id)
-      : rows.slice(1).find(r => r[3] && r[3] === line_id);
-
-    if (!staffRow || !staffRow[8] || String(staffRow[8]) !== String(pin)) {
+    if (!staffRow || !staffRow.pin || String(staffRow.pin) !== String(pin)) {
       recordFailedAttempt(rateLimitKey);
       return res.status(401).json({ error: 'PIN ไม่ถูกต้อง' });
     }
 
     clearFailedAttempts(rateLimitKey);
-    const staff = rowToStaff(staffRow);
+    const staff = staffFromRow(staffRow);
 
     // พนักงานที่มีแค่สิทธิ์งานจัดส่ง/เก็บเงินล้วนๆ (เช่น preset "พนักงานส่งของ") ต้องใช้ /pos-staff
     // เท่านั้น ห้ามเข้าหน้าขายเต็มรูปแบบ (/pos?mode=cashier) เด็ดขาด แม้ PIN จะถูกก็ตาม — เช็คที่นี่
@@ -103,7 +99,7 @@ export default async function handler(req, res) {
     // (fail-closed, ฝั่งเว็บจะ fallback เป็นไม่มี session แนบ = ทำงานเหมือนไม่มีสิทธิ์อะไรเลย)
     const sessionToken = issueStaffSession(shopId, staff.staff_id);
     return res.json({
-      ok: true, hasSheet: !!pc.pos_sheet_id,
+      ok: true,
       isWhiteLabel: hasFeature(sp?.subscription_tier, 'white_label'),
       sessionToken,
       staff: {

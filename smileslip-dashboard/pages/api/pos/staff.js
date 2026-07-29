@@ -6,25 +6,15 @@
  *   → reset_pin: true = ล้าง PIN เดิมทิ้ง (กันพนักงานที่ออกจากงานแล้วแอบเข้า)
  *   → resend_pin_link: true = ส่งลิงก์ตั้งรหัส PIN ใหม่อีกครั้ง (ต้องมี line_id อยู่แล้ว)
  * DELETE /api/pos/staff { shopId, staff_id }
+ *
+ * Phase 2 (write-primary flip, 2026-07-29): อ่าน/เขียนจาก Supabase (pos_staff) โดยตรงแล้ว
+ * ไม่ผ่าน Google Sheets/Google connection อีกต่อไป — ตาราง pos_staff ไม่เคย backfill ข้อมูลเก่า
+ * ที่มีอยู่ใน Sheets เลย (ตามธรรมเนียม migration นี้ทั้งหมด) ต้องสร้างพนักงานใหม่ผ่านหน้านี้
  */
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../../../lib/supabase-pos';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { requirePermission } from '../../../lib/pos-auth';
-import {
-  getAccessToken, readSheet, appendSheet, updateSheetRow, ensureTabExists,
-  makeStaffId, rowToStaff, STAFF_HEADERS,
-} from '../../../lib/google-pos';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
-);
-
-// บังคับให้ Google Sheets เก็บเป็นข้อความล้วน กันเบอร์โทร/วันที่ถูกตีความเป็นตัวเลข
-function asText(v) {
-  if (v === '' || v == null) return v;
-  return `'${v}`;
-}
+import { makeStaffId, staffFromRow } from '../../../lib/google-pos';
 
 // ส่งลิงก์ "ตั้งรหัส PIN" ให้พนักงานทาง LINE — ลิงก์นี้เองคือตัวยืนยันตัวตน (ส่งหาแค่ line_id
 // เจ้าของ PIN เท่านั้น) เหมือน pattern เดียวกับลิงก์ยืนยันงานจัดส่ง/เก็บเงินที่มีอยู่แล้ว
@@ -47,16 +37,6 @@ async function sendPinSetupLink(lineId, shopId, staffId, staffName) {
   }
 }
 
-async function getConfig(shopId) {
-  const [{ data: pc }, { data: gc }] = await Promise.all([
-    supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
-    supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single(),
-  ]);
-  if (!pc?.pos_sheet_id) throw Object.assign(new Error('ยังไม่ได้ตั้งค่า POS'), { notSetup: true });
-  if (!gc?.google_refresh_token) throw Object.assign(new Error('ยังไม่ได้เชื่อมต่อ Google'), { notConnected: true });
-  return { sheetId: pc.pos_sheet_id, token: await getAccessToken(gc.google_refresh_token) };
-}
-
 export default async function handler(req, res) {
   const shopId = req.query.shopId || req.body?.shopId;
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
@@ -64,22 +44,18 @@ export default async function handler(req, res) {
   // เขียนไม่ได้ถ้าทดลองใช้ 30 วันหมดอายุแล้ว (อ่าน/GET ยังทำได้ปกติเสมอ)
   if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
 
+  // การจัดการพนักงาน (เพิ่ม/แก้ไข/ลบ) ต้องมีสิทธิ์ perm_manage_staff ถ้าเรียกจาก session
+  // แคชเชียร์/พนักงาน (ไม่มี header = เจ้าของ/แอดมิน ทำงานเหมือนเดิมทุกประการ) — นี่คือ
+  // endpoint ที่ตั้งค่าสิทธิ์เอง จึงต้องเข้มงวดเป็นพิเศษ กันพนักงานเปิดสิทธิ์ให้ตัวเองหรือคนอื่น
+  if (req.method !== 'GET' && !(await requirePermission(req, res, shopId, 'perm_manage_staff'))) return;
 
   try {
-    const { sheetId, token } = await getConfig(shopId);
-    await ensureTabExists(token, sheetId, 'พนักงาน', STAFF_HEADERS);
-
-    // การจัดการพนักงาน (เพิ่ม/แก้ไข/ลบ) ต้องมีสิทธิ์ perm_manage_staff ถ้าเรียกจาก session
-    // แคชเชียร์/พนักงาน (ไม่มี header = เจ้าของ/แอดมิน ทำงานเหมือนเดิมทุกประการ) — นี่คือ
-    // endpoint ที่ตั้งค่าสิทธิ์เอง จึงต้องเข้มงวดเป็นพิเศษ กันพนักงานเปิดสิทธิ์ให้ตัวเองหรือคนอื่น
-    if (req.method !== 'GET' && !(await requirePermission(req, res, token, sheetId, 'perm_manage_staff'))) return;
-
     // ── GET ─────────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const rows = await readSheet(token, sheetId, 'พนักงาน!A:U');
-      const staff = rows.slice(1)
-        .map((r, i) => ({ ...rowToStaff(r), _row: i + 2 }))
-        .filter(s => s.staff_id && s.name);
+      const { data, error } = await supabase.from('pos_staff').select('*')
+        .eq('shop_id', shopId).is('deleted_at', null).order('created_at', { ascending: true });
+      if (error) throw error;
+      const staff = (data || []).map(staffFromRow).filter(s => s.staff_id && s.name);
       return res.json({ staff });
     }
 
@@ -95,21 +71,15 @@ export default async function handler(req, res) {
 
       const staff_id = makeStaffId();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-      await appendSheet(token, sheetId, 'พนักงาน', [
-        staff_id, name, asText(phone), line_id, role, notes, asText(now), branch_name, '',
-        perm_view_revenue ? 'TRUE' : 'FALSE',
-        perm_view_pl ? 'TRUE' : 'FALSE',
-        perm_manage_stock ? 'TRUE' : 'FALSE',
-        perm_export_vat ? 'TRUE' : 'FALSE',
-        perm_process_sales ? 'TRUE' : 'FALSE',
-        perm_void_sales ? 'TRUE' : 'FALSE',
-        perm_manage_customers ? 'TRUE' : 'FALSE',
-        perm_manage_expenses ? 'TRUE' : 'FALSE',
-        perm_manage_delivery ? 'TRUE' : 'FALSE',
-        perm_manage_receiving ? 'TRUE' : 'FALSE',
-        perm_issue_tax_invoice ? 'TRUE' : 'FALSE',
-        perm_manage_staff ? 'TRUE' : 'FALSE',
-      ]);
+      const { error } = await supabase.from('pos_staff').insert({
+        shop_id: shopId, staff_id, name, phone, line_id, role, notes, branch_name,
+        staff_created_at: now,
+        perm_view_revenue, perm_view_pl, perm_manage_stock, perm_export_vat,
+        perm_process_sales, perm_void_sales, perm_manage_customers, perm_manage_expenses,
+        perm_manage_delivery, perm_manage_receiving, perm_issue_tax_invoice, perm_manage_staff,
+      });
+      if (error) throw error;
+
       if (line_id) sendPinSetupLink(line_id, shopId, staff_id, name).catch(() => {});
       return res.json({ ok: true, staff_id, name });
     }
@@ -124,43 +94,40 @@ export default async function handler(req, res) {
       } = req.body;
       if (!staff_id) return res.status(400).json({ error: 'Missing staff_id' });
 
-      const rows = await readSheet(token, sheetId, 'พนักงาน!A:U');
-      const dataRows = rows.slice(1);
-      const idx = dataRows.findIndex(r => r[0] === staff_id);
-      if (idx === -1) return res.status(404).json({ error: 'ไม่พบพนักงาน' });
+      const { data: existing, error: fetchErr } = await supabase.from('pos_staff').select('*')
+        .eq('shop_id', shopId).eq('staff_id', staff_id).is('deleted_at', null).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!existing) return res.status(404).json({ error: 'ไม่พบพนักงาน' });
 
-      const existing = [...dataRows[idx]];
-      while (existing.length < 21) existing.push('');
-      if (name        !== undefined) existing[1] = name;
-      if (phone       !== undefined) existing[2] = phone;
-      if (line_id     !== undefined) existing[3] = line_id;
-      if (role        !== undefined) existing[4] = role;
-      if (notes       !== undefined) existing[5] = notes;
-      if (branch_name !== undefined) existing[7] = branch_name;
+      const updates = {};
+      if (name        !== undefined) updates.name = name;
+      if (phone       !== undefined) updates.phone = phone;
+      if (line_id     !== undefined) updates.line_id = line_id;
+      if (role        !== undefined) updates.role = role;
+      if (notes       !== undefined) updates.notes = notes;
+      if (branch_name !== undefined) updates.branch_name = branch_name;
       // รีเซ็ต PIN — กันพนักงานที่ออกจากงานแล้วแอบใช้ PIN เดิมเข้าระบบ ต้องตั้งใหม่ถึงจะเข้าได้
-      if (reset_pin) existing[8] = '';
-      if (perm_view_revenue !== undefined) existing[9]  = perm_view_revenue ? 'TRUE' : 'FALSE';
-      if (perm_view_pl      !== undefined) existing[10] = perm_view_pl ? 'TRUE' : 'FALSE';
-      if (perm_manage_stock !== undefined) existing[11] = perm_manage_stock ? 'TRUE' : 'FALSE';
-      if (perm_export_vat   !== undefined) existing[12] = perm_export_vat ? 'TRUE' : 'FALSE';
-      if (perm_process_sales    !== undefined) existing[13] = perm_process_sales ? 'TRUE' : 'FALSE';
-      if (perm_void_sales       !== undefined) existing[14] = perm_void_sales ? 'TRUE' : 'FALSE';
-      if (perm_manage_customers !== undefined) existing[15] = perm_manage_customers ? 'TRUE' : 'FALSE';
-      if (perm_manage_expenses  !== undefined) existing[16] = perm_manage_expenses ? 'TRUE' : 'FALSE';
-      if (perm_manage_delivery  !== undefined) existing[17] = perm_manage_delivery ? 'TRUE' : 'FALSE';
-      if (perm_manage_receiving !== undefined) existing[18] = perm_manage_receiving ? 'TRUE' : 'FALSE';
-      if (perm_issue_tax_invoice!== undefined) existing[19] = perm_issue_tax_invoice ? 'TRUE' : 'FALSE';
-      if (perm_manage_staff     !== undefined) existing[20] = perm_manage_staff ? 'TRUE' : 'FALSE';
+      if (reset_pin) updates.pin = null;
+      if (perm_view_revenue      !== undefined) updates.perm_view_revenue = perm_view_revenue;
+      if (perm_view_pl           !== undefined) updates.perm_view_pl = perm_view_pl;
+      if (perm_manage_stock      !== undefined) updates.perm_manage_stock = perm_manage_stock;
+      if (perm_export_vat        !== undefined) updates.perm_export_vat = perm_export_vat;
+      if (perm_process_sales     !== undefined) updates.perm_process_sales = perm_process_sales;
+      if (perm_void_sales        !== undefined) updates.perm_void_sales = perm_void_sales;
+      if (perm_manage_customers  !== undefined) updates.perm_manage_customers = perm_manage_customers;
+      if (perm_manage_expenses   !== undefined) updates.perm_manage_expenses = perm_manage_expenses;
+      if (perm_manage_delivery   !== undefined) updates.perm_manage_delivery = perm_manage_delivery;
+      if (perm_manage_receiving  !== undefined) updates.perm_manage_receiving = perm_manage_receiving;
+      if (perm_issue_tax_invoice !== undefined) updates.perm_issue_tax_invoice = perm_issue_tax_invoice;
+      if (perm_manage_staff      !== undefined) updates.perm_manage_staff = perm_manage_staff;
 
-      // เบอร์โทรต้อง re-wrap เสมอไม่ว่า PATCH นี้จะแก้ไข field นี้หรือไม่ — กันตัดเลข 0 นำหน้าทิ้ง
-      // เมื่อ PATCH แก้แค่สิทธิ์/บทบาทโดยไม่แตะเบอร์โทรเลย (บั๊กคลาสเดียวกับ contacts.js)
-      existing[2] = asText(existing[2]);
-
-      await updateSheetRow(token, sheetId, 'พนักงาน', idx + 2, existing);
+      const { error } = await supabase.from('pos_staff').update(updates)
+        .eq('shop_id', shopId).eq('staff_id', staff_id);
+      if (error) throw error;
 
       if (resend_pin_link) {
-        const lineIdForPush = line_id !== undefined ? line_id : existing[3];
-        const nameForPush = name !== undefined ? name : existing[1];
+        const lineIdForPush = line_id !== undefined ? line_id : existing.line_id;
+        const nameForPush = name !== undefined ? name : existing.name;
         if (lineIdForPush) sendPinSetupLink(lineIdForPush, shopId, staff_id, nameForPush).catch(() => {});
       }
 
@@ -172,11 +139,15 @@ export default async function handler(req, res) {
       const { staff_id } = req.body;
       if (!staff_id) return res.status(400).json({ error: 'Missing staff_id' });
 
-      const rows = await readSheet(token, sheetId, 'พนักงาน!A:U');
-      const idx = rows.slice(1).findIndex(r => r[0] === staff_id);
-      if (idx === -1) return res.status(404).json({ error: 'ไม่พบพนักงาน' });
+      const { data: existing, error: fetchErr } = await supabase.from('pos_staff').select('staff_id')
+        .eq('shop_id', shopId).eq('staff_id', staff_id).is('deleted_at', null).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!existing) return res.status(404).json({ error: 'ไม่พบพนักงาน' });
 
-      await updateSheetRow(token, sheetId, 'พนักงาน', idx + 2, Array(21).fill(''));
+      const { error } = await supabase.from('pos_staff')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('shop_id', shopId).eq('staff_id', staff_id);
+      if (error) throw error;
       return res.json({ ok: true });
     }
 
@@ -184,8 +155,6 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error('[pos/staff]', err.message);
-    if (err.notSetup) return res.status(400).json({ error: err.message, notSetup: true });
-    if (err.notConnected) return res.status(400).json({ error: err.message, notConnected: true });
     return res.status(500).json({ error: err.message });
   }
 }

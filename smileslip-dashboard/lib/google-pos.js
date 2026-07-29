@@ -2,7 +2,7 @@
  * ตัวช่วย Google Sheets สำหรับ POS System
  * ใช้ refresh_token จาก shop_google_configs (เหมือน google-delivery.js)
  */
-import { dualWrite, insertRow } from './supabase-pos';
+import { dualWrite, insertRow, updateRow, softDeleteRow, supabase } from './supabase-pos';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -749,19 +749,37 @@ export function staffQualifiesForCashier(staff) {
   return CASHIER_SURFACE_PERMS.some(k => staff[k]);
 }
 
+// Supabase row → shape เดียวกับ rowToStaff() เดิมทุกฟิลด์ (ให้ logic ปลายทางที่มีอยู่แล้ว
+// เช่น staffQualifiesForCashier() ไม่ต้องแก้เลย)
+export function staffFromRow(r) {
+  return {
+    staff_id: r.staff_id || '', name: r.name || '', phone: r.phone || '',
+    line_id: r.line_id || '', role: r.role || 'พนักงานส่ง', notes: r.notes || '',
+    created_at: r.staff_created_at || '', branch_name: r.branch_name || '',
+    has_pin: !!(r.pin && String(r.pin).trim()),
+    perm_view_revenue: !!r.perm_view_revenue, perm_view_pl: !!r.perm_view_pl,
+    perm_manage_stock: !!r.perm_manage_stock, perm_export_vat: !!r.perm_export_vat,
+    perm_process_sales: !!r.perm_process_sales, perm_void_sales: !!r.perm_void_sales,
+    perm_manage_customers: !!r.perm_manage_customers, perm_manage_expenses: !!r.perm_manage_expenses,
+    perm_manage_delivery: !!r.perm_manage_delivery, perm_manage_receiving: !!r.perm_manage_receiving,
+    perm_issue_tax_invoice: !!r.perm_issue_tax_invoice, perm_manage_staff: !!r.perm_manage_staff,
+  };
+}
+
 // ตรวจสิทธิ์เชิงลึกของพนักงานคนหนึ่ง (จาก pos-staff.js "📊 จัดการร้าน" และ session แคชเชียร์ที่
 // เซ็นชื่อของ /pos?mode=cashier) — ใช้บังคับฝั่ง API จริง ไม่ใช่แค่ซ่อน UI เฉยๆ (กันพนักงานเรียก
 // API ตรงข้ามหน้าบ้าน) — คืน false ทั้งหมดถ้าไม่พบพนักงานหรือ error ใดๆ (fail-safe: ไม่มีสิทธิ์
-// ดีกว่ามีสิทธิ์ผิดคน) — ดึงจาก Sheet สดทุกครั้ง ไม่เชื่อค่าที่ฝังใน session token เลย เพราะแอดมิน
-// อาจถอนสิทธิ์แล้วต้องมีผลทันที ไม่ใช่รอ token หมดอายุ
-export async function getStaffPermissions(token, sheetId, staffId) {
+// ดีกว่ามีสิทธิ์ผิดคน) — ดึงจาก Supabase สดทุกครั้ง ไม่เชื่อค่าที่ฝังใน session token เลย เพราะแอดมิน
+// อาจถอนสิทธิ์แล้วต้องมีผลทันที ไม่ใช่รอ token หมดอายุ — Phase 2 (write-primary flip): เลิกอ่าน
+// Sheets แล้ว ใช้ (shopId, staffId) แทน (token, sheetId, staffId) เดิม
+export async function getStaffPermissions(shopId, staffId) {
   if (!staffId) return { ...EMPTY_STAFF_PERMS };
   try {
-    await ensureTabExists(token, sheetId, 'พนักงาน', STAFF_HEADERS);
-    const rows = await readSheet(token, sheetId, 'พนักงาน!A:U');
-    const row = rows.slice(1).find(r => r[0] === staffId);
+    const { data: row, error } = await supabase.from('pos_staff').select('*')
+      .eq('shop_id', shopId).eq('staff_id', staffId).is('deleted_at', null).maybeSingle();
+    if (error) throw error;
     if (!row) return { ...EMPTY_STAFF_PERMS };
-    const staff = rowToStaff(row);
+    const staff = staffFromRow(row);
     return {
       perm_view_revenue: staff.perm_view_revenue,
       perm_view_pl: staff.perm_view_pl,

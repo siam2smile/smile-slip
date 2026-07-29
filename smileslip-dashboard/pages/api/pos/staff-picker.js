@@ -11,14 +11,11 @@
  * ล้วนๆ ออกจากรายชื่อไปเลย (เข้าหน้าขายเต็มรูปแบบไม่ได้อยู่ดี ตาม verify-pin.js — ซ่อนชื่อไว้ตั้งแต่
  * ต้นกันสับสนว่าทำไมกดชื่อแล้วใส่ PIN ถูกแต่เข้าไม่ได้) — /pos-staff ไม่ส่ง mode นี้มา จึงยังเห็น
  * ทุกคนตามปกติ (ใครก็ใช้แอปพนักงานได้ ไม่ผูกกับสิทธิ์เฉพาะเจาะจง)
+ *
+ * Phase 2 (write-primary flip, 2026-07-29): อ่านจาก Supabase (pos_staff) แทน Sheets แล้ว
  */
-import { createClient } from '@supabase/supabase-js';
-import { getAccessToken, readSheet, ensureTabExists, rowToStaff, staffQualifiesForCashier, STAFF_HEADERS } from '../../../lib/google-pos';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
-);
+import { supabase } from '../../../lib/supabase-pos';
+import { staffFromRow, staffQualifiesForCashier } from '../../../lib/google-pos';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
@@ -26,16 +23,12 @@ export default async function handler(req, res) {
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
 
   try {
-    const { data: pc } = await supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single();
-    const { data: gc } = await supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single();
-    if (!pc?.pos_sheet_id) return res.status(400).json({ error: 'ยังไม่ได้ตั้งค่า POS', notSetup: true });
-    if (!gc?.google_refresh_token) return res.status(400).json({ error: 'ยังไม่ได้เชื่อมต่อ Google', notConnected: true });
+    const { data, error } = await supabase.from('pos_staff').select('*')
+      .eq('shop_id', shopId).is('deleted_at', null).order('created_at', { ascending: true });
+    if (error) throw error;
 
-    const token = await getAccessToken(gc.google_refresh_token);
-    await ensureTabExists(token, pc.pos_sheet_id, 'พนักงาน', STAFF_HEADERS);
-    const rows = await readSheet(token, pc.pos_sheet_id, 'พนักงาน!A:U');
-    const staff = rows.slice(1)
-      .map(rowToStaff)
+    const staff = (data || [])
+      .map(staffFromRow)
       .filter(s => s.staff_id && s.name && s.has_pin) // ยังไม่ตั้ง PIN = เลือกแล้วก็ล็อกอินไม่ได้อยู่ดี ไม่ต้องโชว์
       .filter(s => mode !== 'cashier' || staffQualifiesForCashier(s)) // โหมดแคชเชียร์ซ่อนพนักงานส่งของล้วนๆ
       .map(s => ({ staff_id: s.staff_id, name: s.name.trim(), branch_name: s.branch_name || '' }));
