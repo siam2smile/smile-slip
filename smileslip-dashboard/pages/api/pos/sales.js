@@ -3,58 +3,56 @@
  * POST /api/pos/sales { shopId, items, discount, payment_method, cash_received, cashier, customerName, notes }
  *   → บันทึกยอดขาย + ตัดสต็อค + เขียน Sheets บัญชีหลัก (รายรับ)
  *
- * ข้อมูลเก็บสองที่:
- * 1. POS Sheets tab "ยอดขาย" — รายละเอียดบิล (รายการสินค้า, ส่วนลด, เงินทอน ฯลฯ)
- * 2. Main shop Sheets (sheet ปี) — รายรับเข้าบัญชีหลัก (ให้แสดงใน Dashboard Ledger)
+ * ข้อมูลเก็บสองที่ (คนละระบบกัน):
+ * 1. Supabase (pos_sales) — รายละเอียดบิล (รายการสินค้า, ส่วนลด, เงินทอน ฯลฯ) — Phase 2
+ *    (write-primary flip, 2026-07-29): อ่าน/เขียนตรงนี้แล้ว ไม่ผ่าน Google Sheets เลย
+ * 2. Main shop Sheets (sheet ปี ของร้าน เอง ผ่าน writeToMainSheets()) — รายรับเข้าบัญชีหลัก
+ *    (ให้แสดงใน Dashboard Ledger/บอท LINE) — **คงไว้ตามเดิมโดยเจตนา ไม่อยู่ในสโคปการตัด Sheets
+ *    รอบนี้** เพราะเป็นระบบบัญชี "ข้อมูลเป็นของร้านเอง" คนละเรื่องกับข้อมูลปฏิบัติการของ POS —
+ *    ตอนนี้เป็น best-effort เสมอ (ไม่บล็อคการขายถ้ายังไม่เชื่อม Google/เขียนไม่สำเร็จ)
  */
 import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import { requirePermission } from '../../../lib/pos-auth';
 import {
-  getAccessToken, readSheet, appendSheet, updateSheetRow,
-  ensureTabExists, makeBillNo, rowToSale, SALE_HEADERS, rowToProduct, CONTACT_HEADERS,
+  getAccessToken, appendSheet, makeBillNo, saleFromRow, productFromRow,
   computeVatBreakdown, logCyclicalTransaction, resolveRecordDateTime,
 } from '../../../lib/google-pos';
-import { dualWrite, insertRow, updateRow, softDeleteRow, LEDGER_TYPE } from '../../../lib/supabase-pos';
+import { dualWrite, insertRow, LEDGER_TYPE } from '../../../lib/supabase-pos';
 
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
-
-// บังคับให้ Google Sheets เก็บเป็นข้อความล้วน กันเบอร์โทร/เลขภาษี/บาร์โค้ดที่ขึ้นต้นด้วย 0 โดนตัด
-// 0 ทิ้ง (valueInputOption=USER_ENTERED ตีความค่าที่หน้าตาเป็นตัวเลขแล้วแปลงเป็นเลขเอง) — ไฟล์นี้
-// เขียนทั้งแถวของ "ผู้ติดต่อ"/"สินค้า" กลับซ้ำๆ เป็น side effect ของการขาย/ยกเลิกบิล จึงต้องมี asText()
-// ของตัวเองเหมือนไฟล์อื่นที่แตะชีตเดียวกัน
-function asText(v) {
-  if (v === '' || v == null) return v;
-  return `'${v}`;
-}
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
+// Phase 2: ไม่ต้องมี pos_configs.pos_sheet_id/Google connection อีกต่อไปสำหรับตัวข้อมูลขายเอง —
+// Google OAuth ยังใช้แบบ "optional" เฉพาะตอนเขียน main ledger sheet ของร้าน (writeToMainSheets)
+// ถ้ายังไม่เชื่อมต่อก็ยังขายได้ปกติ แค่ไม่มีรายการไปโผล่ใน Dashboard Ledger/บอท LINE เท่านั้น
 async function getConfig(shopId) {
-  const [{ data: pc }, { data: gc }, { data: sp }] = await Promise.all([
-    supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).single(),
-    supabase.from('shop_google_configs').select('google_refresh_token, google_sheet_id').eq('shop_id', shopId).single(),
+  const [{ data: gc }, { data: sp }] = await Promise.all([
+    supabase.from('shop_google_configs').select('google_refresh_token, google_sheet_id').eq('shop_id', shopId).maybeSingle(),
     supabase.from('shop_profiles').select('shop_name, branch_name, subscription_tier').eq('id', shopId).single(),
   ]);
-  if (!pc?.pos_sheet_id) throw Object.assign(new Error('ยังไม่ได้ตั้งค่า POS'), { notSetup: true });
-  if (!gc?.google_refresh_token) throw Object.assign(new Error('ยังไม่ได้เชื่อมต่อ Google'), { notConnected: true });
+  let token = null;
+  if (gc?.google_refresh_token) {
+    try { token = await getAccessToken(gc.google_refresh_token); } catch (e) { console.error('[pos/sales] getAccessToken:', e.message); }
+  }
   return {
-    sheetId: pc.pos_sheet_id,
-    mainSheetId: gc.google_sheet_id || null,
+    mainSheetId: gc?.google_sheet_id || null,
     shopName: sp?.shop_name || '',
     branchName: sp?.branch_name || '',
     tier: sp?.subscription_tier || 'normal',
-    token: await getAccessToken(gc.google_refresh_token),
+    token,
   };
 }
 
-// เขียนรายการขายลง Sheets บัญชีหลัก (tab ปี ค.ศ.) เพื่อให้แสดงใน Dashboard Ledger
+// เขียนรายการขายลง Sheets บัญชีหลัก (tab ปี ค.ศ.) เพื่อให้แสดงใน Dashboard Ledger — คงไว้ตามเดิม
+// ทุกประการ (out of scope การตัด Sheets รอบนี้ — ดูเหตุผลที่หัวไฟล์)
 async function writeToMainSheets(token, mainSheetId, { shopId, billNo, items, total, payMethod, customerName, notes, shopName, branchName, slipUrl, slipSender, slipRefNo, transactionDate }) {
-  if (!mainSheetId) return;
+  if (!mainSheetId || !token) return;
   try {
     const now = new Date();
     const thaiLocale = { timeZone: 'Asia/Bangkok' };
@@ -142,18 +140,15 @@ export default async function handler(req, res) {
   // เขียนไม่ได้ถ้าทดลองใช้ 30 วันหมดอายุแล้ว (อ่าน/GET ยังทำได้ปกติเสมอ)
   if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
 
-
   try {
-    const { sheetId, mainSheetId, token, shopName, branchName, tier } = await getConfig(shopId);
-
-    // ตรวจว่ามี tab "ยอดขาย" ไหม (บัญชีเก่าอาจยังไม่มีหรือชื่อผิด)
-    await ensureTabExists(token, sheetId, 'ยอดขาย', SALE_HEADERS);
+    const { mainSheetId, shopName, branchName, tier, token } = await getConfig(shopId);
 
     // ── GET ──────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      // A:S (19 คอลัมน์เต็ม รวมเลขที่กะ) — เดิมอ่านแค่ A:L ทำให้รหัส/ชื่อลูกค้า (คอลัมน์ M/N) ไม่เคยถูกอ่านเลย
-      const rows = await readSheet(token, sheetId, 'ยอดขาย!A:S');
-      let sales = rows.slice(1).map(r => rowToSale(r)).filter(s => s.bill_no);
+      const { data, error } = await supabase.from('pos_sales').select('*')
+        .eq('shop_id', shopId).is('deleted_at', null).order('created_at', { ascending: true });
+      if (error) throw error;
+      let sales = (data || []).map(saleFromRow).filter(s => s.bill_no);
 
       if (req.query.date) {
         sales = sales.filter(s => {
@@ -186,30 +181,22 @@ export default async function handler(req, res) {
       const { bill_no, notes: patchNotes = '' } = req.body;
       if (!bill_no) return res.status(400).json({ error: 'Missing bill_no' });
 
-      const rows = await readSheet(token, sheetId, 'ยอดขาย!A:R');
-      const dataRows = rows.slice(1);
-      const idx = dataRows.findIndex(r => r[0] === bill_no);
-      if (idx === -1) return res.status(404).json({ error: 'ไม่พบบิล' });
-
-      const existing = [...dataRows[idx]];
-      while (existing.length < 18) existing.push('');
-      if (existing[11] === 'ชำระแล้ว') return res.status(400).json({ error: 'ชำระแล้ว' });
+      const { data: existing, error: fetchErr } = await supabase.from('pos_sales').select('*')
+        .eq('shop_id', shopId).eq('bill_no', bill_no).is('deleted_at', null).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!existing) return res.status(404).json({ error: 'ไม่พบบิล' });
+      if (existing.status === 'ชำระแล้ว') return res.status(400).json({ error: 'ชำระแล้ว' });
 
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-      existing[11] = 'ชำระแล้ว';
-      existing[14] = asText(now); // paid_at
-      if (patchNotes) existing[10] = [existing[10], patchNotes].filter(Boolean).join(' | ');
-      const mergedNotes = existing[10];
-      await dualWrite({
-        label: 'sales-settle-credit',
-        primary: () => updateSheetRow(token, sheetId, 'ยอดขาย', idx + 2, existing),
-        secondary: () => updateRow('pos_sales', { shop_id: shopId, bill_no }, {
-          status: 'ชำระแล้ว', paid_at: now, notes: mergedNotes,
-        }),
-      });
+      const mergedNotes = patchNotes ? [existing.notes, patchNotes].filter(Boolean).join(' | ') : existing.notes;
 
-      // เขียนลง Main Sheets หลังชำระ
-      const sale = rowToSale(existing);
+      const { error } = await supabase.from('pos_sales').update({
+        status: 'ชำระแล้ว', paid_at: now, notes: mergedNotes,
+      }).eq('shop_id', shopId).eq('bill_no', bill_no);
+      if (error) throw error;
+
+      // เขียนลง Main Sheets หลังชำระ (best-effort — ดูหัวไฟล์)
+      const sale = saleFromRow({ ...existing, status: 'ชำระแล้ว', paid_at: now, notes: mergedNotes });
       await writeToMainSheets(token, mainSheetId, {
         shopId, billNo: sale.bill_no, items: sale.items, total: sale.total,
         payMethod: 'เชื่อ/ชำระแล้ว',
@@ -220,22 +207,13 @@ export default async function handler(req, res) {
       // ลดยอดค้างชำระของผู้ติดต่อกลับลง (ตอนขายเชื่อเคยบวกยอดนี้ไว้แล้ว — ดู POST ด้านล่าง)
       if (sale.customer_id) {
         try {
-          await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
-          const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:X');
-          const custDataRows = custRows.slice(1);
-          const custIdx = custDataRows.findIndex(r => r[0] === sale.customer_id);
-          if (custIdx !== -1) {
-            const custExisting = [...custDataRows[custIdx]];
-            while (custExisting.length < 24) custExisting.push('');
-            custExisting[13] = Math.max(0, (parseFloat(custExisting[13]) || 0) - sale.total); // ยอดค้างชำระ
-            custExisting[19] = asText(now); // updated_at
-            // เขียนทั้งแถวผู้ติดต่อกลับ — เบอร์โทร/เลขภาษี/เบอร์ผู้ติดต่อนิติบุคคลที่ readSheet() อ่าน
-            // มาไม่มี apostrophe ต้อง re-wrap เสมอ กันตัดเลข 0 นำหน้าทิ้งเงียบๆ (endpoint นี้ไม่ได้
-            // ตั้งใจแก้ฟิลด์เหล่านี้เลย แต่เขียนทั้งแถวทับทุกครั้งที่รับชำระเงินเชื่อ)
-            custExisting[3]  = asText(custExisting[3]);
-            custExisting[10] = asText(custExisting[10]);
-            custExisting[22] = asText(custExisting[22]);
-            await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
+          const { data: cust } = await supabase.from('pos_contacts').select('debt')
+            .eq('shop_id', shopId).eq('contact_id', sale.customer_id).is('deleted_at', null).maybeSingle();
+          if (cust) {
+            await supabase.from('pos_contacts').update({
+              debt: Math.max(0, (parseFloat(cust.debt) || 0) - sale.total),
+              contact_updated_at: now,
+            }).eq('shop_id', shopId).eq('contact_id', sale.customer_id);
           }
         } catch (debtErr) {
           console.error('[pos/sales] settle credit debt error:', debtErr.message);
@@ -273,7 +251,6 @@ export default async function handler(req, res) {
       const total = Math.max(0, subtotal - discount);
       const change = payment_method === 'เงินสด' ? Math.max(0, cash_received - total) : 0;
       const billNo = makeBillNo();
-      const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }); // เวลาจริงที่ตัดสต็อค — ไม่ backdate
       const recordDT = resolveRecordDateTime(transactionDate); // วันที่ของบิล — backdate ได้ถ้าระบุ transactionDate
 
       const fullNotes = [
@@ -287,56 +264,35 @@ export default async function handler(req, res) {
       const isTransferPending = payment_method === 'โอน' && !slipUrl;
       const billStatus = isCredit ? 'ค้างชำระ' : isTransferPending ? 'รอยืนยัน' : 'ชำระแล้ว';
 
-      // อ่านสินค้าไว้ล่วงหน้า — ใช้ทั้งคำนวณ VAT (จาก vat_type ต่อ SKU), ตัดสต็อค, และเช็คเพดานเปล่ารอรีฟิล (คอลัมน์ S)
-      const prodRows = await readSheet(token, sheetId, 'สินค้า!A:S');
-      const dataRows = prodRows.slice(1);
-      const productsForVat = dataRows.map(r => rowToProduct(r));
+      // อ่านสินค้าไว้ล่วงหน้า — ใช้ทั้งคำนวณ VAT (จาก vat_type ต่อ SKU), ตัดสต็อค, และเช็คเพดานเปล่ารอรีฟิล
+      const { data: prodData } = await supabase.from('pos_products').select('*')
+        .eq('shop_id', shopId).is('deleted_at', null);
+      const productsForVat = (prodData || []).map(productFromRow);
       const { subtotal: vatSubtotal, vat: vatAmount } = computeVatBreakdown(items, productsForVat);
 
       // คำนวณจำนวนที่จะถูกหักจาก "เต็ม" (stock) จริงต่อรายการไว้ล่วงหน้า แล้วฝังเข้า item ก่อนบันทึก
-      // เป็น JSON — เพราะการหักสต็อคด้านล่าง clamp ไว้ที่ 0 (`Math.max(0, stock - qty)`) ถ้าสต็อคมีไม่พอ
-      // "จำนวนที่หักจริง" อาจน้อยกว่า item.qty ต้องจำค่าจริงไว้ ไม่งั้นตอนยกเลิกบิล (DELETE) จะคืนสต็อค
-      // เกินกว่าที่หักไปจริง (over-restore) โดยเฉพาะสินค้าที่สต็อคเหลือ 0 อยู่แล้วตอนขาย
+      // เป็น JSON — เพราะการหักสต็อคด้านล่าง clamp ไว้ที่ 0 ถ้าสต็อคมีไม่พอ "จำนวนที่หักจริง" อาจน้อยกว่า
+      // item.qty ต้องจำค่าจริงไว้ ไม่งั้นตอนยกเลิกบิล (DELETE) จะคืนสต็อคเกินกว่าที่หักไปจริง (over-restore)
       for (const item of items) {
-        const pIdx = dataRows.findIndex(r => r[0] === item.sku);
-        if (pIdx === -1) { item.actual_stock_deducted = 0; continue; }
-        const rawType = dataRows[pIdx][10] || 'นับสต็อค';
-        const prodType = rawType === 'ทั่วไป' ? 'นับสต็อค' : rawType;
-        if (prodType === 'ไม่นับสต็อค') {
+        const prod = productsForVat.find(p => p.sku === item.sku);
+        if (!prod) { item.actual_stock_deducted = 0; continue; }
+        if (prod.type === 'ไม่นับสต็อค') {
           item.actual_stock_deducted = 0;
         } else {
-          const currentStock = parseFloat(dataRows[pIdx][5]) || 0;
-          item.actual_stock_deducted = Math.min(parseFloat(item.qty) || 0, currentStock);
+          item.actual_stock_deducted = Math.min(parseFloat(item.qty) || 0, prod.stock);
         }
       }
 
-      // 1. บันทึกลง POS Sheets tab "ยอดขาย" (19 คอลัมน์ A-S — เพิ่มเลขที่กะท้ายสุด)
-      // recordDT.full เป็นสตริงวันที่ไทย (มีปี พ.ศ.) ต้องผ่าน asText() เสมอในแถว Sheets ไม่งั้น Sheets
-      // ตีความเป็นตัวเลข/วันที่เองแล้วเพี้ยนเป็นเลข serial ดิบ (บั๊ก "~543 ปี" ที่เจอซ้ำหลายจุดในโปรเจกต์นี้
-      // — จุดนี้ไม่เคยถูกแก้มาก่อนแม้ expenses.js ที่ใช้ helper เดียวกันจะแก้ไปแล้ว) — Postgres (secondary)
-      // ไม่ต้อง asText เพราะไม่มีปัญหา auto-parse แบบ Sheets
-      await dualWrite({
-        label: 'sales-create',
-        primary: () => appendSheet(token, sheetId, 'ยอดขาย', [
-          billNo, asText(recordDT.full), JSON.stringify(items),
-          subtotal, discount, total,
-          payment_method, cash_received, change,
-          cashier, fullNotes, billStatus,
-          customerId, customerName, '', branch,
-          vatSubtotal, vatAmount, shift_no,
-        ]),
-        secondary: () => insertRow('pos_sales', {
-          shop_id: shopId, bill_no: billNo, transaction_at: recordDT.full, items,
-          subtotal, discount, total, payment_method, cash_received, change_amount: change,
-          cashier, notes: fullNotes, status: billStatus, customer_id: customerId,
-          customer_name: customerName, paid_at: null, branch_name: branch,
-          vat_subtotal: vatSubtotal, vat_amount: vatAmount, shift_no,
-        }),
+      // 1. บันทึกลง pos_sales
+      await insertRow('pos_sales', {
+        shop_id: shopId, bill_no: billNo, transaction_at: recordDT.full, items,
+        subtotal, discount, total, payment_method, cash_received, change_amount: change,
+        cashier, notes: fullNotes, status: billStatus, customer_id: customerId,
+        customer_name: customerName, paid_at: null, branch_name: branch,
+        vat_subtotal: vatSubtotal, vat_amount: vatAmount, shift_no,
       });
 
-      // 2. บันทึกลง Main shop Sheets เฉพาะเมื่อชำระแล้ว (ไม่บันทึกถ้าค้างชำระ/รอยืนยัน)
-      // branch (สาขาที่เลือกไว้ในหน้า POS) ต้องมาก่อน branchName (ค่า default ของร้าน) เสมอ
-      // ไม่งั้นยอดขายทุกสาขาจะถูกนับรวมเป็นสาขาเดียวกันหมดในบัญชีหลัก/กราฟวิเคราะห์
+      // 2. บันทึกลง Main shop Sheets เฉพาะเมื่อชำระแล้ว (ไม่บันทึกถ้าค้างชำระ/รอยืนยัน) — best-effort
       if (!isTransferPending && !isCredit) {
         await writeToMainSheets(token, mainSheetId, {
           shopId, billNo, items, total, payMethod: payment_method,
@@ -346,14 +302,13 @@ export default async function handler(req, res) {
       }
 
       // 3. ตัดสต็อค / แลกถังสินค้าหมุนเวียน (fail-safe)
-      //    สินค้าหมุนเวียน: ขาย 1 ถัง → หัก "เต็ม" (stock) ออก 1 เสมอ (เดิมไม่หัก เป็นบั๊ก)
+      //    สินค้าหมุนเวียน: ขาย 1 ถัง → หัก "เต็ม" (stock) ออก 1 เสมอ
       //    ถ้าลูกค้าเอาถังเปล่าเก่ามาคืน (item.returned_qty) → ถังนั้นไม่ได้ค้างอยู่กับลูกค้าเพิ่ม
       //    (กับลูกค้าสุทธิ = qty - returned_qty) และเพิ่ม "เปล่ารอรีฟิล" ตามจำนวนที่คืนมา
       let netCylinderDeltaForCustomer = 0;
       const warnings = [];
 
-      // เตือน (ไม่บล็อค) ถ้าราคาที่ขายจริงต่ำกว่าต้นทุน — พนักงานแก้ราคาต่อรายการได้ตามปกติ (ฟีเจอร์ตั้งใจ)
-      // แต่เจ้าของร้านควรเห็นสัญญาณถ้าขายต่ำกว่าทุนผิดปกติ (เช่น พิมพ์ราคาผิด หรือทุจริต)
+      // เตือน (ไม่บล็อค) ถ้าราคาที่ขายจริงต่ำกว่าต้นทุน
       for (const item of items) {
         const prod = productsForVat.find(p => p.sku === item.sku);
         if (prod && prod.cost > 0 && parseFloat(item.price) < prod.cost) {
@@ -363,32 +318,30 @@ export default async function handler(req, res) {
 
       try {
         for (const item of items) {
-          const idx = dataRows.findIndex(r => r[0] === item.sku);
-          if (idx === -1) continue;
-          const existing = [...dataRows[idx]];
-          while (existing.length < 19) existing.push('');
-          const rawType  = existing[10] || 'นับสต็อค';
-          const prodType = rawType === 'ทั่วไป' ? 'นับสต็อค' : rawType;
-          if (prodType === 'ไม่นับสต็อค') {
-            // บริการ/ไม่นับสต็อค: ไม่เปลี่ยนแปลงตัวเลขใดๆ
-            continue;
-          } else if (prodType === 'หมุนเวียน') {
+          const prod = productsForVat.find(p => p.sku === item.sku);
+          if (!prod) continue;
+          const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+
+          if (prod.type === 'ไม่นับสต็อค') {
+            continue; // บริการ/ไม่นับสต็อค: ไม่เปลี่ยนแปลงตัวเลขใดๆ
+          } else if (prod.type === 'หมุนเวียน') {
             const returnedQty = parseInt(item.returned_qty) || 0;
             const netBorrow = item.qty - returnedQty;
-            const stockDelta = item.actual_stock_deducted ?? Math.min(parseFloat(item.qty) || 0, parseFloat(existing[5]) || 0);
-            existing[5]  = Math.max(0, (parseFloat(existing[5]) || 0) - stockDelta); // เต็ม (stock) ลด — ออกจากร้านไปกับลูกค้า
-            existing[11] = Math.max(0, (parseFloat(existing[11]) || 0) + netBorrow); // กับลูกค้า สุทธิ
-            existing[12] = (parseFloat(existing[12]) || 0) + returnedQty; // เปล่ารอรีฟิล
-            existing[9]  = asText(now);
+            const stockDelta = item.actual_stock_deducted ?? Math.min(parseFloat(item.qty) || 0, prod.stock);
+            const newStock = Math.max(0, prod.stock - stockDelta);
+            const newAtCustomer = Math.max(0, prod.at_customer + netBorrow);
+            const newEmptyWaiting = prod.empty_waiting + returnedQty;
+            await supabase.from('pos_products').update({
+              stock: newStock, at_customer: newAtCustomer, empty_waiting: newEmptyWaiting, product_updated_at: now,
+            }).eq('shop_id', shopId).eq('sku', item.sku);
             netCylinderDeltaForCustomer += netBorrow;
 
             // เพดานเปล่ารอรีฟิล — เตือนถ้าเกิน (ไม่บล็อคการขาย)
-            const ceiling = parseFloat(existing[18]) || 0;
-            if (ceiling > 0 && existing[12] > ceiling) {
-              warnings.push(`⚠️ "${item.name}" เปล่ารอรีฟิลเกินเพดาน (${existing[12]}/${ceiling} ${item.unit || ''})`);
+            if (prod.empty_ceiling > 0 && newEmptyWaiting > prod.empty_ceiling) {
+              warnings.push(`⚠️ "${item.name}" เปล่ารอรีฟิลเกินเพดาน (${newEmptyWaiting}/${prod.empty_ceiling} ${item.unit || ''})`);
             }
 
-            await logCyclicalTransaction(token, sheetId, {
+            await logCyclicalTransaction({
               shopId,
               sku: item.sku, name: item.name, source: 'ขายหน้าร้าน',
               action: returnedQty > 0 ? 'แลกเปลี่ยน' : 'ยืม',
@@ -396,51 +349,37 @@ export default async function handler(req, res) {
               customerId, customerName, branch, performedBy: cashier,
             });
             if (returnedQty > 0 && netBorrow > 0) {
-              await logCyclicalTransaction(token, sheetId, {
+              await logCyclicalTransaction({
                 shopId,
                 sku: item.sku, name: item.name, source: 'ขายหน้าร้าน', action: 'ยืม',
                 qty: netBorrow, customerId, customerName, branch, performedBy: cashier,
               });
             }
           } else {
-            const stockDelta = item.actual_stock_deducted ?? Math.min(parseFloat(item.qty) || 0, parseFloat(existing[5]) || 0);
-            existing[5] = Math.max(0, (parseFloat(existing[5]) || 0) - stockDelta); // stock ลด
-            existing[9] = asText(now);
+            const stockDelta = item.actual_stock_deducted ?? Math.min(parseFloat(item.qty) || 0, prod.stock);
+            const newStock = Math.max(0, prod.stock - stockDelta);
+            await supabase.from('pos_products').update({
+              stock: newStock, product_updated_at: now,
+            }).eq('shop_id', shopId).eq('sku', item.sku);
           }
-          // รหัสสินค้า/บาร์โค้ดที่ขึ้นต้นด้วย 0 ต้อง re-wrap เสมอเมื่อเขียนทั้งแถวกลับ (ทั้งสอง branch
-          // ด้านบนไม่เคยแตะฟิลด์นี้เลย แต่แถวถูกเขียนทับทั้งแถวทุกครั้งที่ขาย)
-          existing[13] = asText(existing[13]);
-          existing[14] = asText(existing[14]);
-          await updateSheetRow(token, sheetId, 'สินค้า', idx + 2, existing);
-          dataRows[idx] = existing;
         }
 
         // อัปเดตยอด "ถังอยู่กับลูกค้า" + "ยอดค้างชำระ" ของผู้ติดต่อ (ถ้าเลือกลูกค้าไว้ตอนขาย)
-        // isCredit ต้องอัปเดต debt ด้วยเสมอ — เดิมขายเชื่อไม่เคยแตะคอลัมน์นี้เลย (บั๊กจริง: ยอดค้างชำระ
-        // ไม่ขึ้นที่หน้าผู้ติดต่อ/สรุปรวม ทั้งที่บิลถูกบันทึกเป็น "ค้างชำระ" ใน POS Sheets แล้วก็ตาม)
         if (customerId && (netCylinderDeltaForCustomer !== 0 || isCredit)) {
-          await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
-          const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:X');
-          const custDataRows = custRows.slice(1);
-          const custIdx = custDataRows.findIndex(r => r[0] === customerId);
-          if (custIdx !== -1) {
-            const custExisting = [...custDataRows[custIdx]];
-            while (custExisting.length < 24) custExisting.push('');
-            const newCylinders = Math.max(0, (parseFloat(custExisting[14]) || 0) + netCylinderDeltaForCustomer);
-            custExisting[14] = newCylinders; // ถังอยู่กับลูกค้า
-            if (isCredit) {
-              custExisting[13] = (parseFloat(custExisting[13]) || 0) + total; // ยอดค้างชำระ
-            }
-            custExisting[19] = asText(now); // updated_at
-            const limit = parseFloat(custExisting[23]) || 0;
+          const { data: cust } = await supabase.from('pos_contacts').select('*')
+            .eq('shop_id', shopId).eq('contact_id', customerId).is('deleted_at', null).maybeSingle();
+          if (cust) {
+            const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+            const newCylinders = Math.max(0, (parseFloat(cust.cylinders) || 0) + netCylinderDeltaForCustomer);
+            const custUpdates = { cylinders: newCylinders, contact_updated_at: now };
+            if (isCredit) custUpdates.debt = (parseFloat(cust.debt) || 0) + total;
+            await supabase.from('pos_contacts').update(custUpdates)
+              .eq('shop_id', shopId).eq('contact_id', customerId);
+
+            const limit = parseFloat(cust.cylinder_limit) || 0;
             if (limit > 0 && newCylinders > limit) {
               warnings.push(`⚠️ ลูกค้ายืมสินค้าหมุนเวียนเกินวงเงินที่ตั้งไว้ (${newCylinders}/${limit})`);
             }
-            // เขียนทั้งแถวผู้ติดต่อกลับ — เบอร์โทร/เลขภาษี/เบอร์ผู้ติดต่อนิติบุคคลต้อง re-wrap เสมอ
-            custExisting[3]  = asText(custExisting[3]);
-            custExisting[10] = asText(custExisting[10]);
-            custExisting[22] = asText(custExisting[22]);
-            await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
           }
         }
       } catch (stockErr) {
@@ -452,7 +391,7 @@ export default async function handler(req, res) {
 
     // ── DELETE (ยกเลิกบิล) ───────────────────────────────────────────────────
     // เดิมบิลที่คีย์ผิด (ราคา/จำนวน/สินค้าผิด) ไม่มีทางยกเลิกได้เลยผ่านหน้าเว็บ ต้องรบกวนแอดมินเข้า
-    // Sheets แก้เอง — คืนสต็อค/ถังลูกค้า/ยอดค้างชำระ (ถ้าเป็นบิลเชื่อ) กลับที่เดิม แล้วลบแถวทิ้ง
+    // Sheets แก้เอง — คืนสต็อค/ถังลูกค้า/ยอดค้างชำระ (ถ้าเป็นบิลเชื่อ) กลับที่เดิม แล้ว soft-delete
     // หมายเหตุ: ถ้าบิลนั้น "ชำระแล้ว" (เขียนเข้าบัญชีหลักไปแล้ว) การยกเลิกจะไม่ลบแถวในบัญชีหลักอัตโนมัติ
     // (หาแถวที่แน่ชัดยากเพราะบัญชีหลักไม่ได้เก็บ reference กลับมาที่ bill_no เสมอไป) ต้องลบเองถ้าจำเป็น
     if (req.method === 'DELETE') {
@@ -463,50 +402,41 @@ export default async function handler(req, res) {
       const { bill_no } = req.body;
       if (!bill_no) return res.status(400).json({ error: 'Missing bill_no' });
 
-      const rows = await readSheet(token, sheetId, 'ยอดขาย!A:R');
-      const dataRows = rows.slice(1);
-      const idx = dataRows.findIndex(r => r[0] === bill_no);
-      if (idx === -1) return res.status(404).json({ error: 'ไม่พบบิล' });
+      const { data: existing, error: fetchErr } = await supabase.from('pos_sales').select('*')
+        .eq('shop_id', shopId).eq('bill_no', bill_no).is('deleted_at', null).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!existing) return res.status(404).json({ error: 'ไม่พบบิล' });
 
-      const sale = rowToSale(dataRows[idx]);
+      const sale = saleFromRow(existing);
       const isCredit = sale.payment_method === 'เชื่อ';
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
 
       // คืนสต็อค/ถังลูกค้า — ย้อนกลับตรรกะเดียวกับตอนบันทึกขาย (fail-safe ไม่ให้พังการยกเลิกทั้งหมด)
       let netCylinderDeltaForCustomer = 0;
       try {
-        const prodRows = await readSheet(token, sheetId, 'สินค้า!A:S');
-        const prodDataRows = prodRows.slice(1);
         for (const item of (sale.items || [])) {
-          const pIdx = prodDataRows.findIndex(r => r[0] === item.sku);
-          if (pIdx === -1) continue;
-          const existing = [...prodDataRows[pIdx]];
-          while (existing.length < 19) existing.push('');
-          const rawType = existing[10] || 'นับสต็อค';
-          const prodType = rawType === 'ทั่วไป' ? 'นับสต็อค' : rawType;
-          if (prodType === 'ไม่นับสต็อค') continue;
-          // คืนเท่าที่ "หักจริง" ตอนขาย ไม่ใช่ item.qty เสมอ — ตอนขายถ้าสต็อคไม่พอ (เช่นเหลือ 0)
-          // การหักจะถูก clamp ที่ 0 (`Math.max(0, stock - qty)`) ทำให้หักจริงน้อยกว่า qty ที่สั่งขาย
-          // ถ้าคืนแบบ + item.qty ตรงๆ จะ over-restore สต็อคเกินกว่าที่เคยหักไปจริง — ใช้ค่าที่บันทึกไว้
-          // ตอนขาย (actual_stock_deducted) แทน ถ้าเป็นบิลเก่าก่อนแก้บั๊กนี้ (ไม่มีฟิลด์นี้) fallback เป็น
-          // item.qty ตามพฤติกรรมเดิม (ไม่มีทางรู้ค่าจริงย้อนหลังได้)
+          const { data: prodRow } = await supabase.from('pos_products').select('*')
+            .eq('shop_id', shopId).eq('sku', item.sku).is('deleted_at', null).maybeSingle();
+          if (!prodRow) continue;
+          const prod = productFromRow(prodRow);
+          if (prod.type === 'ไม่นับสต็อค') continue;
+          // คืนเท่าที่ "หักจริง" ตอนขาย ไม่ใช่ item.qty เสมอ (ดูคอมเมนต์เดิมด้านบนหัวไฟล์ POST)
           const stockRestore = (typeof item.actual_stock_deducted === 'number') ? item.actual_stock_deducted : item.qty;
-          if (prodType === 'หมุนเวียน') {
+          if (prod.type === 'หมุนเวียน') {
             const returnedQty = parseInt(item.returned_qty) || 0;
             const netBorrow = item.qty - returnedQty;
-            existing[5]  = (parseFloat(existing[5]) || 0) + stockRestore; // คืนเต็มกลับ
-            existing[11] = Math.max(0, (parseFloat(existing[11]) || 0) - netBorrow); // กับลูกค้าลดกลับ
-            existing[12] = Math.max(0, (parseFloat(existing[12]) || 0) - returnedQty); // เปล่ารอรีฟิลลดกลับ
+            await supabase.from('pos_products').update({
+              stock: prod.stock + stockRestore,
+              at_customer: Math.max(0, prod.at_customer - netBorrow),
+              empty_waiting: Math.max(0, prod.empty_waiting - returnedQty),
+              product_updated_at: now,
+            }).eq('shop_id', shopId).eq('sku', item.sku);
             netCylinderDeltaForCustomer -= netBorrow;
           } else {
-            existing[5] = (parseFloat(existing[5]) || 0) + stockRestore;
+            await supabase.from('pos_products').update({
+              stock: prod.stock + stockRestore, product_updated_at: now,
+            }).eq('shop_id', shopId).eq('sku', item.sku);
           }
-          existing[9] = asText(now);
-          // รหัสสินค้า/บาร์โค้ดที่ขึ้นต้นด้วย 0 ต้อง re-wrap เสมอเมื่อเขียนทั้งแถวกลับ
-          existing[13] = asText(existing[13]);
-          existing[14] = asText(existing[14]);
-          await updateSheetRow(token, sheetId, 'สินค้า', pIdx + 2, existing);
-          prodDataRows[pIdx] = existing;
         }
       } catch (err) {
         console.error('[pos/sales] cancel: restore stock error:', err.message);
@@ -515,37 +445,29 @@ export default async function handler(req, res) {
       // คืนยอดค้างชำระ/ถังลูกค้า (ถ้าผูกลูกค้าไว้ตอนขาย)
       if (sale.customer_id) {
         try {
-          await ensureTabExists(token, sheetId, 'ผู้ติดต่อ', CONTACT_HEADERS);
-          const custRows = await readSheet(token, sheetId, 'ผู้ติดต่อ!A:X');
-          const custDataRows = custRows.slice(1);
-          const custIdx = custDataRows.findIndex(r => r[0] === sale.customer_id);
-          if (custIdx !== -1) {
-            const custExisting = [...custDataRows[custIdx]];
-            while (custExisting.length < 24) custExisting.push('');
+          const { data: cust } = await supabase.from('pos_contacts').select('*')
+            .eq('shop_id', shopId).eq('contact_id', sale.customer_id).is('deleted_at', null).maybeSingle();
+          if (cust) {
+            const custUpdates = { contact_updated_at: now };
             if (netCylinderDeltaForCustomer !== 0) {
-              custExisting[14] = Math.max(0, (parseFloat(custExisting[14]) || 0) + netCylinderDeltaForCustomer);
+              custUpdates.cylinders = Math.max(0, (parseFloat(cust.cylinders) || 0) + netCylinderDeltaForCustomer);
             }
             if (isCredit) {
-              custExisting[13] = Math.max(0, (parseFloat(custExisting[13]) || 0) - sale.total);
+              custUpdates.debt = Math.max(0, (parseFloat(cust.debt) || 0) - sale.total);
             }
-            custExisting[19] = asText(now);
-            // เขียนทั้งแถวผู้ติดต่อกลับ — เบอร์โทร/เลขภาษี/เบอร์ผู้ติดต่อนิติบุคคลต้อง re-wrap เสมอ
-            custExisting[3]  = asText(custExisting[3]);
-            custExisting[10] = asText(custExisting[10]);
-            custExisting[22] = asText(custExisting[22]);
-            await updateSheetRow(token, sheetId, 'ผู้ติดต่อ', custIdx + 2, custExisting);
+            await supabase.from('pos_contacts').update(custUpdates)
+              .eq('shop_id', shopId).eq('contact_id', sale.customer_id);
           }
         } catch (err) {
           console.error('[pos/sales] cancel: revert customer debt/cylinders error:', err.message);
         }
       }
 
-      // ลบแถวบิลทิ้ง (blank ทั้งแถว แบบเดียวกับ products/contacts)
-      await dualWrite({
-        label: 'sales-delete',
-        primary: () => updateSheetRow(token, sheetId, 'ยอดขาย', idx + 2, Array(18).fill('')),
-        secondary: () => softDeleteRow('pos_sales', { shop_id: shopId, bill_no }),
-      });
+      // soft-delete บิล
+      const { error } = await supabase.from('pos_sales')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('shop_id', shopId).eq('bill_no', bill_no);
+      if (error) throw error;
 
       return res.json({ ok: true });
     }
@@ -554,8 +476,6 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error('[pos/sales]', err.message);
-    if (err.notSetup) return res.status(400).json({ error: err.message, notSetup: true });
-    if (err.notConnected) return res.status(400).json({ error: err.message, notConnected: true });
     return res.status(500).json({ error: err.message });
   }
 }

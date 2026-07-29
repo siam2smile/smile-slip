@@ -489,27 +489,19 @@ export function rowToCyclicalLog(row) {
 
 // source: 'ขายหน้าร้าน'|'จัดส่ง'|'เก็บเงิน/ของ' — action: 'แลกเปลี่ยน'|'ยืม'|'คืน'
 // เรียกใช้แบบ fail-safe (ไม่ throw) กันบันทึก log พังจนกระทบ transaction หลัก
-// shopId: เพิ่มเข้ามาสำหรับ dual-write ไป Supabase (Tier A ของแผน migration) — ตัวเดียวที่ต่างจาก
-// เดิม ไม่กระทบ Sheets write เลย (ยังทำงานเหมือนเดิมทุกประการแม้ shopId จะว่าง/undefined)
-export async function logCyclicalTransaction(token, sheetId, { shopId, sku, name, source, action, qty, customerId, customerName, branch, performedBy }) {
-  if (!qty || qty <= 0) return;
+// Phase 2 (write-primary flip, 2026-07-29): เขียน Supabase (pos_cyclical_log) เท่านั้นแล้ว
+// ไม่ผ่าน Sheets อีกต่อไป — signature เปลี่ยนจาก (token, sheetId, {...}) เหลือแค่ ({...}) เดียว
+export async function logCyclicalTransaction({ shopId, sku, name, source, action, qty, customerId, customerName, branch, performedBy }) {
+  if (!qty || qty <= 0 || !shopId) return;
   try {
-    await ensureTabExists(token, sheetId, 'บันทึกแลกเปลี่ยน', CYCLICAL_LOG_HEADERS);
-    const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
     const logNo = makeCyclicalLogNo();
     const nowIso = new Date().toISOString();
-    await dualWrite({
-      label: 'cyclical-log',
-      primary: () => appendSheet(token, sheetId, 'บันทึกแลกเปลี่ยน', [
-        logNo, `'${now}`, sku || '', name || '',
-        source || '', action || '', qty, customerId || '', customerName || '', branch || '', performedBy || '',
-      ]),
-      secondary: () => shopId ? insertRow('pos_cyclical_log', {
-        shop_id: shopId, log_no: logNo, transaction_at: nowIso, sku: sku || '', product_name: name || '',
-        source: source || '', action: action || '', qty, customer_id: customerId || '',
-        customer_name: customerName || '', branch_name: branch || '', performed_by: performedBy || '',
-      }) : Promise.resolve(),
+    const { error } = await supabase.from('pos_cyclical_log').insert({
+      shop_id: shopId, log_no: logNo, transaction_at: nowIso, sku: sku || '', product_name: name || '',
+      source: source || '', action: action || '', qty, customer_id: customerId || '',
+      customer_name: customerName || '', branch_name: branch || '', performed_by: performedBy || '',
     });
+    if (error) throw error;
   } catch (err) {
     console.error('[logCyclicalTransaction]', err.message);
   }
@@ -670,6 +662,20 @@ export function rowToSale(row) {
     vat_subtotal:   parseFloat(row[16]) || 0,
     vat_amount:     parseFloat(row[17]) || 0,
     shift_no:       row[18] || '',
+  };
+}
+
+// Supabase row (pos_sales) → shape เดียวกับ rowToSale() เดิมทุกฟิลด์ — Phase 2
+// (write-primary flip, 2026-07-29): sales.js อ่าน/เขียน Supabase ตรงแล้ว ไม่ผ่าน Sheets
+export function saleFromRow(r) {
+  return {
+    bill_no: r.bill_no || '', created_at: r.transaction_at || '', items: r.items || [],
+    subtotal: Number(r.subtotal) || 0, discount: Number(r.discount) || 0, total: Number(r.total) || 0,
+    payment_method: r.payment_method || '', cash_received: Number(r.cash_received) || 0,
+    change: Number(r.change_amount) || 0, cashier: r.cashier || '', notes: r.notes || '',
+    status: r.status || 'ชำระแล้ว', customer_id: r.customer_id || '', customer_name: r.customer_name || '',
+    paid_at: r.paid_at || '', branch: r.branch_name || '', vat_subtotal: Number(r.vat_subtotal) || 0,
+    vat_amount: Number(r.vat_amount) || 0, shift_no: r.shift_no || '',
   };
 }
 

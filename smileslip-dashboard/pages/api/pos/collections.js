@@ -309,7 +309,7 @@ export default async function handler(req, res) {
                 await updateSheetRow(token, sheetId, 'สินค้า', pIdx + 2, prodExisting);
                 prodDataRows[pIdx] = prodExisting;
 
-                await logCyclicalTransaction(token, sheetId, {
+                await logCyclicalTransaction({
                   shopId,
                   sku: item.sku, name: item.name || prod.name, source: 'เก็บเงิน/ของ', action: 'คืน',
                   qty, customerId: custId, customerName: existing[3],

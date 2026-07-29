@@ -303,7 +303,7 @@ export default async function handler(req, res) {
         }
         // audit log — ยืมสินค้าหมุนเวียนไปกับออเดอร์จัดส่งนี้ (รวมเป็นยอดเดียว ไม่แยกราย SKU
         // เพราะ cylinders_delivered ที่ส่งมาเป็นยอดรวมอยู่แล้ว ไม่ได้แยกต่อสินค้า)
-        await logCyclicalTransaction(token, sheetId, {
+        await logCyclicalTransaction({
           shopId,
           sku: '', name: 'สินค้าหมุนเวียน (รวม)', source: 'จัดส่ง', action: 'ยืม',
           qty: cylinders_delivered, customerId: customer_id, customerName: customer_name,
@@ -466,7 +466,7 @@ export default async function handler(req, res) {
               netCylinderDeltaForCustomer += netBorrow;
 
               if (returnedQty > 0) {
-                await logCyclicalTransaction(token, sheetId, {
+                await logCyclicalTransaction({
                   shopId,
                   sku: item.sku, name: item.name || prod.name, source: 'จัดส่ง',
                   action: netBorrow > 0 ? 'แลกเปลี่ยน' : 'คืน',
@@ -475,7 +475,7 @@ export default async function handler(req, res) {
                 });
               }
               if (netBorrow > 0) {
-                await logCyclicalTransaction(token, sheetId, {
+                await logCyclicalTransaction({
                   shopId,
                   sku: item.sku, name: item.name || prod.name, source: 'จัดส่ง', action: 'ยืม',
                   qty: netBorrow, customerId: cust, customerName: existing[3],
