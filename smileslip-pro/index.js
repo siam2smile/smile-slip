@@ -1150,31 +1150,24 @@ function namesLikelyMatch(slipName, accountName) {
 
 // ── จับคู่ชื่อผู้ส่ง/บริษัทบนสลิปกับผู้จำหน่ายใน POS contacts ──────────────
 // คืน supplier name ถ้าตรง, null ถ้าไม่ตรงหรือไม่มี POS ─ suppress error ทุกกรณี
+// Phase 3 Tier 1: อ่านจาก pos_contacts (Supabase) แทน Sheets "ผู้ติดต่อ" — pos_contacts
+// เป็น source of truth เดียวของ dashboard มาตั้งแต่ Phase 2 Tier 138 แล้ว (ไม่ผ่าน Google เลย)
 async function findMatchedSupplier(shopId, senderText) {
   if (!senderText || senderText === '-') return null;
   try {
-    const [{ data: posConfig }, { data: gConfig }] = await Promise.all([
-      supabase.from('pos_configs').select('pos_sheet_id').eq('shop_id', shopId).maybeSingle(),
-      supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).maybeSingle(),
-    ]);
-    if (!posConfig?.pos_sheet_id || !gConfig?.google_refresh_token) return null;
-
-    const accessToken = await getAccessToken(gConfig.google_refresh_token);
-    const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
-    const range = encodeURIComponent('ผู้ติดต่อ!A:H');
-    const sheetsRes = await axios.get(
-      `${SHEETS_BASE}/${posConfig.pos_sheet_id}/values/${range}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-    const rows = sheetsRes.data.values || [];
+    const { data: rows, error } = await supabase
+      .from('pos_contacts')
+      .select('name, aliases')
+      .eq('shop_id', shopId)
+      .eq('contact_type', 'ผู้จำหน่าย')
+      .is('deleted_at', null);
+    if (error) throw error;
+    if (!rows || rows.length === 0) return null;
 
     const senderLower = senderText.toLowerCase().replace(/\s+/g, '');
-    for (const row of rows.slice(1)) {
-      const type    = row[2] || '';
-      const name    = row[1] || '';
-      const aliases = row[5] || '';
-      if (type !== 'ผู้จำหน่าย') continue;
-
+    for (const row of rows) {
+      const name    = row.name || '';
+      const aliases = row.aliases || '';
       const terms = [name, ...aliases.split(',').map(s => s.trim())].filter(Boolean);
       for (const t of terms) {
         const tNorm = t.toLowerCase().replace(/\s+/g, '');
