@@ -256,8 +256,13 @@ module.exports = function createLedgerGoogle({ axios, FormData, supabase, getTha
       { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
     );
   }
+  // Phase 3 Tier 3 — เพิ่มส่วนสุ่มต่อท้าย (เดิม Date.now() อย่างเดียวชนกันได้ถ้าเรียกในมิลลิวินาที
+  // เดียวกัน — ตอนนี้ insert Supabase เป็น required เพราะ pos_pending_receives กลายเป็นจุดเดียวที่
+  // บันทึกข้อมูลนี้แล้ว ไม่ใช่แค่ secondary fire-and-forget เหมือนก่อน จึงต้องกันชนแบบเดียวกับ
+  // makeContactId()/makeSKU() ของ dashboard)
   function makePendingReceiveNo() {
-    return 'PR' + Date.now().toString(36).toUpperCase();
+    const rand = Math.random().toString(36).slice(2, 5).toUpperCase();
+    return 'PR' + Date.now().toString(36).toUpperCase() + rand;
   }
   async function appendPendingReceive(accessToken, posSheetId, row) {
     await axios.post(
@@ -292,8 +297,10 @@ module.exports = function createLedgerGoogle({ axios, FormData, supabase, getTha
       { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
     );
   }
+  // Phase 3 Tier 3 — เพิ่มส่วนสุ่มต่อท้ายเหตุผลเดียวกับ makePendingReceiveNo() ด้านบน
   function makePendingExpenseNo() {
-    return 'PE' + Date.now().toString(36).toUpperCase();
+    const rand = Math.random().toString(36).slice(2, 5).toUpperCase();
+    return 'PE' + Date.now().toString(36).toUpperCase() + rand;
   }
   async function appendPendingExpense(accessToken, posSheetId, row) {
     await axios.post(

@@ -424,11 +424,14 @@ async function getLineImage(messageId) {
 
 // Phase 3 Tier 2 — Sheets/Drive helper functions ย้ายไป lib/ledger-google.js (pure refactor,
 // พฤติกรรมเหมือนเดิม 100% แค่ย้ายที่อยู่โค้ด) — inject deps ที่โมดูลนี้ต้องใช้เข้าไปตรงๆ
+// (Phase 3 Tier 3 — เลิก destructure ensurePendingReceiveSheet/appendPendingReceive/
+// ensurePendingExpenseSheet/appendPendingExpense/PENDING_*_HEADERS ออกแล้ว เพราะไม่มีจุดเรียกใช้
+// เหลืออยู่เลยหลังตัด Sheets ออกจากคิวรอยืนยัน — ตัวฟังก์ชันยังอยู่ใน lib/ledger-google.js เผื่อ
+// Tier 6 จะไล่ลบเป็นชุดสุดท้ายพร้อมของอื่นที่เหลือ)
 const {
   getOrCreateDriveFolder, uploadToGoogleDrive, recreateShopGoogleAssets, getOrCreateYearSheet,
   appendToGoogleSheet, checkDuplicateInSheets, parseTransactionAt,
-  ensurePendingReceiveSheet, appendPendingReceive, makePendingReceiveNo, PENDING_RECEIVE_HEADERS,
-  ensurePendingExpenseSheet, appendPendingExpense, makePendingExpenseNo, PENDING_EXPENSE_HEADERS,
+  makePendingReceiveNo, makePendingExpenseNo,
 } = require('./lib/ledger-google')({ axios, FormData, supabase, getThaiDateTime });
 
 // ─── หมวดหมู่มาตรฐาน (สำหรับ Business+) ─────────────────────────────────────
@@ -1779,8 +1782,16 @@ app.post('/webhook', async (req, res) => {
               .from('shop_google_configs')
               .select('google_refresh_token, google_folder_id, google_sheet_id')
               .eq('shop_id', shop.id).maybeSingle();
+            // Phase 3 Tier 3 — เลิกเขียน Sheets tab "รับสินค้ารอยืนยัน" เต็มรูปแบบ (dashboard
+            // receives-pending.js อ่าน/ลบจาก pos_pending_receives ของ Supabase เพียงอย่างเดียว
+            // มาตั้งแต่ Phase 2 อยู่แล้ว ไม่มีใครอ่าน Sheets tab นี้อีกต่อไป) — เช็ค pos_folder_id
+            // แทน pos_sheet_id (สัญญาณ "เปิดใช้ POS แล้ว" ตัวใหม่หลัง Phase 2 Tier 143 — ของเดิม
+            // ไม่ถูกสร้าง/อ่านที่ไหนอีกแล้ว ร้านที่เพิ่งเปิด POS หลัง Phase 2 deploy จะไม่มี pos_sheet_id
+            // เลย ถ้ายังเช็คคอลัมน์เดิมฟีเจอร์นี้จะเงียบใช้งานไม่ได้ทันทีสำหรับร้านใหม่) — insert
+            // Supabase เป็นจุดเดียวที่บันทึกข้อมูลนี้แล้ว จึงต้อง throw ให้ผู้ใช้เห็น error จริงถ้า
+            // insert ไม่สำเร็จ (ไม่ swallow-and-log เหมือนตอนยังเป็น secondary อยู่)
             const { data: posConfigR } = await supabase
-              .from('pos_configs').select('pos_sheet_id').eq('shop_id', shop.id).maybeSingle();
+              .from('pos_configs').select('pos_folder_id').eq('shop_id', shop.id).maybeSingle();
 
             let imageUrl = null;
             if (gConfigR?.google_refresh_token && gConfigR?.google_folder_id) {
@@ -1793,31 +1804,16 @@ app.post('/webhook', async (req, res) => {
               const driveFileId = await uploadToGoogleDrive(receiveImageBuffer, accessTokenR, receiveFolderId, fileName);
               imageUrl = `https://drive.google.com/open?id=${driveFileId}`;
 
-              if (posConfigR?.pos_sheet_id) {
-                await ensurePendingReceiveSheet(accessTokenR, posConfigR.pos_sheet_id);
-                const nowR = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+              if (posConfigR?.pos_folder_id) {
                 const pendingReceiveNo = makePendingReceiveNo();
-                await appendPendingReceive(accessTokenR, posConfigR.pos_sheet_id, [
-                  pendingReceiveNo, nowR, receiveData.supplier || '-', receiveData.invoice_no || '-',
-                  receiveData.invoice_date || '-', JSON.stringify(receiveData.items), imageUrl || '',
-                  awaitingReceive.branchName || branchName || '', 'รอตรวจสอบ',
-                ]);
-                // dual-write ระยะ migration ไป Supabase (ตาราง pos_pending_receives) — Sheets ยัง
-                // เป็นตัวจริง ทำเป็น secondary แบบ fire-and-forget ไม่กระทบ flow หลักถ้า error —
-                // .insert() คืน { error } แทนที่จะ throw ตอน DB error ต้องเช็คเองแล้ว throw เอง
-                // ในนี้ถึงจะเข้า catch ได้จริง (ไม่งั้น error หลุดเงียบๆ ไม่ log อะไรเลย)
-                try {
-                  const { error: supaInsErr } = await supabase.from('pos_pending_receives').insert({
-                    shop_id: shop.id, pending_no: pendingReceiveNo,
-                    supplier: receiveData.supplier || '-', invoice_no: receiveData.invoice_no || '-',
-                    invoice_date: receiveData.invoice_date || '-', items: receiveData.items,
-                    image_url: imageUrl || '', branch_name: awaitingReceive.branchName || branchName || '',
-                    status: 'รอตรวจสอบ',
-                  });
-                  if (supaInsErr) throw supaInsErr;
-                } catch (supaErr) {
-                  console.error('[pending-receive] Supabase dual-write error:', supaErr.message);
-                }
+                const { error: pendingErr } = await supabase.from('pos_pending_receives').insert({
+                  shop_id: shop.id, pending_no: pendingReceiveNo,
+                  supplier: receiveData.supplier || '-', invoice_no: receiveData.invoice_no || '-',
+                  invoice_date: receiveData.invoice_date || '-', items: receiveData.items,
+                  image_url: imageUrl || '', branch_name: awaitingReceive.branchName || branchName || '',
+                  status: 'รอตรวจสอบ',
+                });
+                if (pendingErr) throw pendingErr;
               }
             }
 
@@ -1850,8 +1846,12 @@ app.post('/webhook', async (req, res) => {
               .from('shop_google_configs')
               .select('google_refresh_token, google_folder_id, google_sheet_id')
               .eq('shop_id', shop.id).maybeSingle();
+            // Phase 3 Tier 3 — เลิกเขียน Sheets tab "รายจ่ายรอยืนยัน" เต็มรูปแบบ (เหตุผลเดียวกับ
+            // รับสินค้ารอยืนยันด้านบน — dashboard expenses-pending.js อ่านจาก pos_pending_expenses
+            // ของ Supabase เพียงอย่างเดียวมาตั้งแต่ Phase 2 แล้ว) — เช็ค pos_folder_id แทน
+            // pos_sheet_id ที่ไม่ถูกสร้างอีกต่อไปหลัง Phase 2 Tier 143
             const { data: posConfigE } = await supabase
-              .from('pos_configs').select('pos_sheet_id').eq('shop_id', shop.id).maybeSingle();
+              .from('pos_configs').select('pos_folder_id').eq('shop_id', shop.id).maybeSingle();
 
             let imageUrlE = null;
             if (gConfigE?.google_refresh_token && gConfigE?.google_folder_id) {
@@ -1864,31 +1864,17 @@ app.post('/webhook', async (req, res) => {
               const driveFileIdE = await uploadToGoogleDrive(expenseImageBuffer, accessTokenE, expenseFolderId, fileNameE);
               imageUrlE = `https://drive.google.com/open?id=${driveFileIdE}`;
 
-              if (posConfigE?.pos_sheet_id) {
-                await ensurePendingExpenseSheet(accessTokenE, posConfigE.pos_sheet_id);
-                const nowE = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+              if (posConfigE?.pos_folder_id) {
                 const pendingExpenseNo = makePendingExpenseNo();
-                await appendPendingExpense(accessTokenE, posConfigE.pos_sheet_id, [
-                  pendingExpenseNo, nowE, expenseData.label || '-', expenseData.vendor || '-',
-                  expenseData.amount || 0, expenseData.vatType || 'ไม่มี VAT',
-                  expenseData.invoice_no || '-', expenseData.invoice_date || '-', imageUrlE || '',
-                  awaitingExpense.branchName || branchName || '', 'รอตรวจสอบ',
-                ]);
-                // dual-write ระยะ migration ไป Supabase (ตาราง pos_pending_expenses) — เหมือน
-                // รับสินค้ารอยืนยัน: Sheets ยังเป็นตัวจริง, Supabase เป็น secondary fire-and-forget
-                try {
-                  const { error: supaInsErrE } = await supabase.from('pos_pending_expenses').insert({
-                    shop_id: shop.id, pending_no: pendingExpenseNo,
-                    label: expenseData.label || '-', vendor: expenseData.vendor || '-',
-                    amount: expenseData.amount || 0, vat_type: expenseData.vatType || 'ไม่มี VAT',
-                    invoice_no: expenseData.invoice_no || '-', invoice_date: expenseData.invoice_date || '-',
-                    image_url: imageUrlE || '', branch_name: awaitingExpense.branchName || branchName || '',
-                    status: 'รอตรวจสอบ',
-                  });
-                  if (supaInsErrE) throw supaInsErrE;
-                } catch (supaErrE) {
-                  console.error('[pending-expense] Supabase dual-write error:', supaErrE.message);
-                }
+                const { error: pendingErrE } = await supabase.from('pos_pending_expenses').insert({
+                  shop_id: shop.id, pending_no: pendingExpenseNo,
+                  label: expenseData.label || '-', vendor: expenseData.vendor || '-',
+                  amount: expenseData.amount || 0, vat_type: expenseData.vatType || 'ไม่มี VAT',
+                  invoice_no: expenseData.invoice_no || '-', invoice_date: expenseData.invoice_date || '-',
+                  image_url: imageUrlE || '', branch_name: awaitingExpense.branchName || branchName || '',
+                  status: 'รอตรวจสอบ',
+                });
+                if (pendingErrE) throw pendingErrE;
               }
             }
 
