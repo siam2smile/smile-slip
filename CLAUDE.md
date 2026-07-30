@@ -8,9 +8,12 @@
 
 ## ภาพรวม
 
-Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าและ SME ไทย — ให้พนักงานส่งรูปสลิปโอนเงินหรือบิลรายจ่ายเข้ากลุ่ม LINE บอทจะอ่าน OCR ด้วย Gemini AI แล้วบันทึกลง Google Drive + Google Sheets ของลูกค้าอัตโนมัติ มีระบบเครดิต (สแกน 1 ครั้ง = 1 เครดิต) และ Dashboard เว็บสำหรับจัดการร้านค้า
+Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร้านค้าและ SME ไทย (บัญชี + POS + สต็อคสินค้า + จัดส่ง ในที่เดียว จ่ายเงินที่เดียวจบ ไม่ต้องซื้อระบบแยกหลายเจ้า) — ให้พนักงานส่งรูปสลิปโอนเงินหรือบิลรายจ่ายเข้ากลุ่ม LINE บอทจะอ่าน OCR ด้วย Gemini AI แล้วบันทึกลง Google Drive + Google Sheets ของลูกค้าอัตโนมัติ มีระบบเครดิต (สแกน 1 ครั้ง = 1 เครดิต) และ Dashboard เว็บสำหรับจัดการร้านค้า
 
-**หลักการสำคัญ (PDPA):** ข้อมูลการเงินส่วนตัว (ยอดเงิน, ชื่อผู้โอน, รูปสลิป) เก็บใน **Google Drive/Sheets ของลูกค้าเท่านั้น** ไม่เก็บลง Supabase
+**หลักการ PDPA (แก้ไข 2026-07-30 — เปลี่ยนทิศทางจากเดิม):** เดิมโปรเจกต์นี้วางตำแหน่งเป็น "บอทอ่านสลิปเฉยๆ ไม่เก็บข้อมูลการเงินของคุณเลย เก็บแต่ใน Google ของคุณเอง" แต่ตอนนี้ product เปลี่ยนทิศทางเป็น **SaaS ครบวงจร (บัญชี 100% + POS + สต็อค)** ซึ่งจำเป็นต้องมีข้อมูลธุรกรรมจริงเต็มรูปแบบใน Supabase ถึงจะให้บริการบัญชี/รายงานภาษี/กระทบยอดได้จริง (เหมือนระบบ POS ที่ย้ายไป Supabase แล้วในเซสชันนี้ ก็เก็บข้อมูลจริงอยู่แล้ว — ยอดขายจริง, ชื่อลูกค้าจริง) — **หลักการใหม่:**
+- ✅ **เก็บข้อมูลธุรกรรมจริงใน Supabase ได้** เพื่อให้บริการบัญชี/POS แก่ร้านค้าที่สมัครเป็นลูกค้าเรา (แบบเดียวกับซอฟต์แวร์บัญชีทั่วไป)
+- ❌ **ห้ามขาย/แชร์ข้อมูลดิบที่ระบุตัวตนได้ต่อบุคคลที่สาม** โดยเฉพาะ `sender_name` (ชื่อคนโอนเงินให้ร้านค้า — เป็นบุคคลภายนอกที่ไม่เคยสมัคร/ยินยอมอะไรกับเราเลย) — ถ้าต้องการทำ analytics/ขายข้อมูลเชิงแนวโน้ม ให้ใช้ระบบที่เข้ารหัสแล้วเท่านั้น (`slip_analytics`/`sender_profiles` — SHA256 hash + amount bucket, ทำไว้แล้วสำหรับ Enterprise Marketing Intelligence) **ห้ามดึงจาก `ledger_transactions`/ตาราง POS ตรงๆ มาขายต่อเด็ดขาด**
+- **ยังไม่ได้แก้:** หน้า `pages/terms.js`/`pages/privacy.js` ที่ลูกค้าเห็นจริง ยังเป็นเนื้อหาเก่า (ตำแหน่ง "ไม่เก็บข้อมูลการเงิน") — ผู้ใช้ตัดสินใจให้รอแก้ตอนใกล้เปิดตัวจริง (ยังไม่มีลูกค้าจริงตอนนี้ ผลกระทบต่ำ) **ต้องแก้ก่อนเปิดตัว/หาลูกค้าจริงเพิ่ม**
 
 ---
 
@@ -613,7 +616,7 @@ Smile Slip Pro คือ B2B SaaS สำหรับร้านค้าแล�
 | `credit_purchase_history` | id, shop_id, package_id (nullable), amount_paid, status, slip_url, created_at | bot insert แค่บางคอลัมน์ — suppress error ไว้แล้ว |
 | `credit_topup_history` | id, shop_id, amount_paid, credits_added, topup_slip_url, topup_status, created_at | ยังไม่มีโค้ด insert (future) |
 | `usage_logs` | id, created_at, transaction_id, line_user_id, **amont** (typo!), status, note | ยังไม่มีโค้ด insert; ถ้าจะ insert ต้องใช้ชื่อ `amont` ตามจริง |
-| `ledger_transactions` | id, shop_id, type, amount, category, note, slip_url, slip_hash, status, created_at, sender_name, raw_data | มีใน DB แต่ bot **ไม่ insert** (PDPA) — ข้อมูลอยู่ใน Google Sheets |
+| `ledger_transactions` | id, shop_id, type, amount, category, note, slip_url, slip_hash, status, created_at, sender_name, receiver_name, branch_name, tax_id, taxpayer_name, tax_amount, tax_address, payment_method, recorder_name, transaction_at, raw_data | **แก้ไข 2026-07-30 (บรรทัดนี้เคยเขียนผิด):** บอทเขียนเข้าจริงแล้ว (dual-write ตั้งแต่ Tier D ของ migration) ทั้งจากสลิป OCR และ POS (sales/expenses/receives/confirm-payment) — เป็นข้อมูลธุรกรรมจริงรวม `sender_name`/`slip_url`/เลขภาษี ไม่ใช่ข้อมูลไม่ระบุตัวตน ห้ามขาย/แชร์ต่อบุคคลที่สาม (ดูหลักการ PDPA ใหม่ด้านบน) — คนละตารางจาก `slip_analytics`/`sender_profiles` ที่เข้ารหัสแล้วปลอดภัยสำหรับทำ analytics/ขายข้อมูล |
 | `invoice_requests` | id, shop_id, plan_id, is_yearly, base_price, vat_amount, total_price, wht_amount, net_amount, buyer_name, buyer_tax_id, buyer_branch, buyer_address, buyer_email, buyer_phone, invoice_no, tax_invoice_no, status, created_at, approved_at | status: pending/approved/issued/rejected ✅ มีอยู่แล้ว |
 | `slip_analytics` | id, slip_id, shop_id, branch_id, slip_date, hour_of_day, day_of_week, week_of_year, month, year, amount_bucket, transaction_type, sender_hash, sender_bank, slip_type, created_at | ✅ มีอยู่แล้ว |
 | `sender_profiles` | id, shop_id, sender_hash, sender_bank, first_seen, last_seen, total_transactions, amount_bucket_mode, frequency_score, updated_at | ✅ มีอยู่แล้ว |
