@@ -430,7 +430,7 @@ async function getLineImage(messageId) {
 // Tier 6 จะไล่ลบเป็นชุดสุดท้ายพร้อมของอื่นที่เหลือ)
 const {
   getOrCreateDriveFolder, uploadToGoogleDrive, recreateShopGoogleAssets, getOrCreateYearSheet,
-  appendToGoogleSheet, checkDuplicateInSheets, parseTransactionAt,
+  appendToGoogleSheet, checkDuplicateInSupabase, parseTransactionAt,
   makePendingReceiveNo, makePendingExpenseNo,
 } = require('./lib/ledger-google')({ axios, FormData, supabase, getThaiDateTime });
 
@@ -1981,10 +1981,12 @@ app.post('/webhook', async (req, res) => {
             const folderYear = slipDateInfo?.year || thaiTime.year;
             const folderMonth = slipDateInfo?.monthFolderName || thaiTime.monthFolderName;
 
-            // ตรวจสอบสลิปซ้ำชั้น 2: Google Sheets column K (persistent, ข้าม restart ได้)
-            isDuplicate = await checkDuplicateInSheets(accessToken, sheetId, fingerprint, folderYear);
+            // Phase 3 Tier 4 — ตรวจสอบสลิปซ้ำชั้น 2 จาก ledger_transactions (Supabase) แทน Sheets
+            // column K (persistent, ข้าม restart ได้เหมือนเดิม — แค่เปลี่ยนที่เก็บ) — ยังอยู่ใน
+            // gate เชื่อมต่อ Google เดิมเช่นเดิม (ตัด gate นี้ออกเป็นหน้าที่ของ Tier 5)
+            isDuplicate = await checkDuplicateInSupabase(shop.id, fingerprint);
             if (isDuplicate) {
-              console.log(`[LOG] ♻️ [Duplicate] พบสลิปซ้ำใน Sheets — fingerprint: ${fingerprint}`);
+              console.log(`[LOG] ♻️ [Duplicate] พบสลิปซ้ำใน ledger_transactions — fingerprint: ${fingerprint}`);
             } else {
               const recorderName = await getDisplayName(event.source);
               const saveOnce = async (fId, sId) => {

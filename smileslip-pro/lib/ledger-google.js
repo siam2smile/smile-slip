@@ -217,6 +217,7 @@ module.exports = function createLedgerGoogle({ axios, FormData, supabase, getTha
   }
 
   // 2.7b ตรวจสอบสลิปซ้ำใน Google Sheets column K (long-term, ข้ามการ restart)
+  // เก็บไว้เผื่อ Tier 6 จะไล่ลบพร้อมของอื่น — ไม่มีจุดเรียกใช้แล้วตั้งแต่ Tier 4
   async function checkDuplicateInSheets(accessToken, sheetId, fingerprint, year) {
     if (!fingerprint || fingerprint === '-') return false;
     try {
@@ -228,6 +229,27 @@ module.exports = function createLedgerGoogle({ axios, FormData, supabase, getTha
     } catch (e) {
       console.warn('[WARN] checkDuplicateInSheets ขัดข้อง (ข้าม):', e.message);
       return false; // ถ้าเช็กไม่ได้ให้ผ่านไปก่อน
+    }
+  }
+
+  // Phase 3 Tier 4 — แทนที่ checkDuplicateInSheets ด้วยเวอร์ชัน query ledger_transactions
+  // (Supabase) ตรงๆ แทนการอ่านทั้งคอลัมน์ K ของ Sheets — คง fail-open contract เดิมทุกประการ
+  // (return false เสมอถ้า query error อะไรก็ตาม ไม่บล็อกสลิปที่ถูกต้อง)
+  async function checkDuplicateInSupabase(shopId, fingerprint) {
+    if (!fingerprint || fingerprint === '-') return false;
+    try {
+      const { data, error } = await supabase
+        .from('ledger_transactions')
+        .select('id')
+        .eq('shop_id', shopId)
+        .eq('slip_hash', fingerprint)
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return !!data;
+    } catch (e) {
+      console.warn('[WARN] checkDuplicateInSupabase ขัดข้อง (ข้าม):', e.message);
+      return false; // fail-open เหมือน checkDuplicateInSheets เดิมทุกประการ
     }
   }
 
@@ -317,6 +339,7 @@ module.exports = function createLedgerGoogle({ axios, FormData, supabase, getTha
     getOrCreateYearSheet,
     appendToGoogleSheet,
     checkDuplicateInSheets,
+    checkDuplicateInSupabase,
     parseTransactionAt,
     ensurePendingReceiveSheet,
     appendPendingReceive,
