@@ -30,9 +30,11 @@ module.exports = function createLedgerGoogle({ axios, FormData, supabase, getTha
     return createRes.data.id;
   }
 
-  // 2.4b ถ้า root folder/sheet ถูกลบไปแล้ว (404) → สร้างใหม่ให้ร้าน แล้วอัปเดต Supabase (self-healing)
+  // 2.4b ถ้า root folder Drive ถูกลบไปแล้ว (404) → สร้างใหม่ให้ร้าน แล้วอัปเดต Supabase (self-healing)
+  // Phase 3 Tier 6 — ตัดครึ่งที่สร้าง spreadsheet ออกแล้ว (ไม่เขียน Sheets สำหรับบัญชีหลักอีก
+  // ต่อไป — Google Drive ยังอยู่เป็นแค่ที่สำรองรูปสลิปเสริม)
   async function recreateShopGoogleAssets(accessToken, shop) {
-    console.log(`[LOG] 🛠️ [SelfHeal] root folder/sheet ของร้าน "${shop.shop_name}" ถูกลบไปแล้ว — กำลังสร้างใหม่...`);
+    console.log(`[LOG] 🛠️ [SelfHeal] root folder Drive ของร้าน "${shop.shop_name}" ถูกลบไปแล้ว — กำลังสร้างใหม่...`);
 
     const folderRes = await axios.post('https://www.googleapis.com/drive/v3/files', {
       name: `SMILE SLIP - ${shop.shop_name}`,
@@ -40,26 +42,15 @@ module.exports = function createLedgerGoogle({ axios, FormData, supabase, getTha
     }, { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } });
     const newFolderId = folderRes.data.id;
 
-    const sheetRes = await axios.post('https://sheets.googleapis.com/v4/spreadsheets', {
-      properties: { title: `SMILE SLIP - ${shop.shop_name}` },
-    }, { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } });
-    const newSheetId = sheetRes.data.spreadsheetId;
-
-    // Sheets API สร้างไฟล์ที่ root Drive โดย default — ย้ายเข้า folder ใหม่
-    await axios.patch(
-      `https://www.googleapis.com/drive/v3/files/${newSheetId}?addParents=${newFolderId}&fields=id,parents`,
-      {}, { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-
     await supabase.from('shop_google_configs').update({
-      google_folder_id: newFolderId, google_sheet_id: newSheetId, updated_at: new Date().toISOString(),
+      google_folder_id: newFolderId, updated_at: new Date().toISOString(),
     }).eq('shop_id', shop.id);
     await supabase.from('shop_profiles').update({
-      google_folder_id: newFolderId, google_sheet_id: newSheetId,
+      google_folder_id: newFolderId,
     }).eq('id', shop.id);
 
-    console.log(`[LOG] ✅ [SelfHeal] สร้างใหม่สำเร็จ — folder:${newFolderId} sheet:${newSheetId}`);
-    return { folderId: newFolderId, sheetId: newSheetId };
+    console.log(`[LOG] ✅ [SelfHeal] สร้าง Drive folder ใหม่สำเร็จ — folder:${newFolderId}`);
+    return { folderId: newFolderId };
   }
 
   // 2.5 อัปโหลดรูปลง Google Drive
@@ -77,63 +68,6 @@ module.exports = function createLedgerGoogle({ axios, FormData, supabase, getTha
     return res.data.id;
   }
 
-  // 2.6 สร้าง tab ปีใน Spreadsheet (ถ้ายังไม่มี) พร้อม header 11 คอลัมน์
-  // ถ้า sheet มีอยู่แล้วแต่ยังไม่มี column K → patch header อัตโนมัติ
-  async function getOrCreateYearSheet(accessToken, spreadsheetId, year) {
-    const metaRes = await axios.get(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-    const exists = metaRes.data.sheets?.some(s => s.properties.title === year);
-    if (exists) {
-      // เช็ค header คอลัมน์ที่เพิ่มเข้ามาทีหลัง (sheet เก่าอาจไม่มี) แล้ว patch ให้ครบ
-      const MISSING_HEADER_PATCHES = [
-        ['K', 'เลขอ้างอิง/Hash'],
-        ['P', 'หมวดหมู่'],
-        ['Q', 'วิธีรับ-จ่าย (โอน/เงินสด)'],
-        ['R', 'ผู้บันทึก'],
-      ];
-      for (const [col, headerText] of MISSING_HEADER_PATCHES) {
-        try {
-          const cellRes = await axios.get(
-            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(year + '!' + col + '1')}`,
-            { headers: { Authorization: `Bearer ${accessToken}` } }
-          );
-          const cellVal = cellRes.data.values?.[0]?.[0] || '';
-          if (!cellVal) {
-            console.log(`[LOG] 🔧 Patch column ${col} header บน sheet "${year}" (sheet เก่า)`);
-            await axios.put(
-              `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(year + '!' + col + '1')}?valueInputOption=USER_ENTERED`,
-              { values: [[headerText]] },
-              { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
-            );
-          }
-        } catch (e) { /* ข้ามถ้า patch ไม่ได้ */ }
-      }
-      console.log(`[LOG] ✅ Sheet tab "${year}" มีอยู่แล้ว`);
-      return;
-    }
-
-    console.log(`[LOG] ➕ สร้าง Sheet tab "${year}" ใหม่...`);
-    try {
-      await axios.post(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
-        { requests: [{ addSheet: { properties: { title: year } } }] },
-        { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
-      );
-    } catch (addErr) {
-      // ถ้า tab ถูกสร้างไปแล้วโดย request อื่น (race condition) → ถือว่า OK
-      const msg = addErr.response?.data?.error?.message || addErr.message || '';
-      if (!msg.includes('already exists')) throw addErr;
-      console.log(`[LOG] ℹ️ Sheet tab "${year}" ถูกสร้างโดย request อื่นไปแล้ว — ข้ามได้`);
-    }
-    await axios.put(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(year + '!A1:R1')}?valueInputOption=USER_ENTERED`,
-      { values: [['วันที่สลิป','เวลา','ประเภท (รายรับ/รายจ่าย)','จำนวนเงิน (บาท)','ผู้โอน','ผู้รับ','หมายเหตุ','ลิงก์สลิป (Drive)','วันที่บันทึก (recorded_at)','ชื่อสาขา','เลขอ้างอิง/Hash','เลขภาษี','ชื่อผู้เสียภาษี','ยอดภาษี (บาท)','ที่อยู่ผู้เสียภาษี','หมวดหมู่','วิธีรับ-จ่าย (โอน/เงินสด)','ผู้บันทึก']] },
-      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
-    );
-    console.log(`[LOG] ✅ สร้าง Sheet tab "${year}" พร้อม header 16 คอลัมน์สำเร็จ`);
-  }
   // Tier D migration — แปลงวันที่-เวลาของสลิป/รายการ (สตริงไทย อาจเป็น พ.ศ., รูปแบบไม่แน่นอนเพราะ
   // OCR อ่านมา) เป็น timestamp จริงสำหรับ ledger_transactions.transaction_at — เป็นแค่ฟิลด์รอง
   // (secondary/best-effort, ยังไม่มีใครอ่านจากตารางนี้จริงจนกว่าจะทำ read-cutover) เลยไม่พยายาม parse
@@ -198,54 +132,8 @@ module.exports = function createLedgerGoogle({ axios, FormData, supabase, getTha
     console.log(`[LOG] ✅ persistLedgerTransaction สำเร็จ (shop: ${shopId}, ${slipData.type} ฿${slipData.amount})`);
   }
 
-  // 2.7 บันทึกข้อมูลลง Google Sheets (tab แยกตามปี) — Phase 3 Tier 5: เหลือแค่ครึ่ง Sheets ล้วนๆ
-  // แล้ว (ไม่แตะ ledger_transactions อีกต่อไป — ย้ายไป persistLedgerTransaction ข้างบน) — best-effort
-  // เสมอ ผู้เรียกต้อง wrap try/catch เองแล้ว swallow เอง ห้ามให้ error จากฟังก์ชันนี้ทำให้การบันทึก
-  // ธุรกรรมหลักล้มเหลว
-  // คอลัมน์: A=วันที่สลิป B=เวลา C=ประเภท D=ยอด E=ผู้โอน F=ผู้รับ G=หมายเหตุ H=ลิงก์รูป I=recorded_at J=สาขา K=เลขอ้างอิง/Hash L=เลขภาษี M=ชื่อผู้เสียภาษี N=ยอดภาษี O=ที่อยู่ผู้เสียภาษี P=หมวดหมู่ Q=วิธีรับ-จ่าย R=ผู้บันทึก
-  async function writeToGoogleSheet(accessToken, spreadsheetId, slipData, imageUrl, branchName = '-', sheetYear = null, fingerprint = '-', category = '-', method = '-', recorder = '-') {
-    console.log(`[LOG] 📊 กำลังบันทึกข้อมูลลง Google Sheet${sheetYear ? ' tab ' + sheetYear : ''}...`);
-    const range = sheetYear ? encodeURIComponent(sheetYear + '!A1') : 'A1';
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}:append?valueInputOption=USER_ENTERED`;
-    const { isoDate } = getThaiDateTime();
-    const values = [[
-      slipData.date, slipData.time,
-      slipData.type === 'income' ? 'รายรับ' : 'รายจ่าย',
-      slipData.amount, slipData.sender || '-',
-      slipData.receiver || '-', slipData.note || '-',
-      imageUrl || 'ไม่มีรูปภาพ',
-      isoDate,
-      branchName,
-      fingerprint,                           // K — เลขอ้างอิงหรือ image hash
-      slipData.tax_id       || '-',          // L — เลขภาษี
-      slipData.taxpayer_name || '-',         // M — ชื่อผู้เสียภาษี
-      slipData.tax_amount   || '-',          // N — ยอดภาษี
-      slipData.tax_address  || '-',          // O — ที่อยู่ผู้เสียภาษี
-      category,                              // P — หมวดหมู่
-      method   || '-',                       // Q — วิธีรับ-จ่าย (โอน/เงินสด)
-      recorder || '-',                        // R — ผู้บันทึก (ชื่อ LINE ของคนส่ง/คีย์)
-    ]];
-    await axios.post(url, { values }, { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } });
-    console.log(`[LOG] ✅ บันทึกลง Google Sheet สำเร็จ (สาขา: ${branchName})`);
-  }
-
-  // 2.7b ตรวจสอบสลิปซ้ำใน Google Sheets column K (long-term, ข้ามการ restart)
-  // เก็บไว้เผื่อ Tier 6 จะไล่ลบพร้อมของอื่น — ไม่มีจุดเรียกใช้แล้วตั้งแต่ Tier 4
-  async function checkDuplicateInSheets(accessToken, sheetId, fingerprint, year) {
-    if (!fingerprint || fingerprint === '-') return false;
-    try {
-      const range = encodeURIComponent(`${year}!K:K`);
-      const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}`;
-      const res = await axios.get(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-      const values = (res.data.values || []).flat();
-      return values.includes(fingerprint);
-    } catch (e) {
-      console.warn('[WARN] checkDuplicateInSheets ขัดข้อง (ข้าม):', e.message);
-      return false; // ถ้าเช็กไม่ได้ให้ผ่านไปก่อน
-    }
-  }
-
-  // Phase 3 Tier 4 — แทนที่ checkDuplicateInSheets ด้วยเวอร์ชัน query ledger_transactions
+  // Phase 3 Tier 4 — แทนที่ checkDuplicateInSheets (ลบออกแล้วใน Tier 6 พร้อมกับ writeToGoogleSheet/
+  // getOrCreateYearSheet เพราะไม่มีจุดเรียกใช้เหลือเลย) ด้วยเวอร์ชัน query ledger_transactions
   // (Supabase) ตรงๆ แทนการอ่านทั้งคอลัมน์ K ของ Sheets — คง fail-open contract เดิมทุกประการ
   // (return false เสมอถ้า query error อะไรก็ตาม ไม่บล็อกสลิปที่ถูกต้อง)
   async function checkDuplicateInSupabase(shopId, fingerprint) {
@@ -266,102 +154,31 @@ module.exports = function createLedgerGoogle({ axios, FormData, supabase, getTha
     }
   }
 
-  // tab "รับสินค้ารอยืนยัน" ใน POS Sheet ของร้าน (คนละ tab กับ "รับสินค้า" ที่ยืนยันแล้ว — รอแอดมินตรวจก่อนตัดสต็อคจริง)
-  const PENDING_RECEIVE_HEADERS = ['เลขที่รอยืนยัน', 'วันที่-เวลา', 'ผู้จำหน่าย (OCR)', 'เลขที่เอกสาร', 'วันที่ในเอกสาร', 'รายการสินค้า (JSON)', 'ลิงก์รูปภาพ', 'สาขา', 'สถานะ'];
-  async function ensurePendingReceiveSheet(accessToken, posSheetId) {
-    const metaRes = await axios.get(
-      `https://sheets.googleapis.com/v4/spreadsheets/${posSheetId}?fields=sheets.properties`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-    const exists = metaRes.data.sheets?.some(s => s.properties.title === 'รับสินค้ารอยืนยัน');
-    if (exists) return;
-    try {
-      await axios.post(
-        `https://sheets.googleapis.com/v4/spreadsheets/${posSheetId}:batchUpdate`,
-        { requests: [{ addSheet: { properties: { title: 'รับสินค้ารอยืนยัน' } } }] },
-        { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
-      );
-    } catch (addErr) {
-      const msg = addErr.response?.data?.error?.message || addErr.message || '';
-      if (!msg.includes('already exists')) throw addErr;
-    }
-    await axios.put(
-      `https://sheets.googleapis.com/v4/spreadsheets/${posSheetId}/values/${encodeURIComponent('รับสินค้ารอยืนยัน!A1:I1')}?valueInputOption=USER_ENTERED`,
-      { values: [PENDING_RECEIVE_HEADERS] },
-      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
-    );
-  }
-  // Phase 3 Tier 3 — เพิ่มส่วนสุ่มต่อท้าย (เดิม Date.now() อย่างเดียวชนกันได้ถ้าเรียกในมิลลิวินาที
-  // เดียวกัน — ตอนนี้ insert Supabase เป็น required เพราะ pos_pending_receives กลายเป็นจุดเดียวที่
-  // บันทึกข้อมูลนี้แล้ว ไม่ใช่แค่ secondary fire-and-forget เหมือนก่อน จึงต้องกันชนแบบเดียวกับ
-  // makeContactId()/makeSKU() ของ dashboard)
+  // Phase 3 Tier 6 — ลบ ensurePendingReceiveSheet/appendPendingReceive/ensurePendingExpenseSheet/
+  // appendPendingExpense/PENDING_RECEIVE_HEADERS/PENDING_EXPENSE_HEADERS ออกแล้ว (dead code ตั้งแต่
+  // Tier 3 ตัด Sheets ออกจากคิว "รับสินค้ารอยืนยัน"/"รายจ่ายรอยืนยัน") — makePendingReceiveNo/
+  // makePendingExpenseNo ยังใช้อยู่จริงสำหรับสร้าง pending_no ของแถว Supabase เท่านั้น เก็บไว้
+  // (เพิ่มส่วนสุ่มต่อท้าย — เดิม Date.now() อย่างเดียวชนกันได้ถ้าเรียกในมิลลิวินาทีเดียวกัน ตอนนี้
+  // insert Supabase เป็น required เพราะ pos_pending_receives/pos_pending_expenses กลายเป็นจุด
+  // เดียวที่บันทึกข้อมูลนี้แล้ว ไม่ใช่แค่ secondary fire-and-forget เหมือนก่อน จึงต้องกันชนแบบ
+  // เดียวกับ makeContactId()/makeSKU() ของ dashboard)
   function makePendingReceiveNo() {
     const rand = Math.random().toString(36).slice(2, 5).toUpperCase();
     return 'PR' + Date.now().toString(36).toUpperCase() + rand;
   }
-  async function appendPendingReceive(accessToken, posSheetId, row) {
-    await axios.post(
-      `https://sheets.googleapis.com/v4/spreadsheets/${posSheetId}/values/${encodeURIComponent('รับสินค้ารอยืนยัน!A1')}:append?valueInputOption=USER_ENTERED`,
-      { values: [row] },
-      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
-    );
-  }
-
-  // tab "รายจ่ายรอยืนยัน" ใน POS Sheet ของร้าน — คนละ tab กับ "รายจ่าย" ที่ยืนยันแล้ว รอแอดมินตรวจก่อนบันทึกจริง
-  const PENDING_EXPENSE_HEADERS = ['เลขที่รอยืนยัน', 'วันที่-เวลา', 'รายการ/หมวดหมู่ (OCR)', 'ผู้รับเงิน (OCR)', 'จำนวนเงิน (OCR)', 'ประเภท VAT (OCR)', 'เลขที่เอกสาร', 'วันที่ในเอกสาร', 'ลิงก์รูปภาพ', 'สาขา', 'สถานะ'];
-  async function ensurePendingExpenseSheet(accessToken, posSheetId) {
-    const metaRes = await axios.get(
-      `https://sheets.googleapis.com/v4/spreadsheets/${posSheetId}?fields=sheets.properties`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-    const exists = metaRes.data.sheets?.some(s => s.properties.title === 'รายจ่ายรอยืนยัน');
-    if (exists) return;
-    try {
-      await axios.post(
-        `https://sheets.googleapis.com/v4/spreadsheets/${posSheetId}:batchUpdate`,
-        { requests: [{ addSheet: { properties: { title: 'รายจ่ายรอยืนยัน' } } }] },
-        { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
-      );
-    } catch (addErr) {
-      const msg = addErr.response?.data?.error?.message || addErr.message || '';
-      if (!msg.includes('already exists')) throw addErr;
-    }
-    await axios.put(
-      `https://sheets.googleapis.com/v4/spreadsheets/${posSheetId}/values/${encodeURIComponent('รายจ่ายรอยืนยัน!A1:K1')}?valueInputOption=USER_ENTERED`,
-      { values: [PENDING_EXPENSE_HEADERS] },
-      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
-    );
-  }
-  // Phase 3 Tier 3 — เพิ่มส่วนสุ่มต่อท้ายเหตุผลเดียวกับ makePendingReceiveNo() ด้านบน
   function makePendingExpenseNo() {
     const rand = Math.random().toString(36).slice(2, 5).toUpperCase();
     return 'PE' + Date.now().toString(36).toUpperCase() + rand;
-  }
-  async function appendPendingExpense(accessToken, posSheetId, row) {
-    await axios.post(
-      `https://sheets.googleapis.com/v4/spreadsheets/${posSheetId}/values/${encodeURIComponent('รายจ่ายรอยืนยัน!A1')}:append?valueInputOption=USER_ENTERED`,
-      { values: [row] },
-      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
-    );
   }
 
   return {
     getOrCreateDriveFolder,
     uploadToGoogleDrive,
     recreateShopGoogleAssets,
-    getOrCreateYearSheet,
     persistLedgerTransaction,
-    writeToGoogleSheet,
-    checkDuplicateInSheets,
     checkDuplicateInSupabase,
     parseTransactionAt,
-    ensurePendingReceiveSheet,
-    appendPendingReceive,
     makePendingReceiveNo,
-    PENDING_RECEIVE_HEADERS,
-    ensurePendingExpenseSheet,
-    appendPendingExpense,
     makePendingExpenseNo,
-    PENDING_EXPENSE_HEADERS,
   };
 };

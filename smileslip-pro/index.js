@@ -424,13 +424,12 @@ async function getLineImage(messageId) {
 
 // Phase 3 Tier 2 — Sheets/Drive helper functions ย้ายไป lib/ledger-google.js (pure refactor,
 // พฤติกรรมเหมือนเดิม 100% แค่ย้ายที่อยู่โค้ด) — inject deps ที่โมดูลนี้ต้องใช้เข้าไปตรงๆ
-// (Phase 3 Tier 3 — เลิก destructure ensurePendingReceiveSheet/appendPendingReceive/
-// ensurePendingExpenseSheet/appendPendingExpense/PENDING_*_HEADERS ออกแล้ว เพราะไม่มีจุดเรียกใช้
-// เหลืออยู่เลยหลังตัด Sheets ออกจากคิวรอยืนยัน — ตัวฟังก์ชันยังอยู่ใน lib/ledger-google.js เผื่อ
-// Tier 6 จะไล่ลบเป็นชุดสุดท้ายพร้อมของอื่นที่เหลือ)
+// (Phase 3 Tier 6 — ตัด Sheets ออกจากบัญชีหลักเต็มรูปแบบแล้ว เหลือแค่ Drive สำหรับสำรองรูปสลิป —
+// getOrCreateYearSheet/writeToGoogleSheet ถูกลบออกจาก lib/ledger-google.js แล้วเพราะไม่มีจุด
+// เรียกใช้เหลืออยู่เลย)
 const {
-  getOrCreateDriveFolder, uploadToGoogleDrive, recreateShopGoogleAssets, getOrCreateYearSheet,
-  persistLedgerTransaction, writeToGoogleSheet, checkDuplicateInSupabase, parseTransactionAt,
+  getOrCreateDriveFolder, uploadToGoogleDrive, recreateShopGoogleAssets,
+  persistLedgerTransaction, checkDuplicateInSupabase, parseTransactionAt,
   makePendingReceiveNo, makePendingExpenseNo,
 } = require('./lib/ledger-google')({ axios, FormData, supabase, getThaiDateTime });
 
@@ -1309,35 +1308,9 @@ app.post('/webhook', async (req, res) => {
           await persistLedgerTransaction(shop.id, manualSlipData, 'ไม่มีรูปภาพ (คีย์เอง)', cmdBranchName, manualFingerprint, manualCategory, manualEntry.method, manualRecorder || '-');
           console.log(`[LOG] ✍️ Manual entry บันทึกสำเร็จ: ${manualEntry.type} ฿${manualEntry.amount}`);
 
-          // เขียนสำเนาเข้า Google Sheets — best-effort รอง ถ้ายังเชื่อมต่อ Google อยู่เท่านั้น
-          // (ไม่กระทบผลลัพธ์หลักเลยถ้าล้มเหลว เพราะข้อมูลจริงถูกบันทึกใน Supabase ไปแล้วข้างบน)
-          const { data: gConfigM } = await supabase
-            .from('shop_google_configs')
-            .select('google_refresh_token, google_folder_id, google_sheet_id')
-            .eq('shop_id', shop.id).maybeSingle();
-          let mSheetId = gConfigM?.google_sheet_id || shop.google_sheet_id;
-          const savedToSheets = !!(gConfigM?.google_refresh_token && mSheetId);
-
-          if (savedToSheets) {
-            try {
-              const mAccessToken = await getAccessToken(gConfigM.google_refresh_token);
-              try {
-                await getOrCreateYearSheet(mAccessToken, mSheetId, thaiNow.year);
-                await writeToGoogleSheet(mAccessToken, mSheetId, manualSlipData, 'ไม่มีรูปภาพ (คีย์เอง)', cmdBranchName, thaiNow.year, manualFingerprint, manualCategory, manualEntry.method, manualRecorder || '-');
-              } catch (sheetErr) {
-                if (sheetErr.response?.status === 404) {
-                  const healed = await recreateShopGoogleAssets(mAccessToken, shop);
-                  mSheetId = healed.sheetId;
-                  await getOrCreateYearSheet(mAccessToken, mSheetId, thaiNow.year);
-                  await writeToGoogleSheet(mAccessToken, mSheetId, manualSlipData, 'ไม่มีรูปภาพ (คีย์เอง)', cmdBranchName, thaiNow.year, manualFingerprint, manualCategory, manualEntry.method, manualRecorder || '-');
-                } else {
-                  throw sheetErr;
-                }
-              }
-            } catch (sheetOuterErr) {
-              console.error('[WARN] Manual entry: เขียน Google Sheets ไม่สำเร็จ (ข้าม — ข้อมูลหลักบันทึกแล้วใน Supabase):', sheetOuterErr.message);
-            }
-          }
+          // Phase 3 Tier 6 — เลิกเขียน Google Sheets สำหรับบัญชีหลักเต็มรูปแบบ (Supabase เป็น
+          // system of record เดียวแล้วตั้งแต่ Tier 5, ลิงก์แก้ไขก็หาแถวจาก Supabase แล้วตั้งแต่
+          // Tier 5.5 — ไม่มีเหตุผลต้องเขียน Sheets เป็นสำเนาอีกต่อไป)
 
           // ตัดเครดิต (atomic — กัน race condition ตอนส่งหลายรายการพร้อมกัน)
           if (!isSuper(shop) && manualCreditData) {
@@ -1349,23 +1322,9 @@ app.post('/webhook', async (req, res) => {
             }
           }
 
-          // ตอบกลับ — Flex Message พร้อมปุ่มแก้ไขข้อมูล ใช้ได้เฉพาะตอนมี Sheets จริง เพราะลิงก์แก้ไข
-          // (/transaction/edit) ยังหาแถวจาก Sheets column K อยู่ (Tier 5.5 ยังไม่เสร็จ) — ร้านที่ไม่
-          // เชื่อม Google ได้ reply แบบข้อความล้วนแทน (ข้อมูลถูกบันทึกจริงแล้วเสมอไม่ว่ากรณีไหน)
-          if (savedToSheets) {
-            await replyToLine(replyToken, [createBeautifulFlexMessage(manualSlipData, manualFingerprint, shop)]);
-          } else {
-            const fmt = (n) => `฿${parseFloat(n).toLocaleString('th-TH', { minimumFractionDigits: 2 })}`;
-            const isInc = manualEntry.type === 'income';
-            await replyToLine(replyToken, [{
-              type: 'text',
-              text: `${isInc ? '✅ บันทึกรายรับ' : '✅ บันทึกรายจ่าย'}\n` +
-                `💰 ${fmt(manualEntry.amount)}\n` +
-                `📝 ${manualEntry.note !== '-' ? manualEntry.note : 'ไม่มีหมายเหตุ'}\n` +
-                `📅 ${thaiNow.date} ${thaiNow.time}\n\n` +
-                '💡 เชื่อมต่อ Google Drive ที่ Dashboard → ตั้งค่า เพื่อสำรองรูป/ดูรายการผ่านเว็บได้'
-            }]);
-          }
+          // ตอบกลับ — Flex Message พร้อมปุ่มแก้ไขข้อมูลเสมอ (Phase 3 Tier 6: ลิงก์แก้ไขหาแถวจาก
+          // Supabase แล้ว ไม่ต้องพึ่ง Sheets อีกต่อไป ใช้ได้ไม่ว่าร้านจะเชื่อมต่อ Google หรือไม่)
+          await replyToLine(replyToken, [createBeautifulFlexMessage(manualSlipData, manualFingerprint, shop)]);
 
         } catch (manualErr) {
           if (manualErr.isDuplicate) {
@@ -1541,7 +1500,7 @@ app.post('/webhook', async (req, res) => {
             'สลิป': {
               label: '📸 ส่งสลิป/บิล',
               brief: '📸 ส่งสลิป/บิล\n\nส่งรูปสลิปโอนเงินหรือบิลรายจ่ายเข้ากลุ่มนี้ได้เลย บอทจะอ่านและบันทึกอัตโนมัติ ไม่ต้องพิมพ์อะไรเพิ่ม',
-              detail: '📸 ส่งสลิป/บิล (แบบละเอียด)\n\n1. ถ่ายรูปหรือแคปรูปสลิป/บิลให้เห็นชัด ไม่เบลอ\n2. ส่งรูปเข้ากลุ่ม LINE นี้ได้เลย ไม่ต้องพิมพ์ข้อความเพิ่ม\n3. บอทจะอ่านข้อมูล (วันที่ เวลา จำนวนเงิน ผู้โอน-ผู้รับ) อัตโนมัติด้วย AI\n4. ระบบเช็คชื่อบัญชีร้านอัตโนมัติว่าเป็นรายรับหรือรายจ่าย\n5. บันทึกเข้า Google Sheets + เก็บรูปไว้ใน Google Drive ให้ทันที\n6. ตอบกลับเป็นการ์ดสรุป พร้อมปุ่ม "✏️ แก้ไขข้อมูล" หากอ่านผิด\n⚠️ ต้องเชื่อมต่อ Google Drive ไว้ก่อน (ดูที่หน้าเว็บ → ตั้งค่า) ไม่งั้นจะไม่บันทึกลง Sheets ให้\n⚠️ ส่งรูปซ้ำจะถูกระบบกันซ้ำอัตโนมัติ ไม่ถูกหักเครดิตซ้ำ'
+              detail: '📸 ส่งสลิป/บิล (แบบละเอียด)\n\n1. ถ่ายรูปหรือแคปรูปสลิป/บิลให้เห็นชัด ไม่เบลอ\n2. ส่งรูปเข้ากลุ่ม LINE นี้ได้เลย ไม่ต้องพิมพ์ข้อความเพิ่ม\n3. บอทจะอ่านข้อมูล (วันที่ เวลา จำนวนเงิน ผู้โอน-ผู้รับ) อัตโนมัติด้วย AI\n4. ระบบเช็คชื่อบัญชีร้านอัตโนมัติว่าเป็นรายรับหรือรายจ่าย\n5. บันทึกรายการเข้าระบบทันที (ไม่ต้องเชื่อมต่อ Google ก่อนก็ใช้งานได้)\n6. ตอบกลับเป็นการ์ดสรุป พร้อมปุ่ม "✏️ แก้ไขข้อมูล" หากอ่านผิด\n💡 เชื่อมต่อ Google Drive ที่หน้าเว็บ → ตั้งค่า เพื่อสำรองรูปสลิปไว้ดูย้อนหลังได้ (ไม่บังคับ ไม่กระทบการบันทึกรายการเลย)\n⚠️ ส่งรูปซ้ำจะถูกระบบกันซ้ำอัตโนมัติ ไม่ถูกหักเครดิตซ้ำ'
             },
             'รับสินค้า': {
               label: '📥 รับสินค้าจากรูป',
@@ -1579,9 +1538,9 @@ app.post('/webhook', async (req, res) => {
               detail: '✏️ แก้ไขรายการ (แบบละเอียด)\n\nวิธีที่ 1 — จาก LINE: กดปุ่ม "✏️ แก้ไขข้อมูล" ที่อยู่ใต้การ์ดสรุปที่บอทตอบกลับมาทันทีหลังส่งสลิป จะเด้งไปหน้าแก้ไขของรายการนั้นโดยตรง\n\nวิธีที่ 2 — จากหน้าเว็บ: เข้า → บัญชี หาแถวรายการที่ต้องการแก้ แล้วกดไอคอน ✏️ ที่ท้ายแถว\n\nแก้ไขได้: ประเภท (รับ/จ่าย) จำนวนเงิน ผู้โอน ผู้รับ หมายเหตุ\n⚠️ แก้ได้เฉพาะรายการที่มีเลขอ้างอิงในคอลัมน์ K เท่านั้น (รายการเก่ามากๆก่อนระบบมีเลขอ้างอิงจะแก้ผ่านระบบไม่ได้ ต้องแก้ตรงใน Google Sheets เอง)'
             },
             'กูเกิล': {
-              label: '🔌 เชื่อมต่อ Google',
-              brief: '🔌 เชื่อมต่อ Google Drive/Sheets\n\nไปที่หน้าเว็บ → ตั้งค่า → กดปุ่ม "เชื่อมต่อ Google" ล็อกอินด้วย Gmail ของร้าน ระบบจะสร้างโฟลเดอร์+ชีทให้อัตโนมัติ',
-              detail: '🔌 เชื่อมต่อ Google Drive/Sheets (แบบละเอียด)\n\n1. เข้าหน้าเว็บ → ตั้งค่า\n2. กดปุ่ม "เชื่อมต่อ Google"\n3. ล็อกอินด้วยบัญชี Gmail ที่ต้องการใช้เก็บข้อมูลร้าน (แนะนำใช้ Gmail ของร้าน ไม่ใช่ส่วนตัว)\n4. ระบบจะสร้างโฟลเดอร์ Drive ชื่อ "SMILE SLIP - ชื่อร้าน" และ Google Sheet บัญชีให้อัตโนมัติ\n5. รูปสลิปทุกใบจะถูกเก็บใน Drive แยกตามปี/เดือน ส่วนข้อมูลตัวเลขจะอยู่ใน Sheets\n6. เชื่อมต่อสำเร็จครั้งแรกจะได้รับเครดิตโบนัสด้วย\n⚠️ ข้อมูลการเงินทั้งหมดเก็บใน Google ของร้านเอง ไม่ได้เก็บไว้ที่ฐานข้อมูลกลางของ Smile Slip Pro (เพื่อความเป็นส่วนตัวตาม PDPA)'
+              label: '🔌 เชื่อมต่อ Google (ไม่บังคับ)',
+              brief: '🔌 เชื่อมต่อ Google Drive (ไม่บังคับ)\n\nระบบบันทึกรายการทุกอย่างให้อัตโนมัติอยู่แล้วไม่ว่าจะเชื่อมต่อ Google หรือไม่ — เชื่อมต่อเพิ่มเติมได้ที่หน้าเว็บ → ตั้งค่า ถ้าต้องการให้ระบบสำรองรูปสลิปทุกใบไว้ใน Google Drive ของร้านเองด้วย',
+              detail: '🔌 เชื่อมต่อ Google Drive (แบบละเอียด — ไม่บังคับ)\n\nรายการรับ-จ่ายทุกอย่าง (ทั้งสแกนสลิปและคีย์เอง) ถูกบันทึกเข้าระบบให้ทันทีเสมอ ไม่ว่าจะเชื่อมต่อ Google หรือไม่ก็ตาม — การเชื่อมต่อ Google Drive เป็นฟีเจอร์เสริมสำหรับสำรองรูปสลิปเท่านั้น\n\n1. เข้าหน้าเว็บ → ตั้งค่า\n2. กดปุ่ม "เชื่อมต่อ Google"\n3. ล็อกอินด้วยบัญชี Gmail ที่ต้องการใช้เก็บรูปสลิปของร้าน (แนะนำใช้ Gmail ของร้าน ไม่ใช่ส่วนตัว)\n4. ระบบจะสร้างโฟลเดอร์ Drive ชื่อ "SMILE SLIP - ชื่อร้าน" ให้อัตโนมัติ รูปสลิปทุกใบจะถูกเก็บไว้ในนี้แยกตามปี/เดือน\n5. เชื่อมต่อสำเร็จครั้งแรกจะได้รับเครดิตโบนัสด้วย'
             },
             'แอดมิน': {
               label: '👥 แอดมินร้าน',
@@ -1784,7 +1743,7 @@ app.post('/webhook', async (req, res) => {
 
             const { data: gConfigR } = await supabase
               .from('shop_google_configs')
-              .select('google_refresh_token, google_folder_id, google_sheet_id')
+              .select('google_refresh_token, google_folder_id')
               .eq('shop_id', shop.id).maybeSingle();
             // Phase 3 Tier 3 — เลิกเขียน Sheets tab "รับสินค้ารอยืนยัน" เต็มรูปแบบ (dashboard
             // receives-pending.js อ่าน/ลบจาก pos_pending_receives ของ Supabase เพียงอย่างเดียว
@@ -1848,7 +1807,7 @@ app.post('/webhook', async (req, res) => {
 
             const { data: gConfigE } = await supabase
               .from('shop_google_configs')
-              .select('google_refresh_token, google_folder_id, google_sheet_id')
+              .select('google_refresh_token, google_folder_id')
               .eq('shop_id', shop.id).maybeSingle();
             // Phase 3 Tier 3 — เลิกเขียน Sheets tab "รายจ่ายรอยืนยัน" เต็มรูปแบบ (เหตุผลเดียวกับ
             // รับสินค้ารอยืนยันด้านบน — dashboard expenses-pending.js อ่านจาก pos_pending_expenses
@@ -1985,29 +1944,29 @@ app.post('/webhook', async (req, res) => {
         const category = hasFeature(shop, 'business') ? await detectCategory(slipData, shop.id) : '-';
         const recorderName = await getDisplayName(event.source);
 
-        // STEP 5: Google Drive/Sheets — แยก try-catch ออกต่างหาก, best-effort เสมอ (ไม่ block
-        // การ persist หลักด้านล่าง) — อ่าน refresh_token จาก shop_google_configs
+        // Phase 3 Tier 6 — STEP 5: เหลือแค่ Google Drive (สำรองรูปสลิป) — best-effort เสมอ ไม่
+        // block การ persist หลักด้านล่าง — ตัด Google Sheets ออกจากบัญชีหลักเต็มรูปแบบแล้ว
+        // (Supabase เป็น system of record เดียว, ลิงก์แก้ไขก็หาแถวจาก Supabase แล้วตั้งแต่ Tier 5.5)
         let driveFileUrl = null;
         try {
           const { data: gConfig } = await supabase
             .from('shop_google_configs')
-            .select('google_refresh_token, google_folder_id, google_sheet_id')
+            .select('google_refresh_token, google_folder_id')
             .eq('shop_id', shop.id)
             .maybeSingle();
 
           let folderId = gConfig?.google_folder_id || shop.google_folder_id;
-          let sheetId = gConfig?.google_sheet_id || shop.google_sheet_id;
 
-          if (gConfig?.google_refresh_token && folderId && sheetId) {
+          if (gConfig?.google_refresh_token && folderId) {
             const accessToken = await getAccessToken(gConfig.google_refresh_token);
             const thaiTime = getThaiDateTime();
 
-            // ใช้วันที่บนสลิปจริงเพื่อเลือก folder/sheet ที่ถูกต้อง
+            // ใช้วันที่บนสลิปจริงเพื่อเลือก folder ที่ถูกต้อง
             const slipDateInfo = parseSlipDateForFolder(slipData.date);
             const folderYear = slipDateInfo?.year || thaiTime.year;
             const folderMonth = slipDateInfo?.monthFolderName || thaiTime.monthFolderName;
 
-            const saveOnce = async (fId, sId) => {
+            const saveOnce = async (fId) => {
               // โครงสร้าง Drive: root → ปี ค.ศ. → เดือน-ปี → รายรับ|รายจ่าย
               const yearFolderId = await getOrCreateDriveFolder(accessToken, fId, folderYear);
               const monthFolderId = await getOrCreateDriveFolder(accessToken, yearFolderId, folderMonth);
@@ -2016,22 +1975,17 @@ app.post('/webhook', async (req, res) => {
 
               const fileName = `slip_${slipData.amount}THB_${folderMonth}_${Date.now()}.jpg`;
               const driveFileId = await uploadToGoogleDrive(imageBuffer, accessToken, typeFolderId, fileName);
-              const fileUrl = `https://drive.google.com/open?id=${driveFileId}`;
-
-              // Sheet tab แยกตามปีของสลิป — สลิปรูปภาพ = หลักฐานการโอนเงินเสมอ
-              await getOrCreateYearSheet(accessToken, sId, folderYear);
-              await writeToGoogleSheet(accessToken, sId, slipData, fileUrl, branchName, folderYear, fingerprint, category, 'โอน', recorderName || '-');
-              return fileUrl;
+              return `https://drive.google.com/open?id=${driveFileId}`;
             };
 
             try {
-              driveFileUrl = await saveOnce(folderId, sheetId);
+              driveFileUrl = await saveOnce(folderId);
             } catch (driveErr) {
-              // root folder/sheet ถูกลบไปแล้ว → สร้างใหม่ แล้วลองอีกครั้ง
+              // root folder ถูกลบไปแล้ว → สร้างใหม่ แล้วลองอีกครั้ง
               if (driveErr.response?.status === 404) {
                 const healed = await recreateShopGoogleAssets(accessToken, shop);
-                folderId = healed.folderId; sheetId = healed.sheetId;
-                driveFileUrl = await saveOnce(folderId, sheetId);
+                folderId = healed.folderId;
+                driveFileUrl = await saveOnce(folderId);
               } else {
                 throw driveErr;
               }
@@ -2039,7 +1993,7 @@ app.post('/webhook', async (req, res) => {
           }
         } catch (googleErr) {
           const googleErrDetail = googleErr.response?.data?.error?.message || googleErr.response?.data || googleErr.message;
-          console.error('[WARN] ⚠️ Google Drive/Sheets ขัดข้อง (ข้าม แต่บันทึก Supabase ต่อ):', googleErrDetail);
+          console.error('[WARN] ⚠️ Google Drive ขัดข้อง (ข้าม แต่บันทึก Supabase ต่อ):', googleErrDetail);
           // แจ้งเจ้าของร้านทาง LINE ถ้า token หมดอายุ
           if (googleErr.isTokenInvalid && shop.owner_line_id) {
             const reconnectUrl = `${process.env.FRONTEND_URL}/dashboard?userId=${shop.owner_line_id}&reconnectGoogle=true`;
@@ -2052,7 +2006,7 @@ app.post('/webhook', async (req, res) => {
                   type: 'box', layout: 'vertical', spacing: 'md',
                   contents: [
                     { type: 'text', text: '⚠️ Google Drive ขาดการเชื่อมต่อ', weight: 'bold', color: '#e53e3e', size: 'md' },
-                    { type: 'text', text: 'สลิปล่าสุดไม่ถูกบันทึกลง Google Sheets เนื่องจาก token หมดอายุ กรุณาเชื่อมต่อ Google ใหม่', wrap: true, color: '#555555', size: 'sm' }
+                    { type: 'text', text: 'รูปสลิปล่าสุดไม่ถูกสำรองไว้ใน Google Drive เนื่องจาก token หมดอายุ (ข้อมูลรายการยังบันทึกปกติ) กรุณาเชื่อมต่อ Google ใหม่', wrap: true, color: '#555555', size: 'sm' }
                   ]
                 },
                 footer: {
@@ -2162,7 +2116,7 @@ app.post('/cron/daily-summary', async (req, res) => {
   // ดึงร้าน Pro+ ทั้งหมด
   const { data: shops, error: shopsErr } = await supabase
     .from('shop_profiles')
-    .select('id, owner_line_id, shop_name, subscription_tier, google_sheet_id')
+    .select('id, owner_line_id, shop_name, subscription_tier')
     .in('subscription_tier', ['pro', 'advance', 'business', 'enterprise', 'super']);
 
   if (shopsErr || !shops?.length) {
@@ -2248,7 +2202,7 @@ app.post('/cron/weekly-summary', async (req, res) => {
   // ดึงร้าน Pro+ ทั้งหมด
   const { data: shops, error: shopsErr } = await supabase
     .from('shop_profiles')
-    .select('id, owner_line_id, shop_name, subscription_tier, google_sheet_id')
+    .select('id, owner_line_id, shop_name, subscription_tier')
     .in('subscription_tier', ['pro', 'advance', 'business', 'enterprise', 'super']);
 
   if (shopsErr || !shops?.length) {
