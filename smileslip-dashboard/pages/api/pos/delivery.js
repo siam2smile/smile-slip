@@ -24,6 +24,7 @@ import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import { makeOrderNo, deliveryOrderFromRow, productFromRow, logCyclicalTransaction } from '../../../lib/google-pos';
+import { requirePermission } from '../../../lib/pos-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -185,6 +186,7 @@ export default async function handler(req, res) {
 
     // ── POST — สร้างออเดอร์ใหม่ ─────────────────────────────────────────────
     if (req.method === 'POST') {
+      if (!(await requirePermission(req, res, shopId, 'perm_manage_delivery'))) return;
       const {
         customer_id = '', customer_name, phone = '', address = '', maps_link = '',
         items = [], total = 0, payment_method = 'เก็บปลายทาง',
@@ -282,6 +284,7 @@ export default async function handler(req, res) {
     //   items ที่ส่งมาสามารถมี returned_qty ต่อรายการ (เฉพาะสินค้าประเภทหมุนเวียน) —
     //   ใช้อัปเดตสต็อค "เปล่ารอรีฟิล" ของสินค้า + ลดยอด "ถังอยู่กับลูกค้า" ของผู้ติดต่อ
     if (req.method === 'PATCH') {
+      if (!(await requirePermission(req, res, shopId, 'perm_manage_delivery'))) return;
       const {
         order_no, status, notes, maps_link,
         customer_id, customer_name, phone, address,
@@ -438,6 +441,7 @@ export default async function handler(req, res) {
 
     // ── DELETE — ลบออเดอร์ (เช่น ลูกค้ามารับเองแทนการจัดส่ง) ──────────────────
     if (req.method === 'DELETE') {
+      if (!(await requirePermission(req, res, shopId, 'perm_manage_delivery'))) return;
       const { order_no } = req.body;
       if (!order_no) return res.status(400).json({ error: 'Missing order_no' });
 

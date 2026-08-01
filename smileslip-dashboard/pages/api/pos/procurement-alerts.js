@@ -7,6 +7,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
+import { blockAllStaffSessions } from '../../../lib/pos-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -22,6 +23,10 @@ export default async function handler(req, res) {
 
 
   try {
+    // ฟีเจอร์นี้เป็นเครื่องมือตรวจสอบทุจริตจัดซื้อของพนักงานเอง — ไม่มีสิทธิ์ไหนควรปลดล็อคให้
+    // session พนักงานเห็น/แก้ได้เลย (ต่างจากไฟล์อื่นที่มี permKey เฉพาะทาง) ต้องเป็นเจ้าของร้าน/แอดมินเท่านั้น
+    if (!blockAllStaffSessions(req, res)) return;
+
     if (req.method === 'GET') {
       let query = supabase.from('procurement_alerts').select('*').eq('shop_id', shopId).order('created_at', { ascending: false });
       if (req.query.status && req.query.status !== 'ทั้งหมด') query = query.eq('status', req.query.status);

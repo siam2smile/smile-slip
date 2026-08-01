@@ -225,6 +225,7 @@ export default async function handler(req, res) {
 
     // ── POST ─────────────────────────────────────────────────────────────
     if (req.method === 'POST') {
+      if (!(await requirePermission(req, res, shopId, 'perm_process_sales'))) return;
       const {
         items = [], discount = 0, payment_method = 'เงินสด',
         cash_received = 0, cashier = '', notes = '',

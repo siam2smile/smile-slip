@@ -9,6 +9,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { makeLoanNo, loanFromRow, productFromRow } from '../../../lib/google-pos';
+import { requirePermission } from '../../../lib/pos-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -67,6 +68,7 @@ export default async function handler(req, res) {
 
     // ── POST (สร้างใบยืม) ────────────────────────────────────────────────────
     if (req.method === 'POST') {
+      if (!(await requirePermission(req, res, shopId, 'perm_manage_stock'))) return;
       const {
         contact_id = '', contact_name = '', contact_phone = '',
         items = [], due_date = '', notes = '',
@@ -109,6 +111,7 @@ export default async function handler(req, res) {
 
     // ── PATCH (บันทึกคืนสินค้า) ─────────────────────────────────────────────
     if (req.method === 'PATCH') {
+      if (!(await requirePermission(req, res, shopId, 'perm_manage_stock'))) return;
       const { loan_no, notes = '' } = req.body;
       if (!loan_no) return res.status(400).json({ error: 'Missing loan_no' });
 

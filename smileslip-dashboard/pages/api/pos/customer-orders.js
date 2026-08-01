@@ -17,6 +17,7 @@
 import { supabase } from '../../../lib/supabase-pos';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { makeCustomerOrderNo, productFromRow } from '../../../lib/google-pos';
+import { requirePermission } from '../../../lib/pos-auth';
 
 function orderFromRow(r) {
   return {
@@ -132,6 +133,7 @@ export default async function handler(req, res) {
 
     // ── DELETE (แอดมิน/พนักงาน) ───────────────────────────────────────────────
     if (req.method === 'DELETE') {
+      if (!(await requirePermission(req, res, shopId, 'perm_manage_delivery'))) return;
       const { order_no } = req.body;
       if (!order_no) return res.status(400).json({ error: 'Missing order_no' });
 

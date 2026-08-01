@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 import { taxInvoiceRecordFromRow } from '../../../lib/google-pos';
 import { generatePosTaxInvoicePdf } from '../../../lib/pos-tax-invoice-pdf';
 import { hasFeature } from '../../../lib/tier-features';
+import { requirePermission } from '../../../lib/pos-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -19,6 +20,7 @@ const supabase = createClient(
 export default async function handler(req, res) {
   const { shopId, invoice_no } = req.query;
   if (!shopId || !invoice_no) return res.status(400).json({ error: 'Missing shopId/invoice_no' });
+  if (!(await requirePermission(req, res, shopId, 'perm_issue_tax_invoice'))) return;
 
   try {
     const [{ data: invoiceRow }, { data: shop }] = await Promise.all([

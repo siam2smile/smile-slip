@@ -2281,7 +2281,11 @@ export default function POSPage() {
       });
       const d = await r.json();
       if (d.ok) {
-        window.open(`/api/pos/tax-invoice-pdf?shopId=${shopId}&invoice_no=${encodeURIComponent(d.invoice_no)}`, '_blank');
+        // window.open() ไม่ผ่าน fetch() override ที่แนบ x-staff-session header ให้อัตโนมัติ
+        // (บรรทัด ~920) — ต้องแนบ ?session= ตรงๆ ในโหมดแคชเชียร์ ไม่งั้นฝั่ง server จะเห็นเหมือน
+        // ไม่มี session เลย (= เจ้าของร้าน, ผ่านเสมอ) ทำให้ permission gate ของ tax-invoice-pdf.js ไม่มีผล
+        const sessionQS = cashierSession?.sessionToken ? `&session=${encodeURIComponent(cashierSession.sessionToken)}` : '';
+        window.open(`/api/pos/tax-invoice-pdf?shopId=${shopId}&invoice_no=${encodeURIComponent(d.invoice_no)}${sessionQS}`, '_blank');
         setShowTaxInvoiceForm(false);
         showToast(`ออกใบกำกับภาษี ${d.invoice_no} แล้ว`);
       } else {

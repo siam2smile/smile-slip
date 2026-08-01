@@ -19,6 +19,7 @@ import {
   getAccessToken, appendSheet, makeExpenseNo, expenseFromRow, resolveRecordDateTime,
 } from '../../../lib/google-pos';
 import { dualWrite, insertRow, LEDGER_TYPE } from '../../../lib/supabase-pos';
+import { requirePermission } from '../../../lib/pos-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -153,6 +154,7 @@ export default async function handler(req, res) {
 
     // ── POST ─────────────────────────────────────────────────────────────────
     if (req.method === 'POST') {
+      if (!(await requirePermission(req, res, shopId, 'perm_manage_expenses'))) return;
       const {
         label = '', amount = 0, vatType = 'ไม่มี VAT', payment_method = 'เงินสด',
         photo_url = '', notes = '', recordedBy = '', branch = '', transactionDate = '', shift_no = '',
@@ -188,6 +190,7 @@ export default async function handler(req, res) {
 
     // ── DELETE ───────────────────────────────────────────────────────────────
     if (req.method === 'DELETE') {
+      if (!(await requirePermission(req, res, shopId, 'perm_manage_expenses'))) return;
       const { expense_no } = req.body;
       if (!expense_no) return res.status(400).json({ error: 'Missing expense_no' });
 

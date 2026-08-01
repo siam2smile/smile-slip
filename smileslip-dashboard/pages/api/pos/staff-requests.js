@@ -13,6 +13,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { makeStaffId } from '../../../lib/google-pos';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
+import { requirePermission } from '../../../lib/pos-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -59,6 +60,9 @@ export default async function handler(req, res) {
 
   // ── PATCH — อนุมัติ/ปฏิเสธ ──────────────────────────────────────────────
   if (req.method === 'PATCH') {
+    // อนุมัติคำขอ = สร้างพนักงานใหม่จริง (สิทธิ์เดียวกับ staff.js) กันพนักงานที่ถือ session
+    // ใดๆ ก็ตามอนุมัติคำขอสมัครให้ตัวเอง/พรรคพวกได้เอง
+    if (!(await requirePermission(req, res, shopId, 'perm_manage_staff'))) return;
     const { requestId, action } = req.body;
     if (!requestId || !['approve', 'reject'].includes(action)) {
       return res.status(400).json({ error: 'Missing requestId or invalid action' });

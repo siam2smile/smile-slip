@@ -12,6 +12,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { pendingReceiveFromRow } from '../../../lib/google-pos';
+import { requirePermission } from '../../../lib/pos-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -35,6 +36,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'DELETE') {
+      if (!(await requirePermission(req, res, shopId, 'perm_manage_receiving'))) return;
       const { pending_no } = req.body;
       if (!pending_no) return res.status(400).json({ error: 'Missing pending_no' });
       const { data: existing, error: fetchErr } = await supabase.from('pos_pending_receives').select('id')

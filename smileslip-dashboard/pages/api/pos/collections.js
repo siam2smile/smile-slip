@@ -26,6 +26,7 @@ import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import {
   makeCollectionNo, collectionFromRow, productFromRow, logCyclicalTransaction,
 } from '../../../lib/google-pos';
+import { requirePermission } from '../../../lib/pos-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -173,6 +174,7 @@ export default async function handler(req, res) {
 
     // ── POST — สร้างงานใหม่ ─────────────────────────────────────────────────
     if (req.method === 'POST') {
+      if (!(await requirePermission(req, res, shopId, 'perm_manage_delivery'))) return;
       const {
         customer_id = '', customer_name, phone = '',
         task_type = 'เงินเชื่อ', debt_amount = 0, items = [],
@@ -206,6 +208,7 @@ export default async function handler(req, res) {
 
     // ── PATCH — พนักงานตอบกลับ / แอดมินยืนยันรับเข้าร้าน ───────────────────────
     if (req.method === 'PATCH') {
+      if (!(await requirePermission(req, res, shopId, 'perm_manage_delivery'))) return;
       const {
         collection_no, result, collected_amount, collected_items, slip_url,
         confirmed_by, staff_note, cash_received, goods_received,
@@ -295,6 +298,7 @@ export default async function handler(req, res) {
 
     // ── DELETE — ยกเลิกงาน ──────────────────────────────────────────────────
     if (req.method === 'DELETE') {
+      if (!(await requirePermission(req, res, shopId, 'perm_manage_delivery'))) return;
       const { collection_no } = req.body;
       if (!collection_no) return res.status(400).json({ error: 'Missing collection_no' });
 

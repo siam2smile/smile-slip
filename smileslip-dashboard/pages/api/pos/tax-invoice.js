@@ -14,6 +14,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { taxInvoiceRecordFromRow, productFromRow } from '../../../lib/google-pos';
+import { requirePermission } from '../../../lib/pos-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -45,6 +46,7 @@ export default async function handler(req, res) {
 
     // ── POST — ออกใบกำกับภาษีใหม่ ────────────────────────────────────────────
     if (req.method === 'POST') {
+      if (!(await requirePermission(req, res, shopId, 'perm_issue_tax_invoice'))) return;
       const {
         ref_bill_no = '', customer_id = '', buyer_name, buyer_tax_id = '',
         buyer_address = '', buyer_branch = 'สำนักงานใหญ่', items = [], issued_by = '',

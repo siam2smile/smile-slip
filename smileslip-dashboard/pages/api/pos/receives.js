@@ -39,6 +39,7 @@ import {
 import { getShopDistrictProvince, checkProcurementFraud, insertAnonymousMarketPrices, MARKET_PRICE_FEATURE_LIVE } from '../../../lib/market-price';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { dualWrite, insertRow, LEDGER_TYPE } from '../../../lib/supabase-pos';
+import { requirePermission } from '../../../lib/pos-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -153,6 +154,7 @@ export default async function handler(req, res) {
 
     // ── POST ─────────────────────────────────────────────────────────────────
     if (req.method === 'POST') {
+      if (!(await requirePermission(req, res, shopId, 'perm_manage_receiving'))) return;
       const { supplierId = '', supplier = '', items = [], notes = '', branch = '', photoUrl = '', transactionDate = '' } = req.body;
       if (!items.length) return res.status(400).json({ error: 'ต้องมีรายการสินค้าอย่างน้อย 1 รายการ' });
 
