@@ -1,10 +1,15 @@
 /**
- * GET   /api/sheets/update-transaction?shopId=xxx&year=2026&ref=xxx  → ดึงธุรกรรม 1 แถวเพื่อแก้ไข
- * PATCH /api/sheets/update-transaction                                → บันทึกการแก้ไขลง Google Sheets
+ * GET   /api/sheets/update-transaction?shopId=xxx&year=2026&ref=xxx  → ดึงธุรกรรม 1 รายการเพื่อแก้ไข
+ * PATCH /api/sheets/update-transaction                                → บันทึกการแก้ไข
  *   body: { shopId, year, ref, date, time, type, amount, sender, receiver, note }
  *
- * ระบุแถวด้วย column K (เลขอ้างอิง/Hash)
- * แก้ได้เฉพาะ A-G | ถ้า type หรือ date เปลี่ยน → ย้ายรูปใน Drive อัตโนมัติ
+ * Phase 3 Tier 5.5 — ย้ายจากหาแถวใน Google Sheets column K (เลขอ้างอิง/Hash) มาหาจาก
+ * ledger_transactions (Supabase) ด้วย shop_id + slip_hash (= ref) โดยตรง — บอทเขียนคู่เข้า
+ * ตารางนี้เป็น required เสมอมาตั้งแต่ Phase 3 Tier 5 (ไม่ขึ้นกับ Google เชื่อมต่อหรือไม่แล้ว)
+ * ต่างจาก Sheets ที่ยังต้องเชื่อมต่อ Google ก่อนถึงจะแก้ไขได้ — endpoint นี้ทำงานได้แม้ร้านไม่เคย
+ * เชื่อมต่อ Google เลยก็ตาม (การย้ายรูปใน Drive ยังต้องใช้ Google อยู่ แต่เป็นแค่ส่วนเสริม
+ * ไม่ block การแก้ไขข้อมูลหลัก) — year ยังรับ/คืนค่าไว้เพื่อความเข้ากันได้กับหน้าเว็บเดิม แต่ไม่ได้
+ * ใช้ค้นหาอะไรอีกต่อไป (ledger_transactions ไม่มีแนวคิดแยกตามปีแบบ Sheets tab)
  */
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
@@ -14,52 +19,72 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
-async function getSheetAccess(shopId) {
-  const { data: shop } = await supabase
-    .from('shop_profiles')
-    .select('google_sheet_id')
-    .eq('id', shopId)
-    .single();
+// จัดรูปแบบวันที่-เวลาเป็นเขตเวลากรุงเทพด้วย timeZone ชัดเจนเสมอ (Intl.DateTimeFormat) — ตั้งใจ
+// "ไม่" ใช้วิธี new Date(x.getTime() + 7*3600*1000) แล้ว toLocaleDateString('th-TH') แบบไม่ระบุ
+// timeZone เหมือน getThaiDateTime() ของบอท เพราะพิสูจน์แล้วจริงว่าพัง (double-shift) ถ้าเครื่อง/
+// container ที่รันตั้ง timezone ไม่ใช่ UTC (เจอจริงตอนทดสอบบนเครื่อง dev ที่ระบบตั้งเป็น
+// Asia/Bangkok เอง — ผลลัพธ์เพี้ยนไปข้างหน้า 7 ชม. เพราะ Intl เติม offset ซ้ำสอง) — ระบุ
+// timeZone ตรงๆ ทำให้ถูกต้องเสมอไม่ว่าเครื่องที่รันจะตั้ง timezone อะไรก็ตาม
+function formatThaiDate(date) {
+  return date.toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' });
+}
+function formatThaiTime(date) {
+  return date.toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', hour12: false });
+}
+function formatIsoDate(date) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
+  const y = parts.find(p => p.type === 'year').value;
+  const m = parts.find(p => p.type === 'month').value;
+  const d = parts.find(p => p.type === 'day').value;
+  return `${y}-${m}-${d}`;
+}
 
+// แปลงสตริงวันที่/เวลาไทย (D/M/พ.ศ., H:mm) → UTC ISO timestamp — เหมือน parseTransactionAt()
+// ของบอทเป๊ะ (lib/ledger-google.js) กันวันที่เพี้ยนถ้า OCR/ผู้ใช้กรอกปีผิด
+function parseThaiDateTimeToUTC(dateStr, timeStr) {
+  try {
+    const parts = (dateStr || '').split('/');
+    if (parts.length === 3) {
+      let [d, m, y] = parts.map(p => parseInt(p.trim(), 10));
+      if (y > 2500) y -= 543;
+      if (y < 100) y += 2000;
+      const currentYear = new Date(new Date().getTime() + 7 * 60 * 60 * 1000).getFullYear();
+      if (y < currentYear - 1 || y > currentYear + 1) y = currentYear;
+      const [hh, mm, ss] = (timeStr || '00:00:00').split(':').map(p => parseInt(p, 10) || 0);
+      if (d && m && y) {
+        const dt = new Date(Date.UTC(y, m - 1, d, (hh || 0) - 7, mm || 0, ss || 0));
+        if (!isNaN(dt.getTime())) return dt.toISOString();
+      }
+    }
+  } catch { /* ignore — fallback ด้านล่าง */ }
+  return null; // null = ไม่แก้ transaction_at (เก็บค่าเดิมไว้)
+}
+
+// ดึงสิทธิ์เข้าถึง Google Drive ของร้าน — ใช้แค่สำหรับย้ายไฟล์รูปสลิปเมื่อ type/date เปลี่ยน
+// (optional เสมอ ไม่ block การแก้ไขข้อมูลหลักถ้าร้านไม่ได้เชื่อมต่อ Google)
+async function getGoogleDriveAccess(shopId) {
   const { data: gConfig } = await supabase
     .from('shop_google_configs')
-    .select('google_refresh_token, google_sheet_id, google_folder_id')
+    .select('google_refresh_token, google_folder_id')
     .eq('shop_id', shopId)
-    .single();
+    .maybeSingle();
+  if (!gConfig?.google_refresh_token || !gConfig?.google_folder_id) return null;
 
-  const sheetId = gConfig?.google_sheet_id || shop?.google_sheet_id;
-  if (!sheetId || !gConfig?.google_refresh_token) return null;
-
-  const tokenRes = await axios.post('https://oauth2.googleapis.com/token', {
-    refresh_token: gConfig.google_refresh_token,
-    client_id: process.env.GOOGLE_CLIENT_ID,
-    client_secret: process.env.GOOGLE_CLIENT_SECRET,
-    grant_type: 'refresh_token',
-  });
-  return {
-    sheetId,
-    accessToken: tokenRes.data.access_token,
-    folderId: gConfig?.google_folder_id || null,
-  };
-}
-
-// หาแถวจาก column K (อ่านถึง P เพื่อดึงหมวดหมู่ด้วย)
-async function findRowByRef(accessToken, sheetId, year, ref) {
-  const range = encodeURIComponent(`${year}!A:P`);
-  const res = await axios.get(
-    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
-  const allRows = res.data.values || [];
-  for (let i = 1; i < allRows.length; i++) {
-    if ((allRows[i][10] || '').trim() === ref.trim()) {
-      return { rowNumber: i + 1, row: allRows[i] };
-    }
+  try {
+    const tokenRes = await axios.post('https://oauth2.googleapis.com/token', {
+      refresh_token: gConfig.google_refresh_token,
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      grant_type: 'refresh_token',
+    });
+    return { accessToken: tokenRes.data.access_token, folderId: gConfig.google_folder_id };
+  } catch (e) {
+    console.warn('[update-transaction] ขอ Google access token ไม่สำเร็จ (ข้าม การย้ายรูปจะไม่ทำ):', e.message);
+    return null;
   }
-  return null;
 }
 
-// แปลง DD/MM/YYYY → { year, monthFolder }
+// แปลง DD/MM/YYYY (พ.ศ. หรือ ค.ศ.) → { year, monthFolder }
 function parseDateForFolder(dateStr) {
   const parts = (dateStr || '').split('/');
   if (parts.length !== 3) return null;
@@ -121,34 +146,49 @@ async function resolveTypeFolder(accessToken, rootFolderId, dateStr, typeLabel) 
   return await getOrCreateFolder(accessToken, monthId, typeFolderName);
 }
 
+// แปลงแถว ledger_transactions → shape เดียวกับที่หน้าเว็บ (pages/transaction/edit.js) คาดหวัง
+// (เหมือนเดิมทุก field ให้ frontend ไม่ต้องแก้เลย)
+function rowToTransactionShape(row) {
+  const createdAt = new Date(row.created_at);
+  const txAt = row.transaction_at ? new Date(row.transaction_at) : createdAt;
+  return {
+    date: formatThaiDate(txAt),
+    time: formatThaiTime(txAt),
+    type: row.type === 'income' ? 'รายรับ' : 'รายจ่าย',
+    amount: row.amount,
+    sender: row.sender_name || '-',
+    receiver: row.receiver_name || '-',
+    note: row.note || '-',
+    slipUrl: row.slip_url || '',
+    recordedAt: formatIsoDate(createdAt),
+    branch: row.branch_name || '-',
+    ref: row.slip_hash || '',
+    taxId: row.tax_id || '-',
+    taxpayerName: row.taxpayer_name || '-',
+    taxAmount: row.tax_amount != null ? String(row.tax_amount) : '-',
+    category: row.category || '-',
+  };
+}
+
 export default async function handler(req, res) {
   // ─── GET ───
   if (req.method === 'GET') {
-    const { shopId, year, ref } = req.query;
+    const { shopId, ref } = req.query;
     if (!shopId || !ref) return res.status(400).json({ error: 'ข้อมูลไม่ครบ (shopId, ref)' });
 
     try {
-      const access = await getSheetAccess(shopId);
-      if (!access) return res.status(400).json({ error: 'ยังไม่ได้เชื่อมต่อ Google Sheets' });
+      const { data: row, error } = await supabase
+        .from('ledger_transactions')
+        .select('*')
+        .eq('shop_id', shopId)
+        .eq('slip_hash', ref)
+        .maybeSingle();
+      if (error) throw error;
+      if (!row) return res.status(404).json({ error: 'ไม่พบรายการนี้ (อาจถูกลบไปแล้ว)' });
 
-      const targetYear = year || new Date().getFullYear().toString();
-      const found = await findRowByRef(access.accessToken, access.sheetId, targetYear, ref);
-      if (!found) return res.status(404).json({ error: 'ไม่พบรายการนี้ (อาจถูกลบหรืออยู่คนละปี)' });
-
-      const r = found.row;
       return res.status(200).json({
-        transaction: {
-          date: r[0] || '', time: r[1] || '', type: r[2] || '',
-          amount: r[3] || '', sender: r[4] || '', receiver: r[5] || '',
-          note: r[6] || '', slipUrl: r[7] || '', recordedAt: r[8] || '',
-          branch: r[9] || '', ref: r[10] || '',
-          taxId: r[11] || '',          // L — เลขภาษี
-          taxpayerName: r[12] || '',   // M — ชื่อผู้เสียภาษี
-          taxAmount: r[13] || '',      // N — ยอดภาษีมูลค่าเพิ่ม
-          category: r[15] || '',       // P — หมวดหมู่
-        },
-        rowNumber: found.rowNumber,
-        year: targetYear,
+        transaction: rowToTransactionShape(row),
+        year: req.query.year || String(new Date().getFullYear()),
       });
     } catch (err) {
       console.error('[API/update-transaction GET]', err.response?.data || err.message);
@@ -158,100 +198,101 @@ export default async function handler(req, res) {
 
   // ─── PATCH ───
   if (req.method === 'PATCH') {
-    const { shopId, year, ref, date, time, type, amount, sender, receiver, note, category, learnKeyword, taxId, taxpayerName, taxAmount } = req.body;
-    if (!shopId || !ref || !year) return res.status(400).json({ error: 'ข้อมูลไม่ครบ (shopId, year, ref)' });
+    const { shopId, ref, date, time, type, amount, sender, receiver, note, category, learnKeyword, taxId, taxpayerName, taxAmount } = req.body;
+    if (!shopId || !ref) return res.status(400).json({ error: 'ข้อมูลไม่ครบ (shopId, ref)' });
     if (type !== 'รายรับ' && type !== 'รายจ่าย') return res.status(400).json({ error: 'ประเภทต้องเป็น รายรับ หรือ รายจ่าย' });
     const amountNum = parseFloat(amount);
     if (isNaN(amountNum) || amountNum < 0) return res.status(400).json({ error: 'จำนวนเงินไม่ถูกต้อง' });
-    const taxAmountNum = taxAmount !== undefined && taxAmount !== '' ? parseFloat(taxAmount) || 0 : null;
+    const taxAmountNum = taxAmount !== undefined && taxAmount !== '' ? (parseFloat(taxAmount) || 0) : null;
 
     try {
-      const access = await getSheetAccess(shopId);
-      if (!access) return res.status(400).json({ error: 'ยังไม่ได้เชื่อมต่อ Google Sheets' });
+      const { data: oldRow, error: findErr } = await supabase
+        .from('ledger_transactions')
+        .select('*')
+        .eq('shop_id', shopId)
+        .eq('slip_hash', ref)
+        .maybeSingle();
+      if (findErr) throw findErr;
+      if (!oldRow) return res.status(404).json({ error: 'ไม่พบรายการนี้ (อาจถูกลบไปแล้ว)' });
 
-      const found = await findRowByRef(access.accessToken, access.sheetId, year, ref);
-      if (!found) return res.status(404).json({ error: 'ไม่พบรายการนี้ (อาจถูกลบไปแล้ว)' });
+      const oldTypeLabel = oldRow.type === 'income' ? 'รายรับ' : 'รายจ่าย';
+      const oldTxAt = oldRow.transaction_at ? new Date(oldRow.transaction_at) : new Date(oldRow.created_at);
+      const oldDate = formatThaiDate(oldTxAt);
+      const slipUrl = oldRow.slip_url || '';
 
-      const oldRow = found.row;
-      const oldType = oldRow[2] || '';
-      const oldDate = oldRow[0] || '';
-      const slipUrl = oldRow[7] || '';
+      const newType = type === 'รายจ่าย' ? 'expense' : 'income';
+      const newDate = date || oldDate;
+      const newTransactionAt = parseThaiDateTimeToUTC(newDate, time) || oldRow.transaction_at;
 
-      // บันทึกข้อมูลใหม่ลง Sheets A-G
-      const writeRange = encodeURIComponent(`${year}!A${found.rowNumber}:G${found.rowNumber}`);
-      await axios.put(
-        `https://sheets.googleapis.com/v4/spreadsheets/${access.sheetId}/values/${writeRange}?valueInputOption=USER_ENTERED`,
-        { values: [[date || oldDate, time || oldRow[1], type, amountNum, sender || '-', receiver || '-', note || '-']] },
-        { headers: { Authorization: `Bearer ${access.accessToken}`, 'Content-Type': 'application/json' } }
-      );
+      const updatePayload = {
+        type: newType,
+        amount: amountNum,
+        sender_name: sender || '-',
+        receiver_name: receiver || '-',
+        note: note || '-',
+        transaction_at: newTransactionAt,
+      };
+      if (taxId !== undefined) updatePayload.tax_id = (taxId && taxId !== '-') ? taxId : null;
+      if (taxpayerName !== undefined) updatePayload.taxpayer_name = (taxpayerName && taxpayerName !== '-') ? taxpayerName : null;
+      if (taxAmountNum !== null) updatePayload.tax_amount = taxAmountNum;
+      if (category && category !== '-') updatePayload.category = category;
 
-      // บันทึกข้อมูลภาษี column L-N (ถ้ามีการแก้ไข)
-      if (taxId !== undefined || taxAmountNum !== null) {
-        const taxRange = encodeURIComponent(`${year}!L${found.rowNumber}:N${found.rowNumber}`);
-        await axios.put(
-          `https://sheets.googleapis.com/v4/spreadsheets/${access.sheetId}/values/${taxRange}?valueInputOption=USER_ENTERED`,
-          { values: [[taxId || '-', taxpayerName || '-', taxAmountNum !== null ? taxAmountNum : '-']] },
-          { headers: { Authorization: `Bearer ${access.accessToken}`, 'Content-Type': 'application/json' } }
-        ).catch(e => console.warn('[update-transaction] บันทึก tax fields ไม่สำเร็จ (ข้าม):', e.message));
-      }
+      const { error: updErr } = await supabase
+        .from('ledger_transactions')
+        .update(updatePayload)
+        .eq('id', oldRow.id);
+      if (updErr) throw updErr;
 
-      // บันทึกหมวดหมู่ลง column P (ถ้ามี)
-      if (category && category !== '-') {
-        const catRange = encodeURIComponent(`${year}!P${found.rowNumber}`);
-        await axios.put(
-          `https://sheets.googleapis.com/v4/spreadsheets/${access.sheetId}/values/${catRange}?valueInputOption=USER_ENTERED`,
-          { values: [[category]] },
-          { headers: { Authorization: `Bearer ${access.accessToken}`, 'Content-Type': 'application/json' } }
-        ).catch(e => console.warn('[update-transaction] บันทึก category ไม่สำเร็จ (ข้าม):', e.message));
-
-        // บันทึก learned rule ถ้า user กรอก keyword
-        if (learnKeyword && learnKeyword.trim().length >= 2) {
-          await supabase.from('shop_category_rules').upsert(
-            { shop_id: shopId, keyword: learnKeyword.trim().toLowerCase(), category },
-            { onConflict: 'shop_id,keyword' }
-          ).then(({ error: e }) => {
-            if (e) console.warn('[update-transaction] บันทึก category rule ไม่สำเร็จ:', e.message);
-          });
-        }
+      // บันทึก learned rule ถ้า user กรอก keyword (ไม่เกี่ยวกับ Sheets/Supabase — เหมือนเดิม)
+      if (category && category !== '-' && learnKeyword && learnKeyword.trim().length >= 2) {
+        await supabase.from('shop_category_rules').upsert(
+          { shop_id: shopId, keyword: learnKeyword.trim().toLowerCase(), category },
+          { onConflict: 'shop_id,keyword' }
+        ).then(({ error: e }) => {
+          if (e) console.warn('[update-transaction] บันทึก category rule ไม่สำเร็จ:', e.message);
+        });
       }
 
       // ─── sync slip_analytics.transaction_type ใน Supabase ถ้า type เปลี่ยน ───
-      const newDate = date || oldDate;
-      const typeChanged = type !== oldType;
+      const typeChanged = type !== oldTypeLabel;
       const dateChanged = newDate !== oldDate;
+      const oldRecordedAt = formatIsoDate(new Date(oldRow.created_at));
 
-      // sync slip_analytics.transaction_type ใน Supabase ถ้า type เปลี่ยน
-      // ใช้ recordedAt (column I = YYYY-MM-DD) ซึ่งตรงกับ slip_analytics.slip_date ที่บอทบันทึก
-      // best-effort: ถ้ามีหลายสลิปวันเดียวกัน shop เดียวกัน จะ update ทุกแถว (analytics ไม่ใช่ข้อมูลการเงิน)
-      if (typeChanged && oldRow[8]) {
-        const analyticsType = type === 'รายรับ' ? 'income' : 'expense';
+      if (typeChanged && oldRecordedAt) {
+        const analyticsType = newType;
         supabase.from('slip_analytics')
           .update({ transaction_type: analyticsType })
           .eq('shop_id', shopId)
-          .eq('slip_date', oldRow[8])  // column I = recordedAt = YYYY-MM-DD
+          .eq('slip_date', oldRecordedAt)
           .then(({ error: e }) => {
             if (e) console.warn('[update-transaction] sync slip_analytics ไม่สำเร็จ (ข้าม):', e.message);
-            else console.log(`[update-transaction] sync slip_analytics slip_date=${oldRow[8]} → ${analyticsType}`);
+            else console.log(`[update-transaction] sync slip_analytics slip_date=${oldRecordedAt} → ${analyticsType}`);
           });
       }
 
-      if ((typeChanged || dateChanged) && slipUrl && access.folderId) {
+      // ย้ายรูปใน Drive ถ้า type/วันที่เปลี่ยน — optional เสมอ ไม่ block การบันทึกหลัก
+      let fileMoved = false;
+      if ((typeChanged || dateChanged) && slipUrl) {
         const fileId = extractDriveFileId(slipUrl);
         if (fileId) {
-          try {
-            const newFolder = await resolveTypeFolder(access.accessToken, access.folderId, newDate, type);
-            if (newFolder) {
-              await moveDriveFile(access.accessToken, fileId, newFolder);
-              console.log(`[update-transaction] ย้ายรูป ${fileId} → folder ${newFolder} (type: ${type}, date: ${newDate})`);
+          const access = await getGoogleDriveAccess(shopId);
+          if (access) {
+            try {
+              const newFolder = await resolveTypeFolder(access.accessToken, access.folderId, newDate, type);
+              if (newFolder) {
+                await moveDriveFile(access.accessToken, fileId, newFolder);
+                fileMoved = true;
+                console.log(`[update-transaction] ย้ายรูป ${fileId} → folder ${newFolder} (type: ${type}, date: ${newDate})`);
+              }
+            } catch (moveErr) {
+              // ไม่ fail ถ้าย้ายไม่ได้ — ข้อมูลหลักบันทึกไปแล้ว
+              console.warn('[update-transaction] ย้ายรูป Drive ไม่สำเร็จ (ข้าม):', moveErr.message);
             }
-          } catch (moveErr) {
-            // ไม่ fail ถ้าย้ายไม่ได้ — ข้อมูล Sheets บันทึกไปแล้ว
-            console.warn('[update-transaction] ย้ายรูป Drive ไม่สำเร็จ (ข้าม):', moveErr.message);
           }
         }
       }
 
-      return res.status(200).json({ success: true, fileMoved: (typeChanged || dateChanged) && !!slipUrl });
+      return res.status(200).json({ success: true, fileMoved });
     } catch (err) {
       console.error('[API/update-transaction PATCH]', err.response?.data || err.message);
       return res.status(500).json({ error: 'บันทึกไม่สำเร็จ กรุณาลองใหม่' });
