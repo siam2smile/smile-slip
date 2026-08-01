@@ -37,19 +37,6 @@ export async function getAccessToken(refreshToken) {
   return d.access_token;
 }
 
-export async function readSheet(accessToken, sheetId, range) {
-  const res = await sheetsFetch(
-    `${SHEETS_BASE}/${sheetId}/values/${encodeURIComponent(range)}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(`Sheets read error: ${err.error?.message || res.status}`);
-  }
-  const d = await res.json();
-  return d.values || [];
-}
-
 // แปลงเลขคอลัมน์ (1-indexed) เป็นตัวอักษร เช่น 1→A, 18→R, 27→AA
 function colLetter(n) {
   let s = '';
@@ -92,23 +79,6 @@ export async function appendSheet(accessToken, sheetId, sheetName, row) {
   return appendRows(accessToken, sheetId, sheetName, [row]);
 }
 
-export async function updateSheetRow(accessToken, sheetId, sheetName, rowIndex, rowData) {
-  const range = encodeURIComponent(`${sheetName}!A${rowIndex}:Z${rowIndex}`);
-  const res = await sheetsFetch(
-    `${SHEETS_BASE}/${sheetId}/values/${range}?valueInputOption=USER_ENTERED`,
-    {
-      method: 'PUT',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ values: [rowData] }),
-    }
-  );
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(`Sheets update error: ${err.error?.message || res.status}`);
-  }
-  return await res.json();
-}
-
 // สร้าง subfolder ใน parent folder ที่กำหนด
 export async function createFolder(accessToken, name, parentId) {
   const body = { name, mimeType: 'application/vnd.google-apps.folder' };
@@ -123,90 +93,7 @@ export async function createFolder(accessToken, name, parentId) {
   return d.id;
 }
 
-// ตรวจว่า tab มีอยู่ใน spreadsheet ไหม ถ้าไม่มีให้สร้างพร้อม header
-export async function ensureTabExists(accessToken, sheetId, tabName, headers) {
-  // ใช้ sheetsFetch (retry+throw) แทน fetch ตรงๆ — เดิมถ้า metadata fetch นี้โดน
-  // 429/5xx (เช่น quota exceeded ตอนมีการยิง API ถี่ๆ) จะได้ response error ที่ไม่มี
-  // .sheets เลย ทำให้ `exists` เพี้ยนเป็น falsy ทั้งที่ tab มีอยู่จริง แล้วโค้ดจะพยายาม
-  // "สร้างใหม่" (addSheet ล้มเหลวเงียบๆ เพราะชื่อซ้ำ) แล้ว appendSheet(headers) แบบไม่มี
-  // เงื่อนไขต่อ ทำให้ header ถูกเขียนซ้ำเป็นแถวขยะต่อท้ายข้อมูลจริงที่มีอยู่แล้ว (เจอบั๊กนี้จริง
-  // ระหว่างทดสอบฟีเจอร์กะเงินสด — ต้อง fail loud ดีกว่าเงียบแล้วพังข้อมูล)
-  const metaRes = await sheetsFetch(`${SHEETS_BASE}/${sheetId}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!metaRes.ok) {
-    const err = await metaRes.json().catch(() => ({}));
-    throw new Error(`Sheets metadata error: ${err.error?.message || metaRes.status}`);
-  }
-  const meta = await metaRes.json();
-  const exists = meta.sheets?.some(s => s.properties.title === tabName);
-  if (!exists) {
-    const addRes = await sheetsFetch(`${SHEETS_BASE}/${sheetId}:batchUpdate`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requests: [{ addSheet: { properties: { title: tabName } } }] }),
-    });
-    if (!addRes.ok) {
-      const err = await addRes.json().catch(() => ({}));
-      throw new Error(`Sheets addSheet error: ${err.error?.message || addRes.status}`);
-    }
-    if (headers?.length) await appendSheet(accessToken, sheetId, tabName, headers);
-    return;
-  }
-
-  // แท็บมีอยู่แล้ว แต่ header อาจสั้นกว่ามาตรฐานปัจจุบัน (เช่น ร้านเชื่อมต่อ POS ไว้ก่อนที่
-  // schema จะขยายคอลัมน์เพิ่มทีหลัง) — ถ้าไม่ patch header ให้ครบ การ append แถวใหม่จะ
-  // เพี้ยนตำแหน่งไปเรื่อยๆ ได้ (เจอบั๊กจริงในโปรดักชันมาแล้วกับแท็บ "สินค้า") จึงต้องเช็ค
-  // และเติม header ที่ขาดให้ครบทุกครั้งที่เปิดใช้แท็บนี้ เหมือนที่บอทมี getOrCreateYearSheet()
-  if (headers?.length) {
-    const range = `${tabName}!A1:${colLetter(headers.length)}1`;
-    const res = await sheetsFetch(`${SHEETS_BASE}/${sheetId}/values/${encodeURIComponent(range)}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(`Sheets read error: ${err.error?.message || res.status}`);
-    }
-    const d = await res.json();
-    const currentHeader = d.values?.[0] || [];
-    if (currentHeader.length < headers.length) {
-      const putRes = await sheetsFetch(
-        `${SHEETS_BASE}/${sheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,
-        {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ values: [headers] }),
-        }
-      );
-      if (!putRes.ok) {
-        const err = await putRes.json().catch(() => ({}));
-        throw new Error(`Sheets update error: ${err.error?.message || putRes.status}`);
-      }
-    }
-  }
-}
-
 // ── Header Definitions ────────────────────────────────────────────────────────
-
-// A-M เดิม + N=รหัสผู้ใช้ O=บาร์โค้ด P=รายละเอียด Q=VAT R=สถานะ
-// S=เพดานเปล่ารอรีฟิล เพิ่มท้ายสุด — ใช้เตือนสต็อคเปล่าล้น (เกินเพดาน = ของหมุนเวียนค้างไม่ได้รีฟิลเยอะผิดปกติ)
-// T=สาขาที่ขาย — comma-separated ชื่อสาขา, ว่าง = ขายได้ทุกสาขา (ค่าเริ่มต้น กันสินค้าเดิมหายจากทุกที่)
-export const PRODUCT_HEADERS = [
-  'รหัสสินค้า (ระบบ)', 'ชื่อสินค้า', 'หมวดหมู่', 'ราคาขาย (บาท)',
-  'ราคาทุนเฉลี่ย (บาท)', 'จำนวนสต็อค', 'หน่วย', 'คำค้น/ชื่ออื่น', 'หมายเหตุ', 'วันที่อัปเดต',
-  'ประเภท', 'กับลูกค้า', 'เปล่ารอรีฟิล',
-  'รหัสสินค้า (ผู้ใช้)', 'บาร์โค้ด', 'รายละเอียดสินค้า', 'VAT', 'สถานะ',
-  'เพดานเปล่ารอรีฟิล', 'สาขาที่ขาย',
-];
-
-// Q-R (ยอดก่อน VAT/ยอด VAT) เพิ่มท้ายสุด — ไม่แทรกกลาง กันข้อมูลเก่าเลื่อนคอลัมน์ผิด
-// คำนวณจาก vat_type ของสินค้าแต่ละชิ้น (ไม่รวมผลของส่วนลดบิล — เหมือน pattern เดียวกับใบกำกับภาษี)
-// S=เลขที่กะ เพิ่มท้ายสุด — ผูกบิลเงินสดเข้ากะที่เปิดอยู่ตอนขาย (ว่าง = ไม่ได้เปิดกะไว้ ไม่กระทบร้านที่ไม่ใช้ฟีเจอร์นี้)
-export const SALE_HEADERS = [
-  'เลขบิล', 'วันที่-เวลา', 'รายการสินค้า (JSON)', 'ยอดรวมก่อนลด',
-  'ส่วนลด', 'ยอดสุทธิ', 'วิธีชำระ', 'เงินรับ', 'เงินทอน', 'ผู้ขาย', 'หมายเหตุ', 'สถานะ',
-  'รหัสลูกค้า', 'ชื่อลูกค้า', 'วันที่ชำระ', 'สาขา', 'ยอดก่อน VAT (บาท)', 'ยอด VAT (บาท)', 'เลขที่กะ',
-];
 
 // คำนวณ VAT รวมของรายการสินค้าจาก vat_type ต่อ SKU — ใช้ร่วมกันทั้งขายหน้าร้าน/ใบกำกับภาษี/รายงาน VAT
 // products: array ที่ผ่าน rowToProduct() มาแล้ว
@@ -235,52 +122,6 @@ export function computeVatBreakdown(items, products) {
   return { subtotal, vat, total: Math.round((subtotal + vat) * 100) / 100 };
 }
 
-// tab "ยืมสินค้า"
-// L=ตัดสต็อคตอนยืม ('TRUE'/'') — บันทึกว่าตอนสร้างใบยืมได้ตัดสต็อคออกจริงหรือไม่ ให้ตอนคืนของ
-// คืนสต็อคเฉพาะใบที่เคยตัดจริงเท่านั้น (เดิมคืนเสมอ ทำให้สต็อคเฟ้อถ้าใบยืมสร้างแบบไม่ตัดสต็อค)
-// ใบเก่าก่อนมีคอลัมน์นี้จะว่าง = ถือว่าเคยตัด (คงพฤติกรรมเดิมของใบเก่า ไม่เปลี่ยนย้อนหลัง)
-export const LOAN_HEADERS = [
-  'เลขที่ยืม', 'วันที่ยืม', 'กำหนดคืน', 'รหัสผู้ติดต่อ', 'ชื่อผู้ติดต่อ', 'เบอร์โทร',
-  'รายการสินค้า (JSON)', 'หมายเหตุ', 'สถานะ', 'วันที่คืน', 'สาขา', 'ตัดสต็อคตอนยืม',
-];
-
-// tab "ใบกำกับภาษี" — ใบกำกับภาษีที่ร้านออกให้ลูกค้าของร้านเอง (คนละระบบกับใบกำกับภาษี
-// ที่ Smile Slip Pro ออกให้ร้านตอนซื้อแพ็กเกจ — นี่คือร้านออกให้ลูกค้าร้านตัวเอง)
-// เลขที่รันต่อปี ไม่ให้เลขขาดหาย (นับจากจำนวนแถวที่มีอยู่ของปีนั้น + 1)
-// เพิ่ม O=ชื่อผู้ขาย(สาขา) P=ที่อยู่ผู้ขาย(สาขา) ท้ายสุด — เก็บชื่อ/ที่อยู่ "ผู้ออกใบกำกับภาษี" ที่แท้จริง
-// ตอนออกจริง (เผื่อสาขาที่ออกมีแบรนด์/ที่อยู่แยกจากบริษัทหลัก) แช่แข็งไว้ ณ เวลาที่ออก ไม่คำนวณใหม่
-// ตอนพิมพ์ซ้ำทีหลัง (กันเอกสารเปลี่ยนย้อนหลังถ้าตั้งค่าสาขาถูกแก้ไขในอนาคต) — ว่าง = ใบเก่าก่อนมีฟีเจอร์นี้
-// (fallback ไปใช้ข้อมูลบริษัทหลักที่ tax-invoice-pdf.js เหมือนเดิม)
-export const TAX_INVOICE_HEADERS = [
-  'เลขที่ใบกำกับภาษี', 'วันที่ออก', 'เลขที่บิลอ้างอิง', 'รหัสลูกค้า',
-  'ชื่อผู้ซื้อ', 'เลขภาษีผู้ซื้อ', 'ที่อยู่ผู้ซื้อ', 'สาขาผู้ซื้อ',
-  'รายการ (JSON)', 'ยอดก่อน VAT', 'ยอด VAT', 'ยอดรวม', 'ออกโดย', 'เบอร์โทรผู้ซื้อ',
-  'ชื่อผู้ขาย (สาขา)', 'ที่อยู่ผู้ขาย (สาขา)',
-];
-
-export function rowToTaxInvoice(row) {
-  let items = [];
-  try { items = JSON.parse(row[8] || '[]'); } catch {}
-  return {
-    invoice_no:   row[0]  || '',
-    issued_at:    row[1]  || '',
-    ref_bill_no:  row[2]  || '',
-    customer_id:  row[3]  || '',
-    buyer_name:   row[4]  || '',
-    buyer_tax_id: row[5]  || '',
-    buyer_address:row[6]  || '',
-    buyer_branch: row[7]  || '',
-    items,
-    subtotal:     parseFloat(row[9])  || 0,
-    vat:          parseFloat(row[10]) || 0,
-    total:        parseFloat(row[11]) || 0,
-    issued_by:    row[12] || '',
-    buyer_phone:  row[13] || '',
-    seller_name:    row[14] || '',
-    seller_address: row[15] || '',
-  };
-}
-
 // Phase 2 (write-primary flip, 2026-07-29): adapter สำหรับ pos_tax_invoices row → shape เดียวกับ
 // rowToTaxInvoice เต็มรูปแบบ (ต่างจาก taxInvoiceFromRow แบบย่อใน export.js ที่ตัดฟิลด์ที่ไม่ใช้ในรายงาน VAT30 ออก)
 export function taxInvoiceRecordFromRow(r) {
@@ -294,89 +135,10 @@ export function taxInvoiceRecordFromRow(r) {
   };
 }
 
-// A-W (23 คอลัมน์) — รวม ลูกค้า + ผู้จำหน่าย + ข้อมูลภาษีบริษัท + ประเภทบุคคล
-export const CONTACT_HEADERS = [
-  'รหัสผู้ติดต่อ', 'ชื่อ', 'ประเภท (ลูกค้า/ผู้จำหน่าย/ทั้งคู่)', 'เบอร์โทร', 'อีเมล',
-  'ที่อยู่_1', 'maps_1', 'ที่อยู่_2', 'maps_2',
-  'ชื่อบริษัท', 'เลขภาษี', 'ที่อยู่ภาษี', 'สาขา',
-  'ยอดค้าง (บาท)', 'ถังอยู่กับลูกค้า', 'ชื่อร้านค้า',
-  'คำค้น/aliases', 'หมายเหตุ', 'วันที่เพิ่ม', 'วันที่อัปเดต',
-  'ประเภทบุคคล', 'ชื่อผู้ติดต่อ (นิติบุคคล)', 'เบอร์ผู้ติดต่อ (นิติบุคคล)',
-  'วงเงินยืมสูงสุด (ชิ้น)',
-];
-
-// รหัสผู้จำหน่าย/ยอดก่อน VAT/ยอด VAT รวม (G-I) เพิ่มท้ายสุด — ผูกกับ contact_id จริงแทน
-// ข้อความอิสระเดิม + แตกยอด VAT ออกจากยอดต้นทุนรวม (col E ยังหมายถึงยอดสุทธิรวม VAT เหมือนเดิม
-// เพื่อไม่กระทบของเก่า)
-// J=ลิงก์รูปภาพหลักฐานบิล เพิ่มท้ายสุด — ใช้เป็น "verified data filter" สำหรับดัชนีราคากลาง
-// (มีรูปแนบ = ข้อมูลราคาน่าเชื่อถือ เอาเข้าตารางกลางได้ / ไม่มีรูป = คีย์มือเปล่าๆ ข้ามไม่เอาเข้า)
-export const RECEIVE_HEADERS = [
-  'เลขที่รับสินค้า', 'วันที่-เวลา', 'ผู้จำหน่าย', 'รายการสินค้า (JSON)',
-  'ยอดต้นทุนรวม (บาท)', 'หมายเหตุ',
-  'รหัสผู้จำหน่าย', 'ยอดก่อน VAT (บาท)', 'ยอด VAT รวม (บาท)',
-  'ลิงก์รูปภาพหลักฐาน',
-];
-
-
-// A           B     C        D          E      F        G           H       I
-// สาขา (H) + PIN (I) เพิ่มท้ายสุด — ไม่แทรกกลาง กันข้อมูลเก่าเลื่อนคอลัมน์ผิด (ensureTabExists
-// auto-patch header ที่สั้นกว่าให้อยู่แล้ว) — PIN เป็นรหัสส่วนตัวที่พนักงานตั้งเอง (ไม่ใช่ PIN ร้านเดียวใช้ร่วมกันแบบเดิม)
-// J-M เพิ่มท้ายสุด — สิทธิ์เชิงลึกต่อพนักงาน (ค่าเริ่มต้นว่าง = ไม่มีสิทธิ์ ปลอดภัยไว้ก่อนสำหรับ
-// พนักงานเก่าที่มีอยู่แล้ว) ใช้เปิดหน้า "📊 จัดการร้าน" เพิ่มเติมใน pos-staff.js นอกเหนือจากงาน
-// จัดส่ง/เก็บเงินปกติ — เช็คทั้งฝั่ง UI (ซ่อนเมนู) และฝั่ง API (บล็อกจริงถ้าไม่มีสิทธิ์)
-// N-U เพิ่มท้ายสุด (2026-07-23) — สิทธิ์ระดับปฏิบัติการสำหรับ session แคชเชียร์ที่เซ็นชื่อ
-// (lib/staff-session.js + lib/pos-auth.js) ใช้บังคับฝั่ง API ตรงจริง (ไม่ใช่แค่ซ่อน UI) เริ่มจาก
-// Tier 1 (staff.js/sales.js DELETE/contacts.js) — ค่าเริ่มต้นว่าง = ไม่มีสิทธิ์เสมอ
-export const STAFF_HEADERS = [
-  'รหัสพนักงาน', 'ชื่อ', 'เบอร์โทร', 'LINE ID', 'บทบาท', 'หมายเหตุ', 'วันที่เพิ่ม', 'สาขา', 'PIN',
-  'สิทธิ์ดูยอดขายรวม', 'สิทธิ์ดูกำไรขาดทุน', 'สิทธิ์จัดการสต็อก', 'สิทธิ์ export รายงาน VAT',
-  'สิทธิ์ขายหน้าร้าน', 'สิทธิ์ยกเลิกบิล', 'สิทธิ์จัดการลูกค้า', 'สิทธิ์จัดการรายจ่าย',
-  'สิทธิ์จัดการจัดส่ง/เก็บเงิน', 'สิทธิ์บันทึกรับสินค้า', 'สิทธิ์ออกใบกำกับภาษี', 'สิทธิ์จัดการพนักงาน',
-];
-
-// A          B          C             D           E      F       G         H              I        J         K           L      M       N
-//            O            P                Q              R                     S                      T
-// O-T เพิ่มท้ายสุด — ไม่แทรกกลาง กันข้อมูลเก่าเลื่อนคอลัมน์ผิด (ensureTabExists auto-patch
-// header ที่สั้นกว่าให้อยู่แล้ว)
-export const ORDER_HEADERS = [
-  'เลขออเดอร์', 'วันที่-เวลา', 'รหัสลูกค้า', 'ชื่อลูกค้า', 'เบอร์',
-  'ที่อยู่จัดส่ง', 'maps_link', 'รายการ (JSON)', 'ยอดรวม (บาท)',
-  'วิธีชำระ', 'รหัสพนักงานส่ง', 'ชื่อพนักงานส่ง', 'สถานะ', 'หมายเหตุ',
-  'ลิงก์สลิป', 'ยืนยันจัดส่งเมื่อ', 'ยืนยันโดย', 'รับเงินเข้าร้านแล้ว',
-  'รับของคืนเข้าคลังแล้ว', 'สร้างโดย', 'ชำระเงินเชื่อแล้ว',
-];
-
-// tab "รายจ่าย" — ค่าใช้จ่ายของร้านที่ไม่เกี่ยวกับสต็อคสินค้า (ค่าเช่า/ค่าน้ำไฟ/ค่าแรง ฯลฯ)
-// คนละระบบกับ "รับสินค้า" (นั่นคือซื้อสินค้าเข้าสต็อค) — vat_type ใช้ชุดค่าเดียวกับสินค้า/รับสินค้า
-// M=เลขที่กะ เพิ่มท้ายสุด — ผูกรายจ่ายเงินสดเข้ากะที่เปิดอยู่ตอนจ่าย (ว่าง = ไม่ได้เปิดกะไว้)
-export const EXPENSE_HEADERS = [
-  'เลขที่รายจ่าย', 'วันที่-เวลา', 'รายการ/หมวดหมู่', 'จำนวนเงินรวม (บาท)',
-  'ประเภท VAT', 'ยอดก่อน VAT (บาท)', 'ยอด VAT (บาท)', 'วิธีชำระ',
-  'ลิงก์รูปภาพบิล/สลิป', 'หมายเหตุ', 'ผู้บันทึก', 'สาขา', 'เลขที่กะ',
-];
-
 export function makeExpenseNo() {
   const now = new Date();
   const pad = (n, len = 2) => String(n).padStart(len, '0');
   return `EXP${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-}
-
-export function rowToExpense(row) {
-  return {
-    expense_no: row[0] || '',
-    created_at: row[1] || '',
-    label:      row[2] || '',
-    total:      parseFloat(row[3]) || 0,
-    vat_type:   row[4] || 'ไม่มี VAT',
-    subtotal:   parseFloat(row[5]) || 0,
-    vat_amount: parseFloat(row[6]) || 0,
-    payment_method: row[7] || '',
-    photo_url:  row[8] || '',
-    notes:      row[9] || '',
-    recorded_by: row[10] || '',
-    branch:     row[11] || '',
-    shift_no:   row[12] || '',
-  };
 }
 
 // Phase 2 (write-primary flip, 2026-07-29): adapter สำหรับ pos_expenses row → shape เดียวกับ rowToExpense
@@ -390,39 +152,10 @@ export function expenseFromRow(r) {
   };
 }
 
-// tab "กะเงินสด" — เปิดกะ/ปิดกะต่อพนักงาน (ผูกกับ staff_id ไม่ใช่สาขา/เครื่อง — พนักงานหมุนเวียน
-// กันหลายคนต่อเครื่องเดียวได้ แต่ละคนเปิด-ปิดกะของตัวเอง) ใช้กระทบยอดเงินสด/รายจ่ายเงินสดที่เกิดขึ้น
-// ระหว่างกะ (ผูกผ่านคอลัมน์ "เลขที่กะ" ใน SALE_HEADERS/EXPENSE_HEADERS) คำนวณเงินสดที่ควรมีตอนปิดกะ
-export const CASH_SHIFT_HEADERS = [
-  'เลขที่กะ', 'รหัสพนักงาน', 'ชื่อพนักงาน', 'สาขา',
-  'เปิดกะเมื่อ', 'เงินสดตั้งต้น (บาท)',
-  'ปิดกะเมื่อ', 'เงินสดที่ควรมี (บาท)', 'เงินสดที่นับได้จริง (บาท)', 'ส่วนต่าง (บาท)',
-  'หมายเหตุ', 'ยอดเก็บออกไป (บาท)', 'ยอดยกไปกะถัดไป (บาท)', 'สถานะ',
-];
-
 export function makeShiftNo() {
   const now = new Date();
   const pad = (n, len = 2) => String(n).padStart(len, '0');
   return `SHIFT${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-}
-
-export function rowToCashShift(row) {
-  return {
-    shift_no:         row[0]  || '',
-    staff_id:         row[1]  || '',
-    staff_name:       row[2]  || '',
-    branch:           row[3]  || '',
-    opened_at:        row[4]  || '',
-    opening_cash:     parseFloat(row[5]) || 0,
-    closed_at:        row[6]  || '',
-    expected_cash:    row[7]  !== '' && row[7]  !== undefined ? parseFloat(row[7])  : null,
-    counted_cash:     row[8]  !== '' && row[8]  !== undefined ? parseFloat(row[8])  : null,
-    variance:         row[9]  !== '' && row[9]  !== undefined ? parseFloat(row[9])  : null,
-    notes:            row[10] || '',
-    withdrawn_amount: parseFloat(row[11]) || 0,
-    carried_forward:  row[12] !== '' && row[12] !== undefined ? parseFloat(row[12]) : null,
-    status:           row[13] || 'เปิดอยู่',
-  };
 }
 
 // Phase 2 (write-primary flip, 2026-07-29): adapter สำหรับ pos_cash_shifts row → shape เดียวกับ
@@ -443,34 +176,10 @@ export function cashShiftFromRow(r) {
   };
 }
 
-// tab "บันทึกแลกเปลี่ยน" — audit log รายรายการของการยืม/แลกเปลี่ยน/คืน/รีฟิลสินค้าหมุนเวียน
-// (คนละอย่างกับ tab "รับสินค้า"/"ยอดขาย" ที่บันทึกบิลทั้งใบ — อันนี้บันทึกเฉพาะ "การเคลื่อนไหว
-// ของสินค้าหมุนเวียน" ทีละ SKU ทีละครั้ง เพื่อตรวจสอบย้อนหลังได้ว่าใครยืม/คืน/แลกอะไรไปเมื่อไหร่)
-export const CYCLICAL_LOG_HEADERS = [
-  'เลขที่บันทึก', 'วันที่-เวลา', 'รหัสสินค้า', 'ชื่อสินค้า',
-  'แหล่งที่มา', 'การกระทำ', 'จำนวน', 'รหัสลูกค้า', 'ชื่อลูกค้า', 'สาขา', 'ผู้ทำรายการ',
-];
-
-export function makeCyclicalLogNo() {
+function makeCyclicalLogNo() {
   const now = new Date();
   const pad = (n, len = 2) => String(n).padStart(len, '0');
   return `CYC${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}${pad(Math.floor(Math.random() * 100))}`;
-}
-
-export function rowToCyclicalLog(row) {
-  return {
-    log_no:       row[0]  || '',
-    created_at:   row[1]  || '',
-    sku:          row[2]  || '',
-    name:         row[3]  || '',
-    source:       row[4]  || '',
-    action:       row[5]  || '',
-    qty:          parseFloat(row[6]) || 0,
-    customer_id:  row[7]  || '',
-    customer_name:row[8]  || '',
-    branch:       row[9]  || '',
-    performed_by: row[10] || '',
-  };
 }
 
 // source: 'ขายหน้าร้าน'|'จัดส่ง'|'เก็บเงิน/ของ' — action: 'แลกเปลี่ยน'|'ยืม'|'คืน'
@@ -580,33 +289,6 @@ export function makeReceiveNo() {
 
 // ── Row Converters ────────────────────────────────────────────────────────────
 
-export function rowToProduct(row) {
-  const rawType = row[10] || 'นับสต็อค';
-  return {
-    sku:           row[0] || '',
-    name:          row[1] || '',
-    category:      row[2] || '',
-    price:         parseFloat(row[3]) || 0,
-    cost:          parseFloat(row[4]) || 0,
-    stock:         parseFloat(row[5]) || 0,
-    unit:          row[6] || 'ชิ้น',
-    aliases:       row[7] || '',
-    notes:         row[8] || '',
-    updated_at:    row[9] || '',
-    type:          rawType === 'ทั่วไป' ? 'นับสต็อค' : rawType, // backward compat
-    at_customer:   parseFloat(row[11]) || 0,
-    empty_waiting: parseFloat(row[12]) || 0,
-    product_code:  row[13] || '',
-    barcode:       row[14] || '',
-    description:   row[15] || '',
-    vat_type:      row[16] || 'ไม่มี VAT',
-    is_active:     row[17] !== '0', // default active
-    empty_ceiling: parseFloat(row[18]) || 0, // 0 = ไม่ตั้งเพดาน
-    // ว่าง = ขายได้ทุกสาขา (backward compat กับสินค้าเดิมที่ไม่เคยตั้งค่านี้)
-    branches:      (row[19] || '').split(',').map(s => s.trim()).filter(Boolean),
-  };
-}
-
 // Supabase row (pos_products) → shape เดียวกับ rowToProduct() เดิมทุกฟิลด์ — Phase 2
 // (write-primary flip, 2026-07-29): products.js อ่าน/เขียน Supabase ตรงแล้ว ไม่ผ่าน Sheets
 export function productFromRow(r) {
@@ -622,32 +304,6 @@ export function productFromRow(r) {
     vat_type: r.vat_type || 'ไม่มี VAT', is_active: r.is_active !== false,
     empty_ceiling: Number(r.empty_ceiling) || 0,
     branches: (r.branches || '').split(',').map(s => s.trim()).filter(Boolean),
-  };
-}
-
-export function rowToSale(row) {
-  let items = [];
-  try { items = JSON.parse(row[2] || '[]'); } catch {}
-  return {
-    bill_no:        row[0]  || '',
-    created_at:     row[1]  || '',
-    items,
-    subtotal:       parseFloat(row[3]) || 0,
-    discount:       parseFloat(row[4]) || 0,
-    total:          parseFloat(row[5]) || 0,
-    payment_method: row[6]  || '',
-    cash_received:  parseFloat(row[7]) || 0,
-    change:         parseFloat(row[8]) || 0,
-    cashier:        row[9]  || '',
-    notes:          row[10] || '',
-    status:         row[11] || 'ชำระแล้ว',
-    customer_id:    row[12] || '',
-    customer_name:  row[13] || '',
-    paid_at:        row[14] || '',
-    branch:         row[15] || '',
-    vat_subtotal:   parseFloat(row[16]) || 0,
-    vat_amount:     parseFloat(row[17]) || 0,
-    shift_no:       row[18] || '',
   };
 }
 
@@ -676,55 +332,6 @@ export function loanFromRow(r) {
   };
 }
 
-export function rowToLoan(row) {
-  let items = [];
-  try { items = JSON.parse(row[6] || '[]'); } catch {}
-  return {
-    loan_no:      row[0]  || '',
-    created_at:   row[1]  || '',
-    due_date:     row[2]  || '',
-    contact_id:   row[3]  || '',
-    contact_name: row[4]  || '',
-    contact_phone:row[5]  || '',
-    items,
-    notes:        row[7]  || '',
-    status:       row[8]  || 'ยืมอยู่',
-    returned_at:  row[9]  || '',
-    branch:       row[10] || '',
-    // ใบเก่าก่อนมีคอลัมน์ L จะว่าง = ถือว่าเคยตัดสต็อค (คงพฤติกรรมคืนสต็อคแบบเดิมของใบเก่า)
-    stock_deducted: row[11] === undefined || row[11] === '' ? true : row[11] === 'TRUE',
-  };
-}
-
-export function rowToContact(row) {
-  return {
-    contact_id:          row[0]  || '',
-    name:                row[1]  || '',
-    contact_type:        row[2]  || 'ผู้จำหน่าย',
-    phone:               row[3]  || '',
-    email:               row[4]  || '',
-    address_1:           row[5]  || '',
-    maps_1:              row[6]  || '',
-    address_2:           row[7]  || '',
-    maps_2:              row[8]  || '',
-    company_name:        row[9]  || '',
-    tax_id:              row[10] || '',
-    tax_address:         row[11] || '',
-    tax_branch:          row[12] || '',
-    debt:                parseFloat(row[13]) || 0,
-    cylinders:           parseFloat(row[14]) || 0,
-    shop_name:           row[15] || '',
-    aliases:             row[16] || '',
-    notes:               row[17] || '',
-    created_at:          row[18] || '',
-    updated_at:          row[19] || '',
-    person_type:         row[20] || 'บุคคลธรรมดา',
-    contact_person_name: row[21] || '',
-    contact_person_phone:row[22] || '',
-    cylinder_limit:      parseFloat(row[23]) || 0, // 0 = ไม่จำกัด
-  };
-}
-
 // Supabase row (pos_contacts) → shape เดียวกับ rowToContact() เดิมทุกฟิลด์ — Phase 2
 // (write-primary flip, 2026-07-29): contacts.js อ่าน/เขียน Supabase ตรงแล้ว ไม่ผ่าน Sheets
 export function contactFromRow(r) {
@@ -738,32 +345,6 @@ export function contactFromRow(r) {
     created_at: r.contact_created_at || '', updated_at: r.contact_updated_at || '',
     person_type: r.person_type || 'บุคคลธรรมดา', contact_person_name: r.contact_person_name || '',
     contact_person_phone: r.contact_person_phone || '', cylinder_limit: Number(r.cylinder_limit) || 0,
-  };
-}
-
-export function rowToStaff(row) {
-  return {
-    staff_id:    row[0] || '',
-    name:        row[1] || '',
-    phone:       row[2] || '',
-    line_id:     row[3] || '',
-    role:        row[4] || 'พนักงานส่ง',
-    notes:       row[5] || '',
-    created_at:  row[6] || '',
-    branch_name: row[7] || '',
-    has_pin:     !!(row[8] && String(row[8]).trim()),
-    perm_view_revenue: row[9]  === 'TRUE' || row[9]  === '1',
-    perm_view_pl:      row[10] === 'TRUE' || row[10] === '1',
-    perm_manage_stock: row[11] === 'TRUE' || row[11] === '1',
-    perm_export_vat:   row[12] === 'TRUE' || row[12] === '1',
-    perm_process_sales:    row[13] === 'TRUE' || row[13] === '1',
-    perm_void_sales:       row[14] === 'TRUE' || row[14] === '1',
-    perm_manage_customers: row[15] === 'TRUE' || row[15] === '1',
-    perm_manage_expenses:  row[16] === 'TRUE' || row[16] === '1',
-    perm_manage_delivery:  row[17] === 'TRUE' || row[17] === '1',
-    perm_manage_receiving: row[18] === 'TRUE' || row[18] === '1',
-    perm_issue_tax_invoice:row[19] === 'TRUE' || row[19] === '1',
-    perm_manage_staff:     row[20] === 'TRUE' || row[20] === '1',
   };
 }
 
@@ -837,34 +418,6 @@ export async function getStaffPermissions(shopId, staffId) {
   }
 }
 
-export function rowToOrder(row) {
-  let items = [];
-  try { items = JSON.parse(row[7] || '[]'); } catch {}
-  return {
-    order_no:    row[0]  || '',
-    created_at:  row[1]  || '',
-    customer_id: row[2]  || '',
-    customer_name: row[3] || '',
-    phone:       row[4]  || '',
-    address:     row[5]  || '',
-    maps_link:   row[6]  || '',
-    items,
-    total:       parseFloat(row[8]) || 0,
-    payment_method: row[9] || '',
-    staff_id:    row[10] || '',
-    staff_name:  row[11] || '',
-    status:      row[12] || 'รอจัดส่ง',
-    notes:       row[13] || '',
-    slip_url:      row[14] || '',
-    confirmed_at:  row[15] || '',
-    confirmed_by:  row[16] || '',
-    cash_received: row[17] === 'TRUE' || row[17] === '1',
-    goods_received: row[18] === 'TRUE' || row[18] === '1',
-    created_by:    row[19] || '',
-    credit_settled: row[20] === 'TRUE' || row[20] === '1',
-  };
-}
-
 // Phase 2 (write-primary flip, 2026-07-29): adapter สำหรับ pos_delivery_orders row → shape
 // เดียวกับ rowToOrder เต็มรูปแบบ (ต่างจาก orderFromRow แบบย่อใน reports.js ที่ตัดฟิลด์ที่ไม่ใช้ในรายงานออก)
 export function deliveryOrderFromRow(r) {
@@ -880,48 +433,7 @@ export function deliveryOrderFromRow(r) {
   };
 }
 
-// tab "งานเก็บเงิน/ของ" — ส่งพนักงานไปเก็บเงินเชื่อค้างชำระ และ/หรือสินค้าหมุนเวียนที่ลูกค้ายืมค้างอยู่
-// A-U (21 คอลัมน์) mirror pattern เดียวกับ ORDER_HEADERS (สร้าง/ยืนยันโดยพนักงาน แล้วแอดมินยืนยันรับเข้าร้านอีกชั้น)
-export const COLLECTION_HEADERS = [
-  'เลขที่งาน', 'วันที่-เวลา', 'รหัสลูกค้า', 'ชื่อลูกค้า', 'เบอร์',
-  'ประเภทงาน', 'ยอดที่ต้องเก็บ (บาท)', 'สินค้าที่ต้องเก็บคืน (JSON)',
-  'รหัสพนักงาน', 'ชื่อพนักงาน', 'สถานะ', 'หมายเหตุ',
-  'ยอดที่เก็บได้จริง (บาท)', 'สินค้าที่เก็บคืนได้จริง (JSON)',
-  'ลิงก์สลิป', 'ยืนยันเมื่อ', 'ยืนยันโดย', 'หมายเหตุจากพนักงาน',
-  'รับเงินเข้าร้านแล้ว', 'รับของเข้าคลังแล้ว', 'สร้างโดย',
-];
-
-export function rowToCollection(row) {
-  let items = [];
-  try { items = JSON.parse(row[7] || '[]'); } catch {}
-  let collectedItems = [];
-  try { collectedItems = JSON.parse(row[13] || '[]'); } catch {}
-  return {
-    collection_no:  row[0]  || '',
-    created_at:     row[1]  || '',
-    customer_id:    row[2]  || '',
-    customer_name:  row[3]  || '',
-    phone:          row[4]  || '',
-    task_type:      row[5]  || 'เงินเชื่อ',
-    debt_amount:    parseFloat(row[6]) || 0,
-    items,
-    staff_id:       row[8]  || '',
-    staff_name:     row[9]  || '',
-    status:         row[10] || 'รอดำเนินการ',
-    notes:          row[11] || '',
-    collected_amount: parseFloat(row[12]) || 0,
-    collected_items: collectedItems,
-    slip_url:       row[14] || '',
-    confirmed_at:   row[15] || '',
-    confirmed_by:   row[16] || '',
-    staff_note:     row[17] || '',
-    cash_received:  row[18] === 'TRUE' || row[18] === '1',
-    goods_received: row[19] === 'TRUE' || row[19] === '1',
-    created_by:     row[20] || '',
-  };
-}
-
-// Phase 2 (write-primary flip, 2026-07-29): adapter สำหรับ pos_collections row → shape เดียวกับ rowToCollection
+// Phase 2 (write-primary flip, 2026-07-29): adapter สำหรับ pos_collections row → shape เดียวกับ rowToCollection (ลบไปแล้ว, Sheets-array-based, dead since write-primary flip)
 export function collectionFromRow(r) {
   return {
     collection_no: r.collection_no || '', created_at: r.transaction_at || '',
@@ -942,26 +454,6 @@ export function makeCollectionNo() {
   return `COL${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 }
 
-// tab "รับสินค้ารอยืนยัน" — สร้างจากบอท LINE เมื่อพิมพ์ #รับสินค้า แล้วส่งรูปใบส่งของ (รอแอดมินตรวจสอบ/แก้ไข
-// ก่อนตัดเข้าสต็อคจริงผ่าน /api/pos/receives ปกติ — ไฟล์นี้แค่อ่าน/ลบ ไม่แตะสต็อคเอง)
-export const PENDING_RECEIVE_HEADERS = ['เลขที่รอยืนยัน', 'วันที่-เวลา', 'ผู้จำหน่าย (OCR)', 'เลขที่เอกสาร', 'วันที่ในเอกสาร', 'รายการสินค้า (JSON)', 'ลิงก์รูปภาพ', 'สาขา', 'สถานะ'];
-
-export function rowToPendingReceive(row) {
-  let items = [];
-  try { items = JSON.parse(row[5] || '[]'); } catch {}
-  return {
-    pending_no:    row[0] || '',
-    created_at:    row[1] || '',
-    supplier:      row[2] || '',
-    invoice_no:    row[3] || '',
-    invoice_date:  row[4] || '',
-    items,
-    image_url:     row[6] || '',
-    branch:        row[7] || '',
-    status:        row[8] || 'รอตรวจสอบ',
-  };
-}
-
 // Phase 2 (write-primary flip, 2026-07-29): adapter สำหรับ pos_pending_receives row (เขียนจากบอท
 // LINE ตอน #รับสินค้า) → shape เดียวกับ rowToPendingReceive
 export function pendingReceiveFromRow(r) {
@@ -969,25 +461,6 @@ export function pendingReceiveFromRow(r) {
     pending_no: r.pending_no || '', created_at: r.created_at || '', supplier: r.supplier || '',
     invoice_no: r.invoice_no || '', invoice_date: r.invoice_date || '', items: r.items || [],
     image_url: r.image_url || '', branch: r.branch_name || '', status: r.status || 'รอตรวจสอบ',
-  };
-}
-
-// tab "รายจ่ายรอยืนยัน" — มาจากบอท LINE #รายจ่าย (คนละ tab กับ "รายจ่าย" ที่ยืนยันแล้ว)
-export const PENDING_EXPENSE_HEADERS = ['เลขที่รอยืนยัน', 'วันที่-เวลา', 'รายการ/หมวดหมู่ (OCR)', 'ผู้รับเงิน (OCR)', 'จำนวนเงิน (OCR)', 'ประเภท VAT (OCR)', 'เลขที่เอกสาร', 'วันที่ในเอกสาร', 'ลิงก์รูปภาพ', 'สาขา', 'สถานะ'];
-
-export function rowToPendingExpense(row) {
-  return {
-    pending_no:   row[0]  || '',
-    created_at:   row[1]  || '',
-    label:        row[2]  || '',
-    vendor:       row[3]  || '',
-    amount:       parseFloat(row[4]) || 0,
-    vat_type:     row[5]  || 'ไม่มี VAT',
-    invoice_no:   row[6]  || '',
-    invoice_date: row[7]  || '',
-    image_url:    row[8]  || '',
-    branch:       row[9]  || '',
-    status:       row[10] || 'รอตรวจสอบ',
   };
 }
 
@@ -1002,57 +475,13 @@ export function pendingExpenseFromRow(r) {
   };
 }
 
-export function rowToReceive(row) {
-  let items = [];
-  try { items = JSON.parse(row[3] || '[]'); } catch {}
-  return {
-    receive_no:  row[0] || '',
-    created_at:  row[1] || '',
-    supplier:    row[2] || '',
-    items,
-    total_cost:  parseFloat(row[4]) || 0,
-    notes:       row[5] || '',
-    supplier_id: row[6] || '',
-    subtotal:    parseFloat(row[7]) || 0,
-    vat_total:   parseFloat(row[8]) || 0,
-    photo_url:   row[9] || '',
-  };
-}
-
-// Phase 2 (write-primary flip, 2026-07-29): adapter สำหรับ pos_receives row → shape เดียวกับ rowToReceive
+// Phase 2 (write-primary flip, 2026-07-29): adapter สำหรับ pos_receives row → shape เดียวกับ rowToReceive (ลบไปแล้ว, dead since write-primary flip)
 export function receiveFromRow(r) {
   return {
     receive_no: r.receive_no || '', created_at: r.transaction_at || '', supplier: r.supplier || '',
     items: r.items || [], total_cost: Number(r.total_cost) || 0, notes: r.notes || '',
     supplier_id: r.supplier_id || '', subtotal: Number(r.subtotal) || 0,
     vat_total: Number(r.vat_total) || 0, photo_url: r.photo_url || '', branch: r.branch_name || '',
-  };
-}
-
-// tab "ออเดอร์ลูกค้ารอยืนยัน" — มาจากหน้าเว็บสั่งจัดส่งสาธารณะ (pages/order.js, ไม่ต้อง login)
-// ลูกค้าส่งเข้ามาที่นี่ก่อนเสมอ (สถานะ 'รอตรวจสอบ') แอดมิน/พนักงานต้องกด "ยืนยัน" ในหน้า POS
-// ก่อนถึงจะกลายเป็นออเดอร์จัดส่งจริงผ่าน /api/pos/delivery ปกติ — กันสแปม/พิมพ์ผิดจากคนนอกที่ไม่มีคนตรวจก่อน
-export const CUSTOMER_ORDER_HEADERS = [
-  'เลขที่คำสั่งซื้อ', 'วันที่-เวลา', 'ชื่อลูกค้า', 'เบอร์โทร', 'ที่อยู่จัดส่ง',
-  'สาขาที่เลือก', 'รายการสินค้า (JSON)', 'ยอดรวม', 'วิธีชำระ', 'ลิงก์สลิป', 'หมายเหตุ', 'สถานะ',
-];
-
-export function rowToCustomerOrder(row) {
-  let items = [];
-  try { items = JSON.parse(row[6] || '[]'); } catch {}
-  return {
-    order_no:       row[0]  || '',
-    created_at:     row[1]  || '',
-    customer_name:  row[2]  || '',
-    phone:          row[3]  || '',
-    address:        row[4]  || '',
-    branch:         row[5]  || '',
-    items,
-    total:          parseFloat(row[7]) || 0,
-    payment_method: row[8]  || '',
-    slip_url:       row[9]  || '',
-    notes:          row[10] || '',
-    status:         row[11] || 'รอตรวจสอบ',
   };
 }
 
