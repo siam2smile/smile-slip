@@ -157,9 +157,53 @@ module.exports = function createLedgerGoogle({ axios, FormData, supabase, getTha
     return new Date().toISOString();
   }
 
-  // 2.7 บันทึกข้อมูลลง Google Sheets (tab แยกตามปี)
+  // Phase 3 Tier 5 — persist ข้อมูลธุรกรรมลง Supabase (ledger_transactions) เป็น "required" เสมอ
+  // ไม่ว่าร้านจะเชื่อมต่อ Google หรือไม่ (เดิม insert นี้ซ่อนอยู่ใน appendToGoogleSheet และไม่เคย
+  // ถูกเรียกเลยถ้ายังไม่เชื่อมต่อ Google — ทำให้ร้านที่ไม่เชื่อม Google ไม่มีที่เก็บข้อมูลถาวรที่ไหน
+  // เลยทั้งที่ยังถูกตัดเครดิต/แสดงผลว่า "บันทึกสำเร็จ" อยู่ เป็นบั๊กจริงที่เจอตอนวางแผน Phase 3) —
+  // throw ถ้า insert ไม่สำเร็จ (caller ต้องเรียกก่อนตัดเครดิตเสมอ กันบั๊กเดิม) — ถ้าเป็น Postgres
+  // unique-violation (23505, ชนกับ shop_id+slip_hash เดิม) ติด err.isDuplicate = true ให้ caller
+  // เลือกได้เองว่าจะจัดการยังไง (สำหรับ OCR = race ระหว่าง retry ซ้อนกันของสลิปเดียวกัน, dedup
+  // pre-check ของ Tier 4 ควรดักได้ก่อนอยู่แล้วในเกือบทุกกรณี อันนี้คือ defense-in-depth ชั้นสอง)
+  async function persistLedgerTransaction(shopId, slipData, imageUrl, branchName, fingerprint, category, method, recorder) {
+    const isNoImage = !imageUrl || imageUrl === 'ไม่มีรูปภาพ' || imageUrl === 'ไม่มีรูปภาพ (คีย์เอง)';
+    const { error } = await supabase.from('ledger_transactions').insert({
+      shop_id: shopId,
+      type: slipData.type === 'income' ? 'income' : 'expense',
+      amount: slipData.amount,
+      category: category === '-' ? null : category,
+      note: slipData.note || '-',
+      slip_url: isNoImage ? null : imageUrl,
+      slip_hash: fingerprint === '-' ? null : fingerprint,
+      sender_name: slipData.sender || '-',
+      receiver_name: slipData.receiver || '-',
+      branch_name: branchName,
+      tax_id: (slipData.tax_id && slipData.tax_id !== '-') ? slipData.tax_id : null,
+      taxpayer_name: (slipData.taxpayer_name && slipData.taxpayer_name !== '-') ? slipData.taxpayer_name : null,
+      tax_amount: (slipData.tax_amount && slipData.tax_amount !== '-') ? slipData.tax_amount : null,
+      tax_address: (slipData.tax_address && slipData.tax_address !== '-') ? slipData.tax_address : null,
+      payment_method: method === '-' ? null : method,
+      recorder_name: recorder === '-' ? null : recorder,
+      transaction_at: parseTransactionAt(slipData.date, slipData.time),
+      raw_data: { source: 'bot-ledger', fingerprint },
+    });
+    if (error) {
+      if (error.code === '23505') {
+        const dupErr = new Error('รายการนี้เคยถูกบันทึกไปแล้ว (ตรวจพบตอน insert — ซ้ำกับที่ dedup pre-check เจอไม่ทัน)');
+        dupErr.isDuplicate = true;
+        throw dupErr;
+      }
+      throw error;
+    }
+    console.log(`[LOG] ✅ persistLedgerTransaction สำเร็จ (shop: ${shopId}, ${slipData.type} ฿${slipData.amount})`);
+  }
+
+  // 2.7 บันทึกข้อมูลลง Google Sheets (tab แยกตามปี) — Phase 3 Tier 5: เหลือแค่ครึ่ง Sheets ล้วนๆ
+  // แล้ว (ไม่แตะ ledger_transactions อีกต่อไป — ย้ายไป persistLedgerTransaction ข้างบน) — best-effort
+  // เสมอ ผู้เรียกต้อง wrap try/catch เองแล้ว swallow เอง ห้ามให้ error จากฟังก์ชันนี้ทำให้การบันทึก
+  // ธุรกรรมหลักล้มเหลว
   // คอลัมน์: A=วันที่สลิป B=เวลา C=ประเภท D=ยอด E=ผู้โอน F=ผู้รับ G=หมายเหตุ H=ลิงก์รูป I=recorded_at J=สาขา K=เลขอ้างอิง/Hash L=เลขภาษี M=ชื่อผู้เสียภาษี N=ยอดภาษี O=ที่อยู่ผู้เสียภาษี P=หมวดหมู่ Q=วิธีรับ-จ่าย R=ผู้บันทึก
-  async function appendToGoogleSheet(accessToken, spreadsheetId, slipData, imageUrl, branchName = '-', sheetYear = null, fingerprint = '-', category = '-', method = '-', recorder = '-', shopId = null) {
+  async function writeToGoogleSheet(accessToken, spreadsheetId, slipData, imageUrl, branchName = '-', sheetYear = null, fingerprint = '-', category = '-', method = '-', recorder = '-') {
     console.log(`[LOG] 📊 กำลังบันทึกข้อมูลลง Google Sheet${sheetYear ? ' tab ' + sheetYear : ''}...`);
     const range = sheetYear ? encodeURIComponent(sheetYear + '!A1') : 'A1';
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}:append?valueInputOption=USER_ENTERED`;
@@ -183,37 +227,6 @@ module.exports = function createLedgerGoogle({ axios, FormData, supabase, getTha
     ]];
     await axios.post(url, { values }, { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } });
     console.log(`[LOG] ✅ บันทึกลง Google Sheet สำเร็จ (สาขา: ${branchName})`);
-
-    // Tier D migration — เขียนคู่เข้า ledger_transactions (Supabase) แบบ fire-and-forget เสมอ
-    // (Sheets ยังเป็น primary/บังคับสำเร็จเหมือนเดิมทุกประการ อันนี้แค่เก็บสำเนาไว้เผื่ออนาคต)
-    if (shopId) {
-      try {
-        const isNoImage = !imageUrl || imageUrl === 'ไม่มีรูปภาพ' || imageUrl === 'ไม่มีรูปภาพ (คีย์เอง)';
-        const { error: ledgerErr } = await supabase.from('ledger_transactions').insert({
-          shop_id: shopId,
-          type: slipData.type === 'income' ? 'income' : 'expense',
-          amount: slipData.amount,
-          category: category === '-' ? null : category,
-          note: slipData.note || '-',
-          slip_url: isNoImage ? null : imageUrl,
-          slip_hash: fingerprint === '-' ? null : fingerprint,
-          sender_name: slipData.sender || '-',
-          receiver_name: slipData.receiver || '-',
-          branch_name: branchName,
-          tax_id: (slipData.tax_id && slipData.tax_id !== '-') ? slipData.tax_id : null,
-          taxpayer_name: (slipData.taxpayer_name && slipData.taxpayer_name !== '-') ? slipData.taxpayer_name : null,
-          tax_amount: (slipData.tax_amount && slipData.tax_amount !== '-') ? slipData.tax_amount : null,
-          tax_address: (slipData.tax_address && slipData.tax_address !== '-') ? slipData.tax_address : null,
-          payment_method: method === '-' ? null : method,
-          recorder_name: recorder === '-' ? null : recorder,
-          transaction_at: parseTransactionAt(slipData.date, slipData.time),
-          raw_data: { source: 'bot-ledger', fingerprint },
-        });
-        if (ledgerErr) throw ledgerErr;
-      } catch (e) {
-        console.error('[LOG] ledger_transactions dual-write error (ข้าม):', e.message);
-      }
-    }
   }
 
   // 2.7b ตรวจสอบสลิปซ้ำใน Google Sheets column K (long-term, ข้ามการ restart)
@@ -337,7 +350,8 @@ module.exports = function createLedgerGoogle({ axios, FormData, supabase, getTha
     uploadToGoogleDrive,
     recreateShopGoogleAssets,
     getOrCreateYearSheet,
-    appendToGoogleSheet,
+    persistLedgerTransaction,
+    writeToGoogleSheet,
     checkDuplicateInSheets,
     checkDuplicateInSupabase,
     parseTransactionAt,

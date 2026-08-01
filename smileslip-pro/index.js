@@ -430,7 +430,7 @@ async function getLineImage(messageId) {
 // Tier 6 จะไล่ลบเป็นชุดสุดท้ายพร้อมของอื่นที่เหลือ)
 const {
   getOrCreateDriveFolder, uploadToGoogleDrive, recreateShopGoogleAssets, getOrCreateYearSheet,
-  appendToGoogleSheet, checkDuplicateInSupabase, parseTransactionAt,
+  persistLedgerTransaction, writeToGoogleSheet, checkDuplicateInSupabase, parseTransactionAt,
   makePendingReceiveNo, makePendingExpenseNo,
 } = require('./lib/ledger-google')({ axios, FormData, supabase, getThaiDateTime });
 
@@ -1300,33 +1300,43 @@ app.post('/webhook', async (req, res) => {
             ref_no: manualFingerprint
           };
 
-          // บันทึกลง Google Sheets
+          // Phase 3 Tier 5 — persist ลง Supabase (ledger_transactions) เป็น required เสมอ ไม่ว่า
+          // ร้านจะเชื่อมต่อ Google หรือไม่ (เดิม insert นี้ซ่อนอยู่ใน branch ที่เชื่อม Google เท่านั้น
+          // — ร้านที่ไม่เชื่อม Google จะไม่มีที่เก็บข้อมูลถาวรที่ไหนเลย ทั้งที่ยังถูกตัดเครดิตอยู่ดี)
+          // — category/ผู้บันทึก ต้องคำนวณก่อนเสมอ (เดิมคำนวณแค่ตอนเชื่อม Google เท่านั้น)
+          const manualCategory = hasFeature(shop, 'business') ? await detectCategory(manualSlipData, shop.id) : '-';
+          const manualRecorder = await getDisplayName(event.source);
+          await persistLedgerTransaction(shop.id, manualSlipData, 'ไม่มีรูปภาพ (คีย์เอง)', cmdBranchName, manualFingerprint, manualCategory, manualEntry.method, manualRecorder || '-');
+          console.log(`[LOG] ✍️ Manual entry บันทึกสำเร็จ: ${manualEntry.type} ฿${manualEntry.amount}`);
+
+          // เขียนสำเนาเข้า Google Sheets — best-effort รอง ถ้ายังเชื่อมต่อ Google อยู่เท่านั้น
+          // (ไม่กระทบผลลัพธ์หลักเลยถ้าล้มเหลว เพราะข้อมูลจริงถูกบันทึกใน Supabase ไปแล้วข้างบน)
           const { data: gConfigM } = await supabase
             .from('shop_google_configs')
             .select('google_refresh_token, google_folder_id, google_sheet_id')
             .eq('shop_id', shop.id).maybeSingle();
           let mSheetId = gConfigM?.google_sheet_id || shop.google_sheet_id;
+          const savedToSheets = !!(gConfigM?.google_refresh_token && mSheetId);
 
-          if (gConfigM?.google_refresh_token && mSheetId) {
-            const mAccessToken = await getAccessToken(gConfigM.google_refresh_token);
-            const manualCategory = hasFeature(shop, 'business') ? await detectCategory(manualSlipData, shop.id) : '-';
-            const manualRecorder = await getDisplayName(event.source);
+          if (savedToSheets) {
             try {
-              await getOrCreateYearSheet(mAccessToken, mSheetId, thaiNow.year);
-              await appendToGoogleSheet(mAccessToken, mSheetId, manualSlipData, 'ไม่มีรูปภาพ (คีย์เอง)', cmdBranchName, thaiNow.year, manualFingerprint, manualCategory, manualEntry.method, manualRecorder || '-', shop.id);
-            } catch (sheetErr) {
-              if (sheetErr.response?.status === 404) {
-                const healed = await recreateShopGoogleAssets(mAccessToken, shop);
-                mSheetId = healed.sheetId;
+              const mAccessToken = await getAccessToken(gConfigM.google_refresh_token);
+              try {
                 await getOrCreateYearSheet(mAccessToken, mSheetId, thaiNow.year);
-                await appendToGoogleSheet(mAccessToken, mSheetId, manualSlipData, 'ไม่มีรูปภาพ (คีย์เอง)', cmdBranchName, thaiNow.year, manualFingerprint, manualCategory, manualEntry.method, manualRecorder || '-', shop.id);
-              } else {
-                throw sheetErr;
+                await writeToGoogleSheet(mAccessToken, mSheetId, manualSlipData, 'ไม่มีรูปภาพ (คีย์เอง)', cmdBranchName, thaiNow.year, manualFingerprint, manualCategory, manualEntry.method, manualRecorder || '-');
+              } catch (sheetErr) {
+                if (sheetErr.response?.status === 404) {
+                  const healed = await recreateShopGoogleAssets(mAccessToken, shop);
+                  mSheetId = healed.sheetId;
+                  await getOrCreateYearSheet(mAccessToken, mSheetId, thaiNow.year);
+                  await writeToGoogleSheet(mAccessToken, mSheetId, manualSlipData, 'ไม่มีรูปภาพ (คีย์เอง)', cmdBranchName, thaiNow.year, manualFingerprint, manualCategory, manualEntry.method, manualRecorder || '-');
+                } else {
+                  throw sheetErr;
+                }
               }
+            } catch (sheetOuterErr) {
+              console.error('[WARN] Manual entry: เขียน Google Sheets ไม่สำเร็จ (ข้าม — ข้อมูลหลักบันทึกแล้วใน Supabase):', sheetOuterErr.message);
             }
-            console.log(`[LOG] ✍️ Manual entry บันทึกสำเร็จ: ${manualEntry.type} ฿${manualEntry.amount}`);
-          } else {
-            console.warn('[WARN] Manual entry: ยังไม่เชื่อมต่อ Google Sheets');
           }
 
           // ตัดเครดิต (atomic — กัน race condition ตอนส่งหลายรายการพร้อมกัน)
@@ -1339,8 +1349,9 @@ app.post('/webhook', async (req, res) => {
             }
           }
 
-          // ตอบกลับ — Flex Message พร้อมปุ่มแก้ไขข้อมูล (เหมือนสลิปรูปภาพ)
-          const savedToSheets = gConfigM?.google_refresh_token && mSheetId;
+          // ตอบกลับ — Flex Message พร้อมปุ่มแก้ไขข้อมูล ใช้ได้เฉพาะตอนมี Sheets จริง เพราะลิงก์แก้ไข
+          // (/transaction/edit) ยังหาแถวจาก Sheets column K อยู่ (Tier 5.5 ยังไม่เสร็จ) — ร้านที่ไม่
+          // เชื่อม Google ได้ reply แบบข้อความล้วนแทน (ข้อมูลถูกบันทึกจริงแล้วเสมอไม่ว่ากรณีไหน)
           if (savedToSheets) {
             await replyToLine(replyToken, [createBeautifulFlexMessage(manualSlipData, manualFingerprint, shop)]);
           } else {
@@ -1352,13 +1363,18 @@ app.post('/webhook', async (req, res) => {
                 `💰 ${fmt(manualEntry.amount)}\n` +
                 `📝 ${manualEntry.note !== '-' ? manualEntry.note : 'ไม่มีหมายเหตุ'}\n` +
                 `📅 ${thaiNow.date} ${thaiNow.time}\n\n` +
-                '⚠️ ยังไม่ได้เชื่อมต่อ Google Sheets'
+                '💡 เชื่อมต่อ Google Drive ที่ Dashboard → ตั้งค่า เพื่อสำรองรูป/ดูรายการผ่านเว็บได้'
             }]);
           }
 
         } catch (manualErr) {
-          console.error('[ERROR] Manual entry error:', manualErr.message);
-          try { await replyToLine(replyToken, [{ type: 'text', text: `❌ บันทึกไม่สำเร็จ: ${manualErr.message}` }]); } catch(e) {}
+          if (manualErr.isDuplicate) {
+            console.log('[LOG] ♻️ Manual entry ซ้ำ (fingerprint ชนกัน — เกิดขึ้นได้ยากมาก):', manualErr.message);
+            try { await replyToLine(replyToken, [{ type: 'text', text: `⚠️ รายการนี้เพิ่งถูกบันทึกไปแล้วค่ะ ลองใหม่อีกครั้งนะคะ 🙏` }]); } catch(e) {}
+          } else {
+            console.error('[ERROR] Manual entry error:', manualErr.message);
+            try { await replyToLine(replyToken, [{ type: 'text', text: `❌ บันทึกไม่สำเร็จ: ${manualErr.message}` }]); } catch(e) {}
+          }
         }
         continue;
       }
@@ -1650,23 +1666,11 @@ app.post('/webhook', async (req, res) => {
           continue;
         }
 
-        // ดึง Google config
-        const { data: gConfig } = await supabase
-          .from('shop_google_configs')
-          .select('google_refresh_token, google_sheet_id')
-          .eq('shop_id', shop.id)
-          .maybeSingle();
-
-        const cmdSheetId = gConfig?.google_sheet_id || shop.google_sheet_id;
-        if (!gConfig?.google_refresh_token || !cmdSheetId) {
-          await replyToLine(replyToken, [{ type: "text", text: "⚠️ ยังไม่ได้เชื่อมต่อ Google Sheets ค่ะ กรุณาตั้งค่าที่ Dashboard ก่อนนะคะ" }]);
-          continue;
-        }
-
-        // Tier D read-cutover — อ่านสรุปยอดจาก Supabase (ledger_transactions) แทน Sheets แล้ว
-        // ไม่ต้องขอ accessToken/getOrCreateYearSheet อีกต่อไปสำหรับคำสั่งสรุปกลุ่มนี้ (เช็ค
-        // gConfig ด้านบนไว้เหมือนเดิมแค่เพื่อยืนยันว่าร้านเชื่อม Google แล้วจริง — ร้านที่ไม่เคย
-        // เชื่อมจะไม่มีข้อมูลใน ledger_transactions เลยอยู่แล้วเพราะบอทเขียนคู่กับ Sheets เสมอ)
+        // Phase 3 Tier 5 — ตัด gate เชื่อมต่อ Google ออก คำสั่งสรุปกลุ่มนี้อ่านจาก Supabase
+        // (ledger_transactions) เพียงอย่างเดียวมาตั้งแต่ Tier D แล้ว ไม่ต้องเชื่อม Google เลยก็ใช้
+        // ได้ (เดิมเช็ค gConfig ไว้เป็น proxy ว่า "เคยเชื่อม Google" เพราะก่อนหน้านี้ร้านที่ไม่เชื่อม
+        // Google จะไม่มีข้อมูลใน ledger_transactions เลย — ตอนนี้ Tier 5 ทำให้ persist ไม่ขึ้นกับ
+        // Google เชื่อมต่อหรือไม่แล้ว proxy นี้ใช้ไม่ได้อีกต่อไป)
         const { isoDate, year, month } = getThaiDateTime();
 
         let summaryMsg;
@@ -1958,10 +1962,32 @@ app.post('/webhook', async (req, res) => {
         const hasRefNo = slipData.ref_no && slipData.ref_no !== '-' && slipData.ref_no.trim() !== '';
         const fingerprint = hasRefNo ? slipData.ref_no.trim() : imageHash;
 
-        // STEP 5: Google Drive/Sheets — แยก try-catch ออกต่างหาก
-        // อ่าน refresh_token จาก shop_google_configs (ตารางที่มีอยู่จริง)
+        // Phase 3 Tier 5 — ตรวจสอบสลิปซ้ำ + persist หลัก ไม่ขึ้นกับ Google เชื่อมต่อหรือไม่แล้ว
+        // (query Supabase ตรงๆ อยู่แล้วตั้งแต่ Tier 4 — ยกออกมานอก gate เชื่อมต่อ Google)
+        const isDuplicate = await checkDuplicateInSupabase(shop.id, fingerprint);
+        if (isDuplicate) {
+          console.log(`[LOG] ♻️ [Duplicate] พบสลิปซ้ำใน ledger_transactions — fingerprint: ${fingerprint}`);
+          try {
+            const dupMsg = {
+              type: 'text',
+              text: `⚠️ สลิปนี้เคยถูกส่งมาแล้วค่ะ ระบบไม่บันทึกซ้ำนะคะ 🙏` +
+                (hasRefNo ? `\n(อ้างอิง: ${fingerprint})` : '')
+            };
+            if (quoteToken) dupMsg.quoteToken = quoteToken;
+            await replyToLine(replyToken, [dupMsg]);
+          } catch(e) {}
+          console.log(`[LOG] ⏭️ ข้ามการตัดเครดิต — สลิปซ้ำ`);
+          continue;
+        }
+
+        // ตรวจจับหมวดหมู่ (Business+ เท่านั้น) + ชื่อผู้ส่ง — ต้องทำก่อนเสมอไม่ว่า Google เชื่อมต่อ
+        // หรือไม่ (เดิมคำนวณแค่ตอนเชื่อม Google เท่านั้น เพราะซ่อนอยู่ใน saveOnce())
+        const category = hasFeature(shop, 'business') ? await detectCategory(slipData, shop.id) : '-';
+        const recorderName = await getDisplayName(event.source);
+
+        // STEP 5: Google Drive/Sheets — แยก try-catch ออกต่างหาก, best-effort เสมอ (ไม่ block
+        // การ persist หลักด้านล่าง) — อ่าน refresh_token จาก shop_google_configs
         let driveFileUrl = null;
-        let isDuplicate = false;
         try {
           const { data: gConfig } = await supabase
             .from('shop_google_configs')
@@ -1981,45 +2007,33 @@ app.post('/webhook', async (req, res) => {
             const folderYear = slipDateInfo?.year || thaiTime.year;
             const folderMonth = slipDateInfo?.monthFolderName || thaiTime.monthFolderName;
 
-            // Phase 3 Tier 4 — ตรวจสอบสลิปซ้ำชั้น 2 จาก ledger_transactions (Supabase) แทน Sheets
-            // column K (persistent, ข้าม restart ได้เหมือนเดิม — แค่เปลี่ยนที่เก็บ) — ยังอยู่ใน
-            // gate เชื่อมต่อ Google เดิมเช่นเดิม (ตัด gate นี้ออกเป็นหน้าที่ของ Tier 5)
-            isDuplicate = await checkDuplicateInSupabase(shop.id, fingerprint);
-            if (isDuplicate) {
-              console.log(`[LOG] ♻️ [Duplicate] พบสลิปซ้ำใน ledger_transactions — fingerprint: ${fingerprint}`);
-            } else {
-              const recorderName = await getDisplayName(event.source);
-              const saveOnce = async (fId, sId) => {
-                // โครงสร้าง Drive: root → ปี ค.ศ. → เดือน-ปี → รายรับ|รายจ่าย
-                const yearFolderId = await getOrCreateDriveFolder(accessToken, fId, folderYear);
-                const monthFolderId = await getOrCreateDriveFolder(accessToken, yearFolderId, folderMonth);
-                const typeFolder = slipData.type === 'income' ? 'รายรับ' : 'รายจ่าย';
-                const typeFolderId = await getOrCreateDriveFolder(accessToken, monthFolderId, typeFolder);
+            const saveOnce = async (fId, sId) => {
+              // โครงสร้าง Drive: root → ปี ค.ศ. → เดือน-ปี → รายรับ|รายจ่าย
+              const yearFolderId = await getOrCreateDriveFolder(accessToken, fId, folderYear);
+              const monthFolderId = await getOrCreateDriveFolder(accessToken, yearFolderId, folderMonth);
+              const typeFolder = slipData.type === 'income' ? 'รายรับ' : 'รายจ่าย';
+              const typeFolderId = await getOrCreateDriveFolder(accessToken, monthFolderId, typeFolder);
 
-                const fileName = `slip_${slipData.amount}THB_${folderMonth}_${Date.now()}.jpg`;
-                const driveFileId = await uploadToGoogleDrive(imageBuffer, accessToken, typeFolderId, fileName);
-                const fileUrl = `https://drive.google.com/open?id=${driveFileId}`;
+              const fileName = `slip_${slipData.amount}THB_${folderMonth}_${Date.now()}.jpg`;
+              const driveFileId = await uploadToGoogleDrive(imageBuffer, accessToken, typeFolderId, fileName);
+              const fileUrl = `https://drive.google.com/open?id=${driveFileId}`;
 
-                // Sheet tab แยกตามปีของสลิป
-                await getOrCreateYearSheet(accessToken, sId, folderYear);
-                // ตรวจจับหมวดหมู่ (Business+ เท่านั้น)
-                const category = hasFeature(shop, 'business') ? await detectCategory(slipData, shop.id) : '-';
-                // สลิปรูปภาพ = หลักฐานการโอนเงินเสมอ
-                await appendToGoogleSheet(accessToken, sId, slipData, fileUrl, branchName, folderYear, fingerprint, category, 'โอน', recorderName || '-', shop.id);
-                return fileUrl;
-              };
+              // Sheet tab แยกตามปีของสลิป — สลิปรูปภาพ = หลักฐานการโอนเงินเสมอ
+              await getOrCreateYearSheet(accessToken, sId, folderYear);
+              await writeToGoogleSheet(accessToken, sId, slipData, fileUrl, branchName, folderYear, fingerprint, category, 'โอน', recorderName || '-');
+              return fileUrl;
+            };
 
-              try {
+            try {
+              driveFileUrl = await saveOnce(folderId, sheetId);
+            } catch (driveErr) {
+              // root folder/sheet ถูกลบไปแล้ว → สร้างใหม่ แล้วลองอีกครั้ง
+              if (driveErr.response?.status === 404) {
+                const healed = await recreateShopGoogleAssets(accessToken, shop);
+                folderId = healed.folderId; sheetId = healed.sheetId;
                 driveFileUrl = await saveOnce(folderId, sheetId);
-              } catch (driveErr) {
-                // root folder/sheet ถูกลบไปแล้ว → สร้างใหม่ แล้วลองอีกครั้ง
-                if (driveErr.response?.status === 404) {
-                  const healed = await recreateShopGoogleAssets(accessToken, shop);
-                  folderId = healed.folderId; sheetId = healed.sheetId;
-                  driveFileUrl = await saveOnce(folderId, sheetId);
-                } else {
-                  throw driveErr;
-                }
+              } else {
+                throw driveErr;
               }
             }
           }
@@ -2050,19 +2064,28 @@ app.post('/webhook', async (req, res) => {
           }
         }
 
-        // หยุดทำงานถ้าพบสลิปซ้ำ (ไม่ตัดเครดิต, reply แจ้งซ้ำ)
-        if (isDuplicate) {
-          try {
-            const dupMsg = {
-              type: 'text',
-              text: `⚠️ สลิปนี้เคยถูกส่งมาแล้วค่ะ ระบบไม่บันทึกซ้ำนะคะ 🙏` +
-                (hasRefNo ? `\n(อ้างอิง: ${fingerprint})` : '')
-            };
-            if (quoteToken) dupMsg.quoteToken = quoteToken;
-            await replyToLine(replyToken, [dupMsg]);
-          } catch(e) {}
-          console.log(`[LOG] ⏭️ ข้ามการตัดเครดิต — สลิปซ้ำ`);
-          continue;
+        // Phase 3 Tier 5 — persist ลง Supabase (ledger_transactions) เป็น required เสมอ ไม่ว่าร้าน
+        // จะเชื่อมต่อ Google หรือไม่ (เดิมซ่อนอยู่ใน saveOnce()/appendToGoogleSheet และไม่เคยถูก
+        // เรียกเลยถ้ายังไม่เชื่อมต่อ Google — ร้านที่ไม่เชื่อม Google เคยไม่มีที่เก็บข้อมูลถาวรที่ไหน
+        // เลยทั้งที่ยังถูกตัดเครดิตต่อ เป็นบั๊กจริงที่เจอตอนวางแผน Phase 3) — ต้องรันก่อน STEP 6
+        // (ตัดเครดิต) เสมอ ให้ throw ไปที่ catch หลักถ้าล้มเหลว (ยกเว้นกรณีชนกันแบบ race condition
+        // ที่ดักจับพิเศษด้านล่าง ให้ผลลัพธ์เหมือนเจอสลิปซ้ำตามปกติ)
+        try {
+          await persistLedgerTransaction(shop.id, slipData, driveFileUrl, branchName, fingerprint, category, 'โอน', recorderName || '-');
+        } catch (persistErr) {
+          if (persistErr.isDuplicate) {
+            console.log(`[LOG] ♻️ [Duplicate-race] ${fingerprint} ถูกบันทึกไปแล้วระหว่างประมวลผล (retry ซ้อนกัน)`);
+            try {
+              const dupMsg = {
+                type: 'text',
+                text: `⚠️ สลิปนี้เคยถูกส่งมาแล้วค่ะ ระบบไม่บันทึกซ้ำนะคะ 🙏` + (hasRefNo ? `\n(อ้างอิง: ${fingerprint})` : '')
+              };
+              if (quoteToken) dupMsg.quoteToken = quoteToken;
+              await replyToLine(replyToken, [dupMsg]);
+            } catch(e) {}
+            continue;
+          }
+          throw persistErr;
         }
 
         // STEP 6: ตัดยอดเครดิต (-1) — atomic กัน race condition ตอนส่งหลายรูปพร้อมกัน — Super plan ได้รับการยกเว้น
@@ -2147,21 +2170,12 @@ app.post('/cron/daily-summary', async (req, res) => {
     return res.json({ sent: 0, skipped: 0, failed: 0 });
   }
 
-  // ดึง google configs ทั้งหมดในครั้งเดียว
-  const shopIds = shops.map(s => s.id);
-  const { data: configs } = await supabase
-    .from('shop_google_configs')
-    .select('shop_id, google_refresh_token, google_sheet_id')
-    .in('shop_id', shopIds);
-
-  const configMap = {};
-  for (const c of (configs || [])) configMap[c.shop_id] = c;
-
+  // Phase 3 Tier 5 — ตัด gate เชื่อมต่อ Google ออก (readSheetSummary อ่านจาก Supabase อย่างเดียว
+  // มาตั้งแต่ Tier D และตอนนี้ persist ไม่ขึ้นกับ Google เชื่อมต่อหรือไม่แล้ว — ไม่ต้อง query
+  // shop_google_configs มาเช็คเพื่อกรองร้านอีกต่อไป)
   let sent = 0, skipped = 0, failed = 0;
 
   for (const shop of shops) {
-    const cfg = configMap[shop.id];
-    if (!cfg?.google_refresh_token || !cfg?.google_sheet_id) { skipped++; continue; }
     if (!shop.owner_line_id) { skipped++; continue; }
 
     try {
@@ -2242,20 +2256,10 @@ app.post('/cron/weekly-summary', async (req, res) => {
     return res.json({ sent: 0, skipped: 0, failed: 0 });
   }
 
-  const shopIds = shops.map(s => s.id);
-  const { data: configs } = await supabase
-    .from('shop_google_configs')
-    .select('shop_id, google_refresh_token, google_sheet_id')
-    .in('shop_id', shopIds);
-
-  const configMap = {};
-  for (const c of (configs || [])) configMap[c.shop_id] = c;
-
+  // Phase 3 Tier 5 — ตัด gate เชื่อมต่อ Google ออกเหมือน daily-summary ด้านบน
   let sent = 0, skipped = 0, failed = 0;
 
   for (const shop of shops) {
-    const cfg = configMap[shop.id];
-    if (!cfg?.google_refresh_token || !cfg?.google_sheet_id) { skipped++; continue; }
     if (!shop.owner_line_id) { skipped++; continue; }
 
     try {
