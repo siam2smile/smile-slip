@@ -2,7 +2,7 @@
 
 โปรเจกต์ของ Vespa / Siam Global Network Enterprise
 ภาษาหลักในโค้ดและ comment: **ไทย**
-อัปเดตล่าสุด: 2026-08-02 (ต่อจากข้อ 55 (Phase 3 — ย้ายบัญชีหลักของบอทออกจาก Google Sheets เต็มรูปแบบ, migration ทั้งโปรเจกต์เสร็จสมบูรณ์ครบทุก Phase/Tier) — ทำ **ข้อ 56: (1) ลบ dead code `*_HEADERS`/`rowToX()` ที่ตายแล้วใน `google-pos.js` (571 บรรทัด, verified 0 caller ก่อนลบทุกตัว) (2) บังคับสิทธิ์พนักงาน Tier 2-4 ครบทุก endpoint ที่เหลือ (`sales.js` POST, `delivery.js`/`collections.js`, `expenses.js`+pending, `receives.js`+pending, `tax-invoice.js`+PDF, `loans.js`, `staff-requests.js`, `customer-orders.js` DELETE, `procurement-alerts.js`)** — ทดสอบยิงจริงกับร้าน D Gas ผ่าน dev server ครบทั้ง 12 จุด (ไม่มีสิทธิ์→403, มีสิทธิ์→ผ่าน gate ปกติ, เจ้าของร้านไม่ถูกกระทบ) **ยังไม่ได้ deploy** (commit+push แล้วเท่านั้น รอถามผู้ใช้) — เหลือเดิม: PDPA text ใน `#วิธีใช้งาน`/`terms.js`/`privacy.js` (deferred ตั้งใจ รอใกล้เปิดตัวจริง), "ไม่มี auth beyond shopId" ที่เหลือในบาง endpoint (ต้อง scope แยกเป็นงานใหญ่), White-Label แบบ LINE OA เต็มรูปแบบ (ยังไม่เริ่ม), โอนย้ายสต็อกข้ามสาขา (deferred), QR สั่งอาหารที่โต๊ะ (วางแผนแล้ว ยังไม่เริ่ม))
+อัปเดตล่าสุด: 2026-08-02 (ต่อจากข้อ 55 (Phase 3 — ย้ายบัญชีหลักของบอทออกจาก Google Sheets เต็มรูปแบบ, migration ทั้งโปรเจกต์เสร็จสมบูรณ์ครบทุก Phase/Tier) — ทำ **ข้อ 56: (1) ลบ dead code `*_HEADERS`/`rowToX()` ที่ตายแล้วใน `google-pos.js` (571 บรรทัด, verified 0 caller ก่อนลบทุกตัว) (2) บังคับสิทธิ์พนักงาน Tier 2-4 ครบทุก endpoint ที่เหลือ (`sales.js` POST, `delivery.js`/`collections.js`, `expenses.js`+pending, `receives.js`+pending, `tax-invoice.js`+PDF, `loans.js`, `staff-requests.js`, `customer-orders.js` DELETE, `procurement-alerts.js`)** — ทดสอบยิงจริงกับร้าน D Gas ผ่าน dev server ครบทั้ง 12 จุด (ไม่มีสิทธิ์→403, มีสิทธิ์→ผ่าน gate ปกติ, เจ้าของร้านไม่ถูกกระทบ) **Deploy production แล้ว** (dashboard revision จริง `smileslip-dashboard-00287-96p`, verified ด้วย session ปลอมได้ 401 จริงบน production) — เหลือเดิม: PDPA text ใน `#วิธีใช้งาน`/`terms.js`/`privacy.js` (deferred ตั้งใจ รอใกล้เปิดตัวจริง), "ไม่มี auth beyond shopId" ที่เหลือในบาง endpoint (ต้อง scope แยกเป็นงานใหญ่), White-Label แบบ LINE OA เต็มรูปแบบ (ยังไม่เริ่ม), โอนย้ายสต็อกข้ามสาขา (deferred), QR สั่งอาหารที่โต๊ะ (วางแผนแล้ว ยังไม่เริ่ม))
 
 ---
 
@@ -523,7 +523,7 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
       - `procurement-alerts.js` GET+PATCH → `blockAllStaffSessions()` เต็มรูปแบบ (ต่างจากไฟล์อื่นที่มี permKey เฉพาะทาง) — เหตุผล: เป็นเครื่องมือตรวจทุจริตจัดซื้อ**ของพนักงานเอง** ไม่มีสิทธิ์ไหนควรปลดล็อคให้ session พนักงานเห็น/แก้ได้เลยไม่ว่ากรณีใด (ฟีเจอร์นี้ไม่เคยถูกเรียกจาก `pos-staff.js` อยู่แล้วด้วย)
       - **`tax-invoice-pdf.js` เจอ known gap จากข้อ 44 จริง:** เรียกผ่าน `window.open()` ใน `pos.js` ซึ่งไม่ผ่าน `window.fetch` override ที่แนบ `x-staff-session` header ให้อัตโนมัติ (override แพตช์แค่ `fetch()` เท่านั้น `window.open()` เป็นคนละ browser API ไม่มีทางแนบ custom header ได้) — แก้โดยเพิ่ม `?session=` ต่อท้าย URL ตรงจุดเรียกใน `pos.js` (pattern เดียวกับที่ `pos-staff.js` ใช้อยู่แล้วสำหรับปุ่ม export VAT) — ตรวจสอบแล้วว่า `export.js` (เรียกผ่าน `fetch()` ธรรมดาใน `pos.js` ไม่ใช่ `window.open()`) ไม่มีช่องโหว่นี้อยู่แล้วเพราะ fetch() override ครอบคลุมถึง
     - **ทดสอบยิงจริงกับร้าน D Gas ผ่าน dev server ครบทั้ง 12 จุด:** พบว่าตาราง `pos_staff` ของร้านนี้ว่างเปล่า (ไม่มีพนักงานเหลืออยู่จากการทดสอบรอบก่อนๆ) จึงสร้างแถวพนักงานทดสอบชั่วคราวใหม่ (`_TierPermTest`) แทนแก้ไขแถวเดิม แล้ว**ลบทิ้งทั้งแถวเมื่อทดสอบเสร็จ** (ไม่ใช่แค่ restore ค่าเดิม เพราะไม่มีค่าเดิมให้ restore) — ยืนยันครบทุกจุด: ไม่มีสิทธิ์ → 403, มีสิทธิ์ที่ถูกต้อง → ผ่าน gate ไปเจอ validation ปกติของ endpoint นั้น (400 สำหรับ payload ไม่ครบ, 404 สำหรับ ID ปลอมที่ไม่มีจริง — พิสูจน์ว่า gate โปร่งใสไม่รบกวน logic เดิม), เจ้าของร้าน (ไม่มี session เลย) ไม่ถูกกระทบเลยทุกจุด (200 ปกติ) — เก็บกวาดแถวทดสอบสะอาด 100% หลังทดสอบ
-    - **ยังไม่ได้ deploy** — commit + push ขึ้น GitHub แล้วเท่านั้น (dashboard ไม่มี auto-deploy จาก git push) — เป็นการเปลี่ยนแปลงที่มีผลจริงต่อ production ทันทีที่ deploy (ปิดช่องโหว่จริงที่มีอยู่ก่อนหน้านี้ ไม่ใช่แค่ dead-code cleanup) รอถามผู้ใช้ก่อน deploy
+    - **Deploy production แล้ว (2026-08-03)** — revision จริง `smileslip-dashboard-00287-96p` (ข้อความ deploy โชว์ revision เดิม `00286-q9b` ผิดอีกตามเคย เช็คด้วย `gcloud run revisions list` แล้ว pin traffic เอง) — verified บน production จริง: ยิง `POST /api/pos/sales` ด้วย `x-staff-session` ปลอม (garbage token) ได้ 401 "session พนักงานหมดอายุหรือไม่ถูกต้อง" ยืนยันว่า `requirePermission()` ทำงานจริงบน production แล้ว, เจ้าของร้าน (ไม่มี session เลย) เรียก GET เหมือนเดิมได้ปกติ 200 ไม่ถูกกระทบ
 
 ---
 
@@ -558,7 +558,7 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
 | Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00190-fdb` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00286-q9b` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00287-96p` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
