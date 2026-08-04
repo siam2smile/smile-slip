@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { issueOwnerSession } from '../../../lib/owner-session';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -24,7 +25,7 @@ export default async function handler(req, res) {
 
   const { data, error } = await supabase
     .from('shop_profiles')
-    .select('owner_line_id, password_hash')
+    .select('id, owner_line_id, password_hash')
     .eq('email', email)
     .maybeSingle();
 
@@ -39,5 +40,9 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'รหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง' });
   }
 
-  return res.status(200).json({ userId: data.owner_line_id });
+  // อีเมลผูกกับ shop_profiles ตรงๆ เสมอ = เจ้าของร้าน (role owner เท่านั้น ไม่มีทาง login
+  // ด้วยอีเมลในฐานะแอดมินร้านอื่น — shop_admins ไม่มีคอลัมน์ email)
+  const ownerSession = issueOwnerSession({ shopId: data.id, ownerId: data.owner_line_id, role: 'owner' });
+
+  return res.status(200).json({ userId: data.owner_line_id, shopId: data.id, ownerSession });
 }

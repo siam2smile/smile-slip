@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
 import { getRolesForLineId } from '../../../../lib/identity';
+import { issueOwnerSession } from '../../../../lib/owner-session';
 
 export default async function handler(req, res) {
   const supabaseUrl = process.env.SUPABASE_URL;
@@ -50,13 +51,20 @@ export default async function handler(req, res) {
       return res.redirect(`/register?userId=${trimmedId}&name=${encodeURIComponent(lineName)}`);
     } else if (roles.length === 1) {
       const r = roles[0];
+      // แนบ owner-session token ไปกับ redirect (เป็น HTTP redirect ล้วนๆ ไม่มี XHR response
+      // ให้แนบ token ได้ตรงๆ แบบ check-user.js/email-login.js — ownerId ของ token ต้องเป็น
+      // trimmedId (LINE ID ของคนที่กำลัง login ผ่าน OAuth ตอนนี้จริงๆ) ไม่ใช่ r.ownerId
+      // (ซึ่งเป็น LINE ID ของ "เจ้าของร้าน" ที่อาจเป็นคนละคนกันถ้า r.role === 'admin')
+      const ownerSession = issueOwnerSession({ shopId: r.shopId, ownerId: trimmedId, role: r.role });
+      const sessionQS = ownerSession ? `&ownerSession=${encodeURIComponent(ownerSession)}` : '';
       if (r.role === 'admin') {
-        return res.redirect(`/dashboard?userId=${r.ownerId}&adminId=${trimmedId}`);
+        return res.redirect(`/dashboard?userId=${r.ownerId}&adminId=${trimmedId}${sessionQS}`);
       }
-      return res.redirect(`/dashboard?userId=${r.ownerId}`);
+      return res.redirect(`/dashboard?userId=${r.ownerId}${sessionQS}`);
     } else {
       // ผูกกับหลายร้าน (เจ้าของร้านตัวเอง + แอดมินร้านอื่นพร้อมกัน) — ส่งต่อไปหน้า /login
-      // ให้แสดงตัวเลือกร้าน (login.js อ่าน query นี้แล้วเรียก check-user ซ้ำเพื่อโชว์ picker)
+      // ให้แสดงตัวเลือกร้าน (login.js อ่าน query นี้แล้วเรียก check-user ซ้ำเพื่อโชว์ picker —
+      // check-user.js ออก owner-session token ให้ทุก role อยู่แล้ว ไม่ต้องแนบมาเองตรงนี้)
       return res.redirect(`/login?picker=1&userId=${trimmedId}&name=${encodeURIComponent(lineName)}`);
     }
 
