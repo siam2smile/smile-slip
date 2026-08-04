@@ -1257,7 +1257,10 @@ export default function Dashboard() {
                       <RefreshCcw size={13}/> โหลดใหม่
                     </button>
                     {analyticsView === 'daily' && (
-                      <a href={`/api/export/analytics-pdf?shopId=${shopInfo?.id}&year=${analyticsYear}&month=${analyticsMonth}`}
+                      // <a href> เปิดแท็บใหม่ตรงๆ ไม่ผ่าน fetch() override ที่แนบ x-owner-session
+                      // header ให้อัตโนมัติ (pattern เดียวกับที่ pos.js ใช้กับ window.open() —
+                      // ต้องแนบ ?ownerSession= ตรงๆ ใน URL แทน)
+                      <a href={`/api/export/analytics-pdf?shopId=${shopInfo?.id}&year=${analyticsYear}&month=${analyticsMonth}&ownerSession=${encodeURIComponent(getOwnerSessionToken(shopInfo?.id) || '')}`}
                         target="_blank" rel="noopener noreferrer"
                         className="flex items-center gap-1.5 bg-slate-700 text-white px-4 py-1.5 rounded-xl text-xs font-medium hover:bg-slate-600 transition-all">
                         ⬇ PDF

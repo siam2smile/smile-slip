@@ -7,6 +7,7 @@ import axios from 'axios';
 import * as XLSX from 'xlsx';
 import { hasFeature } from '../../../lib/tier-features';
 import { sanitizeFilenamePart } from '../../../lib/branding';
+import { requireOwnerAuth } from '../../../lib/owner-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -18,6 +19,8 @@ export default async function handler(req, res) {
 
   const { shopId, year, month } = req.query;
   if (!shopId) return res.status(400).json({ error: 'shopId is required' });
+  // เรียกจาก handleExportExcel() (ปุ่มกด) ใน dashboard.js — ผ่าน fetch() override เสมอ ปลอดภัย
+  if (!requireOwnerAuth(req, res, shopId, { enforce: true })) return;
 
   try {
     // ดึงข้อมูลร้านค้า

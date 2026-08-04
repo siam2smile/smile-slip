@@ -4,6 +4,7 @@
  * อ่านจาก slip_analytics (heatmap) และ sender_profiles (RFM)
  */
 import { createClient } from '@supabase/supabase-js';
+import { requireOwnerAuth } from '../../../lib/owner-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -16,6 +17,9 @@ export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).end();
   const { shopId, branch: branchFilter, brand: brandFilter } = req.query;
   if (!shopId) return res.status(400).json({ error: 'shopId required' });
+  // เรียกจาก useEffect ตอนสลับแท็บ "กราฟวิเคราะห์" เท่านั้น (dashboard.js) — shopInfo.id พร้อม
+  // แล้วเสมอตอนนั้น ไม่เหมือน shop/referral.js ที่เรียกทันทีหลัง shop/data.js เลย (ยังไม่ gate)
+  if (!requireOwnerAuth(req, res, shopId, { enforce: true })) return;
 
   const { data: shop } = await supabase
     .from('shop_profiles')

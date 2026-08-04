@@ -5,6 +5,7 @@
 import { createClient } from '@supabase/supabase-js';
 import PDFDocument from 'pdfkit';
 import path from 'path';
+import { requireOwnerAuth } from '../../../lib/owner-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -18,6 +19,9 @@ export default async function handler(req, res) {
 
   const { shopId, year, month } = req.query;
   if (!shopId || !year || !month) return res.status(400).json({ error: 'shopId, year, month required' });
+  // เรียกจาก <a href> ใน dashboard.js — แนบ ?ownerSession= ต่อท้าย URL แล้ว (fetch override
+  // ครอบคลุมไม่ถึงเพราะเป็น browser-native navigation ไม่ใช่ fetch())
+  if (!requireOwnerAuth(req, res, shopId, { enforce: true })) return;
 
   // ตรวจสิทธิ์ Pro+
   const { data: shop } = await supabase

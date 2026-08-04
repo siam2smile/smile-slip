@@ -6,6 +6,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
+import { requireOwnerAuth } from '../../../lib/owner-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -22,7 +23,10 @@ export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).end();
 
   const { shopId, year, month, branch: branchFilter } = req.query;
-  if (!shopId) return res.status(400).json({ error: 'shopId required' });
+  if (!shopId) return res.status(400).json({ error: 'ไม่พบ shopId' });
+  // เรียกจาก useEffect ที่รอ shopInfo.id พร้อมแล้วเสมอ (dashboard.js) — fetch-override
+  // แนบ token ทันเวลาแล้วตอนนี้ ต่างจาก shop/data.js ที่เรียกก่อนรู้ shopId เลย (ยังไม่ gate)
+  if (!requireOwnerAuth(req, res, shopId, { enforce: true })) return;
 
   try {
     // ดึงข้อมูลร้าน
