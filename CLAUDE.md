@@ -2,7 +2,7 @@
 
 โปรเจกต์ของ Vespa / Siam Global Network Enterprise
 ภาษาหลักในโค้ดและ comment: **ไทย**
-อัปเดตล่าสุด: 2026-08-04 (ต่อจากข้อ 56 (ลบ dead code ใน `google-pos.js` + บังคับสิทธิ์พนักงาน Tier 2-4) — ทำ **ข้อ 57: ระบบ Owner-Session (เฟส A–C)** — สร้างระบบเซ็นชื่อ token จริงจังสำหรับ "เจ้าของร้าน/แอดมินร้าน" (mirror `staff-session.js`) ปิดช่องโหว่รากฐานที่ทุกหน้า/API เชื่อ `userId`/`shopId` แบบเปลือยๆ ใน query string มาตลอด — เฟส A (ออก token 3 จุด: LIFF/email-login/OAuth callback) + เฟส B (หน้าเว็บเก็บ+แนบ token อัตโนมัติผ่าน fetch override, non-breaking) + เฟส C (บังคับจริง 18 endpoint เสี่ยงสูงสุด: `shop/delete-shop`,`admins`,`bank-accounts`,`update-profile`,`subscription`,`branches`,`analytics`,`heatmap`,`testimonial`, `export/excel`,`analytics-pdf`, `pos/procurement-alerts`) — **เฟส D (บังคับที่เหลือทั้งหมดรวมจุดที่กระทบพนักงาน) deferred ตั้งใจ** ตามที่ผู้ใช้เลือกทำแค่ A+B+C รอบนี้ — ทดสอบยิงจริงกับร้าน D Gas ครบทุกไฟล์ (ไม่มี token→401, shopId ไม่ตรง→403, token ถูกต้อง→ผ่าน) — **ยังไม่ได้ deploy ขึ้น production** (แค่ commit+push) รอถามผู้ใช้ก่อน + ต้องเพิ่ม `OWNER_SESSION_SECRET` ใน production `.env` ก่อน deploy — เหลือเดิม: PDPA text ใน `#วิธีใช้งาน`/`terms.js`/`privacy.js` (deferred ตั้งใจ รอใกล้เปิดตัวจริง), White-Label แบบ LINE OA เต็มรูปแบบ (ยังไม่เริ่ม), โอนย้ายสต็อกข้ามสาขา (deferred), QR สั่งอาหารที่โต๊ะ (วางแผนแล้ว ยังไม่เริ่ม))
+อัปเดตล่าสุด: 2026-08-04 (ต่อจากข้อ 56 (ลบ dead code ใน `google-pos.js` + บังคับสิทธิ์พนักงาน Tier 2-4) — ทำ **ข้อ 57: ระบบ Owner-Session (เฟส A–C)** — สร้างระบบเซ็นชื่อ token จริงจังสำหรับ "เจ้าของร้าน/แอดมินร้าน" (mirror `staff-session.js`) ปิดช่องโหว่รากฐานที่ทุกหน้า/API เชื่อ `userId`/`shopId` แบบเปลือยๆ ใน query string มาตลอด — เฟส A (ออก token 3 จุด: LIFF/email-login/OAuth callback) + เฟส B (หน้าเว็บเก็บ+แนบ token อัตโนมัติผ่าน fetch override, non-breaking) + เฟส C (บังคับจริง 18 endpoint เสี่ยงสูงสุด: `shop/delete-shop`,`admins`,`bank-accounts`,`update-profile`,`subscription`,`branches`,`analytics`,`heatmap`,`testimonial`, `export/excel`,`analytics-pdf`, `pos/procurement-alerts`) — **เฟส D (บังคับที่เหลือทั้งหมดรวมจุดที่กระทบพนักงาน) deferred ตั้งใจ** ตามที่ผู้ใช้เลือกทำแค่ A+B+C รอบนี้ — ทดสอบยิงจริงกับร้าน D Gas ครบทุกไฟล์ (ไม่มี token→401, shopId ไม่ตรง→403, token ถูกต้อง→ผ่าน) — **Deploy production แล้ว (2026-08-04)** revision จริง `smileslip-dashboard-00288-fvv` (เพิ่ม `OWNER_SESSION_SECRET` เข้า production env พร้อมกัน) verified ทุก gate บน production จริงครบ (401/403/200 ถูกต้องทุกจุด รวม `delete-shop` 2 ชั้นป้องกัน) — เหลือเดิม: PDPA text ใน `#วิธีใช้งาน`/`terms.js`/`privacy.js` (deferred ตั้งใจ รอใกล้เปิดตัวจริง), White-Label แบบ LINE OA เต็มรูปแบบ (ยังไม่เริ่ม), โอนย้ายสต็อกข้ามสาขา (deferred), QR สั่งอาหารที่โต๊ะ (วางแผนแล้ว ยังไม่เริ่ม))
 
 ---
 
@@ -541,7 +541,7 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
       - แก้ deep-link ของบอท LINE (`smileslip-pro/index.js`, ~15+ จุดที่ใช้ pattern `${FRONTEND_URL}/<page>?userId=${shop.owner_line_id}`) ให้เป็น signed/short-lived token แทน `owner_line_id` plaintext
       - แก้ `pages/api/pos/staff-setpin.js` ให้เป็น signed one-time token แทนการพึ่ง "รู้ shopId+staff_id = ยืนยันตัวตน" อย่างเดียว
       - `shop/data.js`/`shop/referral.js`/`pos/setup.js`/`pos/pos-config.js` — ยังไม่ enforce เพราะปัญหา chicken-and-egg ข้างต้น ต้องแก้สถาปัตยกรรมการโหลดหน้า (เช่น await render cycle ก่อนยิง dependent calls) ก่อนถึงจะ gate ได้อย่างปลอดภัย
-    - **ยังไม่ได้ deploy ขึ้น production** (แค่ commit+push ตามธรรมเนียม ไม่ deploy โดยไม่ถามก่อน) — **ก่อน deploy ต้องเพิ่ม `OWNER_SESSION_SECRET` ใน production `.env` ก่อนเสมอ** (ตอนนี้มีแค่ใน local `.env`) ไม่งั้น `issueOwnerSession`/`verifyOwnerSession` จะ fail-closed หมดทุก endpoint ที่ gate ไว้บน production ทันที
+    - **Deploy production แล้ว (2026-08-04)** — ผู้ใช้ยืนยันให้ deploy ทันทีหลังงานเสร็จ — deploy ผ่าน PowerShell (parse `.env` เอง รวม `OWNER_SESSION_SECRET` ที่จำเป็นด้วย เพราะ `deploy-web.sh` ใช้ไม่ได้บน Windows) → revision จริง `smileslip-dashboard-00288-fvv` (ข้อความ deploy โชว์ revision เดิม `00287-96p` ผิดอีกตามเคย เช็คด้วย `gcloud run revisions list --sort-by=~metadata.creationTimestamp` แล้ว pin traffic เอง) — **verified บน production จริงครบทุกจุด** ผ่าน Node script ยิงตรงกับ `https://smileslip-dashboard-832247688217.asia-southeast1.run.app`: `shop/heatmap`, `analytics`, `testimonial` GET, `export/excel`, `pos/procurement-alerts` (ไม่มี token→401, shopId ไม่ตรง→403, token ถูกต้อง→200), `shop/admins` PATCH/DELETE (401/403/ผ่าน gate), **`shop/delete-shop` ยืนยันครบทั้ง 2 ชั้นป้องกัน** (ไม่มี token→401, shopId ไม่ตรง→403, token ถูกต้องแต่ `lineUserId` ปลอม→403 "คุณไม่ใช่เจ้าของร้านนี้" — ไม่มีร้านไหนถูกลบจริงระหว่างทดสอบ), `shop/admins` GET และ `shop/data` ยังคงเปิดตามเดิม (non-enforcing ตามที่ตั้งใจ)
 
 ---
 
@@ -576,7 +576,7 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
 | Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00190-fdb` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00287-96p` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00288-fvv` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
