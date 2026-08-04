@@ -10,6 +10,7 @@ import {
   Shield, UserPlus, UserX, HelpCircle, X
 } from 'lucide-react';
 import Link from 'next/link';
+import { getOwnerSessionToken, setOwnerSessionToken } from '../lib/client-owner-session';
 
 // ─── Tier utilities ───
 const TIER_ORDER = { normal: 0, pro: 1, advance: 2, business: 3, enterprise: 4, super: 4 };
@@ -167,6 +168,10 @@ export default function Dashboard() {
   const [pendingAdmins, setPendingAdmins] = useState([]);
   const [addingAdmin, setAddingAdmin] = useState(false);
 
+  // Owner-session — token ที่มากับ query string (จาก OAuth callback redirect, role เดียว
+  // ไปตรงที่ /dashboard เลย) เก็บไว้ชั่วคราวจนกว่าจะรู้ shopInfo.id จริง (เป็น localStorage key)
+  const [pendingOwnerSessionToken, setPendingOwnerSessionToken] = useState(null);
+
   // Manual entry modal
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState({ type: 'รายรับ', amount: '', date: '', time: '', sender: '', receiver: '', note: '', method: 'โอน', branch: '' });
@@ -181,11 +186,15 @@ export default function Dashboard() {
   // ─── Router ready ───
   useEffect(() => {
     if (router.isReady) {
-      const { userId, reconnectGoogle: rg, adminId: aid, tab } = router.query;
+      const { userId, reconnectGoogle: rg, adminId: aid, tab, ownerSession } = router.query;
       if (!userId) { router.push('/login'); return; }
       if (rg === 'true') setReconnectGoogle(true);
       if (aid) setAdminId(aid);
       if (tab) setActiveTab(tab);
+      // ownerSession มาจาก OAuth callback redirect (role เดียว → ไปตรงที่ /dashboard เลย
+      // ไม่ผ่าน /login) — ยังเก็บลง localStorage ไม่ได้ตอนนี้เพราะยังไม่รู้ shopInfo.id จริง
+      // (localStorage key ผูกกับ shopId ไม่ใช่ userId) รอ useEffect ถัดไปที่ shopInfo พร้อมแล้ว
+      if (ownerSession) setPendingOwnerSessionToken(ownerSession);
       fetchData(userId);
     }
   }, [router.isReady, router.query]);
@@ -194,6 +203,57 @@ export default function Dashboard() {
   const tierKey = (shopInfo?.subscription_tier || 'normal').toLowerCase();
   const isUnlimited = tierKey === 'enterprise' || tierKey === 'super';
   const isPaidTier = tierKey !== 'normal';
+
+  // ─── Owner-session: เก็บ token ที่ค้างจาก query (ถ้ามี) + เช็คว่ามี valid token สำหรับร้านนี้
+  // หรือยัง — ถ้าไม่มีเลย ต้องพิสูจน์ตัวตนก่อน (บาง endpoint ที่หน้านี้เรียก เช่น /api/shop/data
+  // จะถูกบังคับ requireOwnerAuth จริงในเฟส C — ถ้าไม่มี token จะพังเงียบๆ ถ้าไม่ redirect ไป
+  // login ให้ก่อน) — ไม่ทำอะไรถ้า OWNER_SESSION_SECRET ยังไม่ได้ตั้ง (ownerSession จะเป็น null
+  // เสมอจาก backend อยู่แล้ว กรณีนี้จะ redirect วนไม่รู้จบ จึงเช็คเงื่อนไข query ownerSession
+  // เดิมด้วยว่าไม่ได้อยู่ระหว่าง redirect กลับมาจาก login ซ้ำ)
+  useEffect(() => {
+    if (!shopInfo?.id) return;
+
+    if (pendingOwnerSessionToken) {
+      setOwnerSessionToken(shopInfo.id, pendingOwnerSessionToken);
+      setPendingOwnerSessionToken(null);
+      const { ownerSession, ...restQuery } = router.query;
+      router.replace({ pathname: router.pathname, query: restQuery }, undefined, { shallow: true });
+      return; // เพิ่ง set เสร็จ ไม่ต้องเช็ค token ซ้ำในรอบเดียวกัน
+    }
+
+    const token = getOwnerSessionToken(shopInfo.id);
+    if (!token) {
+      // กัน infinite redirect loop — ถ้าเพิ่ง redirect ไป /login แล้ววนกลับมาแบบไม่มี token อีก
+      // (เช่น OWNER_SESSION_SECRET มีปัญหาฝั่ง server) ให้ปล่อยผ่านแทนที่จะวนลูปไม่รู้จบ — เฟส B
+      // นี้ยัง non-breaking โดยเจตนา ไม่ควรบล็อกผู้ใช้ไม่ให้เข้าเว็บได้เลยเพราะ token มีปัญหา
+      const guardKey = `owner_session_redirect_attempt_${shopInfo.id}`;
+      if (typeof window !== 'undefined' && window.sessionStorage.getItem(guardKey)) {
+        console.warn('[owner-session] ไม่มี token หลัง redirect ไป login มาแล้ว — ปล่อยผ่านกัน loop');
+        return;
+      }
+      if (typeof window !== 'undefined') window.sessionStorage.setItem(guardKey, '1');
+      router.push(`/login?next=dashboard`);
+    }
+  }, [shopInfo?.id, pendingOwnerSessionToken]);
+
+  // ─── Owner-session: แนบ header x-owner-session ให้ทุกคำขอ /api/ ที่ยิงออกจากหน้านี้โดย
+  // อัตโนมัติ (ไม่ต้องแก้ทุกจุดที่เรียก fetch() ในไฟล์นี้ทีละจุด) — reuse pattern เดียวกับที่
+  // pos.js ทำสำเร็จแล้วสำหรับ cashier mode (แนบ x-staff-session) — ทำงานเฉพาะเมื่อมี valid
+  // token สำหรับร้านนี้เท่านั้น (ไม่มี token = useEffect ด้านบน redirect ไป login อยู่แล้ว)
+  useEffect(() => {
+    if (!shopInfo?.id) return;
+    const token = getOwnerSessionToken(shopInfo.id);
+    if (!token) return;
+    const originalFetch = window.fetch;
+    window.fetch = (input, init = {}) => {
+      const url = typeof input === 'string' ? input : (input?.url || '');
+      if (url.startsWith('/api/')) {
+        init = { ...init, headers: { ...(init.headers || {}), 'x-owner-session': token } };
+      }
+      return originalFetch(input, init);
+    };
+    return () => { window.fetch = originalFetch; };
+  }, [shopInfo?.id]);
 
   useEffect(() => {
     if (shopInfo?.id && isPaidTier) {

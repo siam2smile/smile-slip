@@ -5,6 +5,7 @@ import Link from 'next/link';
 import Script from 'next/script';
 import { Mail, Lock, ChevronRight, Eye, EyeOff, MessageCircle } from 'lucide-react';
 import axios from 'axios';
+import { setOwnerSessionToken } from '../lib/client-owner-session';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -23,6 +24,10 @@ export default function LoginPage() {
   // ไปหน้าที่ถูกต้องตามบทบาทที่เลือก (เจ้าของ → dashboard ตรงๆ, แอดมิน → dashboard+adminId)
   // แยกออกมาให้ทั้ง proceedWithProfile (กรณีมีร้านเดียว) และตัวเลือกร้านในหน้า picker เรียกใช้ร่วมกัน
   const goToRole = (roleEntry, lineUserId) => {
+    // roleEntry.ownerSession มาจาก check-user.js (ออก token ให้ทุก role ที่เจอตอนเรียก) —
+    // เก็บลง localStorage ก่อน navigate เสมอ ไม่มีก็แค่ข้าม (เช่น OWNER_SESSION_SECRET ยังไม่ตั้ง
+    // ค่าใน env — fail-safe ไม่บล็อก login เดิม เพราะ endpoint ส่วนใหญ่ยัง non-breaking อยู่)
+    if (roleEntry.ownerSession) setOwnerSessionToken(roleEntry.shopId, roleEntry.ownerSession);
     const next = router.query.next;
     if (roleEntry.role === 'admin') {
       router.push(`/dashboard?userId=${roleEntry.ownerId}&adminId=${lineUserId}`);
@@ -161,7 +166,12 @@ export default function LoginPage() {
     setLoginLoading(true);
     try {
       const res = await axios.post('/api/auth/email-login', { email, password });
-      if (res.data.userId) router.push(`/dashboard?userId=${res.data.userId}`);
+      if (res.data.userId) {
+        if (res.data.shopId && res.data.ownerSession) {
+          setOwnerSessionToken(res.data.shopId, res.data.ownerSession);
+        }
+        router.push(`/dashboard?userId=${res.data.userId}`);
+      }
     } catch (err) {
       setError(err.response?.data?.error || 'เกิดข้อผิดพลาด กรุณาลองใหม่');
     }

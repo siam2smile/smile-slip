@@ -8,6 +8,7 @@ import { useRouter } from 'next/router';
 import { MARKET_PRICE_FEATURE_LIVE } from '../lib/market-price-flag';
 import { hasFeature } from '../lib/tier-features';
 import { withBrandFooter } from '../lib/branding';
+import { getOwnerSessionToken } from '../lib/client-owner-session';
 
 const UNITS = ['ชิ้น', 'อัน', 'กล่อง', 'แพ็ก', 'ขวด', 'ถัง', 'ถุง', 'กก.', 'กรัม', 'ลิตร', 'มล.', 'เมตร', 'คู่', 'ชุด', 'โหล', 'แผ่น', 'มัด', 'หัว', 'ลูก', 'ท่อน', 'แท่ง', 'ห่อ', 'เส้น', 'จาน', 'ชาม', 'แก้ว'];
 const PAY_METHODS = ['เงินสด', 'โอน', 'บัตรเครดิต', 'QR Code', 'เชื่อ'];
@@ -821,6 +822,43 @@ export default function POSPage() {
     }
     init();
   }, [userId, cashierMode]);
+
+  // ── โหมดเจ้าของ (ไม่ใช่ cashier): เช็คว่ามี valid owner-session token สำหรับร้านนี้หรือยัง —
+  // token ควรถูกเก็บไว้ใน localStorage แล้วตั้งแต่ตอน login ผ่าน pages/login.js/dashboard.js
+  // (localStorage ใช้ร่วมกันข้ามหน้าใน origin เดียวกัน ไม่ต้องส่งต่อผ่าน query ซ้ำ) — ถ้าไม่มีเลย
+  // (เช่น bookmark ตรงมาที่ /pos โดยไม่เคยผ่าน dashboard มาก่อนในเครื่องนี้) redirect ไป login
+  // ก่อน กันเงียบๆ พังตอนเฟส C บังคับ token จริงกับบาง endpoint
+  useEffect(() => {
+    if (cashierMode || !shopId) return;
+    const token = getOwnerSessionToken(shopId);
+    if (!token) {
+      const guardKey = `owner_session_redirect_attempt_${shopId}`;
+      if (typeof window !== 'undefined' && window.sessionStorage.getItem(guardKey)) {
+        console.warn('[owner-session] ไม่มี token หลัง redirect ไป login มาแล้ว — ปล่อยผ่านกัน loop');
+        return;
+      }
+      if (typeof window !== 'undefined') window.sessionStorage.setItem(guardKey, '1');
+      router.push('/login?next=pos');
+    }
+  }, [cashierMode, shopId]);
+
+  // ── โหมดเจ้าของ: แนบ header x-owner-session ให้ทุกคำขอ /api/ โดยอัตโนมัติ — reuse pattern
+  // เดียวกับ fetch override ของโหมดแคชเชียร์ด้านล่าง (แยกกันคนละ useEffect เพราะคนละเงื่อนไข
+  // ทำงาน ไม่ชนกันเนื่องจาก cashierMode แยกกันเสมอ)
+  useEffect(() => {
+    if (cashierMode || !shopId) return;
+    const token = getOwnerSessionToken(shopId);
+    if (!token) return;
+    const originalFetch = window.fetch;
+    window.fetch = (input, init = {}) => {
+      const url = typeof input === 'string' ? input : (input?.url || '');
+      if (url.startsWith('/api/')) {
+        init = { ...init, headers: { ...(init.headers || {}), 'x-owner-session': token } };
+      }
+      return originalFetch(input, init);
+    };
+    return () => { window.fetch = originalFetch; };
+  }, [cashierMode, shopId]);
 
   // ── โหมดแคชเชียร์: กู้คืน session ที่เซ็นชื่อจาก sessionStorage ถ้ามี (ยังไม่หมดอายุ) ──
   // sessionStorage อยู่ได้แค่ในแท็บนี้จนกว่าจะปิด พอดีกับเครื่องคิดเงินที่หลายคนหมุนเวียนใช้
