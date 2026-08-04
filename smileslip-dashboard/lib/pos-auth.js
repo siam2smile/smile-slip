@@ -4,6 +4,7 @@
  */
 import { verifyStaffSession } from './staff-session';
 import { getStaffPermissions } from './google-pos';
+import { requireOwnerAuth } from './owner-auth';
 
 // แนบ session ได้ 2 ทาง: header `x-staff-session` (ทุก fetch() ปกติ) หรือ query param `session`
 // (จำเป็นสำหรับดาวน์โหลดไฟล์ที่เปิดผ่าน window.open()/<a href> ตรงๆ เช่น export VAT/PDF ที่แนบ
@@ -13,19 +14,26 @@ function extractSessionToken(req) {
 }
 
 /**
- * ไม่มี session เลย = เจ้าของร้าน/แอดมิน (เข้าผ่าน Dashboard ปกติ) — ทำงานเหมือนเดิมทุกประการ
- * ไม่ถูกกระทบเลย (zero regression risk)
+ * ไม่มี staff-session เลย = ต้องพิสูจน์ว่าเป็นเจ้าของร้าน/แอดมินจริงแทน (Phase D — เดิม
+ * สมมติว่า "ไม่มี staff-session = เจ้าของร้าน ผ่านเสมอ" ซึ่งพิสูจน์ไม่ได้เลย ปลอม shopId
+ * เฉยๆ ก็ยิงเข้ามาได้ — ตอนนี้บังคับ owner-session จริง (ออกให้ตอน login ผ่าน dashboard.js/
+ * pos.js เจ้าของ ซึ่งแนบ header ให้อัตโนมัติผ่าน fetch() override อยู่แล้วสำหรับ action ที่ผู้ใช้
+ * กดเอง — ตรวจสอบแล้วว่าทุก requirePermission()/blockAllStaffSessions() call site ในระบบอยู่
+ * หลัง method ที่ไม่ใช่ GET เสมอ (POST/PATCH/DELETE หรือ GET ที่ผูกปุ่มกด เช่น export/reports)
+ * ไม่มีจุดไหนถูกยิงอัตโนมัติตอนโหลดหน้าครั้งแรกก่อน fetch() override จะติดตั้งเสร็จเลย)
  *
- * มี session = พนักงานที่เข้าผ่าน PIN (แคชเชียร์/พนักงานส่งของ) — ต้องมีสิทธิ์ `permKey` จริง
- * เท่านั้น ดึงสิทธิ์สดจาก Sheet ทุกครั้ง ไม่เชื่อค่าที่ฝังใน token (แอดมินถอนสิทธิ์ต้องมีผลทันที
- * ไม่ใช่รอ token หมดอายุ)
+ * มี staff-session = พนักงานที่เข้าผ่าน PIN (แคชเชียร์/พนักงานส่งของ) — ต้องมีสิทธิ์ `permKey`
+ * จริงเท่านั้น ดึงสิทธิ์สดจาก Sheet ทุกครั้ง ไม่เชื่อค่าที่ฝังใน token (แอดมินถอนสิทธิ์ต้องมีผล
+ * ทันที ไม่ใช่รอ token หมดอายุ)
  *
  * คืน `true` ถ้าผ่าน (handler เรียกต่อได้ปกติ) คืน `false` ถ้าถูกบล็อก (เขียน response
  * 401/403 ให้เรียบร้อยแล้ว handler แค่ต้อง `if (!(await requirePermission(...))) return;`)
  */
 export async function requirePermission(req, res, shopId, permKey) {
   const sessionToken = extractSessionToken(req);
-  if (!sessionToken) return true;
+  if (!sessionToken) {
+    return requireOwnerAuth(req, res, shopId, { enforce: true });
+  }
 
   const session = verifyStaffSession(sessionToken);
   if (!session) {
@@ -43,11 +51,14 @@ export async function requirePermission(req, res, shopId, permKey) {
 
 /**
  * บล็อกไม่ให้ session พนักงานทำรายการนี้ได้เลยไม่ว่าจะมีสิทธิ์อะไรก็ตาม (เช่น pos-config.js
- * แก้ค่าธนาคาร/API key ของร้าน — ไม่มีสิทธิ์ไหนควรปลดล็อคให้พนักงานแตะได้เด็ดขาด)
+ * แก้ค่าธนาคาร/API key ของร้าน — ไม่มีสิทธิ์ไหนควรปลดล็อคให้พนักงานแตะได้เด็ดขาด) — ไม่มี
+ * staff-session เลยก็ยังต้องพิสูจน์ตัวตนเจ้าของร้านจริงเหมือน requirePermission() (Phase D)
  */
-export function blockAllStaffSessions(req, res) {
+export function blockAllStaffSessions(req, res, shopId) {
   const sessionToken = extractSessionToken(req);
-  if (!sessionToken) return true;
+  if (!sessionToken) {
+    return requireOwnerAuth(req, res, shopId, { enforce: true });
+  }
   res.status(403).json({ error: 'พนักงานไม่มีสิทธิ์แก้ไขการตั้งค่านี้ — ต้องเข้าผ่านบัญชีเจ้าของร้าน/แอดมินเท่านั้น' });
   return false;
 }

@@ -56,8 +56,8 @@ export default async function handler(req, res) {
 
   if (req.method === 'PATCH') {
     // ตั้งค่าพร้อมเพย์/API key ธนาคาร/VAT ของร้าน — ไม่มีสิทธิ์พนักงานคนไหนควรแตะได้เลย
-    // ไม่ว่าจะเปิดสิทธิ์อะไรก็ตาม (เจ้าของ/แอดมินเท่านั้น ไม่มี header = ผ่านเสมอเหมือนเดิม)
-    if (!blockAllStaffSessions(req, res)) return;
+    // ไม่ว่าจะเปิดสิทธิ์อะไรก็ตาม (เจ้าของ/แอดมินเท่านั้น ต้องพิสูจน์ owner-session จริง)
+    if (!blockAllStaffSessions(req, res, shopId)) return;
 
     const { promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, receipt_paper_size, vat_registered } = req.body;
 
