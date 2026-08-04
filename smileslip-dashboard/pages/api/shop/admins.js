@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { requireOwnerAuth } from '../../../lib/owner-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -39,6 +40,10 @@ export default async function handler(req, res) {
   if (req.method === 'PATCH') {
     const { shopId, adminId, action } = req.body;
     if (!shopId || !adminId || !action) return res.status(400).json({ error: 'ข้อมูลไม่ครบ' });
+
+    // เฟส C — privilege-escalation path ที่อันตรายที่สุด (จัดการว่าใครเข้าร้านได้) บังคับ
+    // owner-session จริง เฉพาะเจ้าของร้านเท่านั้น (แอดมินอนุมัติแอดมินคนอื่นเองไม่ได้)
+    if (!requireOwnerAuth(req, res, shopId, { enforce: true, requireOwnerRole: true })) return;
 
     const { data: profile } = await supabase
       .from('shop_profiles')
@@ -83,6 +88,8 @@ export default async function handler(req, res) {
   if (req.method === 'DELETE') {
     const { shopId, adminId } = req.body;
     if (!shopId || !adminId) return res.status(400).json({ error: 'ข้อมูลไม่ครบ' });
+
+    if (!requireOwnerAuth(req, res, shopId, { enforce: true, requireOwnerRole: true })) return;
 
     const { error } = await supabase
       .from('shop_admins')

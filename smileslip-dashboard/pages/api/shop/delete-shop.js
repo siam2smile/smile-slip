@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
+import { requireOwnerAuth } from '../../../lib/owner-auth';
 
 /**
  * DELETE /api/shop/delete-shop { shopId, lineUserId, confirmShopName }
@@ -56,6 +57,12 @@ export default async function handler(req, res) {
   if (!shopId || !lineUserId || !confirmShopName) {
     return res.status(400).json({ error: 'ข้อมูลไม่ครบถ้วน กรุณาลองใหม่อีกครั้ง' });
   }
+
+  // เฟส C — endpoint เสี่ยงสูงสุดในระบบ (ลบร้านถาวร) บังคับ owner-session จริงเป็นด่านแรก
+  // (enforce:true = ไม่มี token เลยก็บล็อก, requireOwnerRole:true = แอดมินร้านลบไม่ได้)
+  // เดิมมีแค่เช็ค body.lineUserId เทียบ owner_line_id เฉยๆ (ปลอมได้ตรงๆ) — ยังคงเช็คนั้นไว้
+  // เป็นชั้นป้องกันที่สอง ไม่ลบออก
+  if (!requireOwnerAuth(req, res, shopId, { enforce: true, requireOwnerRole: true })) return;
 
   const { data: shop, error: fetchErr } = await supabase
     .from('shop_profiles')

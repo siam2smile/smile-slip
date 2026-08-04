@@ -1,5 +1,6 @@
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
+import { requireOwnerAuth } from '../../../lib/owner-auth';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const supabase = createClient(
@@ -47,6 +48,7 @@ export default async function handler(req, res) {
   if (req.method === 'POST') {
     const { shopId, action } = req.body;
     if (!shopId || !action) return res.status(400).json({ error: 'ข้อมูลไม่ครบ' });
+    if (!requireOwnerAuth(req, res, shopId, { enforce: true })) return;
 
     const { data: profile } = await supabase
       .from('shop_profiles')

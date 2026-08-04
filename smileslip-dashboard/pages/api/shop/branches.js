@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { requireOwnerAuth } from '../../../lib/owner-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -18,6 +19,8 @@ export default async function handler(req, res) {
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ branches: data ?? [] });
   }
+
+  if (req.method !== 'GET' && !requireOwnerAuth(req, res, shopId, { enforce: true })) return;
 
   if (req.method === 'POST') {
     const { branchName, lineGroupId, brandName, address } = req.body;

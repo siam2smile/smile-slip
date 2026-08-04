@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { requireOwnerAuth } from '../../../lib/owner-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -10,6 +11,7 @@ export default async function handler(req, res) {
 
   const { shopId, shopName, email, phone, taxId, userType, address, branchName } = req.body;
   if (!shopId) return res.status(400).json({ error: 'ไม่พบ shopId' });
+  if (!requireOwnerAuth(req, res, shopId, { enforce: true })) return;
 
   const updates = {};
   if (shopName?.trim()) updates.shop_name = shopName.trim();

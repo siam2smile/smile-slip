@@ -4,6 +4,7 @@
  * DELETE /api/shop/bank-accounts           → ลบบัญชี (body: { accountId })
  */
 import { createClient } from '@supabase/supabase-js';
+import { requireOwnerAuth } from '../../../lib/owner-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -24,6 +25,7 @@ export default async function handler(req, res) {
     const { shopId, bankName, accountName, accountNumber, accountType } = req.body;
     if (!shopId || !bankName || !accountNumber || !accountName)
       return res.status(400).json({ error: 'ข้อมูลไม่ครบ' });
+    if (!requireOwnerAuth(req, res, shopId, { enforce: true })) return;
     const { data, error } = await supabase
       .from('shop_bank_accounts')
       .insert([{ shop_id: shopId, bank_name: bankName, account_name: accountName, account_number: accountNumber, account_type: accountType || 'ออมทรัพย์' }])
@@ -35,6 +37,7 @@ export default async function handler(req, res) {
   if (req.method === 'DELETE') {
     const { accountId, shopId } = req.body;
     if (!accountId || !shopId) return res.status(400).json({ error: 'accountId และ shopId required' });
+    if (!requireOwnerAuth(req, res, shopId, { enforce: true })) return;
     const { error } = await supabase
       .from('shop_bank_accounts').delete().eq('id', accountId).eq('shop_id', shopId);
     if (error) return res.status(500).json({ error: error.message });
