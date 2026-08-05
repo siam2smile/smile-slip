@@ -2841,13 +2841,52 @@ export default function POSPage() {
   function selectAllCleanupMatches() {
     setCleanupSelected(new Set(cleanupMatches.map(c => c.contact_id)));
   }
+  // เลือกเฉพาะ "รายการซ้ำส่วนเกิน" — เก็บคนที่สร้างก่อน (เก่าสุด) ของแต่ละกลุ่มไว้เสมอ เลือกแค่ตัว
+  // ที่เหลือมาลบ ต่างจาก "เลือกทั้งหมด" ที่เลือกทุกคนในกลุ่มรวมคนแรกด้วย (ถ้ากดลบจะลบทั้งกลุ่มหมด
+  // ไม่เหลือใครเลย) — ปุ่มนี้คือค่าเริ่มต้นที่ปลอดภัยกว่าสำหรับ use case "ล้างรายการซ้ำ" จริงๆ
+  function selectDuplicateExtrasOnly() {
+    const groups = new Map();
+    for (const c of cleanupMatches) {
+      if (!c._cleanup?.is_duplicate) continue;
+      const key = (c.name || '').trim().toLowerCase() + '|' + (c.phone || '').replace(/[\s-]/g, '');
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(c);
+    }
+    const toSelect = new Set();
+    for (const members of groups.values()) {
+      const sorted = [...members].sort((a, b) =>
+        new Date(a._cleanup?.created_at || 0) - new Date(b._cleanup?.created_at || 0));
+      sorted.slice(1).forEach(c => toSelect.add(c.contact_id)); // ข้ามตัวแรก (เก่าสุด) เก็บไว้เสมอ
+    }
+    setCleanupSelected(toSelect);
+    showToast(`เลือกแล้ว ${toSelect.size} รายการซ้ำส่วนเกิน (เก็บรายชื่อแรกสุดของแต่ละคู่ไว้ให้อัตโนมัติ)`);
+  }
   function clearCleanupSelection() {
     setCleanupSelected(new Set());
   }
 
+  // ยิ่งเลือกลบเยอะ ยิ่งต้องยืนยันแน่นหนาขึ้น — กันกดพลาด/กด "เลือกทั้งหมด" แล้วลืมว่าเลือกไว้เยอะ
+  // แค่ confirm() ธรรมดาไม่พอกับการลบเป็นร้อยเป็นพันรายการพร้อมกัน (เจอเคสจริงที่ผู้ใช้กด "เลือก
+  // ทั้งหมด" แล้วกดลบไปโดยไม่ได้ตั้งใจลบทั้งหมด ต้องกู้คืนย้อนหลัง) — เกิน 20 รายการต้องพิมพ์ตัวเลข
+  // จำนวนที่จะลบให้ตรงเป๊ะก่อนถึงจะลบได้จริง เหมือน pattern เดียวกับ delete-shop.js (พิมพ์ชื่อร้าน)
+  function confirmCleanupDelete(n) {
+    if (n > 20) {
+      const typed = prompt(
+        `กำลังจะลบผู้ติดต่อ ${n} รายการพร้อมกัน — เป็นจำนวนมาก เพื่อป้องกันการลบพลาด กรุณาพิมพ์ตัวเลข ${n} เพื่อยืนยัน`
+      );
+      if (typed === null) return false;
+      if (typed.trim() !== String(n)) {
+        showToast('ตัวเลขไม่ตรง ยกเลิกการลบเพื่อความปลอดภัย');
+        return false;
+      }
+      return true;
+    }
+    return confirm(`ลบผู้ติดต่อที่เลือกไว้ ${n} รายการ? (ยังกู้คืนได้ทีหลังถ้าจำเป็น)`);
+  }
+
   async function runCleanupDelete() {
     if (!cleanupSelected.size || cleanupDeleting) return;
-    if (!confirm(`ลบผู้ติดต่อที่เลือกไว้ ${cleanupSelected.size} รายการ? (ยังกู้คืนได้ทีหลังถ้าจำเป็น)`)) return;
+    if (!confirmCleanupDelete(cleanupSelected.size)) return;
     setCleanupDeleting(true);
     try {
       const r = await fetch('/api/pos/contacts', {
@@ -8464,16 +8503,24 @@ export default function POSPage() {
                   </div>
 
                   {/* summary + bulk select */}
-                  <div className="flex items-center justify-between bg-gray-800/60 rounded-xl px-4 py-3 mb-3 flex-wrap gap-2">
-                    <span className="text-gray-300 text-sm">พบ <b className="text-white">{cleanupMatches.length}</b> รายการที่ตรงเงื่อนไข</span>
-                    <div className="flex gap-2">
-                      <button onClick={selectAllCleanupMatches} disabled={!cleanupMatches.length}
-                        className="text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-30 text-gray-200 px-3 py-1.5 rounded-lg transition-colors">
-                        เลือกทั้งหมด ({cleanupMatches.length})
-                      </button>
+                  <div className="bg-gray-800/60 rounded-xl px-4 py-3 mb-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                      <span className="text-gray-300 text-sm">พบ <b className="text-white">{cleanupMatches.length}</b> รายการที่ตรงเงื่อนไข</span>
                       <button onClick={clearCleanupSelection} disabled={!cleanupSelected.size}
                         className="text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-30 text-gray-200 px-3 py-1.5 rounded-lg transition-colors">
-                        ล้างที่เลือก
+                        ล้างที่เลือก ({cleanupSelected.size})
+                      </button>
+                    </div>
+                    <div className="flex gap-2 flex-wrap">
+                      {cleanupDuplicatesOnly && (
+                        <button onClick={selectDuplicateExtrasOnly} disabled={!cleanupMatches.length}
+                          className="text-xs bg-amber-700 hover:bg-amber-600 disabled:opacity-30 text-white px-3 py-1.5 rounded-lg transition-colors font-medium">
+                          ✅ เลือกเฉพาะรายการซ้ำส่วนเกิน (เก็บอันแรกไว้เสมอ)
+                        </button>
+                      )}
+                      <button onClick={selectAllCleanupMatches} disabled={!cleanupMatches.length}
+                        className="text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-30 text-gray-200 px-3 py-1.5 rounded-lg transition-colors">
+                        เลือกทั้งหมดที่เห็น ({cleanupMatches.length}) — รวมตัวแรกของแต่ละคู่ด้วย
                       </button>
                     </div>
                   </div>
@@ -8610,7 +8657,18 @@ export default function POSPage() {
                             onChange={e => setProdImportMapping(m => ({ ...m, [field]: e.target.value }))}
                             className="flex-1 bg-gray-800 text-white text-xs px-3 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500">
                             <option value="">— ไม่นำเข้า —</option>
-                            {prodImportHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                            {/* ไฟล์ export จากบางระบบ (เช่น FlowAccount) ใช้ชื่อคอลัมน์เป็นภาษาอังกฤษ
+                                ล้วน (BarCode/UnitPriceWithVat ฯลฯ) ผู้ใช้ที่ไม่คุ้นภาษาอังกฤษดูไม่ออก
+                                ว่าคอลัมน์ไหนคืออะไร — แสดงตัวอย่างค่าจริงจากแถวแรกกำกับไว้ด้วยเสมอ
+                                (ใช้ได้กับไฟล์ทุกภาษา ไม่ต้องมีดิกชันนารีแปลชื่อคอลัมน์) */}
+                            {prodImportHeaders.map(h => {
+                              const sample = prodImportRows[0]?.[h];
+                              return (
+                                <option key={h} value={h}>
+                                  {h}{sample ? ` — เช่น "${String(sample).slice(0, 30)}"` : ''}
+                                </option>
+                              );
+                            })}
                           </select>
                         </div>
                       ))}
@@ -8618,7 +8676,7 @@ export default function POSPage() {
                   </div>
 
                   <div>
-                    <h4 className="text-white font-medium text-sm mb-2">ราคาที่นำเข้า (ทุกรายการ)</h4>
+                    <h4 className="text-white font-medium text-sm mb-2">ประเภท VAT ของราคาที่นำเข้า (ใช้กับทุกรายการในไฟล์นี้)</h4>
                     <div className="flex gap-2">
                       {['ไม่มี VAT', 'รวม VAT แล้ว', 'ไม่รวม VAT'].map(t => (
                         <button key={t} type="button" onClick={() => setProdImportVatType(t)}
@@ -8627,7 +8685,16 @@ export default function POSPage() {
                         </button>
                       ))}
                     </div>
-                    <p className="text-gray-500 text-xs mt-1.5">ถ้าคอลัมน์ราคาที่เลือกไว้ด้านบนเป็นราคารวม VAT อยู่แล้ว (เช่น UnitPriceWithVat) ให้เลือก "รวม VAT แล้ว"</p>
+                    {/* บอกเหตุผลที่ระบบเดาให้ตรงๆ (ชื่อคอลัมน์ที่เลือกไว้) กันสับสนว่าทำไมถึงตั้ง
+                        เป็น "รวม VAT แล้ว" ให้เอง — ผู้ใช้เคยงงว่าทำไมราคาทุกอันกลายเป็นรวม VAT
+                        หมด ทั้งที่ต้นฉบับ (เช่นตอนอยู่ Google Sheets) ไม่ได้คิดแบบนั้น — เปลี่ยนปุ่ม
+                        ด้านบนหรือเปลี่ยนคอลัมน์ราคาที่จับคู่ไว้ (เช่นสลับไปใช้ "UnitPrice" แทน
+                        "UnitPriceWithVat") ได้ทันทีถ้าไม่ตรงกับที่ร้านใช้จริง */}
+                    <p className="text-amber-400/90 text-xs mt-2 bg-amber-900/20 border border-amber-800/50 rounded-lg px-3 py-2">
+                      💡 ระบบเลือก "{prodImportVatType}" ให้อัตโนมัติ เพราะคอลัมน์ราคาที่จับคู่ไว้คือ
+                      "<b>{prodImportMapping.price || '—'}</b>"{prodImportMapping.price?.toLowerCase().replace(/\s+/g, '').includes('withvat') ? ' (ชื่อคอลัมน์มีคำว่า "WithVat" แปลว่าเป็นราคารวมภาษีแล้ว)' : ''} —
+                      ถ้าราคาจริงที่ร้านใช้ไม่ตรงกับนี้ เปลี่ยนปุ่มด้านบนได้เลย หรือย้อนกลับไปเลือกคอลัมน์ราคาอื่น (เช่น "UnitPrice" แทน "UnitPriceWithVat") ในหัวข้อ "ราคาขาย" ด้านบน
+                    </p>
                   </div>
 
                   <div>

@@ -36,7 +36,7 @@ export default async function handler(req, res) {
       const PAGE = 1000;
       for (let from = 0; ; from += PAGE) {
         const { data, error } = await supabase.from('pos_contacts')
-          .select('contact_id,name,phone').eq('shop_id', shopId).is('deleted_at', null)
+          .select('contact_id,name,phone,created_at').eq('shop_id', shopId).is('deleted_at', null)
           .range(from, from + PAGE - 1);
         if (error) throw error;
         contactRows.push(...(data || []));
@@ -79,6 +79,7 @@ export default async function handler(req, res) {
         is_duplicate: group.length > 1,
         duplicate_group_size: group.length,
         last_activity_at: last ? new Date(last).toISOString() : null,
+        created_at: c.created_at || null,
       };
     });
 
