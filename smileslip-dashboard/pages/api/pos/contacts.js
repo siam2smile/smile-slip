@@ -168,7 +168,22 @@ export default async function handler(req, res) {
       return res.json({ ok: true, contact_id });
     }
 
-    // ── DELETE ────────────────────────────────────────────────────────────────
+    // ── DELETE (ทีละคน หรือหลายคนพร้อมกันผ่าน contact_ids — เครื่องมือเช็ครายการซ้ำ/
+    // ไม่มีความเคลื่อนไหวในหน้าผู้ติดต่อ) ────────────────────────────────────────
+    if (req.method === 'DELETE' && Array.isArray(req.body.contact_ids)) {
+      if (!(await requirePermission(req, res, shopId, 'perm_manage_customers'))) return;
+
+      const ids = req.body.contact_ids.filter(Boolean);
+      if (!ids.length) return res.status(400).json({ error: 'Missing contact_ids' });
+
+      const { error, count } = await supabase.from('pos_contacts')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('shop_id', shopId).in('contact_id', ids).is('deleted_at', null)
+        .select('contact_id', { count: 'exact' });
+      if (error) throw error;
+      return res.json({ ok: true, deleted: count ?? ids.length });
+    }
+
     if (req.method === 'DELETE') {
       if (!(await requirePermission(req, res, shopId, 'perm_manage_customers'))) return;
 

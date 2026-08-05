@@ -639,6 +639,17 @@ export default function POSPage() {
   const [contactPage, setContactPage] = useState(1);
   const CONTACTS_PER_PAGE = 20;
 
+  // ── เครื่องมือเช็ครายการซ้ำ / ไม่มีความเคลื่อนไหว (bulk cleanup) ──────────────
+  const [showCleanupModal, setShowCleanupModal] = useState(false);
+  const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [cleanupInfo, setCleanupInfo] = useState(null); // Map contact_id -> { is_duplicate, duplicate_group_size, last_activity_at }
+  const [cleanupDuplicatesOnly, setCleanupDuplicatesOnly] = useState(false);
+  const [cleanupInactiveMonths, setCleanupInactiveMonths] = useState(null); // null | 3 | 6 | 12
+  const [cleanupSelected, setCleanupSelected] = useState(() => new Set());
+  const [cleanupPage, setCleanupPage] = useState(1);
+  const [cleanupDeleting, setCleanupDeleting] = useState(false);
+  const CLEANUP_PER_PAGE = 30;
+
   // debt history modal
   const [showDebtHistory, setShowDebtHistory] = useState(false);
   const [debtHistoryCont, setDebtHistoryCont] = useState(null);
@@ -2763,6 +2774,105 @@ export default function POSPage() {
 
   // รีเซ็ตกลับหน้า 1 ทุกครั้งที่เปลี่ยนตัวกรอง/คำค้นหา
   useEffect(() => { setContactPage(1); }, [contactFilter, contactSearch, contactOutstandingOnly]);
+
+  // ── เครื่องมือเช็ครายการซ้ำ / ไม่มีความเคลื่อนไหว ────────────────────────────
+  async function loadCleanupInfo() {
+    if (!shopInfo?.id) return;
+    setCleanupLoading(true);
+    try {
+      const r = await fetch(`/api/pos/contacts-cleanup?shopId=${shopInfo.id}`);
+      const d = await r.json();
+      if (d.contacts) {
+        const map = new Map(d.contacts.map(c => [c.contact_id, c]));
+        setCleanupInfo(map);
+      } else {
+        showToast('โหลดข้อมูลไม่สำเร็จ: ' + (d.error || ''));
+      }
+    } catch (err) {
+      showToast('โหลดข้อมูลไม่สำเร็จ: ' + err.message);
+    }
+    setCleanupLoading(false);
+  }
+
+  function openCleanupModal() {
+    setShowCleanupModal(true);
+    setCleanupDuplicatesOnly(false);
+    setCleanupInactiveMonths(null);
+    setCleanupSelected(new Set());
+    setCleanupPage(1);
+    loadCleanupInfo();
+  }
+
+  // รายการที่ตรงเงื่อนไขปัจจุบัน (ซ้ำ และ/หรือ ไม่มีความเคลื่อนไหวเกิน N เดือน) — คำนวณ
+  // "ไม่มีความเคลื่อนไหวเลย" (last_activity_at = null) ให้ตรงเงื่อนไขเสมอไม่ว่าเลือกกี่เดือน
+  // เพราะถือเป็นกรณีไม่มีความเคลื่อนไหวมากที่สุด (ส่วนใหญ่คือผู้ติดต่อที่นำเข้ามาเป็นชุดใหญ่)
+  const cleanupMatches = useMemo(() => {
+    if (!cleanupInfo) return [];
+    const cutoff = cleanupInactiveMonths
+      ? Date.now() - cleanupInactiveMonths * 30 * 24 * 60 * 60 * 1000
+      : null;
+    return contacts.filter(c => {
+      const info = cleanupInfo.get(c.contact_id);
+      if (!info) return false;
+      if (cleanupDuplicatesOnly && !info.is_duplicate) return false;
+      if (cutoff !== null) {
+        const lastMs = info.last_activity_at ? new Date(info.last_activity_at).getTime() : null;
+        if (lastMs !== null && lastMs >= cutoff) return false; // มีความเคลื่อนไหวใหม่กว่า cutoff
+      }
+      return true;
+    }).map(c => ({ ...c, _cleanup: cleanupInfo.get(c.contact_id) }));
+  }, [contacts, cleanupInfo, cleanupDuplicatesOnly, cleanupInactiveMonths]);
+
+  useEffect(() => { setCleanupPage(1); }, [cleanupDuplicatesOnly, cleanupInactiveMonths]);
+
+  const cleanupTotalPages = Math.max(1, Math.ceil(cleanupMatches.length / CLEANUP_PER_PAGE));
+  const pagedCleanupMatches = useMemo(() =>
+    cleanupMatches.slice((cleanupPage - 1) * CLEANUP_PER_PAGE, cleanupPage * CLEANUP_PER_PAGE),
+    [cleanupMatches, cleanupPage]
+  );
+
+  function toggleCleanupSelect(contact_id) {
+    setCleanupSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(contact_id)) next.delete(contact_id); else next.add(contact_id);
+      return next;
+    });
+  }
+  function selectAllCleanupMatches() {
+    setCleanupSelected(new Set(cleanupMatches.map(c => c.contact_id)));
+  }
+  function clearCleanupSelection() {
+    setCleanupSelected(new Set());
+  }
+
+  async function runCleanupDelete() {
+    if (!cleanupSelected.size || cleanupDeleting) return;
+    if (!confirm(`ลบผู้ติดต่อที่เลือกไว้ ${cleanupSelected.size} รายการ? (ยังกู้คืนได้ทีหลังถ้าจำเป็น)`)) return;
+    setCleanupDeleting(true);
+    try {
+      const r = await fetch('/api/pos/contacts', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId: shopInfo.id, contact_ids: Array.from(cleanupSelected) }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error);
+      showToast(`ลบแล้ว ${d.deleted} รายการ`);
+      await fetchContacts(shopInfo.id);
+      setCleanupSelected(new Set());
+      loadCleanupInfo();
+    } catch (err) {
+      showToast('ลบไม่สำเร็จ: ' + err.message);
+    }
+    setCleanupDeleting(false);
+  }
+
+  function formatCleanupLastActivity(iso) {
+    if (!iso) return 'ไม่เคยมีธุรกรรม';
+    const days = Math.floor((Date.now() - new Date(iso).getTime()) / (24 * 60 * 60 * 1000));
+    if (days < 30) return `${days} วันก่อน`;
+    if (days < 365) return `${Math.floor(days / 30)} เดือนก่อน`;
+    return `${Math.floor(days / 365)} ปีก่อน`;
+  }
 
   // ตัวกรองออเดอร์จัดส่ง — สถานะ (ค้าง/จัดส่งแล้ว) + วันที่ (วันนี้/เดือนนี้) กันหายากตอนออเดอร์เยอะ
   const displayOrders = useMemo(() => {
@@ -5593,6 +5703,9 @@ export default function POSPage() {
                       contactOutstandingOnly ? 'bg-red-700 text-white' : 'bg-gray-800 text-red-300 hover:bg-gray-700'
                     }`}
                   >🧾 ยอดค้างชำระ/ค้างสินค้า</button>
+                  <button onClick={openCleanupModal}
+                    className="px-4 py-1.5 rounded-full text-xs font-medium bg-gray-800 text-amber-300 hover:bg-gray-700 transition-colors"
+                  >🧹 เช็ครายการซ้ำ/ไม่มีความเคลื่อนไหว</button>
                   {contactSearch && (
                     <span className="px-3 py-1.5 bg-blue-900/40 text-blue-400 text-xs rounded-full">
                       {displayContacts.length} รายการ
@@ -8302,6 +8415,121 @@ export default function POSPage() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ CONTACTS CLEANUP MODAL (เช็ครายการซ้ำ / ไม่มีความเคลื่อนไหว) ═══════════ */}
+      {showCleanupModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-gray-900 rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto flex flex-col">
+            <div className="p-4 border-b border-gray-800 flex items-center justify-between sticky top-0 bg-gray-900 z-10">
+              <h3 className="text-white font-bold text-base">🧹 เช็ครายการซ้ำ / ไม่มีความเคลื่อนไหว</h3>
+              <button onClick={() => setShowCleanupModal(false)} disabled={cleanupDeleting}
+                className="text-gray-500 hover:text-white text-xl w-8 h-8 flex items-center justify-center disabled:opacity-30">✕</button>
+            </div>
+
+            <div className="p-5">
+              {cleanupLoading ? (
+                <div className="text-center text-gray-500 py-16 animate-pulse">กำลังตรวจสอบผู้ติดต่อทั้งหมด...</div>
+              ) : !cleanupInfo ? (
+                <div className="text-center text-gray-500 py-16">โหลดข้อมูลไม่สำเร็จ ลองปิดแล้วเปิดใหม่</div>
+              ) : (
+                <>
+                  {/* filters */}
+                  <div className="mb-4">
+                    <p className="text-gray-500 text-xs mb-2">รายการซ้ำ</p>
+                    <button onClick={() => setCleanupDuplicatesOnly(v => !v)}
+                      className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                        cleanupDuplicatesOnly ? 'bg-amber-600 text-white' : 'bg-gray-800 text-amber-300 hover:bg-gray-700'
+                      }`}
+                    >🔁 เฉพาะที่ชื่อ+เบอร์ซ้ำกัน</button>
+                  </div>
+                  <div className="mb-4">
+                    <p className="text-gray-500 text-xs mb-2">ไม่มีความเคลื่อนไหว (ไม่เคยซื้อขาย/ค้างชำระ) นานกว่า</p>
+                    <div className="flex gap-2 flex-wrap">
+                      {[3, 6, 12].map(m => (
+                        <button key={m} onClick={() => setCleanupInactiveMonths(v => v === m ? null : m)}
+                          className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                            cleanupInactiveMonths === m ? 'bg-red-700 text-white' : 'bg-gray-800 text-red-300 hover:bg-gray-700'
+                          }`}
+                        >{m} เดือน</button>
+                      ))}
+                      {cleanupInactiveMonths && (
+                        <button onClick={() => setCleanupInactiveMonths(null)}
+                          className="px-4 py-1.5 rounded-full text-xs font-medium bg-gray-800 text-gray-400 hover:bg-gray-700 transition-colors"
+                        >ล้างตัวกรองนี้</button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* summary + bulk select */}
+                  <div className="flex items-center justify-between bg-gray-800/60 rounded-xl px-4 py-3 mb-3 flex-wrap gap-2">
+                    <span className="text-gray-300 text-sm">พบ <b className="text-white">{cleanupMatches.length}</b> รายการที่ตรงเงื่อนไข</span>
+                    <div className="flex gap-2">
+                      <button onClick={selectAllCleanupMatches} disabled={!cleanupMatches.length}
+                        className="text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-30 text-gray-200 px-3 py-1.5 rounded-lg transition-colors">
+                        เลือกทั้งหมด ({cleanupMatches.length})
+                      </button>
+                      <button onClick={clearCleanupSelection} disabled={!cleanupSelected.size}
+                        className="text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-30 text-gray-200 px-3 py-1.5 rounded-lg transition-colors">
+                        ล้างที่เลือก
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* list */}
+                  {cleanupMatches.length === 0 ? (
+                    <div className="text-center text-gray-500 py-10 text-sm">ไม่พบรายการที่ตรงเงื่อนไข</div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {pagedCleanupMatches.map(c => (
+                        <label key={c.contact_id}
+                          className="flex items-center gap-3 bg-gray-800 rounded-lg px-3 py-2.5 cursor-pointer hover:bg-gray-750"
+                        >
+                          <input type="checkbox" checked={cleanupSelected.has(c.contact_id)}
+                            onChange={() => toggleCleanupSelect(c.contact_id)}
+                            className="w-4 h-4 shrink-0 accent-red-600" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-white text-sm font-medium truncate">{c.name}</span>
+                              {c._cleanup?.is_duplicate && (
+                                <span className="text-[10px] bg-amber-900/60 text-amber-300 px-2 py-0.5 rounded-full shrink-0">
+                                  🔁 ซ้ำ x{c._cleanup.duplicate_group_size}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-gray-500 text-xs mt-0.5">
+                              {c.phone || 'ไม่มีเบอร์'} · {formatCleanupLastActivity(c._cleanup?.last_activity_at)}
+                            </div>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+
+                  {cleanupMatches.length > CLEANUP_PER_PAGE && (
+                    <div className="flex items-center justify-between mt-3">
+                      <button onClick={() => setCleanupPage(p => Math.max(1, p - 1))} disabled={cleanupPage <= 1}
+                        className="text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-30 text-gray-300 px-3 py-2 rounded-lg transition-colors">← ก่อนหน้า</button>
+                      <span className="text-gray-500 text-xs">หน้า {cleanupPage} / {cleanupTotalPages}</span>
+                      <button onClick={() => setCleanupPage(p => Math.min(cleanupTotalPages, p + 1))} disabled={cleanupPage >= cleanupTotalPages}
+                        className="text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-30 text-gray-300 px-3 py-2 rounded-lg transition-colors">ถัดไป →</button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {cleanupInfo && (
+              <div className="p-4 border-t border-gray-800 sticky bottom-0 bg-gray-900">
+                <button onClick={runCleanupDelete} disabled={!cleanupSelected.size || cleanupDeleting}
+                  className="w-full bg-red-700 hover:bg-red-600 disabled:opacity-40 text-white font-bold py-3 rounded-xl transition-colors text-sm">
+                  {cleanupDeleting ? 'กำลังลบ...' : `🗑️ ลบที่เลือก (${cleanupSelected.size} รายการ)`}
+                </button>
+                <p className="text-gray-600 text-[11px] text-center mt-2">ลบแบบ soft-delete — กู้คืนได้ทีหลังถ้าจำเป็น</p>
+              </div>
+            )}
           </div>
         </div>
       )}
