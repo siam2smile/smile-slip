@@ -3305,6 +3305,48 @@ export default function POSPage() {
     };
   }
 
+  // ── ตรวจ VAT รายตัว ไม่ใช่ตั้งค่าเดียวทั้งไฟล์ — ไฟล์จริงจาก FlowAccount มักมีคอลัมน์คู่กัน
+  // (เช่น UnitPrice กับ UnitPriceWithVat) ให้เทียบได้ตรงๆ ว่าราคาก่อน/หลัง VAT ต่างกันจริงไหม —
+  // สินค้าบางตัว (เช่น "ค่ามัดจำถังก๊าซ") ไม่มี VAT เลยแม้จะอยู่ในไฟล์เดียวกับสินค้าที่มี VAT
+  // (พิสูจน์จริงจากไฟล์ตัวอย่างที่ผู้ใช้ส่งมา: UnitPrice===UnitPriceWithVat เป๊ะสำหรับรายการมัดจำ
+  // ในขณะที่รายการขายจริงอื่นๆ มีอัตราส่วนคงที่ 1.07 เป๊ะ) — เดิมใช้ค่าเดียว (ปุ่มด้านบน) กับทุก
+  // แถวในไฟล์ ทำให้รายการที่ไม่มี VAT จริงถูกตั้งเป็น "รวม VAT แล้ว" ผิดไปด้วย
+  function findVatCounterpartHeader(headers, withVatHeader) {
+    if (!withVatHeader) return '';
+    const hl = withVatHeader.toLowerCase().replace(/\s+/g, '');
+    if (!hl.includes('withvat')) return '';
+    const target = hl.replace('withvat', '');
+    const found = headers.find(h => h !== withVatHeader && h.toLowerCase().replace(/\s+/g, '') === target);
+    return found || '';
+  }
+  // คืน vat_type ของแถวนี้โดยเฉพาะ ถ้าเทียบคอลัมน์ก่อน/หลัง VAT ได้ชัดเจน (อัตราส่วน ~1.00 หรือ
+  // ~1.07 เป๊ะ) ไม่งั้น fallback ไปใช้ค่าที่เลือกไว้ด้านบน (ปุ่ม VAT ของทั้งไฟล์) เหมือนเดิม
+  function detectRowVatType(row, mapping, headers, fallbackVatType) {
+    const beforeVatCol = findVatCounterpartHeader(headers, mapping.price);
+    if (!beforeVatCol) return fallbackVatType;
+    const withVat = parseFloat(row[mapping.price]) || 0;
+    const beforeVat = parseFloat(row[beforeVatCol]) || 0;
+    if (beforeVat <= 0) return fallbackVatType;
+    const ratio = withVat / beforeVat;
+    if (Math.abs(ratio - 1) < 0.005) return 'ไม่มี VAT';
+    if (Math.abs(ratio - 1.07) < 0.01) return 'รวม VAT แล้ว';
+    return fallbackVatType;
+  }
+
+  // สรุปผลตรวจ VAT รายตัวให้เห็นก่อนกดนำเข้าจริง — ใช้ fallback เป็น null เพื่อแยกนับ "เทียบไม่ได้
+  // เลยจะใช้ค่าเริ่มต้นด้านบน" ออกจาก "ตรวจแล้วมี/ไม่มี VAT จริง" ให้ผู้ใช้เห็นความโปร่งใสก่อนนำเข้า
+  const prodImportVatSummary = useMemo(() => {
+    if (!prodImportRows.length || !prodImportMapping.price) return null;
+    let withVat = 0, noVat = 0, fallback = 0;
+    for (const row of prodImportRows) {
+      const t = detectRowVatType(row, prodImportMapping, prodImportHeaders, null);
+      if (t === 'รวม VAT แล้ว') withVat++;
+      else if (t === 'ไม่มี VAT') noVat++;
+      else fallback++;
+    }
+    return { withVat, noVat, fallback };
+  }, [prodImportRows, prodImportMapping, prodImportHeaders]);
+
   function applyProdImportRawRows(rowsOfCells) {
     const { headers, rows } = buildProductImportFromRawRows(rowsOfCells);
     setProdImportHeaders(headers);
@@ -3377,7 +3419,9 @@ export default function POSPage() {
         product_code: code,
         barcode:      (prodImportMapping.barcode      ? row[prodImportMapping.barcode]      : '') || '',
         description:  (prodImportMapping.description  ? row[prodImportMapping.description]  : '') || '',
-        vat_type:     prodImportVatType,
+        // ตรวจ VAT รายตัวก่อนเสมอ (เทียบคอลัมน์ก่อน/หลัง VAT ถ้ามีคู่กันในไฟล์) — fallback ไปใช้
+        // ค่าที่เลือกไว้ด้านบนเฉพาะแถวที่เทียบไม่ได้ (เช่น ไม่มีคอลัมน์ก่อน VAT ให้เทียบเลย)
+        vat_type:     detectRowVatType(row, prodImportMapping, prodImportHeaders, prodImportVatType),
       });
     }
 
@@ -8676,7 +8720,7 @@ export default function POSPage() {
                   </div>
 
                   <div>
-                    <h4 className="text-white font-medium text-sm mb-2">ประเภท VAT ของราคาที่นำเข้า (ใช้กับทุกรายการในไฟล์นี้)</h4>
+                    <h4 className="text-white font-medium text-sm mb-2">ประเภท VAT เริ่มต้น (ใช้เฉพาะรายการที่ระบบเทียบ VAT อัตโนมัติไม่ได้)</h4>
                     <div className="flex gap-2">
                       {['ไม่มี VAT', 'รวม VAT แล้ว', 'ไม่รวม VAT'].map(t => (
                         <button key={t} type="button" onClick={() => setProdImportVatType(t)}
@@ -8685,16 +8729,24 @@ export default function POSPage() {
                         </button>
                       ))}
                     </div>
-                    {/* บอกเหตุผลที่ระบบเดาให้ตรงๆ (ชื่อคอลัมน์ที่เลือกไว้) กันสับสนว่าทำไมถึงตั้ง
-                        เป็น "รวม VAT แล้ว" ให้เอง — ผู้ใช้เคยงงว่าทำไมราคาทุกอันกลายเป็นรวม VAT
-                        หมด ทั้งที่ต้นฉบับ (เช่นตอนอยู่ Google Sheets) ไม่ได้คิดแบบนั้น — เปลี่ยนปุ่ม
-                        ด้านบนหรือเปลี่ยนคอลัมน์ราคาที่จับคู่ไว้ (เช่นสลับไปใช้ "UnitPrice" แทน
-                        "UnitPriceWithVat") ได้ทันทีถ้าไม่ตรงกับที่ร้านใช้จริง */}
-                    <p className="text-amber-400/90 text-xs mt-2 bg-amber-900/20 border border-amber-800/50 rounded-lg px-3 py-2">
-                      💡 ระบบเลือก "{prodImportVatType}" ให้อัตโนมัติ เพราะคอลัมน์ราคาที่จับคู่ไว้คือ
-                      "<b>{prodImportMapping.price || '—'}</b>"{prodImportMapping.price?.toLowerCase().replace(/\s+/g, '').includes('withvat') ? ' (ชื่อคอลัมน์มีคำว่า "WithVat" แปลว่าเป็นราคารวมภาษีแล้ว)' : ''} —
-                      ถ้าราคาจริงที่ร้านใช้ไม่ตรงกับนี้ เปลี่ยนปุ่มด้านบนได้เลย หรือย้อนกลับไปเลือกคอลัมน์ราคาอื่น (เช่น "UnitPrice" แทน "UnitPriceWithVat") ในหัวข้อ "ราคาขาย" ด้านบน
-                    </p>
+                    {/* สรุปผลตรวจ VAT รายตัวก่อนนำเข้าจริง — เดิมใช้ปุ่มด้านบนแบบเดียวกับทุกแถวใน
+                        ไฟล์ ทำให้รายการที่ไม่มี VAT จริง (เช่น "ค่ามัดจำถังก๊าซ") ถูกตั้งเป็น "รวม
+                        VAT แล้ว" ผิดไปด้วย — ตอนนี้เทียบคอลัมน์ก่อน/หลัง VAT ต่อแถว (ถ้าไฟล์มีคู่กัน
+                        เช่น UnitPrice กับ UnitPriceWithVat) ปุ่มด้านบนเป็นแค่ค่า fallback สำหรับ
+                        แถวที่เทียบไม่ได้เท่านั้น */}
+                    {prodImportVatSummary ? (
+                      <p className="text-amber-400/90 text-xs mt-2 bg-amber-900/20 border border-amber-800/50 rounded-lg px-3 py-2 leading-relaxed">
+                        💡 ตรวจ VAT รายตัวจากคอลัมน์ "<b>{prodImportMapping.price}</b>" เทียบกับคอลัมน์ราคาก่อน VAT อัตโนมัติแล้ว:{' '}
+                        {prodImportVatSummary.withVat > 0 && <>มี VAT <b className="text-white">{prodImportVatSummary.withVat}</b> รายการ, </>}
+                        {prodImportVatSummary.noVat > 0 && <>ไม่มี VAT <b className="text-white">{prodImportVatSummary.noVat}</b> รายการ, </>}
+                        {prodImportVatSummary.fallback > 0 && <>เทียบไม่ได้ (ใช้ค่าเริ่มต้นด้านบน "{prodImportVatType}") <b className="text-white">{prodImportVatSummary.fallback}</b> รายการ</>}
+                        {' '}— แก้รายตัวได้ทีหลังถ้าไม่ตรง
+                      </p>
+                    ) : (
+                      <p className="text-gray-500 text-xs mt-2">
+                        ไม่พบคอลัมน์ราคาก่อน VAT คู่กันในไฟล์นี้ ระบบจะใช้ค่าเริ่มต้นด้านบนกับทุกรายการ
+                      </p>
+                    )}
                   </div>
 
                   <div>
