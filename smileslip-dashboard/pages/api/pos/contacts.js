@@ -26,10 +26,21 @@ export default async function handler(req, res) {
   try {
     // ── GET ──────────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const { data, error } = await supabase.from('pos_contacts').select('*')
-        .eq('shop_id', shopId).is('deleted_at', null).order('created_at', { ascending: true });
-      if (error) throw error;
-      let contacts = (data || []).map(contactFromRow).filter(c => c.contact_id && c.name);
+      // Supabase/PostgREST คืนสูงสุด 1,000 แถวต่อ query เสมอไม่ว่าจะขอกี่แถวก็ตาม (default
+      // db-max-rows) — ถ้าไม่ paginate เอง ร้านที่มีผู้ติดต่อเกิน 1,000 คน (พบจริงกับร้าน D Gas
+      // ที่มี 2,000+ คน) จะเห็นรายชื่อไม่ครบเงียบๆ โดยไม่มี error ให้เห็นเลย — วนอ่านทีละ 1,000
+      // แถวจนครบ
+      const PAGE = 1000;
+      let data = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data: page, error } = await supabase.from('pos_contacts').select('*')
+          .eq('shop_id', shopId).is('deleted_at', null).order('created_at', { ascending: true })
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        data = data.concat(page || []);
+        if (!page || page.length < PAGE) break;
+      }
+      let contacts = data.map(contactFromRow).filter(c => c.contact_id && c.name);
 
       // filter by type (ลูกค้า/ผู้จำหน่าย/ทั้งคู่)
       if (req.query.type) {

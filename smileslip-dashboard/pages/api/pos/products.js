@@ -31,10 +31,20 @@ export default async function handler(req, res) {
   try {
     // ── GET ──────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
-      const { data, error } = await supabase.from('pos_products').select('*')
-        .eq('shop_id', shopId).is('deleted_at', null).order('created_at', { ascending: true });
-      if (error) throw error;
-      let products = (data || []).map(productFromRow).filter(p => p.sku && p.name);
+      // Supabase/PostgREST คืนสูงสุด 1,000 แถวต่อ query เสมอ (default db-max-rows) — ร้านที่มี
+      // สินค้าเกิน 1,000 SKU (เช่น นำเข้าแคตตาล็อกใหญ่ผ่าน Excel/CSV) จะเห็นรายการไม่ครบเงียบๆ
+      // ถ้าไม่ paginate เอง (เจอบั๊กเดียวกันจริงกับ contacts.js — ผู้ติดต่อ 2,121 คน เห็นแค่ 1,000)
+      const PAGE = 1000;
+      let data = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data: page, error } = await supabase.from('pos_products').select('*')
+          .eq('shop_id', shopId).is('deleted_at', null).order('created_at', { ascending: true })
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        data = data.concat(page || []);
+        if (!page || page.length < PAGE) break;
+      }
+      let products = data.map(productFromRow).filter(p => p.sku && p.name);
 
       // ถ้าไม่ระบุ showInactive ให้คืนเฉพาะสินค้าที่ active (is_active = true)
       if (!req.query.showInactive) products = products.filter(p => p.is_active !== false);
