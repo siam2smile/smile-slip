@@ -3099,30 +3099,35 @@ export default function POSPage() {
     setIsVcfMode(false);
   }
 
-  // ── นำเข้าสินค้าจาก CSV (เช่น export จาก FlowAccount/ระบบบัญชีอื่น) ────────────
-  // reuse parseCSVLine เดิม (generic ไม่ผูกกับผู้ติดต่อ) แต่แยก parser ของตัวเองจากผู้ติดต่อ
-  // (ไม่ใช้ parseCSVText ตรงๆ) เพราะไฟล์ export จริงจาก FlowAccount มีแถวหัวเรื่อง/แถวว่างนำ
-  // หน้าคอลัมน์จริง 2 แถว (พิสูจน์จากไฟล์ตัวอย่างจริงที่ผู้ใช้ส่งมา) ถ้าเดาว่าแถวแรกสุดคือ header
-  // เสมอแบบผู้ติดต่อจะจับคู่คอลัมน์ผิดหมด — ต้องหาแถวที่ "ดูเหมือน header จริง" ก่อน (แถวที่มีเซลล์
-  // ไม่ว่างมากที่สุดในบรรดา 10 แถวแรก มักจะเป็นแถว header จริงเสมอ ต่างจากแถวหัวเรื่อง/แถวว่าง)
-  function findBestHeaderRowIndex(lines) {
+  // ── นำเข้าสินค้าจาก Excel/CSV (เช่น export จาก FlowAccount/ระบบบัญชีอื่น) ──────
+  // ทำงานบน "แถวดิบ" (array of array-of-cell) กลางร่วมกันทั้งสองแหล่งไฟล์ — CSV แปลงข้อความ
+  // เป็นแถวดิบผ่าน parseCSVLine เดิม, Excel (.xlsx/.xls) แปลงผ่าน sheet_to_json({header:1})
+  // ของ xlsx library แล้วป้อนเข้า buildProductImportFromRawRows ตัวเดียวกัน — ไฟล์ export จริง
+  // จาก FlowAccount มีแถวหัวเรื่อง/แถวว่างนำหน้าคอลัมน์จริง 2 แถว (พิสูจน์จากไฟล์ตัวอย่างจริงที่
+  // ผู้ใช้ส่งมา) ถ้าเดาว่าแถวแรกสุดคือ header เสมอแบบผู้ติดต่อจะจับคู่คอลัมน์ผิดหมด — ต้องหาแถวที่
+  // "ดูเหมือน header จริง" ก่อน (แถวที่มีเซลล์ไม่ว่างมากที่สุดในบรรดา 10 แถวแรก มักจะเป็นแถว header
+  // จริงเสมอ ต่างจากแถวหัวเรื่อง/แถวว่าง)
+  function findBestHeaderRowIndex(rowsOfCells) {
     let bestIdx = 0, bestCount = -1;
-    for (let i = 0; i < Math.min(10, lines.length); i++) {
-      const nonEmpty = parseCSVLine(lines[i]).filter(c => c.trim()).length;
+    for (let i = 0; i < Math.min(10, rowsOfCells.length); i++) {
+      const nonEmpty = rowsOfCells[i].filter(c => String(c ?? '').trim()).length;
       if (nonEmpty > bestCount) { bestCount = nonEmpty; bestIdx = i; }
     }
     return bestIdx;
   }
-  function parseProductCSVText(text) {
-    const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim());
-    if (!lines.length) return { headers: [], rows: [] };
-    const headerIdx = findBestHeaderRowIndex(lines);
-    const headers = parseCSVLine(lines[headerIdx]).map(h => h.replace(/^"|"$/g, ''));
-    const rows = lines.slice(headerIdx + 1).map(line => {
-      const vals = parseCSVLine(line).map(v => v.replace(/^"|"$/g, ''));
-      return headers.reduce((obj, h, i) => { obj[h] = (vals[i] || '').trim(); return obj; }, {});
+  function buildProductImportFromRawRows(rowsOfCells) {
+    const cleaned = rowsOfCells.filter(r => r.some(c => String(c ?? '').trim()));
+    if (!cleaned.length) return { headers: [], rows: [] };
+    const headerIdx = findBestHeaderRowIndex(cleaned);
+    const headers = cleaned[headerIdx].map(h => String(h ?? '').replace(/^"|"$/g, '').trim());
+    const rows = cleaned.slice(headerIdx + 1).map(vals => {
+      return headers.reduce((obj, h, i) => { obj[h] = String(vals[i] ?? '').replace(/^"|"$/g, '').trim(); return obj; }, {});
     });
     return { headers, rows: rows.filter(r => Object.values(r).some(v => v)) };
+  }
+  function csvTextToRawRows(text) {
+    return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
+      .filter(l => l.trim()).map(line => parseCSVLine(line));
   }
 
   // จับคู่ตามลำดับความสำคัญ (ตัวแรกที่เจอชนะ) — เช็คชื่อคอลัมน์แบบ FlowAccount จริง (อังกฤษ:
@@ -3151,23 +3156,47 @@ export default function POSPage() {
     };
   }
 
+  function applyProdImportRawRows(rowsOfCells) {
+    const { headers, rows } = buildProductImportFromRawRows(rowsOfCells);
+    setProdImportHeaders(headers);
+    setProdImportRows(rows);
+    const mapping = autoDetectProdMapping(headers);
+    setProdImportMapping(mapping);
+    // ราคาที่จับคู่เป็นคอลัมน์ "รวม VAT" (เช่น UnitPriceWithVat) พร้อมใช้เป็นราคาขายจริงทันที
+    // ตั้ง default ประเภท VAT ให้ตรงกันอัตโนมัติ (ยังแก้ในหน้าจอได้ถ้าไม่ตรง)
+    if (mapping.price && mapping.price.toLowerCase().replace(/\s+/g, '').includes('withvat')) {
+      setProdImportVatType('รวม VAT แล้ว');
+    } else {
+      setProdImportVatType('ไม่มี VAT');
+    }
+  }
+
+  // รองรับทั้ง Excel (.xlsx/.xls) และ CSV — เดิมรับแค่ CSV ทำให้ต้องเปิด Excel แล้ว Save As
+  // เองก่อนเสมอ (friction ที่ไม่จำเป็น เพราะไฟล์ export จริงจาก FlowAccount เป็น .xlsx ตรงๆ) —
+  // dynamic import `xlsx` เฉพาะตอนเลือกไฟล์ Excel จริง กัน bundle ของ pos.js (ใหญ่สุดในระบบ)
+  // บวมขึ้นสำหรับคนที่ไม่เคยใช้ฟีเจอร์นี้เลย
   function handleProdImportFile(file) {
+    const name = (file.name || '').toLowerCase();
+    const isExcel = name.endsWith('.xlsx') || name.endsWith('.xls');
     const reader = new FileReader();
-    reader.onload = e => {
-      const { headers, rows } = parseProductCSVText(e.target.result);
-      setProdImportHeaders(headers);
-      setProdImportRows(rows);
-      const mapping = autoDetectProdMapping(headers);
-      setProdImportMapping(mapping);
-      // ราคาที่จับคู่เป็นคอลัมน์ "รวม VAT" (เช่น UnitPriceWithVat) พร้อมใช้เป็นราคาขายจริงทันที
-      // ตั้ง default ประเภท VAT ให้ตรงกันอัตโนมัติ (ยังแก้ในหน้าจอได้ถ้าไม่ตรง)
-      if (mapping.price && mapping.price.toLowerCase().replace(/\s+/g, '').includes('withvat')) {
-        setProdImportVatType('รวม VAT แล้ว');
-      } else {
-        setProdImportVatType('ไม่มี VAT');
-      }
-    };
-    reader.readAsText(file, 'UTF-8');
+    if (isExcel) {
+      reader.onload = async (e) => {
+        try {
+          const XLSX = await import('xlsx');
+          const wb = XLSX.read(e.target.result, { type: 'array' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const rowsOfCells = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: '' });
+          applyProdImportRawRows(rowsOfCells);
+        } catch (err) {
+          console.error('[prod-import] excel parse error:', err);
+          showToast('อ่านไฟล์ Excel นี้ไม่สำเร็จ — ลองเปิดแล้ว Save As เป็น CSV แทน');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      reader.onload = e => applyProdImportRawRows(csvTextToRawRows(e.target.result));
+      reader.readAsText(file, 'UTF-8');
+    }
   }
 
   async function runProdImport() {
@@ -8277,12 +8306,12 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* ══ PRODUCTS CSV IMPORT MODAL (เช่น นำเข้าจาก FlowAccount) ═══════════════ */}
+      {/* ══ PRODUCTS EXCEL/CSV IMPORT MODAL (เช่น นำเข้าจาก FlowAccount) ═══════════ */}
       {showProdImportModal && (
         <div className="fixed inset-0 z-50 bg-black/75 flex items-end sm:items-center justify-center p-4">
           <div className="bg-gray-900 rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
             <div className="p-4 border-b border-gray-800 flex items-center justify-between sticky top-0 bg-gray-900 z-10">
-              <h3 className="text-white font-bold text-base">📥 นำเข้าสินค้าจาก CSV</h3>
+              <h3 className="text-white font-bold text-base">📥 นำเข้าสินค้าจาก Excel/CSV</h3>
               <button onClick={closeProdImportModal} disabled={prodImportLoading}
                 className="text-gray-500 hover:text-white text-xl w-8 h-8 flex items-center justify-center disabled:opacity-30">✕</button>
             </div>
@@ -8307,9 +8336,11 @@ export default function POSPage() {
                   <div onClick={() => prodImportFileRef.current?.click()}
                     className="border-2 border-dashed border-gray-600 hover:border-green-500 rounded-xl p-10 text-center cursor-pointer transition-colors group">
                     <div className="text-4xl mb-3 group-hover:scale-110 transition-transform">📦</div>
-                    <p className="text-gray-200 font-medium mb-1">คลิกเพื่อเลือกไฟล์ CSV</p>
-                    <p className="text-gray-500 text-xs">Export จาก FlowAccount หรือระบบบัญชี/POS อื่น แล้วอัปโหลดที่นี่</p>
-                    <input ref={prodImportFileRef} type="file" accept=".csv,text/csv" className="hidden"
+                    <p className="text-gray-200 font-medium mb-1">คลิกเพื่อเลือกไฟล์ Excel หรือ CSV</p>
+                    <p className="text-gray-500 text-xs">Export จาก FlowAccount หรือระบบบัญชี/POS อื่น แล้วอัปโหลดที่นี่ได้เลย ไม่ต้องแปลงไฟล์</p>
+                    <input ref={prodImportFileRef} type="file"
+                      accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                      className="hidden"
                       onChange={e => { if (e.target.files?.[0]) { handleProdImportFile(e.target.files[0]); e.target.value = ''; } }} />
                   </div>
                   <div className="mt-4 flex items-center justify-between">
@@ -8321,8 +8352,8 @@ export default function POSPage() {
                   </div>
                   <div className="mt-4 bg-gray-800/50 rounded-xl p-4 text-xs text-gray-400 space-y-1.5">
                     <p className="font-medium text-gray-300 mb-2">💡 วิธี Export จาก FlowAccount</p>
-                    <p>• เข้าเมนู "สินค้า/บริการ" → เลือกส่งออก/Export → บันทึกเป็นไฟล์ Excel/CSV</p>
-                    <p>• ถ้าได้ไฟล์ Excel (.xlsx) ให้เปิดแล้ว Save As → CSV (Comma delimited) ก่อนอัปโหลด</p>
+                    <p>• เข้าเมนู "สินค้า/บริการ" → เลือกส่งออก/Export → บันทึกเป็นไฟล์ Excel หรือ CSV</p>
+                    <p>• อัปโหลดไฟล์ .xlsx/.xls/.csv ได้ตรงๆ เลย ไม่ต้องเปิด Excel แปลงเป็น CSV เองก่อนแล้ว</p>
                     <p>• ระบบอื่นก็ใช้วิธีเดียวกันได้ — อัปโหลดแล้วจับคู่คอลัมน์เองได้ในขั้นต่อไป ไม่จำเป็นต้องตรงชื่อเป๊ะ</p>
                     <p>• สินค้าที่นำเข้าทั้งหมดจะเป็นประเภท "นับสต็อค" — ถ้าเป็นสินค้าหมุนเวียน (เช่น ถังแก๊ส) แก้ไขทีละรายการทีหลังได้</p>
                   </div>
