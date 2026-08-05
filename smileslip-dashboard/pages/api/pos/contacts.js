@@ -105,16 +105,24 @@ export default async function handler(req, res) {
         cylinder_limit = 0,
       } = req.body;
       if (!name) return res.status(400).json({ error: 'ต้องระบุชื่อ' });
-      if (parseFloat(debt) < 0) return res.status(400).json({ error: 'ยอดค้างชำระต้องไม่ติดลบ' });
-      if (parseFloat(cylinders) < 0) return res.status(400).json({ error: 'จำนวนถังต้องไม่ติดลบ' });
+      // ฟอร์มเว็บส่งค่าว่าง ('') มาเสมอถ้าไม่ได้กรอกช่องตัวเลข (debt/cylinders/cylinder_limit) —
+      // Postgres รับ '' เป็นค่า numeric ตรงๆ ไม่ได้ (error 'invalid input syntax for type
+      // numeric: ""' ซึ่งขึ้นเป็นข้อความดิบที่งงมากถ้าไม่ได้แปลงก่อนเสมอ) ต้องแปลงเป็นตัวเลขจริง
+      // (ว่าง = 0) ก่อนเช็ค/insert ทุกครั้ง
+      const debtNum = parseFloat(debt) || 0;
+      const cylindersNum = parseFloat(cylinders) || 0;
+      const cylinderLimitNum = parseFloat(cylinder_limit) || 0;
+      if (debtNum < 0) return res.status(400).json({ error: 'ยอดค้างชำระต้องไม่ติดลบ' });
+      if (cylindersNum < 0) return res.status(400).json({ error: 'จำนวนถังต้องไม่ติดลบ' });
 
       const contact_id = makeContactId();
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
       const { error } = await supabase.from('pos_contacts').insert({
         shop_id: shopId, contact_id, name, contact_type, phone, email,
         address_1, maps_1, address_2, maps_2, company_name, tax_id, tax_address, tax_branch,
-        debt, cylinders, shop_name, aliases, notes, contact_created_at: now, contact_updated_at: now,
-        person_type, contact_person_name, contact_person_phone, cylinder_limit: cylinder_limit || 0,
+        debt: debtNum, cylinders: cylindersNum, shop_name, aliases, notes,
+        contact_created_at: now, contact_updated_at: now,
+        person_type, contact_person_name, contact_person_phone, cylinder_limit: cylinderLimitNum,
       });
       if (error) throw error;
       return res.json({ ok: true, contact_id, name });
@@ -152,15 +160,17 @@ export default async function handler(req, res) {
       if (updates.tax_id               !== undefined) supaUpdates.tax_id = updates.tax_id;
       if (updates.tax_address          !== undefined) supaUpdates.tax_address = updates.tax_address;
       if (updates.tax_branch           !== undefined) supaUpdates.tax_branch = updates.tax_branch;
-      if (updates.debt                 !== undefined) supaUpdates.debt = updates.debt;
-      if (updates.cylinders            !== undefined) supaUpdates.cylinders = updates.cylinders;
+      // ช่องตัวเลข — ฟอร์มเว็บอาจส่งค่าว่าง ('') มาถ้าผู้ใช้ลบข้อความในช่องจนหมด ต้องแปลงเป็น
+      // ตัวเลขจริงก่อนเสมอ (ว่าง = 0) กัน Postgres error 'invalid input syntax for type numeric'
+      if (updates.debt                 !== undefined) supaUpdates.debt = parseFloat(updates.debt) || 0;
+      if (updates.cylinders            !== undefined) supaUpdates.cylinders = parseFloat(updates.cylinders) || 0;
       if (updates.shop_name            !== undefined) supaUpdates.shop_name = updates.shop_name;
       if (updates.aliases              !== undefined) supaUpdates.aliases = updates.aliases;
       if (updates.notes                !== undefined) supaUpdates.notes = updates.notes;
       if (updates.person_type          !== undefined) supaUpdates.person_type = updates.person_type;
       if (updates.contact_person_name  !== undefined) supaUpdates.contact_person_name = updates.contact_person_name;
       if (updates.contact_person_phone !== undefined) supaUpdates.contact_person_phone = updates.contact_person_phone;
-      if (updates.cylinder_limit       !== undefined) supaUpdates.cylinder_limit = updates.cylinder_limit;
+      if (updates.cylinder_limit       !== undefined) supaUpdates.cylinder_limit = parseFloat(updates.cylinder_limit) || 0;
 
       const { error } = await supabase.from('pos_contacts').update(supaUpdates)
         .eq('shop_id', shopId).eq('contact_id', contact_id);

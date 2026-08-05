@@ -3129,17 +3129,6 @@ export default function POSPage() {
     return result;
   }
 
-  function parseCSVText(text) {
-    const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim());
-    if (lines.length < 2) return { headers: [], rows: [] };
-    const headers = parseCSVLine(lines[0]).map(h => h.replace(/^"|"$/g, ''));
-    const rows = lines.slice(1).map(line => {
-      const vals = parseCSVLine(line).map(v => v.replace(/^"|"$/g, ''));
-      return headers.reduce((obj, h, i) => { obj[h] = (vals[i] || '').trim(); return obj; }, {});
-    });
-    return { headers, rows: rows.filter(r => Object.values(r).some(v => v)) };
-  }
-
   function autoDetectMapping(headers) {
     const m = { name: '', phone: '', email: '', company_name: '', notes: '' };
     headers.forEach(h => {
@@ -3153,25 +3142,54 @@ export default function POSPage() {
     return m;
   }
 
+  // รองรับ VCF (รายชื่อโทรศัพท์), Excel (.xlsx/.xls) และ CSV — เดิมรับแค่ VCF/CSV เท่านั้น
+  // (parseCSVText แบบเก่าสมมติว่าแถวแรกสุดคือ header เสมอ ไม่รองรับไฟล์ที่มีแถวหัวเรื่อง/แถวว่าง
+  // นำหน้าแบบ FlowAccount) — เปลี่ยนมาใช้ตัว parser ร่วมกับสินค้า (csvTextToRawRows +
+  // buildProductImportFromRawRows — ชื่อฟังก์ชันเหลือคำว่า "Product" จากตอนสร้างไว้ให้สินค้าก่อน
+  // แต่ตัว logic เป็น generic ล้วนๆ ไม่ผูกกับสินค้าเลย) ได้ทั้งความสามารถหา header row ที่ฉลาดขึ้น
+  // และรองรับ Excel ไปพร้อมกัน
   function handleImportFile(file) {
-    const isVcf = file.name.toLowerCase().endsWith('.vcf') || file.type === 'text/vcard' || file.type === 'text/x-vcard';
+    const name = (file.name || '').toLowerCase();
+    const isVcf = name.endsWith('.vcf') || file.type === 'text/vcard' || file.type === 'text/x-vcard';
+    const isExcel = name.endsWith('.xlsx') || name.endsWith('.xls');
     const reader = new FileReader();
-    reader.onload = e => {
-      if (isVcf) {
+    if (isVcf) {
+      reader.onload = e => {
         const contacts = parseVCFText(e.target.result);
         setIsVcfMode(true);
         setImportHeaders(['name', 'phone', 'email', 'company_name', 'notes']);
         setImportRows(contacts);
         setImportMapping({ name: 'name', phone: 'phone', email: 'email', company_name: 'company_name', notes: 'notes' });
-      } else {
-        const { headers, rows } = parseCSVText(e.target.result);
+      };
+      reader.readAsText(file, 'UTF-8');
+    } else if (isExcel) {
+      reader.onload = async (e) => {
+        try {
+          const XLSX = await import('xlsx');
+          const wb = XLSX.read(e.target.result, { type: 'array' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const rowsOfCells = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: '' });
+          const { headers, rows } = buildProductImportFromRawRows(rowsOfCells);
+          setIsVcfMode(false);
+          setImportHeaders(headers);
+          setImportRows(rows);
+          setImportMapping(autoDetectMapping(headers));
+        } catch (err) {
+          console.error('[contact-import] excel parse error:', err);
+          showToast('อ่านไฟล์ Excel นี้ไม่สำเร็จ — ลองเปิดแล้ว Save As เป็น CSV แทน');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      reader.onload = e => {
+        const { headers, rows } = buildProductImportFromRawRows(csvTextToRawRows(e.target.result));
         setIsVcfMode(false);
         setImportHeaders(headers);
         setImportRows(rows);
         setImportMapping(autoDetectMapping(headers));
-      }
-    };
-    reader.readAsText(file, 'UTF-8');
+      };
+      reader.readAsText(file, 'UTF-8');
+    }
   }
 
   async function runImport() {
@@ -8385,8 +8403,10 @@ export default function POSPage() {
                     className="border-2 border-dashed border-gray-600 hover:border-green-500 rounded-xl p-10 text-center cursor-pointer transition-colors group">
                     <div className="text-4xl mb-3 group-hover:scale-110 transition-transform">📱</div>
                     <p className="text-gray-200 font-medium mb-1">คลิกเพื่อเลือกไฟล์</p>
-                    <p className="text-gray-500 text-xs">รองรับ <strong className="text-green-400">VCF</strong> (รายชื่อโทรศัพท์) และ <strong className="text-blue-400">CSV</strong> (Excel)</p>
-                    <input ref={importFileRef} type="file" accept=".vcf,.csv,text/vcard,text/x-vcard,text/csv" className="hidden"
+                    <p className="text-gray-500 text-xs">รองรับ <strong className="text-green-400">VCF</strong> (รายชื่อโทรศัพท์), <strong className="text-blue-400">Excel</strong> และ <strong className="text-blue-400">CSV</strong></p>
+                    <input ref={importFileRef} type="file"
+                      accept=".vcf,.csv,.xlsx,.xls,text/vcard,text/x-vcard,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                      className="hidden"
                       onChange={e => { if (e.target.files?.[0]) { handleImportFile(e.target.files[0]); e.target.value = ''; } }} />
                   </div>
                   <div className="mt-4 flex items-center justify-between">
@@ -8401,7 +8421,7 @@ export default function POSPage() {
                     <p>• <strong className="text-green-400">ไฟล์ VCF (แนะนำ):</strong> แอปรายชื่อ → เลือกทั้งหมด → Share / ส่งออก → เลือก "ไฟล์ VCF" หรือ "vCard"</p>
                     <p>• <strong className="text-gray-200">Android / Samsung:</strong> แอป Contacts → ⋮ → จัดการผู้ติดต่อ → นำออก → บันทึกเป็น .vcf</p>
                     <p>• <strong className="text-gray-200">iPhone:</strong> Settings → Contacts → iCloud → Export vCard (หรือใช้แอป "Contacts+")</p>
-                    <p>• <strong className="text-blue-400">ไฟล์ CSV:</strong> เปิด VCF ใน Excel → Save As → CSV หรือดาวน์โหลด Template ด้านบน</p>
+                    <p>• <strong className="text-blue-400">ไฟล์ Excel/CSV:</strong> อัปโหลดไฟล์รายชื่อลูกค้า/ผู้จำหน่ายจากระบบบัญชี (.xlsx/.xls/.csv) ได้ตรงๆ เลย หรือดาวน์โหลด Template ด้านบน</p>
                   </div>
                 </div>
 
@@ -8426,7 +8446,17 @@ export default function POSPage() {
                               onChange={e => setImportMapping(m => ({ ...m, [field]: e.target.value }))}
                               className="flex-1 bg-gray-800 text-white text-xs px-3 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500">
                               <option value="">— ไม่นำเข้า —</option>
-                              {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                              {/* แสดงตัวอย่างค่าจริงจากแถวแรกกำกับชื่อคอลัมน์เสมอ (เหมือนหน้านำเข้า
+                                  สินค้า) กันงงกรณีไฟล์ใช้ชื่อคอลัมน์เป็นภาษาอังกฤษ/ศัพท์เทคนิคที่ผู้ใช้
+                                  ไม่คุ้น — ใช้ได้กับไฟล์ทุกภาษาเพราะดูจากข้อมูลจริงไม่ใช่ชื่อคอลัมน์ */}
+                              {importHeaders.map(h => {
+                                const sample = importRows[0]?.[h];
+                                return (
+                                  <option key={h} value={h}>
+                                    {h}{sample ? ` — เช่น "${String(sample).slice(0, 30)}"` : ''}
+                                  </option>
+                                );
+                              })}
                             </select>
                           </div>
                         ))}
