@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { deleteShopCompletely } from '../../../lib/shop-deletion';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -116,15 +117,14 @@ export default async function handler(req, res) {
     }
 
     // ── ลบร้านค้า ──
+    // ใช้ deleteShopCompletely() ตัวเดียวกับที่ /api/shop/delete-shop.js (ฝั่งลูกค้าลบร้านตัวเอง)
+    // ใช้อยู่แล้ว — เดิมไฟล์นี้มี logic ลบแยกของตัวเอง ลบแค่ 5 ตาราง ไม่ยกเลิก Stripe subscription
+    // เลย (ลูกค้าที่ยังมี subscription active จะโดนเก็บเงินต่อไปเรื่อยๆ ทั้งที่ร้านถูกแอดมินลบไปแล้ว)
+    // และไม่เคยอัปเดตตามหลังระบบ POS ถูกสร้างขึ้น (ข้อมูล POS ทั้งหมดของร้านจะค้างอยู่ในระบบตลอดไป)
     if (action === 'delete_shop') {
-      await supabase.from('shop_admins').delete().eq('shop_id', shopId);
-      await supabase.from('shop_credits').delete().eq('shop_id', shopId);
-      await supabase.from('shop_google_configs').delete().eq('shop_id', shopId);
-      await supabase.from('shop_bank_accounts').delete().eq('shop_id', shopId);
-      await supabase.from('shop_branches').delete().eq('shop_id', shopId);
-      const { error } = await supabase.from('shop_profiles').delete().eq('id', shopId);
-      if (error) throw error;
-      return res.status(200).json({ success: true });
+      const result = await deleteShopCompletely(shopId);
+      if (result.notFound) return res.status(404).json({ error: 'ไม่พบร้านค้านี้' });
+      return res.status(200).json({ success: true, stripeCancelWarning: result.stripeCancelWarning });
     }
 
     return res.status(400).json({ error: 'Unknown action' });

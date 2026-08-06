@@ -449,10 +449,11 @@ export default function AdminDashboard() {
 
   // ── Delete ──
   const handleDelete = async (shopId, shopName) => {
-    if (!confirm(`⚠️ ลบร้าน "${shopName}" ?\nข้อมูลทั้งหมดจะถูกลบถาวร`)) return;
+    if (!confirm(`⚠️ ลบร้าน "${shopName}" ?\nข้อมูลทั้งหมดจะถูกลบถาวร (รวม Stripe subscription ถ้ามี)`)) return;
     try {
-      await callUpdate({ action: 'delete_shop', shopId });
+      const result = await callUpdate({ action: 'delete_shop', shopId });
       setShops(prev => prev.filter(s => s.id !== shopId));
+      if (result.stripeCancelWarning) alert('⚠️ ' + result.stripeCancelWarning);
     } catch (err) { alert('ลบไม่สำเร็จ: ' + err.message); }
   };
 
