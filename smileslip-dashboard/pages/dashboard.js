@@ -1043,7 +1043,7 @@ export default function Dashboard() {
                             {tierKey === 'normal' ? 'อัปเกรด / เติมเครดิต' : 'เติมเครดิต'}
                           </button>
                         )}
-                        <button onClick={() => setActiveTab('ledger')}
+                        <button onClick={() => setActiveTab('accounts')}
                           className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl text-xs font-medium transition-all">
                           ดูรายการ
                         </button>
@@ -2590,7 +2590,9 @@ export default function Dashboard() {
                         ['#สรุปวันที่ 07/06', 'สรุปยอดวันที่ย้อนหลัง (Pro+)'],
                         ['#กำไรขาดทุน / #รายงาน', 'สรุปกำไร-ขาดทุนเดือนนี้ (Pro+)'],
                         ['#สรุปทุกสาขา', 'สรุปยอดแยกรายสาขา (Advance+)'],
-                        ['#สมัครแอดมิน', 'พนักงานในกลุ่มขอสิทธิ์แอดมินร้าน (ต้องรอเจ้าของอนุมัติในเว็บ)'],
+                        ['#สมัครแอดมิน', 'พนักงานในกลุ่มขอสิทธิ์แอดมินร้าน (สิทธิ์ระดับร้านทั้งหมด ต้องรอเจ้าของอนุมัติในเว็บ)'],
+                        ['#สมัครพนักงาน', 'พนักงานในกลุ่มสาขาขอ PIN เข้าเว็บ POS (สิทธิ์ระดับสาขา ต้องรออนุมัติในเว็บ POS)'],
+                        ['#สมัครผู้จัดการสาขา', 'ขอสิทธิ์ผู้จัดการของสาขานั้น (ต้องรออนุมัติในเว็บ POS)'],
                       ].map(([cmd, desc], i) => (
                         <div key={i} className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3 py-2 border-b border-slate-50 last:border-0">
                           <code className="text-xs font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded-lg shrink-0 sm:w-64 break-words">{cmd}</code>

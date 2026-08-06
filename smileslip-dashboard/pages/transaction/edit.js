@@ -216,7 +216,7 @@ export default function EditTransaction() {
           <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center">
             <CheckCircle2 size={42} className="text-green-500 mx-auto mb-3"/>
             <h2 className="text-lg font-black text-slate-900 mb-1">บันทึกการแก้ไขสำเร็จ</h2>
-            <p className="text-slate-400 text-xs mb-5">ข้อมูลใน Google Sheets ถูกอัปเดตแล้ว</p>
+            <p className="text-slate-400 text-xs mb-5">ข้อมูลรายการนี้ถูกอัปเดตแล้ว</p>
             <div className="flex flex-col gap-2 items-center">
               <div className="flex gap-2 justify-center w-full">
                 <button onClick={() => setSaved(false)}
@@ -418,7 +418,7 @@ export default function EditTransaction() {
             </div>
 
             <p className="text-center text-[10px] text-slate-400">
-              การแก้ไขจะอัปเดตข้อมูลใน Google Sheets ของร้านคุณโดยตรง
+              การแก้ไขจะอัปเดตข้อมูลรายการนี้ในระบบทันที
             </p>
           </form>
         )}

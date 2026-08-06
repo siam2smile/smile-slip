@@ -302,7 +302,7 @@ export default function DeliveryPage() {
 
         {/* Tabs */}
         <div className="bg-white border-b flex sticky top-14 z-30 shadow-sm">
-          {[['orders','📋 ออเดอร์'],['create','➕ สร้าง'],['driver','🛵 พนักงาน']].map(([k, l]) => (
+          {[['orders','📋 ออเดอร์'],['create','➕ สร้าง'],['customers','👥 ลูกค้า'],['driver','🛵 พนักงาน']].map(([k, l]) => (
             <button key={k} onClick={() => setTab(k)}
               className={`flex-1 px-2 sm:px-5 py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 tab === k ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-transparent text-gray-500 hover:text-gray-700'

@@ -48,3 +48,15 @@ export function clearOwnerSessionToken(shopId) {
   if (typeof window === 'undefined' || !shopId) return;
   window.localStorage.removeItem(storageKey(shopId));
 }
+
+/** ล้าง owner-session token ของทุกร้านที่เคยล็อกอินไว้บนเครื่องนี้ — ใช้ตอน logout เท่านั้น
+ * (ไม่รู้ shopId เจาะจงตอน logout เพราะเป็นหน้าทั่วไป ไม่ผูกร้านใดร้านหนึ่ง) */
+export function clearAllOwnerSessionTokens() {
+  if (typeof window === 'undefined') return;
+  const keys = [];
+  for (let i = 0; i < window.localStorage.length; i++) {
+    const k = window.localStorage.key(i);
+    if (k && k.startsWith('owner_session_')) keys.push(k);
+  }
+  keys.forEach(k => window.localStorage.removeItem(k));
+}

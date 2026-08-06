@@ -5,11 +5,15 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Script from 'next/script';
+import { clearAllOwnerSessionTokens } from '../lib/client-owner-session';
 
 export default function Logout() {
   const router = useRouter();
 
   const doLogout = () => {
+    // ล้าง owner-session token ที่ค้างอยู่ใน localStorage ก่อนเสมอ (เดิมล้างแค่ LIFF session
+    // ของ LINE เท่านั้น ทำให้ token เดิมยัง valid ต่ออีกได้ถึง 30 วัน — มีผลตอนใช้เครื่องสาธารณะ)
+    clearAllOwnerSessionTokens();
     try {
       if (window.liff) {
         window.liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID }).then(() => {
@@ -23,9 +27,9 @@ export default function Logout() {
     }
   };
 
-  // fallback: ถ้า SDK ไม่โหลดใน 3 วิ ให้ redirect เลย
+  // fallback: ถ้า SDK ไม่โหลดใน 3 วิ ให้ redirect เลย (ล้าง token ไว้ก่อนแม้ LIFF จะโหลดไม่ทัน)
   useEffect(() => {
-    const t = setTimeout(() => router.replace('/login'), 3000);
+    const t = setTimeout(() => { clearAllOwnerSessionTokens(); router.replace('/login'); }, 3000);
     return () => clearTimeout(t);
   }, []);
 

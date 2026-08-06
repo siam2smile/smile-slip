@@ -9,6 +9,7 @@ import {
   Hash, Landmark, ShieldCheck, AlertTriangle, Trash2, Plus, LogIn
 } from 'lucide-react';
 import { PROVINCES, DISTRICTS } from '../data/thailand-address';
+import { setOwnerSessionToken } from '../lib/client-owner-session';
 
 const STEP_LABELS = ['ข้อมูลธุรกิจ', 'ที่อยู่ & ติดต่อ', 'ตั้งรหัสผ่าน'];
 
@@ -69,6 +70,9 @@ export default function Register() {
   }, [isReady, userId]);
 
   const goToExistingShop = (roleEntry) => {
+    // เก็บ owner-session token ก่อน navigate เสมอ (ได้มาจาก check-user.js) — เดิมข้ามขั้นตอนนี้ไป
+    // ทำให้เข้า dashboard แบบไม่มี token เลย ต่างจาก login.js's goToRole() ที่ทำถูกต้องอยู่แล้ว
+    if (roleEntry.ownerSession) setOwnerSessionToken(roleEntry.shopId, roleEntry.ownerSession);
     if (roleEntry.role === 'admin') {
       router.push(`/dashboard?userId=${roleEntry.ownerId}&adminId=${userId}`);
     } else {
