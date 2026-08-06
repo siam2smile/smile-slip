@@ -1,13 +1,16 @@
 /**
  * GET /api/export/excel?shopId=xxx&year=2026&month=06
- * Export รายการธุรกรรมจาก Google Sheets เป็นไฟล์ Excel (.xlsx)
+ * Export รายการธุรกรรมของร้านค้าเป็นไฟล์ Excel (.xlsx)
+ *
+ * เดิมอ่านจาก Google Sheets ตรงๆ — ย้ายมา ledger_transactions (Supabase) แล้ว (ดูเหตุผลใน
+ * lib/ledger-supabase.js) จึง export ได้แม้ร้านไม่เคยเชื่อมต่อ Google Sheets เลยก็ตาม
  */
 import { createClient } from '@supabase/supabase-js';
-import axios from 'axios';
 import * as XLSX from 'xlsx';
 import { hasFeature } from '../../../lib/tier-features';
 import { sanitizeFilenamePart } from '../../../lib/branding';
 import { requireOwnerAuth } from '../../../lib/owner-auth';
+import { fetchLedgerRows } from '../../../lib/ledger-supabase';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -26,66 +29,32 @@ export default async function handler(req, res) {
     // ดึงข้อมูลร้านค้า
     const { data: shop } = await supabase
       .from('shop_profiles')
-      .select('shop_name, google_sheet_id, subscription_tier')
+      .select('shop_name, subscription_tier')
       .eq('id', shopId)
       .single();
 
     if (!shop) return res.status(404).json({ error: 'ไม่พบร้านค้า' });
 
     const isWhiteLabel = hasFeature(shop.subscription_tier, 'white_label');
-
-    // ดึง Google config
-    const { data: gConfig } = await supabase
-      .from('shop_google_configs')
-      .select('google_refresh_token, google_sheet_id')
-      .eq('shop_id', shopId)
-      .single();
-
-    const sheetId = gConfig?.google_sheet_id || shop?.google_sheet_id;
-    if (!sheetId || !gConfig?.google_refresh_token) {
-      return res.status(400).json({ error: 'ยังไม่ได้เชื่อมต่อ Google Sheets' });
-    }
-
-    // แลก access token
-    const tokenRes = await axios.post('https://oauth2.googleapis.com/token', {
-      refresh_token: gConfig.google_refresh_token,
-      client_id: process.env.GOOGLE_CLIENT_ID,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET,
-      grant_type: 'refresh_token',
-    });
-    const accessToken = tokenRes.data.access_token;
-
-    // ดึงข้อมูลจาก Sheets
     const targetYear = year || new Date().getFullYear().toString();
-    const sheetRange = encodeURIComponent(`${targetYear}!A:K`);
-    const sheetsRes = await axios.get(
-      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${sheetRange}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
 
-    let rows = (sheetsRes.data.values || []).slice(1); // ข้าม header
-
-    // filter เดือน
-    if (month) {
-      const prefix = `${targetYear}-${month.padStart(2, '0')}`;
-      rows = rows.filter(row => (row[8] || '').startsWith(prefix));
-    }
+    // เรียงเก่า→ใหม่สำหรับไฟล์ export (fetchLedgerRows คืนใหม่→เก่าไว้ใช้กับตารางในหน้าเว็บ)
+    const rows = (await fetchLedgerRows(shopId, { year: targetYear, month })).reverse();
 
     // สรุปยอด
     let totalIncome = 0, totalExpense = 0, countIn = 0, countOut = 0;
-    for (const row of rows) {
-      const type = row[2] || '';
-      const amount = parseFloat(row[3]) || 0;
-      if (type === 'รายรับ') { totalIncome += amount; countIn++; }
-      if (type === 'รายจ่าย') { totalExpense += amount; countOut++; }
+    for (const r of rows) {
+      if (r.type === 'รายรับ') { totalIncome += Number(r.amount) || 0; countIn++; }
+      if (r.type === 'รายจ่าย') { totalExpense += Number(r.amount) || 0; countOut++; }
     }
 
     // สร้าง Excel workbook
     const wb = XLSX.utils.book_new();
 
-    // Sheet 1: รายการทั้งหมด (11 คอลัมน์ รวม column K เลขอ้างอิง/Hash)
+    // Sheet 1: รายการทั้งหมด
     const headers = ['วันที่สลิป','เวลา','ประเภท','จำนวนเงิน (บาท)','ผู้โอน','ผู้รับ','หมายเหตุ','ลิงก์สลิป','วันที่บันทึก','ชื่อสาขา','เลขอ้างอิง/Hash'];
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const dataRows = rows.map(r => [r.date, r.time, r.type, r.amount, r.sender, r.receiver, r.note, r.slipUrl || '', r.recordedAt, r.branch, r.refNo]);
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
     ws['!cols'] = [
       { wch: 14 }, { wch: 8 }, { wch: 18 }, { wch: 16 },
       { wch: 20 }, { wch: 20 }, { wch: 24 }, { wch: 36 },

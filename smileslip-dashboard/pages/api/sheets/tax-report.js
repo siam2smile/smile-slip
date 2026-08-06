@@ -1,6 +1,9 @@
 /**
  * GET /api/sheets/tax-report?shopId&year&month&branch&format
- * รายงานภาษีมูลค่าเพิ่ม (ภาษีซื้อ/ภาษีขาย) จากชีตบัญชีหลักของบอท (ปีเป็น tab, คอลัมน์ A-R)
+ * รายงานภาษีมูลค่าเพิ่ม (ภาษีซื้อ/ภาษีขาย) ของร้านค้า จาก ledger_transactions (Supabase)
+ *
+ * เดิมอ่านจาก "ชีตบัญชีหลักของบอท" (Google Sheets) ตรงๆ — ย้ายมา Supabase แล้ว (ดูเหตุผลใน
+ * lib/ledger-supabase.js)
  *
  * ภาษีขาย (Output VAT) = SUM(tax_amount) ของแถวที่ type='รายรับ' (ขาย/รายรับที่มี VAT)
  * ภาษีซื้อ (Input VAT) = SUM(tax_amount) ของแถวที่ type='รายจ่าย' (ซื้อ/รายจ่ายที่มี VAT)
@@ -10,10 +13,10 @@
  * format: csv (เดิม) | xlsx (ใหม่) | pdf (ใหม่, สรุปสำหรับส่งสำนักงานบัญชี) | ไม่ระบุ = JSON
  */
 import { createClient } from '@supabase/supabase-js';
-import axios from 'axios';
 import * as XLSX from 'xlsx';
 import { generateVatReportPdf } from '../../../lib/vat-report-pdf';
 import { hasFeature } from '../../../lib/tier-features';
+import { fetchLedgerRows } from '../../../lib/ledger-supabase';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -21,16 +24,6 @@ const supabase = createClient(
 );
 
 const TIER_LEVEL = { normal: 0, pro: 1, advance: 2, business: 3, enterprise: 4, super: 4 };
-
-async function getAccessToken(refreshToken) {
-  const res = await axios.post('https://oauth2.googleapis.com/token', {
-    refresh_token: refreshToken,
-    client_id: process.env.GOOGLE_CLIENT_ID,
-    client_secret: process.env.GOOGLE_CLIENT_SECRET,
-    grant_type: 'refresh_token',
-  });
-  return res.data.access_token;
-}
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).end();
@@ -49,55 +42,18 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'ฟีเจอร์นี้รองรับเฉพาะแพ็กเกจ Business ขึ้นไป' });
   }
 
-  const { data: googleConfig } = await supabase
-    .from('shop_google_configs')
-    .select('google_refresh_token, google_sheet_id')
-    .eq('shop_id', shopId)
-    .maybeSingle();
-
-  if (!googleConfig?.google_refresh_token || !googleConfig?.google_sheet_id) {
-    return res.status(400).json({ error: 'ยังไม่ได้เชื่อมต่อ Google Sheets' });
-  }
-
   try {
-    const accessToken = await getAccessToken(googleConfig.google_refresh_token);
     const sheetYear = year || new Date().getFullYear().toString();
-    const sheetRange = encodeURIComponent(`${sheetYear}!A2:O`);
+    const allRows = await fetchLedgerRows(shopId, { year: sheetYear, month });
 
-    const sheetsRes = await axios.get(
-      `https://sheets.googleapis.com/v4/spreadsheets/${googleConfig.google_sheet_id}/values/${sheetRange}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-
-    const rows = sheetsRes.data.values || [];
-
-    // กรองเฉพาะแถวที่มีข้อมูลภาษีครบ: taxId (L) ต้องไม่ว่าง และ taxAmount (N) ต้องมากกว่า 0
-    const taxRows = rows
-      .filter(row => {
-        const hasTaxId = row[11] && row[11] !== '-' && row[11].trim() !== '';
-        const taxAmt = parseFloat(row[13]) || 0;
-        return hasTaxId && taxAmt > 0;
-      })
-      .map(row => ({
-        date:         row[0]  || '-',
-        type:         row[2]  || '-',
-        amount:       parseFloat(row[3]) || 0,
-        note:         row[6]  || '-',
-        branch:       row[9]  || 'ไม่ระบุสาขา',
-        taxId:        row[11] || '-',
-        taxpayerName: row[12] || '-',
-        taxAmount:    parseFloat(row[13]) || 0,
-        taxAddress:   row[14] || '-',
+    // กรองเฉพาะแถวที่มีข้อมูลภาษีครบ: taxId ต้องไม่ว่าง และ taxAmount ต้องมากกว่า 0
+    let filtered = allRows
+      .filter(r => r.taxId && r.taxId !== '-' && r.taxId.trim() !== '' && r.taxAmount > 0)
+      .map(r => ({
+        date: r.date, type: r.type, amount: r.amount, note: r.note,
+        branch: r.branch === '-' ? 'ไม่ระบุสาขา' : r.branch,
+        taxId: r.taxId, taxpayerName: r.taxpayerName, taxAmount: r.taxAmount, taxAddress: r.taxAddress,
       }));
-
-    // กรองตามเดือน (ถ้าระบุ)
-    let filtered = month
-      ? taxRows.filter(r => {
-          const parts = (r.date || '').split('/');
-          const m = parts[1];
-          return m === String(month).padStart(2, '0') || m === String(month);
-        })
-      : taxRows;
 
     // แยกตามสาขา (คำนวณก่อนกรอง branch เพื่อให้ branchBreakdown เห็นทุกสาขาเสมอในมุมมอง "รวมทุกสาขา")
     const byBranch = {};
