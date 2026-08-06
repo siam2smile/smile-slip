@@ -40,6 +40,7 @@ import { getShopDistrictProvince, checkProcurementFraud, insertAnonymousMarketPr
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { dualWrite, insertRow, LEDGER_TYPE } from '../../../lib/supabase-pos';
 import { requirePermission } from '../../../lib/pos-auth';
+import { adjustBranchStock } from '../../../lib/pos-stock';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -185,24 +186,24 @@ export default async function handler(req, res) {
         const prod = productFromRow(prodRow);
 
         // Weighted average cost: (เก่า × ต้นทุนเก่า + ใหม่ × ต้นทุนใหม่ก่อน VAT) / (เก่า + ใหม่)
+        // ต้นทุนยังเป็นค่ากลางทั้งร้านเสมอ (ไม่แยกตามสาขา — ไม่มีเหตุผลทางธุรกิจที่ต้องแยก และ
+        // จะกระทบรายงานกำไร/margin หลายจุด) ใช้ prod.stock (cache ผลรวมทั้งร้าน) เป็นน้ำหนักถ่วงเฉลี่ยเหมือนเดิม
         const newStock = prod.stock + numQty;
         const newAvgCost = newStock > 0
           ? (prod.stock * prod.cost + numQty * unitBase) / newStock
           : unitBase;
 
-        const prodUpdates = {
-          cost: Math.round(newAvgCost * 100) / 100,
-          stock: newStock,
-          product_updated_at: nowThai,
-        };
+        await supabase.from('pos_products').update({
+          cost: Math.round(newAvgCost * 100) / 100, product_updated_at: nowThai,
+        }).eq('shop_id', shopId).eq('sku', sku);
 
-        // สินค้าหมุนเวียน: รับสินค้าเข้า = ได้ของที่รีฟิล/บรรจุกลับมาแล้ว ต้องหักออกจาก
-        // "เปล่ารอรีฟิล" ด้วยเสมอ
-        if (prod.type === 'หมุนเวียน') {
-          prodUpdates.empty_waiting = Math.max(0, prod.empty_waiting - numQty);
-        }
-
-        await supabase.from('pos_products').update(prodUpdates).eq('shop_id', shopId).eq('sku', sku);
+        // โอนย้ายสต็อกข้ามสาขา Phase 1: เพิ่มสต็อกเข้าสาขาที่รับสินค้าจริง (branch) ไม่ใช่ยอดรวมทั้งร้าน
+        // สินค้าหมุนเวียน: รับสินค้าเข้า = ได้ของที่รีฟิล/บรรจุกลับมาแล้ว ต้องหักออกจาก "เปล่ารอรีฟิล"
+        // ของสาขานั้นด้วยเสมอ
+        await adjustBranchStock(shopId, sku, branch, {
+          qtyDelta: numQty,
+          emptyWaitingDelta: prod.type === 'หมุนเวียน' ? -numQty : 0,
+        });
       }
 
       const roundedSubtotal = Math.round(subtotal * 100) / 100;

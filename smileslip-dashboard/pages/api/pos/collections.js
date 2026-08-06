@@ -26,12 +26,24 @@ import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import {
   makeCollectionNo, collectionFromRow, productFromRow, logCyclicalTransaction,
 } from '../../../lib/google-pos';
-import { requirePermission } from '../../../lib/pos-auth';
+import { requirePermission, getSessionStaffId } from '../../../lib/pos-auth';
+import { adjustBranchStock } from '../../../lib/pos-stock';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
+
+// โอนย้ายสต็อกข้ามสาขา Phase 1: collections.js ไม่เคยมี branch ในคำขอเลยตั้งแต่แรก — ใช้
+// branch_name ของพนักงานที่ยืนยันเก็บเงิน/ของแทน (จาก session ที่เซ็นชื่อ ปลอมไม่ได้) เหมือน
+// delivery.js — ไม่มี session (เจ้าของร้านยืนยันเอง) → กองกลาง/ไม่ระบุสาขา ('')
+async function resolveConfirmingStaffBranch(req, shopId) {
+  const staffId = getSessionStaffId(req);
+  if (!staffId) return '';
+  const { data } = await supabase.from('pos_staff').select('branch_name')
+    .eq('shop_id', shopId).eq('staff_id', staffId).is('deleted_at', null).maybeSingle();
+  return data?.branch_name || '';
+}
 
 // คำนวณจำนวนสินค้าหมุนเวียนที่ลูกค้าคนนี้ถืออยู่จริง แยกตาม SKU (ไม่ใช่แค่ยอดรวมเดียว) จากประวัติ
 // "บันทึกแลกเปลี่ยน" (pos_cyclical_log) — ยืม = +qty (ถืออยู่เพิ่ม), คืน = -qty (คืนแล้ว),
@@ -256,8 +268,10 @@ export default async function handler(req, res) {
             }
           }
 
-          // สินค้าหมุนเวียนที่เก็บคืนมา → เพิ่ม "เปล่ารอรีฟิล" ของสินค้านั้น
+          // สินค้าหมุนเวียนที่เก็บคืนมา → เพิ่ม "เปล่ารอรีฟิล" ของสินค้านั้น — โอนย้ายสต็อกข้ามสาขา
+          // Phase 1: เข้าสาขาของพนักงานที่ยืนยันเก็บ
           if (itemsCollected.length) {
+            const confirmBranch = await resolveConfirmingStaffBranch(req, shopId);
             for (const item of itemsCollected) {
               const qty = parseInt(item.qty) || 0;
               if (qty <= 0 || !item.sku) continue;
@@ -267,8 +281,8 @@ export default async function handler(req, res) {
                 if (!prodRow) continue;
                 const prod = productFromRow(prodRow);
                 if (prod.type !== 'หมุนเวียน') continue;
+                await adjustBranchStock(shopId, item.sku, confirmBranch, { emptyWaitingDelta: qty });
                 await supabase.from('pos_products').update({
-                  empty_waiting: (prod.empty_waiting || 0) + qty,
                   product_updated_at: new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }),
                 }).eq('shop_id', shopId).eq('sku', item.sku);
 

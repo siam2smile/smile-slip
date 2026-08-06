@@ -20,6 +20,7 @@ import {
   computeVatBreakdown, logCyclicalTransaction, resolveRecordDateTime,
 } from '../../../lib/google-pos';
 import { dualWrite, insertRow, LEDGER_TYPE } from '../../../lib/supabase-pos';
+import { getBranchStock, adjustBranchStock } from '../../../lib/pos-stock';
 
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 
@@ -274,13 +275,16 @@ export default async function handler(req, res) {
       // คำนวณจำนวนที่จะถูกหักจาก "เต็ม" (stock) จริงต่อรายการไว้ล่วงหน้า แล้วฝังเข้า item ก่อนบันทึก
       // เป็น JSON — เพราะการหักสต็อคด้านล่าง clamp ไว้ที่ 0 ถ้าสต็อคมีไม่พอ "จำนวนที่หักจริง" อาจน้อยกว่า
       // item.qty ต้องจำค่าจริงไว้ ไม่งั้นตอนยกเลิกบิล (DELETE) จะคืนสต็อคเกินกว่าที่หักไปจริง (over-restore)
+      // — โอนย้ายสต็อกข้ามสาขา Phase 1: เทียบกับสต็อคที่ "สาขานี้" เท่านั้น (ไม่ใช่ prod.stock ที่เป็น
+      // ยอดรวมทั้งร้าน) เพราะขายที่สาขาไหนต้องหักจากของที่มีอยู่จริงที่สาขานั้น
       for (const item of items) {
         const prod = productsForVat.find(p => p.sku === item.sku);
         if (!prod) { item.actual_stock_deducted = 0; continue; }
         if (prod.type === 'ไม่นับสต็อค') {
           item.actual_stock_deducted = 0;
         } else {
-          item.actual_stock_deducted = Math.min(parseFloat(item.qty) || 0, prod.stock);
+          const branchStock = await getBranchStock(shopId, item.sku, branch);
+          item.actual_stock_deducted = Math.min(parseFloat(item.qty) || 0, branchStock.qty);
         }
       }
 
@@ -328,18 +332,18 @@ export default async function handler(req, res) {
           } else if (prod.type === 'หมุนเวียน') {
             const returnedQty = parseInt(item.returned_qty) || 0;
             const netBorrow = item.qty - returnedQty;
-            const stockDelta = item.actual_stock_deducted ?? Math.min(parseFloat(item.qty) || 0, prod.stock);
-            const newStock = Math.max(0, prod.stock - stockDelta);
-            const newAtCustomer = Math.max(0, prod.at_customer + netBorrow);
-            const newEmptyWaiting = prod.empty_waiting + returnedQty;
-            await supabase.from('pos_products').update({
-              stock: newStock, at_customer: newAtCustomer, empty_waiting: newEmptyWaiting, product_updated_at: now,
-            }).eq('shop_id', shopId).eq('sku', item.sku);
+            const stockDelta = item.actual_stock_deducted ?? 0; // คำนวณต่อสาขาไว้แล้วด้านบนก่อนบันทึกบิล
+            const { empty_waiting: newEmptyWaiting, shopTotals } = await adjustBranchStock(
+              shopId, item.sku, branch,
+              { qtyDelta: -stockDelta, atCustomerDelta: netBorrow, emptyWaitingDelta: returnedQty }
+            );
+            await supabase.from('pos_products').update({ product_updated_at: now }).eq('shop_id', shopId).eq('sku', item.sku);
             netCylinderDeltaForCustomer += netBorrow;
 
-            // เพดานเปล่ารอรีฟิล — เตือนถ้าเกิน (ไม่บล็อคการขาย)
-            if (prod.empty_ceiling > 0 && newEmptyWaiting > prod.empty_ceiling) {
-              warnings.push(`⚠️ "${item.name}" เปล่ารอรีฟิลเกินเพดาน (${newEmptyWaiting}/${prod.empty_ceiling} ${item.unit || ''})`);
+            // เพดานเปล่ารอรีฟิล — ตั้งค่าไว้ระดับสินค้า (ไม่ใช่ระดับสาขา) เทียบกับยอดรวมทั้งร้านหลัง sync
+            // เตือนเท่านั้น ไม่บล็อคการขาย
+            if (prod.empty_ceiling > 0 && shopTotals.empty_waiting > prod.empty_ceiling) {
+              warnings.push(`⚠️ "${item.name}" เปล่ารอรีฟิลเกินเพดาน (${shopTotals.empty_waiting}/${prod.empty_ceiling} ${item.unit || ''})`);
             }
 
             await logCyclicalTransaction({
@@ -357,11 +361,9 @@ export default async function handler(req, res) {
               });
             }
           } else {
-            const stockDelta = item.actual_stock_deducted ?? Math.min(parseFloat(item.qty) || 0, prod.stock);
-            const newStock = Math.max(0, prod.stock - stockDelta);
-            await supabase.from('pos_products').update({
-              stock: newStock, product_updated_at: now,
-            }).eq('shop_id', shopId).eq('sku', item.sku);
+            const stockDelta = item.actual_stock_deducted ?? 0; // คำนวณต่อสาขาไว้แล้วด้านบนก่อนบันทึกบิล
+            await adjustBranchStock(shopId, item.sku, branch, { qtyDelta: -stockDelta });
+            await supabase.from('pos_products').update({ product_updated_at: now }).eq('shop_id', shopId).eq('sku', item.sku);
           }
         }
 
@@ -413,6 +415,7 @@ export default async function handler(req, res) {
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
 
       // คืนสต็อค/ถังลูกค้า — ย้อนกลับตรรกะเดียวกับตอนบันทึกขาย (fail-safe ไม่ให้พังการยกเลิกทั้งหมด)
+      // — โอนย้ายสต็อกข้ามสาขา Phase 1: คืนกลับเข้าสาขาเดียวกับที่บิลนี้ขาย (sale.branch)
       let netCylinderDeltaForCustomer = 0;
       try {
         for (const item of (sale.items || [])) {
@@ -426,18 +429,14 @@ export default async function handler(req, res) {
           if (prod.type === 'หมุนเวียน') {
             const returnedQty = parseInt(item.returned_qty) || 0;
             const netBorrow = item.qty - returnedQty;
-            await supabase.from('pos_products').update({
-              stock: prod.stock + stockRestore,
-              at_customer: Math.max(0, prod.at_customer - netBorrow),
-              empty_waiting: Math.max(0, prod.empty_waiting - returnedQty),
-              product_updated_at: now,
-            }).eq('shop_id', shopId).eq('sku', item.sku);
+            await adjustBranchStock(shopId, item.sku, sale.branch, {
+              qtyDelta: stockRestore, atCustomerDelta: -netBorrow, emptyWaitingDelta: -returnedQty,
+            });
             netCylinderDeltaForCustomer -= netBorrow;
           } else {
-            await supabase.from('pos_products').update({
-              stock: prod.stock + stockRestore, product_updated_at: now,
-            }).eq('shop_id', shopId).eq('sku', item.sku);
+            await adjustBranchStock(shopId, item.sku, sale.branch, { qtyDelta: stockRestore });
           }
+          await supabase.from('pos_products').update({ product_updated_at: now }).eq('shop_id', shopId).eq('sku', item.sku);
         }
       } catch (err) {
         console.error('[pos/sales] cancel: restore stock error:', err.message);

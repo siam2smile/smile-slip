@@ -76,7 +76,10 @@ export async function syncProductCache(shopId, sku) {
  * @param {string} sku
  * @param {string} branchName - '' = ยังไม่ระบุสาขา/กองกลาง
  * @param {{qtyDelta?:number, atCustomerDelta?:number, emptyWaitingDelta?:number}} deltas
- * @returns {Promise<{qty:number, at_customer:number, empty_waiting:number}>} ค่าที่สาขานั้นหลังปรับ
+ * @returns {Promise<{qty:number, at_customer:number, empty_waiting:number, shopTotals:{stock:number,at_customer:number,empty_waiting:number}}>}
+ *   qty/at_customer/empty_waiting = ค่าที่สาขานั้นหลังปรับ, shopTotals = ผลรวมทั้งร้านหลัง sync
+ *   (มีให้เผื่อจุดที่ต้องเทียบกับค่าที่ตั้งไว้ระดับสินค้า ไม่ใช่ระดับสาขา เช่น empty_ceiling
+ *   กันไม่ต้อง query ซ้ำอีกรอบ)
  */
 export async function adjustBranchStock(shopId, sku, branchName, deltas = {}) {
   const bn = branchName || '';
@@ -97,7 +100,7 @@ export async function adjustBranchStock(shopId, sku, branchName, deltas = {}) {
   }, { onConflict: 'shop_id,sku,branch_name' });
   if (upsertErr) throw upsertErr;
 
-  await syncProductCache(shopId, sku);
+  const shopTotals = await syncProductCache(shopId, sku);
 
-  return { qty: newQty, at_customer: newAtCustomer, empty_waiting: newEmptyWaiting };
+  return { qty: newQty, at_customer: newAtCustomer, empty_waiting: newEmptyWaiting, shopTotals };
 }

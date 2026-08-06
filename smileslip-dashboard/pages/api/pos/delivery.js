@@ -24,7 +24,20 @@ import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import { makeOrderNo, deliveryOrderFromRow, productFromRow, logCyclicalTransaction } from '../../../lib/google-pos';
-import { requirePermission } from '../../../lib/pos-auth';
+import { requirePermission, getSessionStaffId } from '../../../lib/pos-auth';
+import { adjustBranchStock } from '../../../lib/pos-stock';
+
+// โอนย้ายสต็อกข้ามสาขา Phase 1: delivery.js ไม่เคยมี branch ในคำขอเลยตั้งแต่แรก (ไม่เหมือน
+// sales.js/receives.js/loans.js) — ใช้ branch_name ของพนักงานที่ยืนยันจัดส่งแทน (มาจาก session
+// ที่เซ็นชื่อ ปลอมไม่ได้ ต่างจาก staff_id/staff_name ที่ client ส่งมาซึ่งเป็นแค่ label แสดงผล)
+// ไม่มี session (เจ้าของร้านยืนยันเอง กรณีหายาก) → กองกลาง/ไม่ระบุสาขา ('')
+async function resolveConfirmingStaffBranch(req, shopId) {
+  const staffId = getSessionStaffId(req);
+  if (!staffId) return '';
+  const { data } = await supabase.from('pos_staff').select('branch_name')
+    .eq('shop_id', shopId).eq('staff_id', staffId).is('deleted_at', null).maybeSingle();
+  return data?.branch_name || '';
+}
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -372,6 +385,7 @@ export default async function handler(req, res) {
         }
 
         if (Array.isArray(items) && items.length) {
+          const confirmBranch = await resolveConfirmingStaffBranch(req, shopId);
           for (const item of items) {
             if (!item.sku) continue;
             try {
@@ -386,10 +400,11 @@ export default async function handler(req, res) {
               const returnedQty = Math.min(qty, Math.max(0, parseInt(item.returned_qty) || 0));
               const netBorrow = qty - returnedQty;
 
+              // โอนย้ายสต็อกข้ามสาขา Phase 1: หักออกจากสาขาของพนักงานที่ยืนยันจัดส่ง
+              await adjustBranchStock(shopId, item.sku, confirmBranch, {
+                qtyDelta: -qty, atCustomerDelta: netBorrow, emptyWaitingDelta: returnedQty,
+              });
               await supabase.from('pos_products').update({
-                stock: Math.max(0, prod.stock - qty), // เต็ม — ออกจากร้านไปกับลูกค้า
-                at_customer: Math.max(0, prod.at_customer + netBorrow), // กับลูกค้า สุทธิ
-                empty_waiting: prod.empty_waiting + returnedQty, // เปล่ารอรีฟิล
                 product_updated_at: new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }),
               }).eq('shop_id', shopId).eq('sku', item.sku);
               netCylinderDeltaForCustomer += netBorrow;

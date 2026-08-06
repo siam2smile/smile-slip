@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { makeLoanNo, loanFromRow, productFromRow } from '../../../lib/google-pos';
 import { requirePermission } from '../../../lib/pos-auth';
+import { adjustBranchStock } from '../../../lib/pos-stock';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -98,10 +99,10 @@ export default async function handler(req, res) {
             if (!prodRow) continue;
             const prod = productFromRow(prodRow);
             if (prod.type !== 'นับสต็อค') continue;
-            await supabase.from('pos_products').update({
-              stock: Math.max(0, prod.stock - item.qty),
-              product_updated_at: nowThai,
-            }).eq('shop_id', shopId).eq('sku', item.sku);
+            // โอนย้ายสต็อกข้ามสาขา Phase 1: หักจากสาขาที่สร้างใบยืม (branch มีอยู่แล้วใน request)
+            await adjustBranchStock(shopId, item.sku, branch, { qtyDelta: -item.qty });
+            await supabase.from('pos_products').update({ product_updated_at: nowThai })
+              .eq('shop_id', shopId).eq('sku', item.sku);
           } catch (e) { console.error('[loans] deduct stock error:', e.message); }
         }
       }
@@ -133,6 +134,8 @@ export default async function handler(req, res) {
 
       // คืนสต็อค — เฉพาะใบยืมที่เคยตัดสต็อคออกจริงตอนสร้างเท่านั้น (คอลัมน์ stock_deducted) — ใบที่สร้างด้วย
       // deduct_stock:false ไม่เคยตัดสต็อคออก ถ้าบวกกลับตอนคืนจะทำให้สต็อคเฟ้อขึ้นเรื่อยๆ
+      // โอนย้ายสต็อกข้ามสาขา Phase 1: คืนกลับเข้าสาขาเดียวกับที่บันทึกไว้ตอนสร้างใบยืม (loan.branch)
+      // ไม่ใช่ branch จาก request (PATCH นี้ไม่มี branch ในคำขอ) — กันคืนเข้าสาขาผิดถ้าไม่ส่งมา
       if (loan.stock_deducted) {
         for (const item of loan.items) {
           if (!item.sku) continue;
@@ -142,10 +145,9 @@ export default async function handler(req, res) {
             if (!prodRow) continue;
             const prod = productFromRow(prodRow);
             if (prod.type !== 'นับสต็อค') continue;
-            await supabase.from('pos_products').update({
-              stock: prod.stock + item.qty,
-              product_updated_at: now,
-            }).eq('shop_id', shopId).eq('sku', item.sku);
+            await adjustBranchStock(shopId, item.sku, loan.branch, { qtyDelta: item.qty });
+            await supabase.from('pos_products').update({ product_updated_at: now })
+              .eq('shop_id', shopId).eq('sku', item.sku);
           } catch (e) { console.error('[loans] restore stock error:', e.message); }
         }
       }

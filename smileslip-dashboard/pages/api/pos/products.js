@@ -15,6 +15,7 @@ import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import { requirePermission } from '../../../lib/pos-auth';
 import { makeSKU, productFromRow } from '../../../lib/google-pos';
+import { getBranchStock, adjustBranchStock } from '../../../lib/pos-stock';
 
 async function getTier(shopId) {
   const { data: sp } = await supabase.from('shop_profiles').select('subscription_tier').eq('id', shopId).maybeSingle();
@@ -86,6 +87,19 @@ export default async function handler(req, res) {
         const { error } = await supabase.from('pos_products').insert(supaRows.slice(i, i + CHUNK));
         if (error) throw error;
       }
+
+      // โอนย้ายสต็อกข้ามสาขา Phase 1: สินค้าที่นำเข้าใหม่ทุกตัวต้องมีแถวใน pos_product_stock ด้วย
+      // ไม่งั้น cache (pos_products.stock) จะถูกรีเซ็ตเป็น 0 เงียบๆ ตอนมีการเขียนสต็อกแบบแยกสาขา
+      // ครั้งแรกของ SKU นั้น (adjustBranchStock อ่าน pos_product_stock เป็นความจริง ไม่ใช่ pos_products)
+      // — ไม่มี branch ที่ระบุตอนนำเข้าเป็นชุด (ไม่มี UI เลือกสาขา) จึงลงกองกลาง/ไม่ระบุสาขา ('')
+      const stockSeedRows = supaRows.filter(r => r.stock > 0).map(r => ({
+        shop_id: shopId, sku: r.sku, branch_name: '', qty: r.stock, at_customer: 0, empty_waiting: 0,
+      }));
+      for (let i = 0; i < stockSeedRows.length; i += CHUNK) {
+        const { error } = await supabase.from('pos_product_stock').insert(stockSeedRows.slice(i, i + CHUNK));
+        if (error) console.error('[pos/products] bulk import: seed pos_product_stock failed:', error.message);
+      }
+
       return res.json({ ok: true, imported: supaRows.length });
     }
 
@@ -97,6 +111,7 @@ export default async function handler(req, res) {
         type = 'นับสต็อค',
         product_code = '', barcode = '', description = '',
         vat_type = 'ไม่มี VAT', is_active = true, empty_ceiling = 0, branches = [],
+        branch = '', // สาขาที่กำลังทำงานอยู่ตอนสร้างสินค้า (selectedBranch) — ใช้ seed สต็อกเริ่มต้นเท่านั้น
       } = req.body;
       if (!name) return res.status(400).json({ error: 'ต้องระบุชื่อสินค้า' });
       // ราคา/ทุน/สต็อคติดลบตั้งแต่สร้างสินค้าจะไหลไปกระทบทุกจุดที่ใช้ข้อมูลนี้ต่อ (ขาย/รายงาน/VAT)
@@ -119,6 +134,18 @@ export default async function handler(req, res) {
         empty_ceiling: empty_ceiling || 0, branches: branchesStr,
       });
       if (error) throw error;
+
+      // โอนย้ายสต็อกข้ามสาขา Phase 1: seed pos_product_stock ให้สินค้าใหม่ทันที (กันเหตุผลเดียวกับ
+      // bulk import ด้านบน — ไม่งั้น cache จะถูกรีเซ็ตเป็น 0 เงียบๆ ตอนมีการเขียนสต็อกแบบแยกสาขาครั้งแรก)
+      const initialStock = parseFloat(stock) || 0;
+      if (initialStock > 0) {
+        try {
+          await adjustBranchStock(shopId, sku, branch, { qtyDelta: initialStock });
+        } catch (seedErr) {
+          console.error('[pos/products] seed pos_product_stock on create failed:', seedErr.message);
+        }
+      }
+
       return res.json({ ok: true, sku, name });
     }
 
@@ -129,7 +156,7 @@ export default async function handler(req, res) {
       // แบบเดิมอีกต่อไป) — เจ้าของร้าน/แอดมิน (pos.js เรียกตรง ไม่มี session) ไม่ถูกกระทบเลย
       if (!(await requirePermission(req, res, shopId, 'perm_manage_stock'))) return;
 
-      const { sku, action, qty, stockDelta, ...updates } = req.body;
+      const { sku, action, qty, stockDelta, branch = '', ...updates } = req.body;
       if (!sku) return res.status(400).json({ error: 'Missing sku' });
       if (updates.price !== undefined && parseFloat(updates.price) < 0) {
         return res.status(400).json({ error: 'ราคาขายต้องไม่ติดลบ' });
@@ -157,42 +184,32 @@ export default async function handler(req, res) {
 
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
 
-      // action: รับถังเปล่าคืนจากลูกค้า
+      // action: รับถังเปล่าคืนจากลูกค้า — โอนย้ายสต็อกข้ามสาขา Phase 1: แยกตามสาขาที่รับคืน (branch)
       if (action === 'receive-back') {
-        const newAtCustomer = Math.max(0, (parseFloat(existing.at_customer) || 0) - qty);
-        const newEmptyWaiting = (parseFloat(existing.empty_waiting) || 0) + qty;
-        const { error } = await supabase.from('pos_products').update({
-          at_customer: newAtCustomer, empty_waiting: newEmptyWaiting, product_updated_at: now,
-        }).eq('shop_id', shopId).eq('sku', sku);
-        if (error) throw error;
-        return res.json({ ok: true });
+        const q = parseFloat(qty) || 0;
+        const { shopTotals } = await adjustBranchStock(shopId, sku, branch, { atCustomerDelta: -q, emptyWaitingDelta: q });
+        await supabase.from('pos_products').update({ product_updated_at: now }).eq('shop_id', shopId).eq('sku', sku);
+        return res.json({ ok: true, shopTotals });
       }
 
-      // action: รีฟิลเสร็จ พร้อมขาย
+      // action: รีฟิลเสร็จ พร้อมขาย — แยกตามสาขา
       if (action === 'refill') {
-        const newEmptyWaiting = Math.max(0, (parseFloat(existing.empty_waiting) || 0) - qty);
-        const newStock = (parseFloat(existing.stock) || 0) + qty;
-        const { error } = await supabase.from('pos_products').update({
-          empty_waiting: newEmptyWaiting, stock: newStock, product_updated_at: now,
-        }).eq('shop_id', shopId).eq('sku', sku);
-        if (error) throw error;
-        return res.json({ ok: true });
+        const q = parseFloat(qty) || 0;
+        const { shopTotals } = await adjustBranchStock(shopId, sku, branch, { qtyDelta: q, emptyWaitingDelta: -q });
+        await supabase.from('pos_products').update({ product_updated_at: now }).eq('shop_id', shopId).eq('sku', sku);
+        return res.json({ ok: true, shopTotals });
       }
 
-      // generic patch
+      // generic patch — ฟิลด์ที่ไม่ใช่จำนวนสต็อกยังอัปเดต pos_products ตรงๆ เหมือนเดิม
       const supaUpdates = { product_updated_at: now };
       if (updates.name          !== undefined) supaUpdates.name = updates.name;
       if (updates.category      !== undefined) supaUpdates.category = updates.category;
       if (updates.price         !== undefined) supaUpdates.price = updates.price;
       if (updates.cost          !== undefined) supaUpdates.cost = updates.cost;
-      if (updates.stock         !== undefined) supaUpdates.stock = updates.stock;
-      if (stockDelta            !== undefined) supaUpdates.stock = (parseFloat(existing.stock) || 0) + stockDelta;
       if (updates.unit          !== undefined) supaUpdates.unit = updates.unit;
       if (updates.aliases       !== undefined) supaUpdates.aliases = updates.aliases;
       if (updates.notes         !== undefined) supaUpdates.notes = updates.notes;
       if (updates.type          !== undefined) supaUpdates.type = updates.type;
-      if (updates.at_customer   !== undefined) supaUpdates.at_customer = updates.at_customer;
-      if (updates.empty_waiting !== undefined) supaUpdates.empty_waiting = updates.empty_waiting;
       if (updates.product_code  !== undefined) supaUpdates.product_code = updates.product_code;
       if (updates.barcode       !== undefined) supaUpdates.barcode = updates.barcode;
       if (updates.description   !== undefined) supaUpdates.description = updates.description;
@@ -204,7 +221,25 @@ export default async function handler(req, res) {
       const { error } = await supabase.from('pos_products').update(supaUpdates)
         .eq('shop_id', shopId).eq('sku', sku);
       if (error) throw error;
-      return res.json({ ok: true, sku, stock: supaUpdates.stock !== undefined ? supaUpdates.stock : (parseFloat(existing.stock) || 0) });
+
+      // โอนย้ายสต็อกข้ามสาขา Phase 1: stock/stockDelta/at_customer/empty_waiting แก้ผ่าน
+      // adjustBranchStock() แยกตามสาขา (branch จาก request — ใน pos.js คือ selectedBranch ที่กำลัง
+      // ทำงานอยู่) ไม่ใช่เขียน pos_products ตรงๆ อีกต่อไป — updates.stock เป็นค่าตั้งใหม่แบบ absolute
+      // จึงต้องแปลงเป็น delta เทียบกับยอดปัจจุบันของสาขานั้นก่อน
+      let branchResult = null;
+      const wantsStockChange = updates.stock !== undefined || stockDelta !== undefined;
+      const wantsCyclicalChange = updates.at_customer !== undefined || updates.empty_waiting !== undefined;
+      if (wantsStockChange || wantsCyclicalChange) {
+        const current = await getBranchStock(shopId, sku, branch);
+        const qtyDelta = updates.stock !== undefined
+          ? (parseFloat(updates.stock) || 0) - current.qty
+          : (stockDelta !== undefined ? stockDelta : 0);
+        const atCustomerDelta = updates.at_customer !== undefined ? (parseFloat(updates.at_customer) || 0) - current.at_customer : 0;
+        const emptyWaitingDelta = updates.empty_waiting !== undefined ? (parseFloat(updates.empty_waiting) || 0) - current.empty_waiting : 0;
+        branchResult = await adjustBranchStock(shopId, sku, branch, { qtyDelta, atCustomerDelta, emptyWaitingDelta });
+      }
+
+      return res.json({ ok: true, sku, stock: branchResult ? branchResult.shopTotals.stock : (parseFloat(existing.stock) || 0) });
     }
 
     // ── DELETE ────────────────────────────────────────────────────────────

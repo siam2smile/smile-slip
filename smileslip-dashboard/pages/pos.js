@@ -2378,7 +2378,8 @@ export default function POSPage() {
       stock: parseFloat(prodForm.stock) || 0,
       empty_ceiling: parseFloat(prodForm.empty_ceiling) || 0,
     };
-    const body = editProd ? { shopId, sku: editProd.sku, ...base } : { shopId, ...base };
+    const branchName = selectedBranch?.branch_name || '';
+    const body = editProd ? { shopId, sku: editProd.sku, branch: branchName, ...base } : { shopId, branch: branchName, ...base };
     try {
       const r = await fetch('/api/pos/products', {
         method: editProd ? 'PATCH' : 'POST',
@@ -2418,7 +2419,7 @@ export default function POSPage() {
       const r = await fetch('/api/pos/products', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shopId, sku: cyclicalProd.sku, action: showCyclicalModal, qty: parseInt(cyclicalQty) }),
+        body: JSON.stringify({ shopId, sku: cyclicalProd.sku, action: showCyclicalModal, qty: parseInt(cyclicalQty), branch: selectedBranch?.branch_name || '' }),
       });
       const d = await r.json();
       if (d.ok) {
@@ -7542,7 +7543,8 @@ export default function POSPage() {
               {prodForm.type !== 'ไม่นับสต็อค' && (
                 <div>
                   <label className="block text-gray-400 text-xs mb-1.5">
-                    {prodForm.type === 'หมุนเวียน' ? 'สต็อคพร้อมขาย' : 'จำนวนสต็อคเริ่มต้น'}
+                    {prodForm.type === 'หมุนเวียน' ? 'สต็อคพร้อมขาย' : (editProd ? 'จำนวนสต็อค' : 'จำนวนสต็อคเริ่มต้น')}
+                    {posBranches.length > 0 && <span className="text-blue-400"> — สาขา: {selectedBranch?.branch_name || 'ไม่ระบุสาขา'}</span>}
                   </label>
                   <input type="number" value={prodForm.stock} onChange={e => setProdForm(f => ({...f, stock: e.target.value}))}
                     className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
