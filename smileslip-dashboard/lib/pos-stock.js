@@ -104,3 +104,53 @@ export async function adjustBranchStock(shopId, sku, branchName, deltas = {}) {
 
   return { qty: newQty, at_customer: newAtCustomer, empty_waiting: newEmptyWaiting, shopTotals };
 }
+
+/**
+ * โอนย้าย "เต็ม/พร้อมขาย" (qty) ของ SKU หนึ่งจากสาขาหนึ่งไปอีกสาขาหนึ่ง — ใช้เฉพาะฟีเจอร์
+ * "โอนย้ายสต็อกข้ามสาขา" (Phase 2) เท่านั้น ต่างจาก adjustBranchStock() ตรงที่:
+ * (1) **บล็อกถ้าสต็อคต้นทางไม่พอ** (ไม่ clamp เงียบๆ แบบขาย) — เพราะเป็น action ของแอดมิน
+ *     ความถี่ต่ำ และ "ย้ายของที่ไม่มีจริง" เป็นไปไม่ได้ทางกายภาพ ไม่ใช่การตัดสินใจทางธุรกิจแบบขาย
+ * (2) ใช้ optimistic lock (`UPDATE ... WHERE qty = <ค่าที่เพิ่งอ่าน>`) ตอนหักสาขาต้นทาง กัน
+ *     race condition ถ้ามีคำขออื่นแก้สต็อคสาขาเดียวกันพร้อมกัน (retry จำกัดจำนวนครั้งถ้าชน)
+ * (3) เฉพาะ qty (เต็ม/พร้อมขาย) เท่านั้น ไม่รวม at_customer/empty_waiting (ไม่ใช่แนวคิด
+ *     "ตำแหน่งที่ตั้ง" แบบเดียวกัน — ยังไม่อยู่ในสโคปของฟีเจอร์นี้)
+ *
+ * @throws {Error} ถ้าสต็อคต้นทางไม่พอ (err.insufficientStock = true) หรือชนกันเกิน retry limit
+ */
+export async function transferBranchStock(shopId, sku, fromBranch, toBranch, qty) {
+  const from = fromBranch || '';
+  const to = toBranch || '';
+  const q = Number(qty) || 0;
+  if (from === to) throw new Error('สาขาต้นทางและปลายทางต้องไม่ใช่สาขาเดียวกัน');
+  if (!(q > 0)) throw new Error('จำนวนที่โอนต้องมากกว่า 0');
+
+  const MAX_RETRY = 5;
+  let sourceUpdated = false;
+  for (let attempt = 0; attempt < MAX_RETRY && !sourceUpdated; attempt++) {
+    const { data: current, error: fetchErr } = await supabase.from('pos_product_stock').select('qty')
+      .eq('shop_id', shopId).eq('sku', sku).eq('branch_name', from).maybeSingle();
+    if (fetchErr) throw fetchErr;
+    const currentQty = Number(current?.qty) || 0;
+
+    if (currentQty < q) {
+      const err = new Error(`สต็อคที่สาขาต้นทางไม่พอ (มีอยู่ ${currentQty} ต้องการโอน ${q})`);
+      err.insufficientStock = true;
+      throw err;
+    }
+
+    const { data: updated, error: updateErr } = await supabase.from('pos_product_stock')
+      .update({ qty: currentQty - q, updated_at: new Date().toISOString() })
+      .eq('shop_id', shopId).eq('sku', sku).eq('branch_name', from).eq('qty', currentQty)
+      .select('id');
+    if (updateErr) throw updateErr;
+    if (updated && updated.length > 0) sourceUpdated = true;
+    // ไม่งั้น = มีคำขออื่นแก้ qty ของแถวนี้แทรกระหว่างอ่าน-เขียน (race) — วนอ่านค่าล่าสุดใหม่แล้วลองอีกครั้ง
+  }
+  if (!sourceUpdated) {
+    throw new Error('โอนย้ายไม่สำเร็จ — มีการแก้ไขสต็อคสาขาต้นทางพร้อมกันหลายครั้งเกินไป กรุณาลองใหม่');
+  }
+
+  // เพิ่มปลายทาง — ไม่ต้อง strict lock เพราะบวกเข้าไม่มีทางติดลบ/ชนกันจนพังได้
+  // (adjustBranchStock() sync cache รวมทั้ง SKU ให้ครบอัตโนมัติ ครอบคลุมฝั่งต้นทางที่เพิ่งหักไปด้วย)
+  await adjustBranchStock(shopId, sku, to, { qtyDelta: q });
+}

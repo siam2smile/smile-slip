@@ -748,6 +748,18 @@ export default function POSPage() {
   const [cyclicalQty, setCyclicalQty] = useState('');
   const [cyclicalSaving, setCyclicalSaving] = useState(false);
 
+  // ── โอนย้ายสต็อกข้ามสาขา (Phase 2) ──
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [transferProd, setTransferProd] = useState(null);
+  const [transferFrom, setTransferFrom] = useState('');
+  const [transferTo, setTransferTo] = useState('');
+  const [transferQty, setTransferQty] = useState('');
+  const [transferNote, setTransferNote] = useState('');
+  const [transferSaving, setTransferSaving] = useState(false);
+  const [transferBreakdown, setTransferBreakdown] = useState([]); // [{branch_name, qty}] ของสินค้านี้
+  const [transferHistory, setTransferHistory] = useState([]);
+  const [transferHistoryLoading, setTransferHistoryLoading] = useState(false);
+
   // ── Delivery modal ────────────────────────────────────────────────────────
   const [showDelivery, setShowDelivery] = useState(false);
   const [delivStep, setDelivStep] = useState(1); // 1=เลือกลูกค้า 2=รายละเอียด
@@ -2430,6 +2442,57 @@ export default function POSPage() {
       } else { alert(d.error); }
     } catch (err) { alert(err.message); }
     setCyclicalSaving(false);
+  }
+
+  // ── โอนย้ายสต็อกข้ามสาขา (Phase 2) ──
+  async function openTransferModal(prod) {
+    setTransferProd(prod);
+    setTransferFrom(selectedBranch?.branch_name || '');
+    setTransferTo('');
+    setTransferQty('');
+    setTransferNote('');
+    setTransferBreakdown([]);
+    setTransferHistory([]);
+    setShowTransferModal(true);
+    setTransferHistoryLoading(true);
+    try {
+      const r = await fetch(`/api/pos/stock-transfers?shopId=${shopId}&sku=${encodeURIComponent(prod.sku)}`);
+      const d = await r.json();
+      setTransferBreakdown(d.breakdown || []);
+      setTransferHistory(d.transfers || []);
+    } catch {}
+    setTransferHistoryLoading(false);
+  }
+
+  async function submitTransfer() {
+    if (!transferProd || !transferQty || transferSaving) return;
+    if (transferFrom === transferTo) { alert('สาขาต้นทางและปลายทางต้องไม่ใช่สาขาเดียวกัน'); return; }
+    setTransferSaving(true);
+    try {
+      const r = await fetch('/api/pos/stock-transfers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId, sku: transferProd.sku, from_branch: transferFrom, to_branch: transferTo,
+          qty: parseFloat(transferQty), note: transferNote, transferred_by: shopInfo?.shop_name || '',
+        }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        showToast(`โอนย้าย ${transferQty} ${transferProd.unit} สำเร็จ`);
+        setShowTransferModal(false);
+        await fetchProducts();
+      } else {
+        alert(d.error);
+      }
+    } catch (err) { alert(err.message); }
+    setTransferSaving(false);
+  }
+
+  function branchLabel(name) {
+    if (!name) return 'ยังไม่ระบุสาขา (เดิม)';
+    const b = posBranches.find(x => x.branch_name === name);
+    return b?.brand_name || name;
   }
 
   // ── receive stock ─────────────────────────────────────────────────────────
@@ -4404,6 +4467,12 @@ export default function POSPage() {
                                 รีฟิล
                               </button>
                             </>
+                          )}
+                          {posBranches.length > 0 && prod.type !== 'ไม่นับสต็อค' && (
+                            <button onClick={() => openTransferModal(prod)}
+                              className="text-xs bg-gray-700 hover:bg-purple-700 text-gray-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors">
+                              🔄 โอนย้าย
+                            </button>
                           )}
                           <button onClick={() => openEditProd(prod)} className="text-xs bg-gray-700 hover:bg-blue-700 text-gray-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors">แก้ไข</button>
                           <button onClick={() => deleteProd(prod)} className="text-xs bg-gray-700 hover:bg-red-700 text-gray-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors">ลบ</button>
@@ -8068,6 +8137,95 @@ export default function POSPage() {
                   {staffSaving ? 'กำลังบันทึก...' : editStaff ? 'บันทึกการแก้ไข' : 'เพิ่มพนักงาน'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ Modal: โอนย้ายสต็อกข้ามสาขา (Phase 2) ══════════════════════ */}
+      {showTransferModal && transferProd && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-gray-900 rounded-2xl w-full max-w-md border border-gray-700 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-white font-bold">🔄 โอนย้ายสต็อกข้ามสาขา</h3>
+                <button onClick={() => setShowTransferModal(false)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+              </div>
+
+              <div className="bg-gray-800 rounded-xl p-3 mb-4">
+                <div className="text-white font-medium text-sm mb-2">{transferProd.name}</div>
+                {transferHistoryLoading ? (
+                  <div className="text-gray-500 text-xs">กำลังโหลดสต็อกแยกตามสาขา...</div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {transferBreakdown.length === 0 ? (
+                      <span className="text-gray-500 text-xs">ยังไม่มีสต็อกที่สาขาไหนเลย</span>
+                    ) : transferBreakdown.map(b => (
+                      <span key={b.branch_name} className="text-xs bg-gray-700 text-gray-300 px-2 py-1 rounded-full">
+                        {branchLabel(b.branch_name)}: {b.qty} {transferProd.unit}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <label className="text-gray-400 text-xs block mb-1.5">จากสาขา</label>
+                  <select value={transferFrom} onChange={e => setTransferFrom(e.target.value)}
+                    className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-purple-500">
+                    <option value="">ยังไม่ระบุสาขา (เดิม)</option>
+                    {posBranches.map(b => <option key={b.id} value={b.branch_name}>{b.brand_name || b.branch_name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-gray-400 text-xs block mb-1.5">ไปสาขา</label>
+                  <select value={transferTo} onChange={e => setTransferTo(e.target.value)}
+                    className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-purple-500">
+                    <option value="">ยังไม่ระบุสาขา (เดิม)</option>
+                    {posBranches.map(b => <option key={b.id} value={b.branch_name}>{b.brand_name || b.branch_name}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="mb-3">
+                <label className="text-gray-400 text-xs block mb-1.5">จำนวน ({transferProd.unit})</label>
+                <input type="number" min="1" value={transferQty} onChange={e => setTransferQty(e.target.value)}
+                  className="w-full bg-gray-800 text-white text-lg font-bold px-4 py-3 rounded-xl border border-gray-700 focus:outline-none focus:border-purple-500"
+                  placeholder="0" autoFocus />
+              </div>
+
+              <div className="mb-4">
+                <label className="text-gray-400 text-xs block mb-1.5">หมายเหตุ (ไม่บังคับ)</label>
+                <input type="text" value={transferNote} onChange={e => setTransferNote(e.target.value)}
+                  className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-purple-500"
+                  placeholder="เช่น ย้ายไปเติมสต็อกสาขาใหม่" />
+              </div>
+
+              <div className="flex gap-3 mb-2">
+                <button onClick={() => setShowTransferModal(false)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-colors text-sm">ยกเลิก</button>
+                <button onClick={submitTransfer}
+                  disabled={transferSaving || !transferQty || parseFloat(transferQty) <= 0 || transferFrom === transferTo}
+                  className="flex-[2] bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm">
+                  {transferSaving ? 'กำลังโอนย้าย...' : `โอนย้าย ${transferQty || 0} ${transferProd.unit}`}
+                </button>
+              </div>
+
+              {transferHistory.length > 0 && (
+                <details className="mt-3">
+                  <summary className="text-gray-400 text-xs cursor-pointer hover:text-gray-300">📋 ประวัติการโอนย้ายล่าสุด ({transferHistory.length})</summary>
+                  <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto">
+                    {transferHistory.map(t => (
+                      <div key={t.id} className="text-xs text-gray-400 bg-gray-800/60 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2">
+                        <span>{branchLabel(t.from_branch)} → {branchLabel(t.to_branch)}: {t.qty} {transferProd.unit}</span>
+                        <span className={`shrink-0 ${t.status === 'committed' ? 'text-green-400' : t.status === 'failed' ? 'text-red-400' : 'text-yellow-400'}`}>
+                          {t.status === 'committed' ? '✓' : t.status === 'failed' ? '✕' : '⏳'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
             </div>
           </div>
         </div>
