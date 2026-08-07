@@ -6019,6 +6019,17 @@ export default function POSPage() {
                         onChange={e => setReportDateTo(e.target.value)}
                         className="bg-gray-800 text-white text-sm px-3 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500"/>
                     </div>
+                    {posBranches.length > 0 && (
+                      <div>
+                        <label className="block text-gray-400 text-xs mb-1">สาขา</label>
+                        <select value={reportBranch}
+                          onChange={e => { setReportBranch(e.target.value); fetchReport(reportType, reportDateFrom, reportDateTo, e.target.value); }}
+                          className="bg-gray-800 text-white text-sm px-3 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500">
+                          <option value="">ทุกสาขา</option>
+                          {posBranches.map(b => <option key={b.id} value={b.branch_name}>{b.brand_name || b.branch_name}</option>)}
+                        </select>
+                      </div>
+                    )}
                     <button onClick={() => fetchReport(reportType, reportDateFrom, reportDateTo)}
                       className="bg-green-700 hover:bg-green-600 text-white text-sm font-bold px-4 py-2 rounded-lg transition-colors">
                       🔍 โหลด
@@ -6137,6 +6148,11 @@ export default function POSPage() {
                   const s = reportData.summary;
                   return (
                     <div className="space-y-4">
+                      {posBranches.length > 0 && (
+                        <div className="text-blue-400 text-xs">
+                          📍 แสดงสต็อกของ: {reportData.branch ? (posBranches.find(b => b.branch_name === reportData.branch)?.brand_name || reportData.branch) : 'ทุกสาขารวมกัน'}
+                        </div>
+                      )}
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         {[
                           { label: 'สินค้าทั้งหมด', value: s.total_products + ' รายการ', color: 'text-blue-400' },
@@ -9142,6 +9158,11 @@ export default function POSPage() {
             </div>
             <div className="p-4 space-y-3">
               <div className="text-gray-400 text-xs mb-2">เลือกรายงานที่ต้องการ export:</div>
+              {posBranches.length > 0 && (
+                <div className="text-blue-400 text-xs -mt-1 mb-2">
+                  📍 ตามตัวกรองสาขาในหน้ารายงาน: {reportBranch ? (posBranches.find(b => b.branch_name === reportBranch)?.brand_name || reportBranch) : 'ทุกสาขา'}
+                </div>
+              )}
               {[
                 { key: 'sales',      label: '💰 ยอดขาย (Bank Statement)' },
                 { key: 'inventory',  label: '📦 สินค้าคงเหลือ' },

@@ -24,6 +24,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { requirePermission } from '../../../lib/pos-auth';
 import { productFromRow, contactFromRow } from '../../../lib/google-pos';
+import { getBranchStockMap } from '../../../lib/pos-stock';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -183,7 +184,18 @@ export default async function handler(req, res) {
 
     // ── สินค้าคงเหลือ ────────────────────────────────────────────────────────
     if (type === 'inventory') {
-      const products = (await fetchProducts(shopId)).filter(p => p.is_active !== false);
+      let products = (await fetchProducts(shopId)).filter(p => p.is_active !== false);
+
+      // โอนย้ายสต็อกข้ามสาขา Phase 4 — ถ้าระบุ `branch` (รวมสตริงว่าง = กองกลาง/ไม่ระบุสาขา)
+      // แสดงยอดคงเหลือของสาขานั้นเท่านั้น (จาก pos_product_stock) แทนยอดรวมทั้งร้าน — ไม่ระบุ
+      // `branch` เลย = พฤติกรรมเดิมทุกประการ (ยอดรวมทั้งร้าน จาก pos_products cache)
+      if (branch !== undefined) {
+        const branchMap = await getBranchStockMap(shopId, branch);
+        products = products.map(p => {
+          const b = branchMap.get(p.sku);
+          return { ...p, shop_total_stock: p.stock, stock: b ? b.qty : 0, at_customer: b ? b.at_customer : 0, empty_waiting: b ? b.empty_waiting : 0 };
+        });
+      }
 
       const totalValue = products.reduce((s, p) => s + p.cost * p.stock, 0);
       const totalRetail = products.reduce((s, p) => s + p.price * p.stock, 0);
@@ -191,6 +203,7 @@ export default async function handler(req, res) {
 
       return res.json({
         type: 'inventory',
+        branch: branch !== undefined ? branch : null,
         products: products.sort((a, b) => a.name.localeCompare(b.name, 'th')),
         summary: {
           total_products: products.length,

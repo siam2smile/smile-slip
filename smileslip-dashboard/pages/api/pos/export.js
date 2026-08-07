@@ -14,6 +14,7 @@ import { productFromRow, contactFromRow } from '../../../lib/google-pos';
 import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import { sanitizeFilenamePart } from '../../../lib/branding';
 import { requirePermission } from '../../../lib/pos-auth';
+import { getBranchStockMap } from '../../../lib/pos-stock';
 
 // รายงาน 3 แม่แบบใหม่ (vat30/sales_by_branch/cyclical_inventory) + custom เฉพาะร้าน — Business+ เท่านั้น
 // (รายงานเดิม 8 ประเภทด้านบนยังไม่ล็อก tier ตามที่เป็นมาแต่เดิม ไม่ได้แก้ย้อนหลังในรอบนี้)
@@ -236,7 +237,19 @@ export default async function handler(req, res) {
 
     // ── สินค้าคงเหลือ ────────────────────────────────────────────────────
     if (typeList.includes('inventory')) {
-      const products = await fetchProducts(supabase, shopId);
+      let products = await fetchProducts(supabase, shopId);
+
+      // โอนย้ายสต็อกข้ามสาขา Phase 4 — ถ้าระบุ `branch` แสดงยอดคงเหลือของสาขานั้นโดยเฉพาะ
+      // (จาก pos_product_stock) แทนยอดรวมทั้งร้าน ให้ตรงกับ "สาขา: {branchLabel}" ที่หัวชีตบอกไว้
+      // จริงๆ (เดิม label บอกสาขาแต่ตัวเลขเป็นยอดรวมทั้งร้านเสมอ ไม่ตรงกัน) — ไม่ระบุ branch เลย =
+      // พฤติกรรมเดิมทุกประการ (ยอดรวมทั้งร้าน)
+      if (branch !== undefined) {
+        const branchMap = await getBranchStockMap(shopId, branch);
+        products = products.map(p => {
+          const b = branchMap.get(p.sku);
+          return { ...p, stock: b ? b.qty : 0 };
+        });
+      }
 
       const headers = ['รหัสสินค้า', 'ชื่อสินค้า', 'หมวดหมู่', 'สต็อคคงเหลือ', 'หน่วย', 'ราคาทุน (฿)', 'ราคาขาย (฿)', 'มูลค่าสต็อค (฿)', 'สถานะ'];
       const data = [

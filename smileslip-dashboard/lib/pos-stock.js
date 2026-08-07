@@ -34,6 +34,28 @@ export async function getBranchStock(shopId, sku, branchName) {
   };
 }
 
+/**
+ * สต็อกของ "ทุก" SKU ในร้าน ที่สาขาหนึ่งๆ (bulk) — คืน `Map<sku, {qty, at_customer, empty_waiting}>`
+ * ใช้แทนการเรียก `getBranchStock()` ทีละ SKU (N+1) เวลาต้องแสดง/ประมวลผลสินค้าทั้งลิสต์พร้อมกัน
+ * (หน้าจัดการสต็อกของพนักงาน, รายงานสินค้าคงเหลือแยกสาขา, export) — SKU ที่ไม่มีแถวเลยในสาขานั้น
+ * (ไม่อยู่ใน Map ที่คืนกลับ) ให้ผู้เรียกถือว่าเป็น 0 ทั้งหมด (ไม่ throw ไม่ error)
+ */
+export async function getBranchStockMap(shopId, branchName) {
+  const bn = branchName || '';
+  const { data, error } = await supabase.from('pos_product_stock').select('sku,qty,at_customer,empty_waiting')
+    .eq('shop_id', shopId).eq('branch_name', bn);
+  if (error) throw error;
+  const map = new Map();
+  for (const r of (data || [])) {
+    map.set(r.sku, {
+      qty: Number(r.qty) || 0,
+      at_customer: Number(r.at_customer) || 0,
+      empty_waiting: Number(r.empty_waiting) || 0,
+    });
+  }
+  return map;
+}
+
 /** สต็อกของ SKU หนึ่งแยกตามทุกสาขาที่เคยมีการเคลื่อนไหว (ไม่รวมสาขาที่ยังไม่เคยมีแถวเลย = 0 โดยปริยาย) */
 export async function getStockBreakdown(shopId, sku) {
   const { data, error } = await supabase.from('pos_product_stock').select('*')

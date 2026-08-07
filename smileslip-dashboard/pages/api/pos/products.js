@@ -15,7 +15,7 @@ import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 import { requirePermission } from '../../../lib/pos-auth';
 import { makeSKU, productFromRow } from '../../../lib/google-pos';
-import { getBranchStock, adjustBranchStock } from '../../../lib/pos-stock';
+import { getBranchStock, adjustBranchStock, getBranchStockMap } from '../../../lib/pos-stock';
 
 async function getTier(shopId) {
   const { data: sp } = await supabase.from('shop_profiles').select('subscription_tier').eq('id', shopId).maybeSingle();
@@ -70,20 +70,15 @@ export default async function handler(req, res) {
       // (pos-staff.js) ที่ต้องแก้/ดูเฉพาะสาขาตัวเองเท่านั้น ไม่กระทบ caller เดิมที่ไม่ส่ง
       // param นี้มา (ยังได้ยอดรวมทั้งร้านเหมือนเดิมทุกประการ)
       if (req.query.branchStock !== undefined && products.length > 0) {
-        const skus = products.map(p => p.sku);
-        const { data: branchRows, error: branchErr } = await supabase.from('pos_product_stock')
-          .select('sku,qty,at_customer,empty_waiting')
-          .eq('shop_id', shopId).eq('branch_name', req.query.branchStock).in('sku', skus);
-        if (branchErr) throw branchErr;
-        const branchMap = Object.fromEntries((branchRows || []).map(r => [r.sku, r]));
+        const branchMap = await getBranchStockMap(shopId, req.query.branchStock);
         products = products.map(p => {
-          const b = branchMap[p.sku];
+          const b = branchMap.get(p.sku);
           return {
             ...p,
             shop_total_stock: p.stock,
-            stock: b ? Number(b.qty) || 0 : 0,
-            at_customer: b ? Number(b.at_customer) || 0 : 0,
-            empty_waiting: b ? Number(b.empty_waiting) || 0 : 0,
+            stock: b ? b.qty : 0,
+            at_customer: b ? b.at_customer : 0,
+            empty_waiting: b ? b.empty_waiting : 0,
           };
         });
       }
