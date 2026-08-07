@@ -18,6 +18,7 @@ import { supabase } from '../../../lib/supabase-pos';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { makeCustomerOrderNo, productFromRow } from '../../../lib/google-pos';
 import { requirePermission } from '../../../lib/pos-auth';
+import { getBranchStock } from '../../../lib/pos-stock';
 
 function orderFromRow(r) {
   return {
@@ -112,7 +113,12 @@ export default async function handler(req, res) {
         // ทำให้คิวรอตรวจสอบมียอดเพี้ยนเกินจริงเป็นเรื่องยากต่อแอดมินตรวจสอบ
         const qty = Math.min(10000, Math.max(1, parseInt(item.qty) || 0));
         if (qty <= 0) continue;
-        resolvedItems.push({ sku: prod.sku, name: prod.name, unit: prod.unit, price: prod.price, qty });
+        // โอนย้ายสต็อกข้ามสาขา Phase 5 — เช็คสต็อกจริงที่สาขานี้ (ไม่ใช่แค่ visibility เหมือนเดิม) แนบ
+        // ไว้เป็น flag เฉยๆ ให้แอดมินเห็นตอนตรวจสอบ **ไม่บล็อคการสั่งซื้อ** เพราะออเดอร์จากช่องทางนี้
+        // เข้าคิว "รอตรวจสอบ" เสมออยู่แล้ว มีคนตรวจก่อนสร้างเป็นออเดอร์จัดส่งจริงทุกครั้ง (แอดมินตัดสินใจ
+        // เองได้ว่าจะยืนยัน/ติดต่อลูกค้าก่อน/ปฏิเสธ ไม่ควรบล็อคลูกค้าจากการสั่งซื้อเพราะตัวเลขสต็อคอาจผิดจริง)
+        const branchStock = await getBranchStock(shopId, prod.sku, branch);
+        resolvedItems.push({ sku: prod.sku, name: prod.name, unit: prod.unit, price: prod.price, qty, low_stock: qty > branchStock.qty });
       }
       if (!resolvedItems.length) return res.status(400).json({ error: 'ไม่พบสินค้าที่เลือกในระบบ กรุณาลองใหม่' });
 

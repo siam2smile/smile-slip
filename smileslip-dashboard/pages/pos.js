@@ -689,6 +689,10 @@ export default function POSPage() {
   const [posBranches, setPosBranches] = useState([]);
   const [selectedBranch, setSelectedBranch] = useState(null);
   const [showBranchSelect, setShowBranchSelect] = useState(false);
+  // โอนย้ายสต็อกข้ามสาขา Phase 5 — สต็อกจริงของสาขาที่กำลังขายอยู่ (Map<sku,{qty,at_customer,
+  // empty_waiting}>) แยกจาก `products` (ยอดรวมทั้งร้าน ใช้กับแท็บจัดการสินค้า/modal อื่นๆ เหมือนเดิม
+  // ทุกประการ) — null = ยังไม่โหลด/ร้านสาขาเดียว (ไม่ต้องโหลดเลย ใช้ prod.stock ปกติ)
+  const [saleBranchStock, setSaleBranchStock] = useState(null);
 
   // ── Staff/Drivers (พนักงานส่งสินค้า) ────────────────────────────────────
   const [staff, setStaff] = useState([]);
@@ -1180,6 +1184,21 @@ export default function POSPage() {
       if (d.products) setProducts(d.products);
     } catch {}
     setProductsLoading(false);
+  }
+
+  // โอนย้ายสต็อกข้ามสาขา Phase 5 — ดึงสต็อกจริงเฉพาะสาขาที่กำลังขายอยู่ แยกจาก fetchProducts()
+  // (ยังคงยอดรวมทั้งร้านไว้เหมือนเดิมสำหรับแท็บจัดการสินค้า/modal อื่นๆ ทุกจุด) ใช้แค่ตอนแสดงผล/
+  // ตัดสินใจในแท็บขายเท่านั้น กันคำนวณ/แสดงผิดสาขาแบบเดียวกับที่แก้ไปแล้วในฟอร์มแก้ไขสินค้า (Phase 3)
+  async function fetchSaleBranchStock(sid = shopId, branchName = selectedBranch?.branch_name || '') {
+    if (!sid || posBranches.length === 0) { setSaleBranchStock(null); return; }
+    try {
+      const r = await fetch(`/api/pos/products?shopId=${sid}&showInactive=true&branchStock=${encodeURIComponent(branchName)}`);
+      const d = await r.json();
+      if (d.products) {
+        const map = new Map(d.products.map(p => [p.sku, { qty: p.stock, at_customer: p.at_customer, empty_waiting: p.empty_waiting }]));
+        setSaleBranchStock(map);
+      }
+    } catch {}
   }
 
   async function fetchSales(sid = shopId, date = reportDate) {
@@ -2028,6 +2047,13 @@ export default function POSPage() {
     if (tab === 'expenses' && shopId) { fetchExpenseHistory(); fetchPendingExpenses(); }
   }, [tab, shopId]);
 
+  // โอนย้ายสต็อกข้ามสาขา Phase 5 — sync สต็อกเฉพาะสาขาที่กำลังขายทุกครั้งที่เปลี่ยนสาขา/ร้าน หรือ
+  // สินค้าเปลี่ยน (ขายไปแล้วต้องอัปเดตตัวเลขทันที ไม่ใช่แค่ตอนสลับสาขา)
+  useEffect(() => {
+    if (shopId && posBranches.length > 0) fetchSaleBranchStock(shopId, selectedBranch?.branch_name || '');
+    else setSaleBranchStock(null);
+  }, [shopId, posBranches.length, selectedBranch?.branch_name, products]);
+
   // ── categories & filter ───────────────────────────────────────────────────
   const categories = useMemo(() => {
     const cats = [...new Set(products.map(p => p.category).filter(Boolean))].sort();
@@ -2039,6 +2065,15 @@ export default function POSPage() {
     let p = tab === 'products' ? products : products.filter(x => x.is_active !== false);
     if (tab !== 'products' && selectedBranch?.branch_name) {
       p = p.filter(x => !x.branches?.length || x.branches.includes(selectedBranch.branch_name));
+    }
+    // โอนย้ายสต็อกข้ามสาขา Phase 5 — เฉพาะแท็บ "ขาย" เท่านั้นที่แสดง/ตัดสินใจด้วยสต็อกของสาขานั้นจริงๆ
+    // (แท็บ "จัดการสินค้า" ยังคงยอดรวมทั้งร้านไว้เหมือนเดิมเสมอ ไม่กระทบ) — ยังไม่โหลด saleBranchStock
+    // (null) = ใช้ prod.stock เดิมไปก่อนชั่วคราว กันหน้าจอกระพริบเป็น 0 ระหว่างรอ fetch
+    if (tab === 'sell' && saleBranchStock) {
+      p = p.map(x => {
+        const b = saleBranchStock.get(x.sku);
+        return b ? { ...x, stock: b.qty, at_customer: b.at_customer, empty_waiting: b.empty_waiting } : { ...x, stock: 0, at_customer: 0, empty_waiting: 0 };
+      });
     }
     if (selectedCat !== 'ทั้งหมด') p = p.filter(x => x.category === selectedCat);
     if (search) {
@@ -2052,7 +2087,7 @@ export default function POSPage() {
       );
     }
     return p;
-  }, [products, selectedCat, search, tab, selectedBranch]);
+  }, [products, selectedCat, search, tab, selectedBranch, saleBranchStock]);
 
   // ── cart ──────────────────────────────────────────────────────────────────
   function addToCart(prod) {
@@ -5700,6 +5735,11 @@ export default function POSPage() {
                             <div className="text-green-400 font-bold text-sm shrink-0">฿{order.total.toLocaleString()}</div>
                           </div>
                           <div className="text-gray-500 text-xs mt-1">{(order.items || []).map(i => `${i.name}×${i.qty}`).join(', ')}</div>
+                          {(order.items || []).some(i => i.low_stock) && (
+                            <div className="text-yellow-400 text-xs mt-0.5">
+                              ⚠️ สต็อคที่สาขานี้อาจไม่พอ: {(order.items || []).filter(i => i.low_stock).map(i => i.name).join(', ')}
+                            </div>
+                          )}
                           <div className="text-gray-500 text-xs mt-0.5">💳 {order.payment_method}{order.notes ? ` — ${order.notes}` : ''}</div>
                           <div className="flex gap-2 mt-2.5">
                             <button onClick={() => rejectCustomerOrder(order)}

@@ -272,11 +272,19 @@ export default async function handler(req, res) {
       const productsForVat = (prodData || []).map(productFromRow);
       const { subtotal: vatSubtotal, vat: vatAmount } = computeVatBreakdown(items, productsForVat);
 
+      // เตือน (ไม่บล็อค) ถ้าราคาที่ขายจริงต่ำกว่าต้นทุน / สต็อคสาขานี้ไม่พอ — ประกาศไว้ก่อนเสมอ เพราะ
+      // ต้องใช้ตอนคำนวณ actual_stock_deducted ด้านล่างด้วย (ไม่ใช่แค่ตอนคำนวณ VAT ทีหลัง)
+      const warnings = [];
+
       // คำนวณจำนวนที่จะถูกหักจาก "เต็ม" (stock) จริงต่อรายการไว้ล่วงหน้า แล้วฝังเข้า item ก่อนบันทึก
       // เป็น JSON — เพราะการหักสต็อคด้านล่าง clamp ไว้ที่ 0 ถ้าสต็อคมีไม่พอ "จำนวนที่หักจริง" อาจน้อยกว่า
       // item.qty ต้องจำค่าจริงไว้ ไม่งั้นตอนยกเลิกบิล (DELETE) จะคืนสต็อคเกินกว่าที่หักไปจริง (over-restore)
       // — โอนย้ายสต็อกข้ามสาขา Phase 1: เทียบกับสต็อคที่ "สาขานี้" เท่านั้น (ไม่ใช่ prod.stock ที่เป็น
       // ยอดรวมทั้งร้าน) เพราะขายที่สาขาไหนต้องหักจากของที่มีอยู่จริงที่สาขานั้น
+      // — Phase 5: ถ้าสต็อคสาขานี้ไม่พอ (ขายเกินกว่าที่มีจริง) เตือนแอดมิน/แคชเชียร์ให้รู้ตัว แต่ยัง
+      // **ไม่บล็อคการขาย** (ตัดสินใจให้สอดคล้องกับ philosophy เดิมของทั้งระบบ — ราคาต่ำกว่าทุน/เพดาน
+      // เปล่ารอรีฟิล/วงเงินยืมก็เป็นแค่ warning ทั้งหมด ไม่เคยบล็อคจุดขาย เพราะสต็อคที่บันทึกไว้อาจผิดจริง
+      // เช่น ลืมคีย์ของเข้าที่เพิ่งมาส่ง แคชเชียร์ต้องขายต่อได้เสมอไม่ให้ธุรกิจสะดุด)
       for (const item of items) {
         const prod = productsForVat.find(p => p.sku === item.sku);
         if (!prod) { item.actual_stock_deducted = 0; continue; }
@@ -284,7 +292,12 @@ export default async function handler(req, res) {
           item.actual_stock_deducted = 0;
         } else {
           const branchStock = await getBranchStock(shopId, item.sku, branch);
-          item.actual_stock_deducted = Math.min(parseFloat(item.qty) || 0, branchStock.qty);
+          const wantQty = parseFloat(item.qty) || 0;
+          item.actual_stock_deducted = Math.min(wantQty, branchStock.qty);
+          if (branchStock.qty < wantQty) {
+            const branchLabel = branch || 'ไม่ระบุสาขา';
+            warnings.push(`⚠️ "${item.name}" สต็อคที่สาขา "${branchLabel}" มีไม่พอ (มี ${branchStock.qty} ขาย ${wantQty} ${item.unit || ''})`);
+          }
         }
       }
 
@@ -311,7 +324,6 @@ export default async function handler(req, res) {
       //    ถ้าลูกค้าเอาถังเปล่าเก่ามาคืน (item.returned_qty) → ถังนั้นไม่ได้ค้างอยู่กับลูกค้าเพิ่ม
       //    (กับลูกค้าสุทธิ = qty - returned_qty) และเพิ่ม "เปล่ารอรีฟิล" ตามจำนวนที่คืนมา
       let netCylinderDeltaForCustomer = 0;
-      const warnings = [];
 
       // เตือน (ไม่บล็อค) ถ้าราคาที่ขายจริงต่ำกว่าต้นทุน
       for (const item of items) {
