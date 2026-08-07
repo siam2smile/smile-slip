@@ -651,6 +651,13 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
     - **สถานะ testimonials:** ผู้ใช้แจ้งว่าลงข้อมูลจริงในหน้าเซลเพจแล้วเอง — ไม่ต้องทำอะไรเพิ่ม
     - **ยังไม่ได้ทำ (out of scope ของ Approach A ข้างบน โดยตั้งใจ, ต้องการ redesign เพิ่มถ้าจะทำ):** `enforce:true` เต็มรูปแบบสำหรับ 4 endpoint ที่มีปัญหา chicken-and-egg — ต้องรื้อ `init()`/`fetchData()`/`loadShopBody()` ให้ดัก 401 เองก่อน ไม่ใช่พึ่ง effect ที่ผูกกับ `shopId` state
 
+64. **แก้บั๊ก `/login` ค้างที่ "กำลังโหลด..." ถ้า navigate มาจาก `/logout` — เจอระหว่างที่ผู้ใช้ทดสอบสมัครสมาชิกจริงด้วยไลน์ไอดีจริง (ไม่ใช่บัญชีทดสอบเดิม):**
+    - **สิ่งที่ผู้ใช้เจอ:** (1) สมัครสมาชิกแล้วเด้งเข้า "หน้าแอดมิน" แทนที่จะได้กรอกฟอร์มสมัครร้านใหม่ (2) กด "ออกจากระบบ" แล้วหน้าค้าง ต้อง refresh เอง
+    - **ข้อ 1 ไม่ใช่บั๊ก — เป็นพฤติกรรมตั้งใจจากข้อ 44 ที่ทำให้ผู้ใช้เข้าใจผิดได้ง่าย:** ไลน์ไอดีที่ใช้ทดสอบมีบทบาท "แอดมิน" ผูกกับร้านแก๊สเดิมอยู่แล้ว (จากที่เคยทดสอบ `#สมัครแอดมิน` มาก่อนในโปรเจกต์นี้) — หน้า "พบบัญชี LINE นี้อยู่ในระบบแล้ว" ของ `register.js` เลยแสดงปุ่ม "เข้าร้าน [ชื่อร้านเดิม]" เป็นปุ่มแรก ทำให้กดพลาดได้ง่าย ต้องกดปุ่ม "สมัครร้านใหม่แยกต่างหาก" ต่างหากถึงจะได้ฟอร์มสมัครร้านใหม่จริง — อธิบายให้ผู้ใช้ทราบแล้ว ไม่ได้แก้โค้ด (ปุ่มมีอยู่ครบถูกต้องตามดีไซน์เดิม)
+    - **ข้อ 2 เป็นบั๊กจริง พบ root cause แล้ว:** `next/script` ไม่ยิง `onLoad` ซ้ำถ้า script `src` เดียวกันโหลดสำเร็จไปแล้วจากหน้าก่อนหน้าในเว็บเดียวกัน (client-side navigation) — `logout.js` โหลด LIFF SDK ไปแล้ว พอ `router.replace('/login')` มา `login.js`'s `initLiff()` (ที่ผูกกับ `onLoad` เพียงอย่างเดียว) ไม่เคยถูกเรียกเลย หน้าค้างที่ `view='loading'` ตลอดไปจนกว่าจะ hard refresh — `logout.js`/`pos-staff.js` (อีก 2 ไฟล์ที่โหลด LIFF SDK เหมือนกัน) ไม่โดนบั๊กนี้เพราะมี fallback timer อิสระอยู่แล้ว (`logout.js` 3 วิ, `pos-staff.js` 10 วิ ตามข้อ 45) — `login.js` เป็นไฟล์เดียวที่ fallback timer (8 วิ) ผูกอยู่ *ข้างใน* `initLiff()` เอง จึงไม่ทำงานเลยถ้า `initLiff()` ไม่เคยถูกเรียก
+    - **แก้:** เพิ่ม `useEffect` เช็ค `window.liff` ตรงๆ ตอน mount แล้วเรียก `initLiff()` เองถ้ามีอยู่แล้ว (ไม่ต้องรอ `onLoad`) + เพิ่ม `liffInitStarted` ref กันเรียกซ้ำถ้าทั้ง `onLoad` และ `useEffect` นี้ทำงานพร้อมกัน
+    - **Deploy production แล้ว (2026-08-07)** — revision จริง `smileslip-dashboard-00300-wg8` (ข้อความ deploy โชว์ revision เดิมผิดอีกตามเคย เช็คด้วย `gcloud run revisions list` แล้ว pin traffic เอง) — ยังไม่ได้ทดสอบผ่านเบราว์เซอร์จริงเพราะ LIFF SDK โหลดจาก CDN ภายนอกถูกบล็อกในเบราว์เซอร์ทดสอบของเครื่องมือ (ข้อจำกัดเดิมที่เจอซ้ำหลายรอบในโปรเจกต์นี้) — ตรวจสอบผ่าน code review เชิงลึก (เข้าใจกลไก `next/script` ที่ทำให้เกิดบั๊กนี้ชัดเจน) + build ผ่านเท่านั้น — รอผู้ใช้ยืนยันจากการทดสอบจริงต่อ
+
 ---
 
 ## Tech Stack
@@ -684,7 +691,7 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
 | Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00229-stk` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00299-zrx` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00300-wg8` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
