@@ -373,7 +373,11 @@ export default function PosStaffPage() {
         const d = await r.json();
         setManagePlReport(r.ok ? d : { error: d.error || 'เกิดข้อผิดพลาด' });
       } else if (view === 'stock') {
-        const r = await apiFetch(`/api/pos/products?shopId=${shopId}`);
+        // โอนย้ายสต็อกข้ามสาขา Phase 3 — ส่ง branchStock=staffBranch เสมอ (แม้ว่างก็ส่ง เพื่อให้
+        // ตรงกับ sentinel '' ของกองกลาง/ไม่ระบุสาขา) ให้ได้ตัวเลขสต็อกเฉพาะสาขาที่พนักงานคนนี้
+        // ผูกอยู่ ไม่ใช่ยอดรวมทั้งร้าน — กัน edit แล้ว delta คำนวณผิดสาขา (ตัวเลขที่เห็นไม่ตรงกับที่
+        // แก้จริง) เหมือนที่เคยเป็นปัญหาแฝงในฟอร์มแก้ไขสินค้าของ pos.js ก่อนแก้คู่กันในงานนี้
+        const r = await apiFetch(`/api/pos/products?shopId=${shopId}&branchStock=${encodeURIComponent(staffBranch)}`);
         const d = await r.json();
         if (d.products) setManageStockList(d.products);
       }
@@ -387,12 +391,16 @@ export default function PosStaffPage() {
       const r = await apiFetch('/api/pos/products', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shopId, sku, stock: parseFloat(stock) || 0 }),
+        body: JSON.stringify({ shopId, sku, stock: parseFloat(stock) || 0, branch: staffBranch }),
       });
       const d = await r.json();
       if (d.ok) {
         showToast('บันทึกสต็อกแล้ว');
-        setManageStockList(list => list.map(p => p.sku === sku ? { ...p, stock: d.stock } : p));
+        // d.stock ที่ API คืนมาเป็นยอดรวมทั้งร้าน (shopTotals.stock) ไม่ใช่ยอดของสาขานี้ —
+        // ใช้ค่าที่พิมพ์เข้าไปเอง (branch-specific) แทน กันตัวเลขที่โชว์กระโดดไปเป็นยอดรวมทันที
+        // หลังบันทึกสำเร็จ (สับสนกับสาขาอื่นที่มีสต็อกอยู่ด้วย)
+        const savedQty = parseFloat(stock) || 0;
+        setManageStockList(list => list.map(p => p.sku === sku ? { ...p, stock: savedQty } : p));
       } else { alert(d.error); }
     } catch (err) { alert(err.message); }
     setManageStockSaving('');
@@ -1043,6 +1051,9 @@ export default function PosStaffPage() {
                   <div className="text-center text-gray-400 py-12">กำลังโหลด...</div>
                 ) : (
                   <div className="space-y-2">
+                    <div className="text-blue-400 text-xs mb-1">
+                      📍 แสดง/แก้ไขสต็อกที่สาขา: {staffBranch || 'ไม่ระบุสาขา'}
+                    </div>
                     {manageStockList.map(p => (
                       <div key={p.sku} className="bg-gray-900 rounded-xl p-3 border border-gray-800 flex items-center gap-3">
                         <div className="flex-1 min-w-0">

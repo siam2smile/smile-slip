@@ -2363,11 +2363,26 @@ export default function POSPage() {
     setShowProdForm(true);
   }
 
-  function openEditProd(prod) {
+  async function openEditProd(prod) {
     setEditProd(prod);
+    // โอนย้ายสต็อกข้ามสาขา Phase 3 — prod.stock ที่ได้จากรายการหลักเป็นยอดรวมทั้งร้าน (SUM ทุกสาขา)
+    // แต่ label ของฟอร์มโชว์ "สาขา: {selectedBranch}" (บอกเป็นนัยว่าค่านี้คือของสาขานั้น) — ถ้าไม่ดึง
+    // ค่าจริงของสาขาที่กำลังทำงานอยู่มาก่อน ตอนกดบันทึกจะคำนวณ delta ผิดสาขา (เทียบค่าที่พิมพ์กับยอด
+    // รวมทั้งร้าน ไม่ใช่ยอดของสาขานั้นจริงๆ) ทำให้สต็อกสาขานั้นเพี้ยนไปเงียบๆ — ดึงยอดจริงต่อสาขามาก่อน
+    // เสมอถ้าร้านมีมากกว่า 1 สาขา (ร้านสาขาเดียวไม่กระทบ เพราะ prod.stock = สาขา '' อยู่แล้วเป๊ะ)
+    let stockForBranch = prod.stock;
+    if (posBranches.length > 0 && prod.type !== 'ไม่นับสต็อค') {
+      try {
+        const r = await fetch(`/api/pos/stock-transfers?shopId=${shopId}&sku=${encodeURIComponent(prod.sku)}`);
+        const d = await r.json();
+        const wanted = selectedBranch?.branch_name || '';
+        const row = (d.breakdown || []).find(b => b.branch_name === wanted);
+        stockForBranch = row ? row.qty : 0;
+      } catch { /* fail-safe: เหลือค่ายอดรวมทั้งร้านเดิมไว้ ดีกว่าฟอร์มพังทั้งฟอร์ม */ }
+    }
     setProdForm({
       name: prod.name, category: prod.category,
-      price: String(prod.price), stock: String(prod.stock),
+      price: String(prod.price), stock: String(stockForBranch),
       unit: prod.unit, aliases: prod.aliases, notes: prod.notes,
       type: prod.type || 'นับสต็อค',
       product_code: prod.product_code || '',

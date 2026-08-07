@@ -64,6 +64,30 @@ export default async function handler(req, res) {
         );
       }
 
+      // โอนย้ายสต็อกข้ามสาขา Phase 3 — `branchStock` (ค่าว่างก็ใช้ได้ = กองกลาง) แทนที่
+      // stock/at_customer/empty_waiting ในผลลัพธ์ด้วยตัวเลขของสาขานั้นโดยเฉพาะ (จาก
+      // pos_product_stock) แทนยอดรวมทั้งร้าน — ใช้สำหรับหน้าจัดการสต็อกของพนักงาน
+      // (pos-staff.js) ที่ต้องแก้/ดูเฉพาะสาขาตัวเองเท่านั้น ไม่กระทบ caller เดิมที่ไม่ส่ง
+      // param นี้มา (ยังได้ยอดรวมทั้งร้านเหมือนเดิมทุกประการ)
+      if (req.query.branchStock !== undefined && products.length > 0) {
+        const skus = products.map(p => p.sku);
+        const { data: branchRows, error: branchErr } = await supabase.from('pos_product_stock')
+          .select('sku,qty,at_customer,empty_waiting')
+          .eq('shop_id', shopId).eq('branch_name', req.query.branchStock).in('sku', skus);
+        if (branchErr) throw branchErr;
+        const branchMap = Object.fromEntries((branchRows || []).map(r => [r.sku, r]));
+        products = products.map(p => {
+          const b = branchMap[p.sku];
+          return {
+            ...p,
+            shop_total_stock: p.stock,
+            stock: b ? Number(b.qty) || 0 : 0,
+            at_customer: b ? Number(b.at_customer) || 0 : 0,
+            empty_waiting: b ? Number(b.empty_waiting) || 0 : 0,
+          };
+        });
+      }
+
       return res.json({ products });
     }
 
