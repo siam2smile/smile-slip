@@ -20,6 +20,7 @@ export default function LoginPage() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState('');
   const handledPickerQuery = useRef(false);
+  const liffInitStarted = useRef(false);
 
   // ไปหน้าที่ถูกต้องตามบทบาทที่เลือก (เจ้าของ → dashboard ตรงๆ, แอดมิน → dashboard+adminId)
   // แยกออกมาให้ทั้ง proceedWithProfile (กรณีมีร้านเดียว) และตัวเลือกร้านในหน้า picker เรียกใช้ร่วมกัน
@@ -63,6 +64,16 @@ export default function LoginPage() {
       window.location.href = '/api/auth/line';
     }
   };
+
+  // กันหน้าค้างที่ "กำลังโหลด..." ตลอดไปถ้า navigate มาจากหน้าอื่นในเว็บเดียวกันที่โหลด LIFF SDK
+  // (src เดียวกัน) ไปแล้วก่อนหน้านี้ (เช่น /logout → router.replace('/login')) — next/script
+  // ไม่ยิง onLoad ซ้ำให้ <Script> ตัวใหม่ถ้า script tag เดิม (src เดียวกัน) ยังโหลดสำเร็จอยู่ในหน้า
+  // ทำให้ initLiff() (ที่ผูกกับ onLoad เท่านั้น) ไม่เคยถูกเรียกเลย หน้าค้างที่ view='loading' ตลอดไป
+  // จนกว่าจะ hard refresh เอง — เช็ค window.liff ตรงๆ ตอน mount แล้วเรียก initLiff() เองถ้ามีอยู่แล้ว
+  useEffect(() => {
+    if (window.liff) initLiff();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // รองรับ redirect กลับมาจาก /api/auth/callback/line (LINE OAuth บนเบราว์เซอร์ ไม่ใช่ LIFF)
   // เมื่อไลไอดีนั้นผูกกับหลายร้าน — callback ไม่มีทางโชว์ picker เองได้ (เป็นแค่ HTTP redirect)
@@ -126,6 +137,9 @@ export default function LoginPage() {
 
   // เรียกหลัง LIFF SDK โหลดจาก CDN สำเร็จ
   const initLiff = async () => {
+    // กันเรียกซ้ำ — เผื่อทั้ง <Script onLoad> และ useEffect ที่เช็ค window.liff ด้านล่างทำงานพร้อมกัน
+    if (liffInitStarted.current) return;
+    liffInitStarted.current = true;
     // timeout 8 วิ — ถ้า LIFF ค้างให้แสดงหน้าตัวเลือก
     const fallbackTimer = setTimeout(() => setView('options'), 8000);
     try {
