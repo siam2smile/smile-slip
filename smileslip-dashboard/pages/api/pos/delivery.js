@@ -393,41 +393,53 @@ export default async function handler(req, res) {
                 .eq('shop_id', shopId).eq('sku', item.sku).is('deleted_at', null).maybeSingle();
               if (!prodRow) continue;
               const prod = productFromRow(prodRow);
-              if (prod.type !== 'หมุนเวียน') continue;
+              if (prod.type === 'ไม่นับสต็อค') continue; // บริการ ไม่มีสต็อคให้หัก
 
               // qty ติดลบเคยทำให้ยืนยันจัดส่ง "เพิ่ม" สต็อคแทนที่จะลด (stock - (-qty) = stock + qty)
               const qty = Math.max(0, parseInt(item.qty) || 0);
-              const returnedQty = Math.min(qty, Math.max(0, parseInt(item.returned_qty) || 0));
-              const netBorrow = qty - returnedQty;
 
-              // โอนย้ายสต็อกข้ามสาขา Phase 1: หักออกจากสาขาของพนักงานที่ยืนยันจัดส่ง
-              await adjustBranchStock(shopId, item.sku, confirmBranch, {
-                qtyDelta: -qty, atCustomerDelta: netBorrow, emptyWaitingDelta: returnedQty,
-              });
-              await supabase.from('pos_products').update({
-                product_updated_at: new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }),
-              }).eq('shop_id', shopId).eq('sku', item.sku);
-              netCylinderDeltaForCustomer += netBorrow;
+              if (prod.type === 'หมุนเวียน') {
+                const returnedQty = Math.min(qty, Math.max(0, parseInt(item.returned_qty) || 0));
+                const netBorrow = qty - returnedQty;
 
-              if (returnedQty > 0) {
-                await logCyclicalTransaction({
-                  shopId,
-                  sku: item.sku, name: item.name || prod.name, source: 'จัดส่ง',
-                  action: netBorrow > 0 ? 'แลกเปลี่ยน' : 'คืน',
-                  qty: returnedQty, customerId: cust, customerName: existing.customer_name,
-                  performedBy: confirmed_by,
+                // โอนย้ายสต็อกข้ามสาขา Phase 1: หักออกจากสาขาของพนักงานที่ยืนยันจัดส่ง
+                await adjustBranchStock(shopId, item.sku, confirmBranch, {
+                  qtyDelta: -qty, atCustomerDelta: netBorrow, emptyWaitingDelta: returnedQty,
                 });
-              }
-              if (netBorrow > 0) {
-                await logCyclicalTransaction({
-                  shopId,
-                  sku: item.sku, name: item.name || prod.name, source: 'จัดส่ง', action: 'ยืม',
-                  qty: netBorrow, customerId: cust, customerName: existing.customer_name,
-                  performedBy: confirmed_by,
-                });
+                await supabase.from('pos_products').update({
+                  product_updated_at: new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }),
+                }).eq('shop_id', shopId).eq('sku', item.sku);
+                netCylinderDeltaForCustomer += netBorrow;
+
+                if (returnedQty > 0) {
+                  await logCyclicalTransaction({
+                    shopId,
+                    sku: item.sku, name: item.name || prod.name, source: 'จัดส่ง',
+                    action: netBorrow > 0 ? 'แลกเปลี่ยน' : 'คืน',
+                    qty: returnedQty, customerId: cust, customerName: existing.customer_name,
+                    performedBy: confirmed_by,
+                  });
+                }
+                if (netBorrow > 0) {
+                  await logCyclicalTransaction({
+                    shopId,
+                    sku: item.sku, name: item.name || prod.name, source: 'จัดส่ง', action: 'ยืม',
+                    qty: netBorrow, customerId: cust, customerName: existing.customer_name,
+                    performedBy: confirmed_by,
+                  });
+                }
+              } else {
+                // นับสต็อค (สินค้าทั่วไป) — เดิมไม่เคยหักสต็อคเลยตั้งแต่สร้างโมดูล delivery
+                // (ต่างจากขายหน้าร้าน/api/pos/sales.js ที่หักตั้งแต่ checkout) หักตรงๆ ไม่มี
+                // at_customer/empty_waiting/audit log เหมือนสินค้าหมุนเวียน เพราะไม่ใช่แนวคิด
+                // "แลกเปลี่ยน/ยืม" — ของถูกส่งออกจากร้านไปแล้วจริงถือว่าออกจากสต็อคทันที
+                await adjustBranchStock(shopId, item.sku, confirmBranch, { qtyDelta: -qty });
+                await supabase.from('pos_products').update({
+                  product_updated_at: new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }),
+                }).eq('shop_id', shopId).eq('sku', item.sku);
               }
             } catch (prodErr) {
-              console.error('[delivery] update product cyclical stock error:', prodErr.message);
+              console.error('[delivery] update product stock error:', prodErr.message);
             }
           }
         }

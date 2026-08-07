@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { requireOwnerAuth } from '../../../lib/owner-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -19,6 +20,13 @@ export default async function handler(req, res) {
 
   if (error) return res.status(500).json({ error: error.message });
   if (!profile) return res.status(404).json({ error: 'ไม่พบข้อมูลร้านค้า' });
+
+  // endpoint นี้เรียกตอนหน้าเว็บยังไม่รู้ shopId เลย (แค่ userId) จึง enforce:true ไม่ได้ทันที —
+  // ยังต้องรองรับ "ไม่มี token เลย" (cold visit ครั้งแรก/deep-link ที่ยังไม่ได้ consume token เข้า
+  // localStorage) แต่ถ้า "มี" token ที่ shopId ไม่ตรงกับร้านที่ resolve ได้ (เช่น เผลอเอา token ของ
+  // ร้าน A มาเปิด URL ของร้าน B) ต้องบล็อกเสมอ — ปิดช่องโหว่การอ่านข้อมูลอ่อนไหว (บัญชีธนาคาร,
+  // google refresh token, เครดิต) ข้ามร้านโดยไม่เปิดความเสี่ยง redirect loop ตอนโหลดหน้าครั้งแรก
+  if (!requireOwnerAuth(req, res, profile.id, { enforce: false })) return;
 
   const [creditRow, gConfig, banks] = await Promise.all([
     supabase.from('shop_credits').select('balance_credits').eq('shop_id', profile.id).maybeSingle(),

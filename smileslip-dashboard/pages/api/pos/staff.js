@@ -15,13 +15,16 @@ import { supabase } from '../../../lib/supabase-pos';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { requirePermission } from '../../../lib/pos-auth';
 import { makeStaffId, staffFromRow } from '../../../lib/google-pos';
+import { issueSetpinToken } from '../../../lib/staff-setpin-token';
 
 // ส่งลิงก์ "ตั้งรหัส PIN" ให้พนักงานทาง LINE — ลิงก์นี้เองคือตัวยืนยันตัวตน (ส่งหาแค่ line_id
 // เจ้าของ PIN เท่านั้น) เหมือน pattern เดียวกับลิงก์ยืนยันงานจัดส่ง/เก็บเงินที่มีอยู่แล้ว
 async function sendPinSetupLink(lineId, shopId, staffId, staffName) {
   const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   if (!token || !lineId) return;
-  const url = `${process.env.FRONTEND_URL}/pos-staff?shopId=${shopId}&staff_id=${staffId}&setpin=1`;
+  const setpinToken = issueSetpinToken(shopId, staffId);
+  const tokenQs = setpinToken ? `&token=${encodeURIComponent(setpinToken)}` : '';
+  const url = `${process.env.FRONTEND_URL}/pos-staff?shopId=${shopId}&staff_id=${staffId}&setpin=1${tokenQs}`;
   const message = {
     type: 'text',
     text: `🔐 ตั้งรหัส PIN ส่วนตัวของคุณ${staffName ? ` (${staffName})` : ''}\nใช้ PIN นี้เข้าหน้าพนักงานแทนรหัสเดิมของร้าน ตั้งได้ที่ลิงก์นี้เลยค่ะ:\n${url}`,

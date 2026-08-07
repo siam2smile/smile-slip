@@ -10,6 +10,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { getAccessToken, createFolder } from '../../../lib/google-pos';
+import { requireOwnerAuth } from '../../../lib/owner-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -21,6 +22,11 @@ export default async function handler(req, res) {
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
 
   if (req.method === 'GET') {
+    // ยังไม่ enforce:true เพราะเรียกซิงโครนัสตอนโหลดหน้าครั้งแรกใน pos.js's loadShopBody()
+    // ก่อน fetch-override จะติดตั้งเสร็จ (chicken-and-egg เดียวกับ shop/data.js) — แต่ token ที่
+    // shopId ไม่ตรงกันต้องถูกบล็อกเสมอ
+    if (!requireOwnerAuth(req, res, shopId, { enforce: false })) return;
+
     const { data, error } = await supabase
       .from('pos_configs')
       .select('pos_folder_id, created_at')

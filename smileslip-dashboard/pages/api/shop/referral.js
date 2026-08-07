@@ -3,6 +3,7 @@
  * คืนข้อมูล referral code + สถิติการแนะนำเพื่อน
  */
 import { createClient } from '@supabase/supabase-js';
+import { requireOwnerAuth } from '../../../lib/owner-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -14,6 +15,10 @@ export default async function handler(req, res) {
 
   const { shopId } = req.query;
   if (!shopId) return res.status(400).json({ error: 'shopId required' });
+
+  // ยังไม่ enforce:true เพราะเรียกจากตอนโหลดหน้าครั้งแรก (chicken-and-egg เดียวกับ shop/data.js) —
+  // แต่ token ที่ shopId ไม่ตรงกันต้องถูกบล็อกเสมอ กันข้อมูลรั่วข้ามร้าน
+  if (!requireOwnerAuth(req, res, shopId, { enforce: false })) return;
 
   try {
     // ดึง referral_code ของร้านนี้

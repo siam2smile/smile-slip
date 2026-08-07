@@ -8,7 +8,7 @@ import { useRouter } from 'next/router';
 import { MARKET_PRICE_FEATURE_LIVE } from '../lib/market-price-flag';
 import { hasFeature } from '../lib/tier-features';
 import { withBrandFooter } from '../lib/branding';
-import { getOwnerSessionToken } from '../lib/client-owner-session';
+import { getOwnerSessionToken, setOwnerSessionToken } from '../lib/client-owner-session';
 
 const UNITS = ['ชิ้น', 'อัน', 'กล่อง', 'แพ็ก', 'ขวด', 'ถัง', 'ถุง', 'กก.', 'กรัม', 'ลิตร', 'มล.', 'เมตร', 'คู่', 'ชุด', 'โหล', 'แผ่น', 'มัด', 'หัว', 'ลูก', 'ท่อน', 'แท่ง', 'ห่อ', 'เส้น', 'จาน', 'ชาม', 'แก้ว'];
 const PAY_METHODS = ['เงินสด', 'โอน', 'บัตรเครดิต', 'QR Code', 'เชื่อ'];
@@ -415,8 +415,15 @@ function QrContactModal({ contact, onClose }) {
 
 export default function POSPage() {
   const router = useRouter();
-  const { userId, mode, shopId: cashierShopId } = router.query;
+  const { userId, mode, shopId: cashierShopId, ownerSession: ownerSessionFromQuery } = router.query;
   const cashierMode = mode === 'cashier';
+  // ownerSession มาจาก deep-link ที่บอทส่งให้เจ้าของร้านทาง LINE (เซ็นชื่อไว้ ดู
+  // smileslip-pro/lib/owner-session-sign.js) — เก็บไว้ก่อนจนกว่าจะรู้ shopInfo.id จริง (localStorage
+  // key ผูกกับ shopId ไม่ใช่ userId) เหมือน pattern เดียวกับ dashboard.js
+  const [pendingOwnerSessionToken, setPendingOwnerSessionToken] = useState(null);
+  useEffect(() => {
+    if (ownerSessionFromQuery) setPendingOwnerSessionToken(ownerSessionFromQuery);
+  }, [ownerSessionFromQuery]);
 
   // ── โหมดแคชเชียร์ (/pos?shopId=<id>&mode=cashier) — ลิงก์แยกต่างหากสำหรับพนักงาน/แคชเชียร์
   // บังคับใส่ PIN ก่อนเสมอ ไม่มีทางเข้าถึง Dashboard/ตั้งค่าได้จากตรงนี้เลย (ต่างจากลิงก์
@@ -851,12 +858,21 @@ export default function POSPage() {
   }, [userId, cashierMode]);
 
   // ── โหมดเจ้าของ (ไม่ใช่ cashier): เช็คว่ามี valid owner-session token สำหรับร้านนี้หรือยัง —
-  // token ควรถูกเก็บไว้ใน localStorage แล้วตั้งแต่ตอน login ผ่าน pages/login.js/dashboard.js
-  // (localStorage ใช้ร่วมกันข้ามหน้าใน origin เดียวกัน ไม่ต้องส่งต่อผ่าน query ซ้ำ) — ถ้าไม่มีเลย
-  // (เช่น bookmark ตรงมาที่ /pos โดยไม่เคยผ่าน dashboard มาก่อนในเครื่องนี้) redirect ไป login
-  // ก่อน กันเงียบๆ พังตอนเฟส C บังคับ token จริงกับบาง endpoint
+  // token ควรถูกเก็บไว้ใน localStorage แล้วตั้งแต่ตอน login ผ่าน pages/login.js/dashboard.js หรือมา
+  // จาก deep-link ของบอท (pendingOwnerSessionToken ด้านบน) — ถ้าไม่มีเลย (เช่น bookmark ตรงมาที่
+  // /pos โดยไม่เคยผ่าน dashboard มาก่อนในเครื่องนี้) redirect ไป login ก่อน กันเงียบๆ พังตอนเฟส C
+  // บังคับ token จริงกับบาง endpoint
   useEffect(() => {
     if (cashierMode || !shopId) return;
+
+    if (pendingOwnerSessionToken) {
+      setOwnerSessionToken(shopId, pendingOwnerSessionToken);
+      setPendingOwnerSessionToken(null);
+      const { ownerSession, ...restQuery } = router.query;
+      router.replace({ pathname: router.pathname, query: restQuery }, undefined, { shallow: true });
+      return; // เพิ่ง set เสร็จ ไม่ต้องเช็ค token ซ้ำในรอบเดียวกัน
+    }
+
     const token = getOwnerSessionToken(shopId);
     if (!token) {
       const guardKey = `owner_session_redirect_attempt_${shopId}`;
@@ -867,7 +883,7 @@ export default function POSPage() {
       if (typeof window !== 'undefined') window.sessionStorage.setItem(guardKey, '1');
       router.push('/login?next=pos');
     }
-  }, [cashierMode, shopId]);
+  }, [cashierMode, shopId, pendingOwnerSessionToken]);
 
   // ── โหมดเจ้าของ: แนบ header x-owner-session ให้ทุกคำขอ /api/ โดยอัตโนมัติ — reuse pattern
   // เดียวกับ fetch override ของโหมดแคชเชียร์ด้านล่าง (แยกกันคนละ useEffect เพราะคนละเงื่อนไข

@@ -6,6 +6,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { blockAllStaffSessions } from '../../../lib/pos-auth';
+import { requireOwnerAuth } from '../../../lib/owner-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -21,6 +22,11 @@ export default async function handler(req, res) {
 
 
   if (req.method === 'GET') {
+    // คืน kbank_api_key/scb_api_key ตรงๆ (credential ธนาคารจริง) — ยังไม่ enforce:true เพราะเรียก
+    // ซิงโครนัสตอนโหลดหน้าครั้งแรกใน pos.js's loadShopBody() ก่อน fetch-override จะติดตั้งเสร็จ
+    // (chicken-and-egg เดียวกับ shop/data.js) แต่ token ที่ shopId ไม่ตรงกันต้องถูกบล็อกเสมอ
+    if (!requireOwnerAuth(req, res, shopId, { enforce: false })) return;
+
     const { data, error } = await supabase
       .from('pos_configs')
       .select('promptpay_id, kbank_api_key, scb_api_key, scb_biller_id')

@@ -12,6 +12,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { makeStaffId } from '../../../lib/google-pos';
+import { issueSetpinToken } from '../../../lib/staff-setpin-token';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { requirePermission } from '../../../lib/pos-auth';
 
@@ -24,7 +25,9 @@ const supabase = createClient(
 async function sendPinSetupLink(lineId, shopId, staffId, staffName) {
   const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   if (!token || !lineId) return;
-  const url = `${process.env.FRONTEND_URL}/pos-staff?shopId=${shopId}&staff_id=${staffId}&setpin=1`;
+  const setpinToken = issueSetpinToken(shopId, staffId);
+  const tokenQs = setpinToken ? `&token=${encodeURIComponent(setpinToken)}` : '';
+  const url = `${process.env.FRONTEND_URL}/pos-staff?shopId=${shopId}&staff_id=${staffId}&setpin=1${tokenQs}`;
   const message = {
     type: 'text',
     text: `✅ อนุมัติแล้ว! ตั้งรหัส PIN ส่วนตัวของคุณ${staffName ? ` (${staffName})` : ''}\nใช้ PIN นี้เข้าหน้าพนักงานได้เลย ตั้งได้ที่ลิงก์นี้:\n${url}`,

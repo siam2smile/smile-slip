@@ -3,6 +3,7 @@ const axios = require('axios');
 const FormData = require('form-data');
 const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
+const { ownerDeepLink } = require('./lib/owner-session-sign');
 
 const app = express();
 
@@ -740,8 +741,8 @@ function createBeautifulFlexMessage(slipData, fingerprint, shop, quoteToken, sup
   const { year: sheetYear } = getThaiDateTime();
   // ปุ่มแก้ไข — ลิงก์ตรงไปยังรายการนี้ (ระบุด้วย ref column K)
   const editUrl = fingerprint && fingerprint !== '-'
-    ? `${process.env.FRONTEND_URL}/transaction/edit?userId=${shop.owner_line_id}&ref=${encodeURIComponent(fingerprint)}&year=${sheetYear}`
-    : `${process.env.FRONTEND_URL}/dashboard?userId=${shop.owner_line_id}`;
+    ? ownerDeepLink(shop, '/transaction/edit', { ref: fingerprint, year: sheetYear })
+    : ownerDeepLink(shop, '/dashboard');
   const isIncome = slipData.type === 'income';
   const amountText = `฿${parseFloat(slipData.amount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}`;
   const txShortId = fingerprint && fingerprint !== '-' ? String(fingerprint).slice(0, 8).toUpperCase() : '-';
@@ -1278,7 +1279,7 @@ app.post('/webhook', async (req, res) => {
             const { data: mCred } = await supabase
               .from('shop_credits').select('balance_credits').eq('shop_id', shop.id).single();
             if (!mCred || mCred.balance_credits <= 0) {
-              await replyToLine(replyToken, [{ type: 'text', text: `⚠️ เครดิตหมดแล้วค่ะ กรุณาเติมเครดิตที่:\n${process.env.FRONTEND_URL}/pricing?userId=${shop.owner_line_id}` }]);
+              await replyToLine(replyToken, [{ type: 'text', text: `⚠️ เครดิตหมดแล้วค่ะ กรุณาเติมเครดิตที่:\n${ownerDeepLink(shop, '/pricing')}` }]);
               continue;
             }
             manualCreditData = mCred;
@@ -1317,7 +1318,7 @@ app.post('/webhook', async (req, res) => {
             const { data: deductResult } = await supabase.rpc('deduct_shop_credit', { p_shop_id: shop.id });
             const newBal = deductResult?.[0]?.new_balance ?? (manualCreditData.balance_credits - 1);
             if (newBal < 10 && shop.owner_line_id) {
-              const topupUrl = `${process.env.FRONTEND_URL}/pricing?userId=${shop.owner_line_id}`;
+              const topupUrl = ownerDeepLink(shop, '/pricing');
               pushToOwner(shop.owner_line_id, [{ type: 'text', text: `⚠️ เครดิตเหลือ ${newBal} แผ่นค่ะ เติมได้ที่:\n${topupUrl}` }]).catch(() => {});
             }
           }
@@ -1620,7 +1621,7 @@ app.post('/webhook', async (req, res) => {
         if (!hasFeature(shop, 'pro')) {
           await replyToLine(replyToken, [{
             type: "text",
-            text: `🔒 ฟีเจอร์นี้สำหรับแพ็กเกจ Shop Pro ขึ้นไปค่ะ\n\nอัปเกรดได้ที่:\n${process.env.FRONTEND_URL}/pricing?userId=${shop.owner_line_id}`
+            text: `🔒 ฟีเจอร์นี้สำหรับแพ็กเกจ Shop Pro ขึ้นไปค่ะ\n\nอัปเกรดได้ที่:\n${ownerDeepLink(shop, '/pricing')}`
           }]);
           continue;
         }
@@ -1782,7 +1783,7 @@ app.post('/webhook', async (req, res) => {
 
             const itemsSummary = receiveData.items.slice(0, 10)
               .map(i => `• ${i.name} ×${i.qty} @฿${i.unitPrice}`).join('\n');
-            const dashboardUrl = `${process.env.FRONTEND_URL}/pos?userId=${shop.owner_line_id}`;
+            const dashboardUrl = ownerDeepLink(shop, '/pos');
             await replyToLine(replyToken, [{
               type: 'text',
               text: `📥 อ่านใบส่งของสำเร็จ!\n🏢 ผู้จำหน่าย: ${receiveData.supplier || '-'}\n📄 เลขที่: ${receiveData.invoice_no || '-'}\n\n${itemsSummary || 'ไม่พบรายการสินค้า'}\n\n⚠️ ยังไม่ตัดเข้าสต็อค — เข้าไปตรวจสอบ/ยืนยันที่ Dashboard → รับสินค้า → รอยืนยันจาก LINE\n${dashboardUrl}`,
@@ -1841,7 +1842,7 @@ app.post('/webhook', async (req, res) => {
               }
             }
 
-            const dashboardUrlE = `${process.env.FRONTEND_URL}/pos?userId=${shop.owner_line_id}`;
+            const dashboardUrlE = ownerDeepLink(shop, '/pos');
             await replyToLine(replyToken, [{
               type: 'text',
               text: `🧾 อ่านบิลค่าใช้จ่ายสำเร็จ!\n📝 รายการ: ${expenseData.label || '-'}\n🏢 ผู้รับเงิน: ${expenseData.vendor || '-'}\n💰 ยอด: ฿${(expenseData.amount || 0).toLocaleString()}\n\n⚠️ ยังไม่บันทึกเป็นรายจ่ายจริง — เข้าไปตรวจสอบ/ยืนยันที่ Dashboard → รายจ่าย → รอยืนยันจาก LINE\n${dashboardUrlE}`,
@@ -1996,7 +1997,7 @@ app.post('/webhook', async (req, res) => {
           console.error('[WARN] ⚠️ Google Drive ขัดข้อง (ข้าม แต่บันทึก Supabase ต่อ):', googleErrDetail);
           // แจ้งเจ้าของร้านทาง LINE ถ้า token หมดอายุ
           if (googleErr.isTokenInvalid && shop.owner_line_id) {
-            const reconnectUrl = `${process.env.FRONTEND_URL}/dashboard?userId=${shop.owner_line_id}&reconnectGoogle=true`;
+            const reconnectUrl = ownerDeepLink(shop, '/dashboard', { reconnectGoogle: 'true' });
             await pushToOwner(shop.owner_line_id, [{
               type: 'flex',
               altText: '⚠️ Google Drive ขาดการเชื่อมต่อ — กรุณาเชื่อมต่อใหม่',
@@ -2052,7 +2053,7 @@ app.post('/webhook', async (req, res) => {
 
           // แจ้งเตือนเครดิตใกล้หมด — Push LINE เมื่อ < 10 แผ่น
           if (newBalance < 10 && shop.owner_line_id) {
-            const topupUrl = `${process.env.FRONTEND_URL}/pricing?userId=${shop.owner_line_id}`;
+            const topupUrl = ownerDeepLink(shop, '/pricing');
             const warnText = newBalance <= 0
               ? `🚨 เครดิตของร้าน "${shop.shop_name}" หมดแล้วค่ะ!\nสลิปที่ส่งเข้ามาจะไม่ถูกบันทึกจนกว่าจะเติมเครดิต\n\n💳 เติมเครดิตได้เลยที่:\n${topupUrl}`
               : `⚠️ เครดิตของร้าน "${shop.shop_name}" เหลือเพียง ${newBalance} แผ่นค่ะ\nกรุณาเติมเครดิตเพื่อใช้งานต่อเนื่อง\n\n💳 เติมเครดิตได้ที่:\n${topupUrl}`;
@@ -2275,7 +2276,7 @@ app.post('/cron/weekly-summary', async (req, res) => {
           },
           footer: {
             type: 'box', layout: 'vertical', paddingAll: 'md',
-            contents: [{ type: 'button', action: { type: 'uri', label: 'ดูรายละเอียด Dashboard', uri: `${process.env.FRONTEND_URL}/dashboard?userId=${shop.owner_line_id}` }, style: 'primary', color: '#4F46E5', height: 'sm' }],
+            contents: [{ type: 'button', action: { type: 'uri', label: 'ดูรายละเอียด Dashboard', uri: ownerDeepLink(shop, '/dashboard') }, style: 'primary', color: '#4F46E5', height: 'sm' }],
           },
         },
       };
@@ -2370,7 +2371,7 @@ app.post('/cron/trial-day25-nudge', async (req, res) => {
         }
       }
 
-      const pricingUrl = `${process.env.FRONTEND_URL || ''}/pricing?userId=${shop.owner_line_id}`;
+      const pricingUrl = ownerDeepLink(shop, '/pricing');
       const flexMsg = {
         type: 'flex',
         altText: `⏳ ทดลองใช้ฟรีร้าน ${shop.shop_name} เหลืออีก ${daysLeft} วัน`,

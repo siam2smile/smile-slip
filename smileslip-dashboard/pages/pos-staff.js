@@ -13,7 +13,7 @@ export default function PosStaffPage() {
   const router = useRouter();
   const {
     shopId, order_no: deepLinkOrderNo, collection_no: deepLinkCollectionNo,
-    staff_id: setupStaffId, setpin: setupMode,
+    staff_id: setupStaffId, setpin: setupMode, token: setupToken,
   } = router.query;
 
   // 'loading' | 'name' | 'pin' | 'setpin' | 'menu' | 'bills' | 'confirm' | 'deliveries' |
@@ -227,7 +227,7 @@ export default function PosStaffPage() {
       const r = await fetch('/api/pos/staff-setpin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shopId, staff_id: setupStaffId, pin: newPin }),
+        body: JSON.stringify({ shopId, staff_id: setupStaffId, pin: newPin, token: setupToken }),
       });
       const d = await r.json();
       if (d.ok) {
