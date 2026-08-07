@@ -40,6 +40,13 @@ export default async function handler(req, res) {
     const lineUserId = profileResponse.data.userId;
     const lineName = profileResponse.data.displayName;
 
+    // state พก "เจตนา" มาจาก api/auth/line.js (register/login) — ปุ่ม "สมัครสมาชิก" (register.js)
+    // กับปุ่ม "เข้าสู่ระบบ" (login.js) ยิงเข้า /api/auth/line ตัวเดียวกันทั้งคู่ ถ้าไม่รู้เจตนา
+    // จะแยกไม่ออกว่าไลไอดีที่มีบทบาทอยู่แล้วพอดี 1 ร้าน ตั้งใจจะ "เข้าร้านเดิม" (login) หรือ
+    // "สมัครร้านใหม่แยกต่างหาก" (register) — รูปแบบผิด/ไม่มี state เลย fallback เป็น 'login'
+    // เสมอ (พฤติกรรมเดิมก่อนแก้ ปลอดภัยกว่าเดาผิดเป็น register แล้วรบกวนคน login ปกติ)
+    const intent = (typeof req.query.state === 'string' && req.query.state.startsWith('register:')) ? 'register' : 'login';
+
     // 3. ตรวจสอบว่าไลไอดีนี้ผูกกับร้านไหนบ้าง (เจ้าของ/แอดมิน) — ใช้ helper กลางแทน
     //    .maybeSingle() เดิม ที่เช็คแค่ owner_line_id ทำให้แอดมิน-ล้วน (ไม่ใช่เจ้าของที่ไหนเลย)
     //    ถูกเด้งไปหน้าสมัครสมาชิกใหม่ผิดๆ ทั้งที่มีบัญชีอยู่แล้ว
@@ -48,6 +55,12 @@ export default async function handler(req, res) {
 
     if (roles.length === 0) {
       // ยังไม่มีบทบาทใดๆ เลย → ไปหน้าสมัครสมาชิกใหม่
+      return res.redirect(`/register?userId=${trimmedId}&name=${encodeURIComponent(lineName)}`);
+    } else if (roles.length === 1 && intent === 'register') {
+      // มีบทบาทอยู่แล้วพอดี 1 ร้าน แต่ตั้งใจกดปุ่ม "สมัครสมาชิก" (ไม่ใช่ "เข้าสู่ระบบ") — ส่งไปหน้า
+      // /register ให้เจอหน้าตัดสินใจ (เข้าร้านเดิม/สมัครร้านใหม่แยกต่างหาก/ลบร้านเดิม) แทนที่จะ
+      // auto เข้าร้านเดิมทันทีแบบเงียบๆ (บั๊กเดิม — ผู้ใช้กด "สมัครสมาชิก" ไม่มีทางสมัครร้านใหม่ได้เลย
+      // ถ้ามีบทบาทอยู่แล้วแม้แค่ 1 ร้าน เพราะ endpoint นี้ไม่เคยรู้เจตนาที่แท้จริงมาก่อน)
       return res.redirect(`/register?userId=${trimmedId}&name=${encodeURIComponent(lineName)}`);
     } else if (roles.length === 1) {
       const r = roles[0];

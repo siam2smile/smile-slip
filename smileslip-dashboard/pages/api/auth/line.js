@@ -84,7 +84,14 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'ยังไม่ได้ตั้งค่า LINE_LOGIN_CHANNEL_ID ใน Environment' });
     }
 
-    const state = Math.random().toString(36).substring(7);
+    // state เดิมเป็นแค่ค่าสุ่มไม่มีความหมาย ไม่เคยถูกตรวจสอบฝั่ง callback เลยด้วยซ้ำ — ใช้ตรงนี้
+    // แทนเพื่อพก "เจตนา" (register/login) ข้ามรอบ OAuth ไปให้ callback/line.js รู้ว่าจะให้ทำอะไร
+    // ถ้าเจอไลไอดีที่มีบทบาทอยู่แล้วพอดี 1 ร้าน (ปัญหาเดิม: ปุ่ม "สมัครสมาชิก" จาก register.js
+    // กับปุ่ม "เข้าสู่ระบบ" จาก login.js ยิงไป endpoint เดียวกันนี้ทั้งคู่ callback แยกไม่ออกว่า
+    // ใครตั้งใจจะสมัครร้านใหม่ ใครแค่จะ login ร้านเดิม เลยพา auto เข้าร้านเดิมเสมอไม่ว่าใครก็ตาม)
+    const intent = req.query.intent === 'register' ? 'register' : 'login';
+    const randomSuffix = Math.random().toString(36).substring(7);
+    const state = `${intent}:${randomSuffix}`;
     const lineAuthUrl = `https://access.line.me/oauth2/v2.1/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&state=${state}&scope=profile%20openid`;
     
     // เด้งไปหน้า LINE ยืนยันตัวตนสีเขียวๆ

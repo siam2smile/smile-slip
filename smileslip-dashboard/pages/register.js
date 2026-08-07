@@ -248,7 +248,7 @@ export default function Register() {
           <MessageCircle size={48} className="mx-auto mb-5 text-[#06C755]"/>
           <h2 className="text-xl font-black text-slate-900 mb-2">ต้องสมัครผ่าน LINE</h2>
           <p className="text-slate-400 text-sm mb-6">การสมัครครั้งแรกต้องใช้ LINE เพื่อยืนยันตัวตนและรับ User ID ของคุณ</p>
-          <button onClick={() => window.location.href = '/api/auth/line'}
+          <button onClick={() => window.location.href = '/api/auth/line?intent=register'}
             className="w-full py-3.5 bg-[#06C755] text-white rounded-2xl font-black text-sm shadow-lg">
             เข้าสู่ระบบด้วย LINE
           </button>
