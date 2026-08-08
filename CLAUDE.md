@@ -2,7 +2,7 @@
 
 โปรเจกต์ของ Vespa / Siam Global Network Enterprise
 ภาษาหลักในโค้ดและ comment: **ไทย**
-อัปเดตล่าสุด: 2026-08-09 (ต่อจากข้อ 75 — ผู้ใช้ขอระบบบัญชีเต็มรูปแบบแบบ FlowAccount ตกลงแบ่ง 3 เฟส (ดูข้อ 76): **เฟส 1 เสร็จแล้ว** — แก้ `reports.js`'s `type=pl`/`type=topsellers` ให้แยก VAT ออกจากรายรับ/รายจ่ายจริง (เดิมคำนวณรายได้จากราคารวม VAT ตรงๆ ทั้งที่ต้นทุนเป็นฐานก่อน VAT อยู่แล้ว ทำให้ margin เพี้ยน) gate ด้วย `pos_configs.vat_registered` ร้านไม่จด VAT ไม่กระทบ — **เฟส 2 (ระบบเงินเดือน+ประกันสังคม) และเฟส 3 (รายงานภาษีปลายปีนิติบุคคล/บุคคลธรรมดา) ยังไม่เริ่ม** รอทำต่อ — deploy production แล้ว revision ล่าสุด `smileslip-dashboard-00310-qwq` — เหลือเดิม: PDPA text ใน `#วิธีใช้งาน`/`terms.js`/`privacy.js` (deferred ตั้งใจ รอใกล้เปิดตัวจริง), White-Label แบบ LINE OA เต็มรูปแบบ (ยังไม่เริ่ม), QR สั่งอาหารที่โต๊ะ (วางแผนแล้ว ยังไม่เริ่ม), `enforce:true` เต็มรูปแบบของ 4 endpoint จากข้อ 63 (ต้องรื้อ init()/loadShopBody() ก่อน), `export.js` (Excel) ไม่รวมยอดขายจากออเดอร์จัดส่ง/ไม่รวม VAT dual-write ใหม่ (ช่องว่างเดียวกับข้อ 72/74 ที่ยังไม่ได้แก้), **ระบบบัญชีเต็มรูปแบบ (ข้อ 76) เฟส 2-3 ยังไม่เริ่ม**, ตั้งค่าสาขา (ข้อ 75) รอรัน SQL เพิ่มคอลัมน์ `shop_branches.phone`/`shop_bank_accounts.branch_id` ก่อนถึงจะบันทึกได้จริง, **521 กลุ่มผู้ติดต่อซ้ำเดิมยังไม่ได้ลบ รอผู้ใช้ใช้เครื่องมือใหม่ (ปุ่ม "เลือกเฉพาะรายการซ้ำส่วนเกิน") ลบเอง หรือขอให้ Claude ลบให้**, ข้อมูล ledger เก่าก่อน Phase 3 Tier 6 deploy จะไม่โผล่ในหน้าเว็บ "บัญชี" อีกต่อไป — ตั้งใจไม่ backfill (ยังดูได้จาก Google Sheet ตรงๆ), ข้อเสนอแพ็คเสริมสาขา (ข้อ 65) ยังรอผู้ใช้ตอบ, ปุ่มเปิดลิ้นชักเงินสด/พิมพ์ใบเสร็จผ่าน Bluetooth ตรง — ผู้ใช้แจ้งว่ามีฮาร์ดแวร์แล้ว ยังไม่ได้เริ่มทำ/ยังไม่ได้ถามรุ่นเครื่อง)
+อัปเดตล่าสุด: 2026-08-09 (ต่อจากข้อ 75 — ผู้ใช้ขอระบบบัญชีเต็มรูปแบบแบบ FlowAccount ตกลงแบ่ง 3 เฟส (ดูข้อ 76): **เฟส 1 เสร็จแล้ว** — แก้ `reports.js`'s `type=pl`/`type=topsellers` ให้แยก VAT ออกจากรายรับ/รายจ่ายจริง (เดิมคำนวณรายได้จากราคารวม VAT ตรงๆ ทั้งที่ต้นทุนเป็นฐานก่อน VAT อยู่แล้ว ทำให้ margin เพี้ยน) gate ด้วย `pos_configs.vat_registered` ร้านไม่จด VAT ไม่กระทบ — **เฟส 2 (ระบบเงินเดือน+ประกันสังคม) เขียนโค้ดเสร็จแล้ว build ผ่านแล้ว แต่ยังไม่ได้ทดสอบ/deploy — รอผู้ใช้รัน SQL สร้าง `pos_payroll_employees`/`pos_payroll_runs` ก่อน** (ดูหัวข้อ "ต้องทำด้วยมือ — Supabase SQL") — **เฟส 3 (รายงานภาษีปลายปีนิติบุคคล/บุคคลธรรมดา) ยังไม่เริ่ม** — deploy production ล่าสุด revision `smileslip-dashboard-00310-qwq` (เฟส 1 เท่านั้น เฟส 2 ยังไม่ deploy) — เหลือเดิม: PDPA text ใน `#วิธีใช้งาน`/`terms.js`/`privacy.js` (deferred ตั้งใจ รอใกล้เปิดตัวจริง), White-Label แบบ LINE OA เต็มรูปแบบ (ยังไม่เริ่ม), QR สั่งอาหารที่โต๊ะ (วางแผนแล้ว ยังไม่เริ่ม), `enforce:true` เต็มรูปแบบของ 4 endpoint จากข้อ 63 (ต้องรื้อ init()/loadShopBody() ก่อน), `export.js` (Excel) ไม่รวมยอดขายจากออเดอร์จัดส่ง/ไม่รวม VAT dual-write ใหม่ (ช่องว่างเดียวกับข้อ 72/74 ที่ยังไม่ได้แก้), **ระบบบัญชีเต็มรูปแบบ (ข้อ 76) เฟส 2-3 ยังไม่เริ่ม**, ตั้งค่าสาขา (ข้อ 75) รอรัน SQL เพิ่มคอลัมน์ `shop_branches.phone`/`shop_bank_accounts.branch_id` ก่อนถึงจะบันทึกได้จริง, **521 กลุ่มผู้ติดต่อซ้ำเดิมยังไม่ได้ลบ รอผู้ใช้ใช้เครื่องมือใหม่ (ปุ่ม "เลือกเฉพาะรายการซ้ำส่วนเกิน") ลบเอง หรือขอให้ Claude ลบให้**, ข้อมูล ledger เก่าก่อน Phase 3 Tier 6 deploy จะไม่โผล่ในหน้าเว็บ "บัญชี" อีกต่อไป — ตั้งใจไม่ backfill (ยังดูได้จาก Google Sheet ตรงๆ), ข้อเสนอแพ็คเสริมสาขา (ข้อ 65) ยังรอผู้ใช้ตอบ, ปุ่มเปิดลิ้นชักเงินสด/พิมพ์ใบเสร็จผ่าน Bluetooth ตรง — ผู้ใช้แจ้งว่ามีฮาร์ดแวร์แล้ว ยังไม่ได้เริ่มทำ/ยังไม่ได้ถามรุ่นเครื่อง)
 
 ---
 
@@ -1558,6 +1558,58 @@ CREATE TABLE IF NOT EXISTS trial_used_line_ids (
 ```sql
 ALTER TABLE shop_branches ADD COLUMN IF NOT EXISTS phone text;
 ALTER TABLE shop_bank_accounts ADD COLUMN IF NOT EXISTS branch_id uuid REFERENCES shop_branches(id) ON DELETE SET NULL;
+```
+
+**สร้างตาราง pos_payroll_employees + pos_payroll_runs (ระบบเงินเดือน — Phase 2 ของแผนบัญชีเต็มรูปแบบ, ข้อ 76 — เพิ่ม 2026-08-09, ยังไม่ได้รัน — บล็อกการทดสอบ end-to-end ของฟีเจอร์นี้อยู่):**
+ต้องรันก่อนถึงจะใช้แท็บ "💰 เงินเดือน" ใน POS ได้จริง (ตอนนี้ endpoint ที่เกี่ยวข้องจะ error
+เพราะตารางยังไม่มี — ยังไม่มี fallback แบบ best-effort เหมือนคอลัมน์เดี่ยวๆ ด้านบน เพราะเป็นฟีเจอร์
+ใหม่ทั้งโมดูล ไม่ใช่ฟิลด์เสริมของฟีเจอร์เดิม) — ไฟล์เต็มอยู่ที่ `scripts/payroll-01-create-tables.sql`
+```sql
+CREATE TABLE IF NOT EXISTS pos_payroll_employees (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  shop_id         uuid NOT NULL REFERENCES shop_profiles(id) ON DELETE CASCADE,
+  employee_no     text NOT NULL,
+  name            text NOT NULL,
+  id_card_number  text,
+  position        text,
+  base_salary     numeric NOT NULL DEFAULT 0,
+  sso_enrolled    boolean NOT NULL DEFAULT true,
+  branch_name     text,
+  start_date      date,
+  status          text NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
+  notes           text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  deleted_at      timestamptz,
+  UNIQUE (shop_id, employee_no)
+);
+CREATE INDEX IF NOT EXISTS idx_pos_payroll_employees_shop ON pos_payroll_employees (shop_id) WHERE deleted_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS pos_payroll_runs (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  shop_id           uuid NOT NULL REFERENCES shop_profiles(id) ON DELETE CASCADE,
+  run_no            text NOT NULL,
+  employee_id       uuid REFERENCES pos_payroll_employees(id) ON DELETE SET NULL,
+  employee_name     text NOT NULL,
+  year_month        text NOT NULL,
+  base_salary       numeric NOT NULL DEFAULT 0,
+  additions         numeric NOT NULL DEFAULT 0,
+  addition_note     text,
+  deductions        numeric NOT NULL DEFAULT 0,
+  deduction_note    text,
+  gross_pay         numeric NOT NULL DEFAULT 0,
+  sso_employee      numeric NOT NULL DEFAULT 0,
+  sso_employer      numeric NOT NULL DEFAULT 0,
+  withholding_tax   numeric NOT NULL DEFAULT 0,
+  net_pay           numeric NOT NULL DEFAULT 0,
+  branch_name       text,
+  notes             text,
+  paid_at           timestamptz,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  deleted_at        timestamptz,
+  UNIQUE (shop_id, run_no)
+);
+CREATE INDEX IF NOT EXISTS idx_pos_payroll_runs_shop_month ON pos_payroll_runs (shop_id, year_month) WHERE deleted_at IS NULL;
 ```
 
 ### ต้องทำด้วยมือ (ไม่ใช่โค้ด)
