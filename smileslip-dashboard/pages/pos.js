@@ -591,6 +591,12 @@ export default function POSPage() {
   const [creditCustomer, setCreditCustomer] = useState(null);
   const [creditCustomerQ, setCreditCustomerQ] = useState('');
 
+  // เพิ่มผู้ติดต่อใหม่แบบด่วนจากตัวเลือกลูกค้าในหน้าขาย (เปิดบิล/checkout/จัดส่ง) — กันต้องออกไป
+  // หน้า "ผู้ติดต่อ" แล้วเสียสถานะที่ทำค้างอยู่ (ตะกร้า/ขั้นตอนจัดส่ง) — target บอกว่าเรียกจากตัวไหน
+  // ('newbill'/'credit'/'deliv') เพื่อรู้ว่าเลือกลูกค้าที่เพิ่งสร้างให้ตัวไหนหลังบันทึกสำเร็จ
+  const [quickAddContact, setQuickAddContact] = useState(null); // { target, name, phone }
+  const [quickAddSaving, setQuickAddSaving] = useState(false);
+
   // receive stock — แบบใบรับสินค้า (รองรับหลายรายการ)
   const [receiveSupplier, setReceiveSupplier] = useState(''); // ชื่อพิมพ์อิสระ (fallback ถ้าไม่ผูก contact)
   const [receiveSupplierContact, setReceiveSupplierContact] = useState(null); // ผู้จำหน่ายที่ผูก contact_id จริง
@@ -784,6 +790,12 @@ export default function POSPage() {
   const [delivNotes, setDelivNotes] = useState('');
   const [delivLoading, setDelivLoading] = useState(false);
   const [delivCustSearch, setDelivCustSearch] = useState('');
+
+  // เคลียร์ฟอร์มเพิ่มผู้ติดต่อด่วนทิ้งเสมอเมื่อ modal ต้นทาง (เปิดบิล/checkout/จัดส่ง) ถูกปิด
+  // กันฟอร์มค้างพร้อมข้อมูลเก่าโผล่มาอีกครั้งตอนเปิด modal เดิมใหม่รอบถัดไป
+  useEffect(() => {
+    if (!showCheckout && !showNewBillModal && !showDelivery) setQuickAddContact(null);
+  }, [showCheckout, showNewBillModal, showDelivery]);
 
   const [toast, setToast] = useState('');
 
@@ -3124,6 +3136,11 @@ export default function POSPage() {
         setShowContactForm(false);
         setEditContact(null);
         await fetchContacts();
+        // ผู้ติดต่อคนใหม่/ที่เพิ่งแก้ อาจไม่ตรงกับตัวกรองประเภท (ค้าง "ลูกค้า"/"ผู้จำหน่าย") หรือ
+        // ตกไปอยู่หน้าท้ายสุด (list เรียงเก่า→ใหม่ หน้า 1 ค้างอยู่) ทำให้ดูเหมือน "เพิ่มไม่ได้"
+        // ต้องรีเฟรชถึงจะเห็น — เซ็ตช่องค้นหาเป็นชื่อที่เพิ่งบันทึกแทน กันไว้ทุกกรณี
+        setContactFilter('ทั้งหมด');
+        setContactSearch(contactForm.name);
         showToast(editContact ? 'แก้ไขผู้ติดต่อแล้ว' : 'เพิ่มผู้ติดต่อแล้ว');
       } else {
         alert(d.error);
@@ -3132,6 +3149,57 @@ export default function POSPage() {
       alert(err.message);
     }
     setContactSaving(false);
+  }
+
+  // เปิดฟอร์มเพิ่มผู้ติดต่อด่วนจากตัวเลือกลูกค้าในหน้าขาย (เดา name/phone จากคำค้นหาที่พิมพ์ไว้ —
+  // ถ้าเป็นตัวเลขล้วน ≥6 หลักถือว่าเป็นเบอร์โทร ไม่งั้นถือว่าเป็นชื่อ)
+  function openQuickAddContact(target, query) {
+    const q = (query || '').trim();
+    const digitsOnly = q.replace(/\D/g, '');
+    const looksLikePhone = digitsOnly.length >= 6 && digitsOnly.length === q.replace(/[\s\-()]/g, '').length;
+    setQuickAddContact({ target, name: looksLikePhone ? '' : q, phone: looksLikePhone ? q : '' });
+  }
+
+  // บันทึกผู้ติดต่อใหม่จริงเข้าระบบ (ไม่ใช่แค่ชื่อลอยๆ สำหรับบิลเดียว) แล้วเลือกให้ตัวเลือกลูกค้า
+  // ที่เรียกมาทันที — ไม่ปิด modal หลัก/ไม่เสียตะกร้า-ขั้นตอนที่ทำค้างอยู่เลย
+  async function saveQuickAddContact() {
+    const name = (quickAddContact?.name || '').trim();
+    const phone = (quickAddContact?.phone || '').trim();
+    if (!name) { showToast('กรุณากรอกชื่อ'); return; }
+    setQuickAddSaving(true);
+    try {
+      const r = await fetch('/api/pos/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, name, phone, contact_type: 'ลูกค้า' }),
+      });
+      const d = await r.json();
+      if (!d.ok) { alert(d.error || 'เพิ่มผู้ติดต่อไม่สำเร็จ'); setQuickAddSaving(false); return; }
+
+      const newContact = {
+        contact_id: d.contact_id, name, phone, contact_type: 'ลูกค้า',
+        email: '', address_1: '', maps_1: '', address_2: '', maps_2: '',
+        company_name: '', tax_id: '', tax_address: '', tax_branch: '',
+        debt: 0, cylinders: 0, shop_name: '', aliases: '', notes: '',
+        person_type: 'บุคคลธรรมดา', contact_person_name: '', contact_person_phone: '', cylinder_limit: 0,
+      };
+      setContacts(prev => [...prev, newContact]); // ให้เห็นในตัวเลือกอื่นทันที ไม่ต้องรอ fetch
+      fetchContacts().catch(() => {}); // sync กับเซิร์ฟเวอร์เบื้องหลัง ไม่ต้องรอ
+
+      if (quickAddContact.target === 'credit') {
+        setCreditCustomer(newContact); setCreditCustomerQ('');
+      } else if (quickAddContact.target === 'newbill') {
+        setNewBillCust(newContact); setNewBillCustQ('');
+      } else if (quickAddContact.target === 'deliv') {
+        setDelivCust(newContact); setDelivStep(2); setDelivCustSearch('');
+        fetchCustomerPrices(newContact.contact_id).catch(() => {});
+      }
+      setQuickAddContact(null);
+      showToast(`เพิ่ม "${name}" แล้ว`);
+    } catch (err) {
+      alert(err.message);
+    }
+    setQuickAddSaving(false);
   }
 
   async function deleteContact(c) {
@@ -3143,6 +3211,40 @@ export default function POSPage() {
     });
     await fetchContacts();
     showToast('ลบผู้ติดต่อแล้ว');
+  }
+
+  // ฟอร์มเพิ่มผู้ติดต่อด่วนแบบ inline (ชื่อ+เบอร์เท่านั้น) — โผล่เฉพาะตอน quickAddContact.target
+  // ตรงกับ picker ที่เรียก ใช้ซ้ำได้ทั้ง 3 จุด (เปิดบิล/checkout เชื่อ/จัดส่ง)
+  function renderQuickAddContactForm(target) {
+    if (quickAddContact?.target !== target) return null;
+    return (
+      <div className="bg-gray-800 border border-green-700/50 rounded-xl p-3 space-y-2 mt-1">
+        <div className="text-green-400 text-xs font-bold">✚ เพิ่มผู้ติดต่อใหม่</div>
+        <input
+          autoFocus
+          value={quickAddContact.name}
+          onChange={e => setQuickAddContact(s => ({ ...s, name: e.target.value }))}
+          placeholder="ชื่อ (บังคับ)"
+          className="w-full bg-gray-900 text-white text-sm px-3 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500"
+        />
+        <input
+          value={quickAddContact.phone}
+          onChange={e => setQuickAddContact(s => ({ ...s, phone: e.target.value }))}
+          placeholder="เบอร์โทร (ไม่บังคับ)"
+          className="w-full bg-gray-900 text-white text-sm px-3 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500"
+        />
+        <div className="flex gap-2">
+          <button type="button" onClick={saveQuickAddContact} disabled={quickAddSaving || !quickAddContact.name.trim()}
+            className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs font-bold py-2 rounded-lg transition-colors">
+            {quickAddSaving ? 'กำลังบันทึก...' : '💾 บันทึกและเลือกใช้เลย'}
+          </button>
+          <button type="button" onClick={() => setQuickAddContact(null)}
+            className="px-3 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs font-bold py-2 rounded-lg transition-colors">
+            ยกเลิก
+          </button>
+        </div>
+      </div>
+    );
   }
 
   async function openDebtHistory(c) {
@@ -7305,11 +7407,17 @@ export default function POSPage() {
                             </button>
                           ))}
                         </div>
+                      ) : quickAddContact?.target === 'credit' ? (
+                        renderQuickAddContactForm('credit')
                       ) : (
-                        <div className="text-center py-2">
+                        <div className="text-center py-2 space-y-1">
                           <button onClick={() => { setCreditCustomer({ name: creditCustomerQ, phone: '' }); setCreditCustomerQ(''); }}
-                            className="text-xs text-green-400 hover:text-green-300">
-                            + ใช้ "{creditCustomerQ}" เป็นชื่อลูกค้าใหม่ (ไม่บันทึกราคาประจำตัว)
+                            className="block w-full text-xs text-gray-400 hover:text-gray-300">
+                            + ใช้ "{creditCustomerQ}" เป็นชื่อลูกค้าใหม่ (ครั้งเดียว ไม่บันทึกลงระบบ)
+                          </button>
+                          <button onClick={() => openQuickAddContact('credit', creditCustomerQ)}
+                            className="block w-full text-xs text-green-400 hover:text-green-300 font-bold">
+                            ✚ เพิ่มผู้ติดต่อใหม่เข้าระบบ
                           </button>
                         </div>
                       );
@@ -7843,9 +7951,17 @@ export default function POSPage() {
                             </button>
                           ))}
                         </div>
+                      ) : quickAddContact?.target === 'newbill' ? (
+                        <div className="absolute z-10 top-full left-0 right-0 mt-1 shadow-xl">
+                          {renderQuickAddContactForm('newbill')}
+                        </div>
                       ) : (
-                        <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-gray-500 text-sm shadow-xl">
-                          ไม่พบลูกค้า
+                        <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 shadow-xl space-y-2">
+                          <div className="text-gray-500 text-sm">ไม่พบลูกค้า</div>
+                          <button type="button" onClick={() => openQuickAddContact('newbill', newBillCustQ)}
+                            className="text-xs text-green-400 hover:text-green-300 font-bold">
+                            ✚ เพิ่มผู้ติดต่อใหม่เข้าระบบ
+                          </button>
                         </div>
                       );
                     })()}
@@ -8409,10 +8525,16 @@ export default function POSPage() {
                         <span className="text-green-400 text-lg shrink-0">›</span>
                       </button>
                     ))}
-                    {delivMatchedCustomers.length === 0 && (
-                      <div className="text-center py-6 text-gray-500 text-sm">
-                        ไม่พบลูกค้า —{' '}
-                        <button onClick={() => { setShowDelivery(false); setTab('contacts'); }} className="text-green-400 underline">เพิ่มลูกค้าใหม่</button>
+                    {delivMatchedCustomers.length === 0 && quickAddContact?.target === 'deliv' && (
+                      renderQuickAddContactForm('deliv')
+                    )}
+                    {delivMatchedCustomers.length === 0 && quickAddContact?.target !== 'deliv' && (
+                      <div className="text-center py-6 text-gray-500 text-sm space-y-1.5">
+                        <div>ไม่พบลูกค้า</div>
+                        <button onClick={() => openQuickAddContact('deliv', delivCustSearch)}
+                          className="text-green-400 hover:text-green-300 font-bold text-xs">
+                          ✚ เพิ่มผู้ติดต่อใหม่เข้าระบบ
+                        </button>
                       </div>
                     )}
                   </div>
