@@ -58,8 +58,13 @@ export default function Dashboard() {
   const [newBranchGroupId, setNewBranchGroupId] = useState('');
   const [newBranchBrand, setNewBranchBrand] = useState('');
   const [newBranchAddress, setNewBranchAddress] = useState('');
+  const [newBranchPhone, setNewBranchPhone] = useState('');
   const [editBranchBrand, setEditBranchBrand] = useState({}); // branchId -> brand_name ระหว่างแก้ไข
   const [editBranchAddress, setEditBranchAddress] = useState({}); // branchId -> address ระหว่างแก้ไข
+  const [editBranchPhone, setEditBranchPhone] = useState({}); // branchId -> phone ระหว่างแก้ไข
+  const [showBranchBankForm, setShowBranchBankForm] = useState({}); // branchId -> bool
+  const [branchBankForm, setBranchBankForm] = useState({}); // branchId -> { bankName, accountName, accountNumber, accountType }
+  const [addingBranchBank, setAddingBranchBank] = useState({}); // branchId -> bool
   const [branchLoading, setBranchLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -496,11 +501,11 @@ export default function Dashboard() {
     const res = await fetch(`/api/shop/branches?shopId=${shopInfo.id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ branchName: newBranchName, lineGroupId: newBranchGroupId, brandName: newBranchBrand, address: newBranchAddress }),
+      body: JSON.stringify({ branchName: newBranchName, lineGroupId: newBranchGroupId, brandName: newBranchBrand, address: newBranchAddress, phone: newBranchPhone }),
     });
     const data = await res.json();
     if (data.error) alert('เกิดข้อผิดพลาด: ' + data.error);
-    else { setNewBranchName(''); setNewBranchGroupId(''); setNewBranchBrand(''); setNewBranchAddress(''); await fetchBranches(shopInfo.id); }
+    else { setNewBranchName(''); setNewBranchGroupId(''); setNewBranchBrand(''); setNewBranchAddress(''); setNewBranchPhone(''); await fetchBranches(shopInfo.id); }
     setBranchLoading(false);
   };
 
@@ -522,6 +527,39 @@ export default function Dashboard() {
     });
     setEditBranchAddress(p => { const n = { ...p }; delete n[branchId]; return n; });
     await fetchBranches(shopInfo.id);
+  };
+
+  const handleUpdateBranchPhone = async (branchId, phone) => {
+    await fetch(`/api/shop/branches?shopId=${shopInfo.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branchId, phone }),
+    });
+    setEditBranchPhone(p => { const n = { ...p }; delete n[branchId]; return n; });
+    await fetchBranches(shopInfo.id);
+  };
+
+  const handleAddBranchBankAccount = async (branchId) => {
+    const form = branchBankForm[branchId] || {};
+    if (!form.accountName?.trim() || !form.accountNumber?.trim()) return alert('กรุณากรอกชื่อบัญชีและเลขที่บัญชีให้ครบ');
+    setAddingBranchBank(p => ({ ...p, [branchId]: true }));
+    try {
+      const res = await fetch('/api/shop/bank-accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId: shopInfo.id, branchId,
+          bankName: form.bankName || 'กสิกรไทย', accountName: form.accountName,
+          accountNumber: form.accountNumber, accountType: form.accountType || 'ออมทรัพย์',
+        }),
+      });
+      const data = await res.json();
+      if (data.error) return alert('เกิดข้อผิดพลาด: ' + data.error);
+      setBankAccounts(prev => [...prev, data.account]);
+      setBranchBankForm(p => { const n = { ...p }; delete n[branchId]; return n; });
+      setShowBranchBankForm(p => ({ ...p, [branchId]: false }));
+    } catch (err) { alert('เกิดข้อผิดพลาด: ' + err.message); }
+    finally { setAddingBranchBank(p => ({ ...p, [branchId]: false })); }
   };
 
   const handleDeleteBranch = async (branchId) => {
@@ -2490,6 +2528,12 @@ export default function Dashboard() {
                             placeholder="เว้นว่าง = ใช้ที่อยู่ร้านหลัก — กรอกถ้าต้องการให้ใบเสร็จ/ใบกำกับภาษีของสาขานี้แสดงที่อยู่แยก"
                             className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-400 transition-colors"/>
                         </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">เบอร์โทรสาขา (ไม่บังคับ)</label>
+                          <input value={newBranchPhone} onChange={e => setNewBranchPhone(e.target.value)}
+                            placeholder="เว้นว่าง = ใช้เบอร์ร้านหลัก"
+                            className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-400 transition-colors"/>
+                        </div>
                         <button onClick={handleAddBranch} disabled={branchLoading}
                           className="w-full bg-blue-800 hover:bg-blue-700 text-white py-2.5 rounded-xl font-medium text-sm transition-colors disabled:opacity-50">
                           {branchLoading ? 'กำลังเพิ่ม...' : '+ เพิ่มสาขา'}
@@ -2515,7 +2559,8 @@ export default function Dashboard() {
                     ) : (
                       <div className="divide-y divide-slate-100">
                         {branches.map(b => (
-                          <div key={b.id} className="flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition-colors">
+                          <div key={b.id} className="flex flex-col gap-2 px-5 py-4 hover:bg-slate-50 transition-colors">
+                          <div className="flex items-center justify-between">
                             <div className="flex-1">
                               <p className="font-bold text-slate-800 text-sm">{b.branch_name}</p>
                               <p className="text-[10px] font-mono text-slate-400 mt-0.5">{b.line_group_id}</p>
@@ -2553,6 +2598,23 @@ export default function Dashboard() {
                                   📍 ที่อยู่: {b.address ? (b.address.length > 30 ? b.address.slice(0,30)+'…' : b.address) : 'เดียวกับร้านหลัก'} <Edit3 size={9}/>
                                 </button>
                               )}
+                              {editBranchPhone[b.id] !== undefined ? (
+                                <div className="flex items-center gap-1.5 mt-1.5">
+                                  <input value={editBranchPhone[b.id]}
+                                    onChange={e => setEditBranchPhone(p => ({ ...p, [b.id]: e.target.value }))}
+                                    placeholder="เว้นว่าง = ใช้เบอร์ร้านหลัก"
+                                    className="border border-slate-200 rounded-lg px-2 py-1 text-xs outline-none focus:border-blue-400 w-56"/>
+                                  <button onClick={() => handleUpdateBranchPhone(b.id, editBranchPhone[b.id])}
+                                    className="p-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700"><CheckCircle2 size={12}/></button>
+                                  <button onClick={() => setEditBranchPhone(p => { const n={...p}; delete n[b.id]; return n; })}
+                                    className="p-1 bg-slate-200 text-slate-500 rounded-lg hover:bg-slate-300"><X size={12}/></button>
+                                </div>
+                              ) : (
+                                <button onClick={() => setEditBranchPhone(p => ({ ...p, [b.id]: b.phone || '' }))}
+                                  className="text-[10px] text-emerald-600 hover:text-emerald-700 mt-1 flex items-center gap-1">
+                                  📞 เบอร์โทร: {b.phone || 'เดียวกับร้านหลัก'} <Edit3 size={9}/>
+                                </button>
+                              )}
                             </div>
                             <div className="flex items-center gap-2">
                               <span className={`text-[10px] px-2.5 py-1 rounded-full font-medium ${b.is_active ? 'bg-green-50 text-green-600' : 'bg-slate-100 text-slate-400'}`}>
@@ -2565,6 +2627,56 @@ export default function Dashboard() {
                                 </button>
                               )}
                             </div>
+                          </div>
+
+                          {/* บัญชีธนาคารของสาขานี้ — แยกจากบัญชีรวมของร้านหลักในแท็บ "ตั้งค่า" (branch_id=null) */}
+                          <div className="pl-0.5">
+                            {bankAccounts.filter(a => a.branch_id === b.id).map(a => (
+                              <div key={a.id} className="flex items-center justify-between text-[11px] bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 mb-1">
+                                <span className="text-amber-700">🏦 {a.bank_name} · {a.account_number} · {a.account_name}</span>
+                                {!isAdminMode && (
+                                  <button onClick={() => handleDeleteBankAccount(a.id)} className="text-amber-400 hover:text-red-500"><Trash2 size={11}/></button>
+                                )}
+                              </div>
+                            ))}
+                            {!isAdminMode && (showBranchBankForm[b.id] ? (
+                              <div className="mt-1 p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
+                                <div className="grid grid-cols-2 gap-2">
+                                  <select value={branchBankForm[b.id]?.bankName || 'กสิกรไทย'}
+                                    onChange={e => setBranchBankForm(p => ({ ...p, [b.id]: { ...p[b.id], bankName: e.target.value } }))}
+                                    className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white">
+                                    {BANK_LIST.map(bk => <option key={bk} value={bk}>{bk}</option>)}
+                                  </select>
+                                  <select value={branchBankForm[b.id]?.accountType || 'ออมทรัพย์'}
+                                    onChange={e => setBranchBankForm(p => ({ ...p, [b.id]: { ...p[b.id], accountType: e.target.value } }))}
+                                    className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white">
+                                    {['ออมทรัพย์','กระแสรายวัน','ฝากประจำ'].map(t => <option key={t} value={t}>{t}</option>)}
+                                  </select>
+                                  <input placeholder="ชื่อบัญชี" value={branchBankForm[b.id]?.accountName || ''}
+                                    onChange={e => setBranchBankForm(p => ({ ...p, [b.id]: { ...p[b.id], accountName: e.target.value } }))}
+                                    className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs"/>
+                                  <input placeholder="เลขที่บัญชี" value={branchBankForm[b.id]?.accountNumber || ''}
+                                    onChange={e => setBranchBankForm(p => ({ ...p, [b.id]: { ...p[b.id], accountNumber: e.target.value } }))}
+                                    className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono"/>
+                                </div>
+                                <div className="flex gap-1.5">
+                                  <button onClick={() => handleAddBranchBankAccount(b.id)} disabled={addingBranchBank[b.id]}
+                                    className="px-3 py-1 text-[11px] font-medium text-white bg-blue-700 hover:bg-blue-800 rounded-lg disabled:opacity-50">
+                                    {addingBranchBank[b.id] ? 'กำลังบันทึก...' : 'บันทึก'}
+                                  </button>
+                                  <button onClick={() => setShowBranchBankForm(p => ({ ...p, [b.id]: false }))}
+                                    className="px-3 py-1 text-[11px] font-medium text-slate-500 bg-slate-200 hover:bg-slate-300 rounded-lg">
+                                    ยกเลิก
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button onClick={() => setShowBranchBankForm(p => ({ ...p, [b.id]: true }))}
+                                className="text-[10px] text-amber-600 hover:text-amber-700 flex items-center gap-1">
+                                🏦 + เพิ่มบัญชีธนาคารของสาขานี้
+                              </button>
+                            ))}
+                          </div>
                           </div>
                         ))}
                       </div>

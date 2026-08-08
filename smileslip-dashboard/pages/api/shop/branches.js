@@ -23,7 +23,7 @@ export default async function handler(req, res) {
   if (req.method !== 'GET' && !requireOwnerAuth(req, res, shopId, { enforce: true })) return;
 
   if (req.method === 'POST') {
-    const { branchName, lineGroupId, brandName, address } = req.body;
+    const { branchName, lineGroupId, brandName, address, phone } = req.body;
     if (!branchName?.trim() || !lineGroupId?.trim())
       return res.status(400).json({ error: 'กรุณากรอกชื่อสาขาและ Group ID ให้ครบ' });
 
@@ -42,21 +42,24 @@ export default async function handler(req, res) {
       .select().single();
     if (error) return res.status(500).json({ error: error.message });
 
-    // เขียน address แยกต่างหาก (คอลัมน์ใหม่ — ถ้ายังไม่ได้รัน SQL เพิ่มคอลัมน์ ไม่ให้พังการสร้างสาขาหลัก)
-    if (address?.trim()) {
+    // เขียน address/phone แยกต่างหาก (คอลัมน์ใหม่ — ถ้ายังไม่ได้รัน SQL เพิ่มคอลัมน์ ไม่ให้พังการสร้างสาขาหลัก)
+    const extraFields = {};
+    if (address?.trim()) extraFields.address = address.trim();
+    if (phone?.trim()) extraFields.phone = phone.trim();
+    if (Object.keys(extraFields).length) {
       try {
-        const { data: withAddr } = await supabase
-          .from('shop_branches').update({ address: address.trim() }).eq('id', data.id).select().single();
-        if (withAddr) return res.status(200).json({ branch: withAddr });
-      } catch (addrErr) {
-        console.error('[shop/branches] set address on create failed (non-fatal):', addrErr.message);
+        const { data: withExtra } = await supabase
+          .from('shop_branches').update(extraFields).eq('id', data.id).select().single();
+        if (withExtra) return res.status(200).json({ branch: withExtra });
+      } catch (extraErr) {
+        console.error('[shop/branches] set address/phone on create failed (non-fatal):', extraErr.message);
       }
     }
     return res.status(200).json({ branch: data });
   }
 
   if (req.method === 'PATCH') {
-    const { branchId, brandName, address } = req.body;
+    const { branchId, brandName, address, phone } = req.body;
     if (!branchId) return res.status(400).json({ error: 'ไม่พบ branchId' });
     const updates = {};
     if (brandName !== undefined) updates.brand_name = brandName?.trim() || null;
@@ -66,15 +69,18 @@ export default async function handler(req, res) {
       ({ data, error } = await supabase.from('shop_branches').update(updates).eq('id', branchId).eq('shop_id', shopId).select().single());
       if (error) return res.status(500).json({ error: error.message });
     }
-    // address เป็นคอลัมน์ใหม่ — แยก update ต่างหากกันพังถ้ายังไม่ได้รัน SQL เพิ่มคอลัมน์
-    if (address !== undefined) {
+    // address/phone เป็นคอลัมน์ใหม่ — แยก update ต่างหากกันพังถ้ายังไม่ได้รัน SQL เพิ่มคอลัมน์
+    const extraFields = {};
+    if (address !== undefined) extraFields.address = address?.trim() || null;
+    if (phone !== undefined) extraFields.phone = phone?.trim() || null;
+    if (Object.keys(extraFields).length) {
       try {
-        const { data: withAddr, error: addrErr } = await supabase
-          .from('shop_branches').update({ address: address?.trim() || null }).eq('id', branchId).eq('shop_id', shopId).select().single();
-        if (!addrErr && withAddr) data = withAddr;
-        else if (addrErr) console.error('[shop/branches] update address failed (non-fatal):', addrErr.message);
-      } catch (addrErr) {
-        console.error('[shop/branches] update address failed (non-fatal):', addrErr.message);
+        const { data: withExtra, error: extraErr } = await supabase
+          .from('shop_branches').update(extraFields).eq('id', branchId).eq('shop_id', shopId).select().single();
+        if (!extraErr && withExtra) data = withExtra;
+        else if (extraErr) console.error('[shop/branches] update address/phone failed (non-fatal):', extraErr.message);
+      } catch (extraErr) {
+        console.error('[shop/branches] update address/phone failed (non-fatal):', extraErr.message);
       }
     }
     if (!data) {

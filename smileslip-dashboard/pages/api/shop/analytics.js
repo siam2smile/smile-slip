@@ -1,12 +1,17 @@
 /**
  * GET /api/shop/analytics?shopId=xxx&year=2026
- * ดึงข้อมูล Analytics จาก Google Sheets สำหรับ Dashboard กราฟ
+ * ดึงข้อมูล Analytics สำหรับ Dashboard กราฟ — อ่านจาก ledger_transactions (Supabase)
  * Pro+: monthly summary, daily summary, income/expense totals
  * Business+: top senders, branch comparison
+ *
+ * เดิมอ่านจาก Google Sheets ตรงๆ (เหมือน 4 endpoint ที่แก้ไปแล้วในข้อ 61 — transactions.js/
+ * export.js/tax-report.js/add-transaction.js) แต่ตกหล่นจากรอบนั้น — Phase 3 Tier 6 ตัดบอทไม่ให้
+ * เขียน Sheets แล้ว (เขียน ledger_transactions อย่างเดียว) ทำให้กราฟไม่เห็นรายการใหม่เลยตั้งแต่นั้นมา
+ * ย้ายมาอ่าน Supabase ที่เดียวกับรายงานอื่นๆ แล้ว — ไม่ต้องเชื่อมต่อ Google เลยด้วย (เดิมบังคับ)
  */
 import { createClient } from '@supabase/supabase-js';
-import axios from 'axios';
 import { requireOwnerAuth } from '../../../lib/owner-auth';
+import { fetchLedgerRows } from '../../../lib/ledger-supabase';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -32,7 +37,7 @@ export default async function handler(req, res) {
     // ดึงข้อมูลร้าน
     const { data: shop } = await supabase
       .from('shop_profiles')
-      .select('subscription_tier, google_sheet_id')
+      .select('subscription_tier')
       .eq('id', shopId)
       .single();
 
@@ -43,41 +48,14 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'กราฟ Analytics ใช้ได้เฉพาะ Pro ขึ้นไป', requireUpgrade: true });
     }
 
-    // ดึง Google config
-    const { data: gConfig } = await supabase
-      .from('shop_google_configs')
-      .select('google_refresh_token, google_sheet_id')
-      .eq('shop_id', shopId)
-      .single();
-
-    const sheetId = gConfig?.google_sheet_id || shop?.google_sheet_id;
-    if (!sheetId || !gConfig?.google_refresh_token) {
-      return res.status(400).json({ error: 'ยังไม่ได้เชื่อมต่อ Google Sheets', notConnected: true });
-    }
-
-    // แลก access token
-    const tokenRes = await axios.post('https://oauth2.googleapis.com/token', {
-      refresh_token: gConfig.google_refresh_token,
-      client_id: process.env.GOOGLE_CLIENT_ID,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET,
-      grant_type: 'refresh_token',
-    });
-    const accessToken = tokenRes.data.access_token;
-    const authHeader = { Authorization: `Bearer ${accessToken}` };
-
-    // ─── ดึงข้อมูลจาก Sheets ───
+    // ─── ดึงข้อมูลจาก ledger_transactions (Supabase) — คนละ field จาก Sheets เดิม แต่ shape
+    // เดียวกับที่ dashboard.js Ledger tab/Export ใช้อยู่แล้ว (rowToLedgerRow) ───
     const targetYear = year || new Date().getFullYear().toString();
-    const sheetRange = encodeURIComponent(`${targetYear}!A:P`);
-    const sheetsRes = await axios.get(
-      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${sheetRange}`,
-      { headers: authHeader }
-    );
-
-    let allRows = (sheetsRes.data.values || []).slice(1); // ข้าม header row
+    let allRows = await fetchLedgerRows(shopId, { year: targetYear });
 
     // กรองตามสาขา ถ้าระบุมา (ดูแนวโน้มของสาขานั้นๆ แทนยอดรวมทุกสาขา)
     if (branchFilter && branchFilter !== 'all' && hasFeature(tier, 'advance')) {
-      allRows = allRows.filter(row => (row[9] || 'สำนักงานใหญ่') === branchFilter);
+      allRows = allRows.filter(row => (row.branch === '-' ? 'สำนักงานใหญ่' : row.branch) === branchFilter);
     }
 
     // ─── สรุปรายเดือน (12 เดือน) ───
@@ -114,17 +92,19 @@ export default async function handler(req, res) {
     let totalIncome = 0, totalExpense = 0, totalCount = 0;
 
     for (const row of allRows) {
-      const recordedAt = row[8]  || ''; // column I: วันที่บันทึก YYYY-MM-DD
-      const type       = row[2]  || '';
-      const amount     = parseFloat(row[3]) || 0;
-      const sender     = row[4]  || 'ไม่ระบุ';
-      const branch     = row[9]  || 'สำนักงานใหญ่';
-      const category   = row[15] || ''; // column P: หมวดหมู่
+      // group ตามวันที่ทำธุรกรรมจริง (ปฏิทินกรุงเทพ, รองรับ backdate) — ต่างจาก Sheets เดิมที่ group
+      // ตาม "วันที่บันทึก" (recorded_at, ไม่ backdate) แต่ transaction date ถูกต้องตามหลักบัญชีมากกว่า
+      const txIsoDate = row.transactionIsoDate || '';
+      const type       = row.type;
+      const amount     = row.amount;
+      const sender     = row.sender && row.sender !== '-' ? row.sender : 'ไม่ระบุ';
+      const branch     = row.branch && row.branch !== '-' ? row.branch : 'สำนักงานใหญ่';
+      const category   = row.category && row.category !== '-' ? row.category : '';
 
-      if (!recordedAt.startsWith(targetYear)) continue;
+      if (!txIsoDate.startsWith(targetYear)) continue;
 
-      const monthKey = recordedAt.substring(5, 7);
-      const dayKey   = recordedAt.substring(0, 10);
+      const monthKey = txIsoDate.substring(5, 7);
+      const dayKey   = txIsoDate.substring(0, 10);
 
       // monthly
       if (monthlyMap[monthKey]) {
@@ -198,8 +178,12 @@ export default async function handler(req, res) {
     // เรียงสาขา
     const branchData = Object.values(branchMap).sort((a, b) => b.income - a.income);
 
-    // monthly data เป็น array
-    const monthlyData = Object.values(monthlyMap);
+    // monthly data เป็น array — **ห้ามใช้ Object.values(monthlyMap) ตรงๆ**: คีย์ '10'/'11'/'12' เป็น
+    // "canonical integer string" ตามสเปก JS ทำให้ engine เรียงคีย์เหล่านี้ขึ้นก่อนคีย์ '01'-'09' เสมอ
+    // ไม่ว่าจะ insert ตามลำดับไหนก็ตาม (ผลลัพธ์เดิม: ต.ค.,พ.ย.,ธ.ค.,ม.ค.,...,ก.ย. — เดือนสลับผิดลำดับ
+    // มาตั้งแต่สร้างไฟล์นี้) — ต้อง build array ตามลำดับเดือนตรงๆ แทน
+    const monthlyData = [];
+    for (let m = 1; m <= 12; m++) monthlyData.push(monthlyMap[m.toString().padStart(2, '0')]);
 
     // daily data เป็น array ของเดือนที่เลือก
     const dailyData = Object.values(dailyMap);

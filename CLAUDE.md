@@ -737,6 +737,16 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
     - **ยังไม่ได้ทำ (out of scope รอบนี้, flag ไว้เป็นงานต่อเนื่องจากข้อ 73):** `export.js` (Excel export) ยังมีช่องว่างเดียวกันกับ VAT/delivery-revenue ที่ `reports.js`/`tax-report.js` เพิ่งแก้ — ยังไม่ได้ไล่แก้
     - **Deploy production แล้ว (2026-08-09)** — revision จริง `smileslip-dashboard-00308-x5b` (ข้อความ deploy โชว์ revision เดิม `00307-km7` ผิดอีกตามเคย เช็คด้วย `gcloud run revisions list --sort-by=~metadata.creationTimestamp` แล้ว pin traffic เอง) — verified บน production จริงครบ 6/6: ยิงบิลขายจริงกับร้าน D Gas → `ledger_transactions.tax_amount` ตรงกับ VAT ที่คำนวณ → `tax-report.js` เห็นยอดถูกต้องและจัดกลุ่ม drill-down "ขายหน้าร้าน (ไม่มีเลขภาษีผู้ซื้อ)" ถูกต้อง — ลบข้อมูลทดสอบสะอาดหลังทดสอบ
 
+75. **หน้ากราฟวิเคราะห์ยังโหลดจาก Google Sheets (endpoint ที่ 5 ที่ตกหล่นจากข้อ 61) — ไม่แสดงข้อมูลใหม่เลย + ตั้งค่าสาขาขาดเบอร์โทร/บัญชีธนาคาร:**
+    - **บั๊ก — `api/shop/analytics.js` ไม่เคยถูกย้ายมา Supabase:** ข้อ 61 ไล่แก้ 4 endpoint ที่ยังอ่าน/เขียน Google Sheets ตรงๆ หลัง Phase 3 Tier 6 ตัดบอทไม่ให้เขียน Sheets แล้ว (`transactions.js`/`export.js`/`tax-report.js`/`add-transaction.js`) แต่พลาด `shop/analytics.js` (หน้า "กราฟวิเคราะห์") ไปจุดหนึ่ง — ยังคงแลก Google access token + อ่าน Sheets range `A:P` ตรงๆ (คอลัมน์ตรงกับ schema เก่า 16 คอลัมน์) ทำให้กราฟไม่เห็นรายการใหม่เลยตั้งแต่บอทเลิกเขียน Sheets — แก้โดยเปลี่ยนมาอ่าน `ledger_transactions` ผ่าน `fetchLedgerRows()` (helper กลางเดียวกับที่ endpoint อื่นใช้ตั้งแต่ข้อ 61) ไม่ต้องเชื่อมต่อ Google เลยด้วย (เดิมบังคับ ขึ้น error "ยังไม่ได้เชื่อมต่อ Google Sheets" ถ้าไม่เชื่อม) — เพิ่ม `transactionIsoDate` (ISO YYYY-MM-DD จากวันที่ธุรกรรมจริง ปฏิทินกรุงเทพ) ใน `rowToLedgerRow()` (`lib/ledger-supabase.js`) ให้ analytics.js group รายวัน/รายเดือนได้ — เปลี่ยนความหมายการ group จาก "วันที่บันทึกเข้าระบบ" (Sheets เดิม) เป็น "วันที่ธุรกรรมจริง" (รองรับ backdate ถูกต้องกว่า)
+    - **🐛 เจอบั๊กแฝงเพิ่มระหว่างทดสอบ (มีมาตั้งแต่สร้างไฟล์ ไม่เกี่ยวกับการย้าย Sheets→Supabase):** `Object.values(monthlyMap)` ที่ใช้สร้าง `monthlyData` array ผิดลำดับมาตลอด — คีย์ `'10'`/`'11'`/`'12'` เข้าเงื่อนไข "canonical integer string" ตามสเปก JS ทำให้ JS engine เรียงคีย์เหล่านี้ขึ้นก่อนคีย์ `'01'`-`'09'` เสมอไม่ว่าจะ insert ตามลำดับไหน (พิสูจน์ตรงด้วย `Object.keys()`: ได้ `['10','11','12','01',...,'09']`) ผลคือกราฟรายเดือนแสดงเรียง ต.ค.,พ.ย.,ธ.ค.,ม.ค.,...,ก.ย. มาตลอดแทนที่จะเป็น ม.ค.-ธ.ค. — แก้โดย build `monthlyData` เป็น array ตรงๆ ตามลำดับเดือน 1-12 แทนพึ่ง `Object.values()`
+    - **ตั้งค่าสาขา (`dashboard.js` → จัดการสาขา) เพิ่มเบอร์โทรสาขา + บัญชีธนาคารสาขา:** ผู้ใช้ชี้ว่าสาขามีแค่ชื่อ+แบรนด์ ไม่มีเบอร์โทร/บัญชีธนาคารแยกต่อสาขา (สำหรับร้านที่แต่ละสาขามีบัญชีรับเงินคนละบัญชี) — เพิ่ม:
+      - **`shop_branches.phone`** — inline-edit เหมือน `address`/`brand_name` เดิม (ว่าง = ใช้เบอร์ร้านหลัก) — `api/shop/branches.js` POST/PATCH เขียนแบบ best-effort แยกจาก insert/update หลักเหมือน pattern `address` (กันพังถ้ายังไม่ได้รัน SQL)
+      - **`shop_bank_accounts.branch_id`** (nullable FK → `shop_branches.id`, `ON DELETE SET NULL`) — บัญชีที่ `branch_id=null` คือบัญชีรวมของร้าน (พฤติกรรมเดิมทุกบัญชีที่มีอยู่แล้ว ไม่กระทบ) บัญชีใหม่ผูกกับสาขาได้ผ่านฟอร์มเล็กๆ ในการ์ดของแต่ละสาขาโดยตรง (คนละที่จาก "บัญชีธนาคารรับเงิน" ของแท็บตั้งค่าที่จัดการบัญชีรวมของร้าน) — `api/shop/bank-accounts.js` POST ลอง insert พร้อม `branch_id` ก่อนเสมอถ้าระบุมา แล้ว fallback เป็น insert แบบไม่มี `branch_id` ถ้า error (กันพังถ้ายังไม่ได้รัน SQL) + GET รองรับ `?branchId=` กรอง
+      - **ยังไม่ได้ทำ (ตั้งใจไม่ทำตอนนี้ เพราะยังไม่มีจุดไหนในระบบใช้ต่อ):** เชื่อมบัญชีธนาคาร/เบอร์โทรของสาขาเข้ากับ `detectTypeFromBankAccounts()` ของบอท (ตอนนี้ตรวจ income/expense จากชื่อบัญชีระดับร้านทั้งหมดเท่านั้น ไม่แยกตามสาขา) — ถ้าต้องการให้บอทรู้ว่าสลิปที่ส่งเข้ากลุ่มไลน์สาขาไหน ควรตรงกับบัญชีธนาคารของสาขานั้นเท่านั้น ต้องทำเพิ่มเป็นงานแยก
+    - **ทดสอบยิงจริงกับ dev server (`TZ=UTC`) ด้วยข้อมูลจริงของร้าน D Gas:** `analytics.js` — insert แถว ledger ทดสอบตรง ยืนยัน `summary.totalIncome`/`monthlyData[เดือนปัจจุบัน]`/`dailySummary` สะท้อนถูกต้อง + ยืนยัน `monthlyData[0].month==='ม.ค.'` และ `[11].month==='ธ.ค.'` (แก้ลำดับถูกต้องแล้ว) + ไม่มี `notConnected` flag อีกต่อไป (8/8 ผ่าน) — `branches.js`/`bank-accounts.js` — PATCH เบอร์โทร + POST บัญชีธนาคารผูกสาขาไม่ error แม้ SQL ยังไม่ได้รัน (fail-safe ทำงานถูกต้อง, ยืนยันด้วยการทดสอบ GET กรอง `branchId` คืนค่าว่างเปล่าตามคาด เพราะคอลัมน์ยังไม่มี) — ลบข้อมูลทดสอบสะอาดหลังทดสอบทุกจุด
+    - **ยังไม่ได้รัน SQL** — เพิ่มคอลัมน์ `shop_branches.phone` และ `shop_bank_accounts.branch_id` (ดูหัวข้อ "ต้องทำด้วยมือ — Supabase SQL" ด้านล่าง) — ก่อนรัน ทุกอย่างยังทำงานปกติทุกประการ (เบอร์โทร/บัญชีธนาคารสาขาแค่ไม่ถูกบันทึกจริง ไม่ error)
+
 ---
 
 ## Tech Stack
@@ -1527,6 +1537,16 @@ CREATE TABLE IF NOT EXISTS trial_used_line_ids (
   line_user_id text PRIMARY KEY,
   first_used_at timestamptz DEFAULT now()
 );
+```
+
+**เพิ่มคอลัมน์ phone ใน shop_branches + branch_id ใน shop_bank_accounts (เบอร์โทร/บัญชีธนาคารแยกต่อสาขา — เพิ่ม 2026-08-09, ยังไม่ได้รัน):**
+ก่อนรัน SQL นี้ ทุกอย่างยังทำงานปกติทุกประการ (ทดสอบแล้วจริง) — `api/shop/branches.js`
+เขียน `phone` แบบ best-effort แยกจาก insert/update หลักเสมอ (เหมือน `address`), `api/shop/bank-accounts.js`
+ลอง insert พร้อม `branch_id` ก่อนแล้ว fallback เป็น insert แบบเดิมถ้า error — ถ้าคอลัมน์เหล่านี้ยังไม่มี
+เบอร์โทร/บัญชีธนาคารของสาขาแค่ไม่ถูกบันทึกจริง ไม่ error ไม่พังการสร้าง/แก้ไขสาขาหรือบัญชีธนาคารหลัก
+```sql
+ALTER TABLE shop_branches ADD COLUMN IF NOT EXISTS phone text;
+ALTER TABLE shop_bank_accounts ADD COLUMN IF NOT EXISTS branch_id uuid REFERENCES shop_branches(id) ON DELETE SET NULL;
 ```
 
 ### ต้องทำด้วยมือ (ไม่ใช่โค้ด)

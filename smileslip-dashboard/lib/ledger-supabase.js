@@ -80,6 +80,10 @@ export function rowToLedgerRow(row) {
   return {
     date: formatThaiDate(txAt),
     time: formatThaiTime(txAt),
+    // วันที่ทำธุรกรรมจริง (ปฏิทินกรุงเทพ) แบบ ISO YYYY-MM-DD — ต่างจาก recordedAt (วันที่บันทึก
+    // จริง ไม่ backdate) ใช้สำหรับ group รายวัน/รายเดือนที่ควรอิงวันที่ธุรกรรมจริงเสมอ (เช่น
+    // shop/analytics.js) ไม่ใช่วันที่พิมพ์เข้าระบบ
+    transactionIsoDate: formatIsoDate(txAt),
     type: row.type === 'income' ? 'รายรับ' : 'รายจ่าย',
     amount: row.amount,
     sender: row.sender_name || '-',
