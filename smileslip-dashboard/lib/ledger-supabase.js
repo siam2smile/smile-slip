@@ -89,6 +89,10 @@ export function rowToLedgerRow(row) {
     recordedAt: formatIsoDate(createdAt),
     branch: row.branch_name || '-',
     refNo: row.slip_hash || '-',
+    // POS (ขาย/รับสินค้า/รายจ่าย) เขียนเข้าที่นี่แบบ dual-write เหมือนกันหมด แต่ไม่เคยตั้ง slip_hash
+    // เลยสักจุด — refNo เป็น '-' เสมอสำหรับแถวเหล่านี้ ทำให้ปุ่ม "แก้ไข" (ผูกกับ refNo) ไม่โผล่เลย
+    // ไม่ใช่บั๊ก แต่หน้าเว็บต้องรู้ที่มาไว้โชว์ badge อธิบายแทนปล่อยว่างเปล่าดูเหมือนพัง
+    source: row.raw_data?.source || null,
     category: row.category || '-',
     method: row.payment_method || '-',
     recorder: row.recorder_name || '-',

@@ -2215,13 +2215,22 @@ export default function Dashboard() {
                                 ) : tx.slipUrl === 'ไม่มีรูปภาพ (คีย์เอง)' ? (
                                   <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-100 px-2 py-1 rounded-lg">✍️ คีย์เอง</span>
                                 ) : <span className="text-slate-300 text-xs">—</span>}
-                                {tx.refNo && tx.refNo !== '-' && (
+                                {tx.refNo && tx.refNo !== '-' ? (
                                   <a href={`/transaction/edit?userId=${shopInfo?.owner_line_id}&ref=${encodeURIComponent(tx.refNo)}&year=${ledgerYear}`}
                                     title="แก้ไขรายการนี้"
                                     className="inline-flex items-center bg-white border border-slate-200 text-slate-400 px-2 py-1.5 rounded-lg hover:bg-amber-500 hover:text-white hover:border-amber-500 transition-all text-xs">
                                     ✏️
                                   </a>
-                                )}
+                                ) : tx.source && tx.source.startsWith('pos-') ? (
+                                  // รายการจากระบบ POS (ขาย/รับสินค้า/รายจ่าย) — บันทึกคู่มาที่นี่เพื่อโชว์ในหน้าบัญชี
+                                  // เฉยๆ ไม่มีเลขอ้างอิงให้แก้ไขจากหน้านี้ได้ (กันตัวเลขสองที่ไม่ตรงกัน) —
+                                  // ต้องไปแก้/ยกเลิกที่หน้า POS ต้นทางแทน
+                                  <span
+                                    title={`มาจากระบบ POS — แก้ไข/ยกเลิกได้ที่หน้า POS แท็บ ${tx.source === 'pos-sales' ? 'ขาย (ประวัติยอดขาย)' : tx.source === 'pos-receives' ? 'รับสินค้า (ประวัติ)' : 'รายจ่าย (ประวัติ)'} แทน`}
+                                    className="text-[10px] text-slate-400 bg-slate-100 border border-slate-200 px-2 py-1 rounded-lg">
+                                    🧾 POS
+                                  </span>
+                                ) : null}
                               </div>
                             </td>
                           </tr>

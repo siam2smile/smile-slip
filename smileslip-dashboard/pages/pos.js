@@ -1774,6 +1774,23 @@ export default function POSPage() {
     setReceiveHistoryLoading(false);
   }
 
+  async function cancelReceive(receiveNo) {
+    if (!confirm(`ยกเลิกใบรับสินค้า ${receiveNo}? ระบบจะคืนสต็อคที่เพิ่งรับเข้าไปออก (ต้นทุนถ่วงน้ำหนักจะไม่ถูกคำนวณย้อนกลับให้ — ถ้าคลาดเคลื่อนต้องแก้เองที่หน้าแก้ไขสินค้า)`)) return;
+    try {
+      const r = await fetch('/api/pos/receives', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, receive_no: receiveNo }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        showToast('ยกเลิกใบรับสินค้าแล้ว');
+        fetchReceiveHistory();
+        fetchProducts();
+      } else { alert(d.error); }
+    } catch (err) { alert(err.message); }
+  }
+
   // ── รับสินค้ารอยืนยันจาก LINE (#รับสินค้า → ถ่ายรูปใบส่งของ → OCR) ───────────
   // ── คำสั่งซื้อจากลูกค้ารอยืนยัน (หน้าเว็บสาธารณะ /order) ──────────────────────
   async function fetchCustomerOrders(sid = shopId) {
@@ -5080,6 +5097,17 @@ export default function POSPage() {
                                     </div>
                                   ))}
                                   {r.notes && <div className="text-gray-600 text-xs mt-1.5">{r.notes}</div>}
+                                  <div className="flex items-center gap-3 mt-2 pt-2 border-t border-gray-700/50">
+                                    {r.photo_url && (
+                                      <a href={r.photo_url} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 underline text-xs">
+                                        🖼️ ดูรูปบิล/ใบส่งของ
+                                      </a>
+                                    )}
+                                    <button onClick={() => cancelReceive(r.receive_no)}
+                                      className="text-red-400 hover:text-red-300 text-xs ml-auto">
+                                      ยกเลิกใบนี้
+                                    </button>
+                                  </div>
                                 </div>
                               ))}
                             </div>
@@ -6338,14 +6366,14 @@ export default function POSPage() {
                               <th className="text-left text-gray-400 px-3 py-2">ลูกค้า</th>
                               <th className="text-right text-gray-400 px-3 py-2">รายรับ</th>
                               <th className="text-left text-gray-400 px-3 py-2">ชำระ</th>
-                              <th className="text-right text-gray-400 px-3 py-2">ยอดสะสม</th>
+                              <th className="text-right text-gray-400 px-3 py-2" title="ยอดรวมสะสมจากบนลงล่าง คำนวณให้อัตโนมัติ ไม่ต้องกรอกเอง">ยอดสะสม<span className="text-gray-600 font-normal"> (คำนวณอัตโนมัติ)</span></th>
                               <th className="text-center text-gray-400 px-3 py-2"></th>
                             </tr></thead>
                             <tbody>
                               {(reportData.statement || []).map((s, i) => (
                                 <tr key={i} className="border-b border-gray-800/50 hover:bg-gray-800/30">
                                   <td className="px-3 py-2 text-gray-400 whitespace-nowrap">{s.created_at?.split(',')[0]}</td>
-                                  <td className="px-3 py-2 text-gray-300 font-mono text-[10px]">{s.bill_no}</td>
+                                  <td className="px-3 py-2 text-gray-300 font-mono text-[10px]">{s.bill_no}{s.source === 'delivery' && <span className="text-blue-500 ml-1">🚚</span>}</td>
                                   <td className="px-3 py-2 text-gray-400">{(s.items||[]).map(i=>i.name+'×'+i.qty).join(', ').slice(0,30)}</td>
                                   <td className="px-3 py-2 text-gray-400">{s.customer_name || '—'}</td>
                                   <td className="px-3 py-2 text-right text-green-400 font-medium">{s.income > 0 ? `฿${s.income.toLocaleString()}` : <span className="text-gray-600">—</span>}</td>
@@ -6354,10 +6382,14 @@ export default function POSPage() {
                                   </td>
                                   <td className="px-3 py-2 text-right text-white font-mono">฿{(s.balance||0).toLocaleString()}</td>
                                   <td className="px-3 py-2 text-center">
-                                    <button onClick={() => cancelBill(s.bill_no)}
-                                      className="text-red-400 hover:text-red-300 text-[10px] border border-red-900 px-2 py-1 rounded-lg transition-colors">
-                                      ยกเลิก
-                                    </button>
+                                    {s.source === 'delivery' ? (
+                                      <span className="text-gray-600 text-[10px]" title="ยอดนี้มาจากออเดอร์จัดส่ง — จัดการ/ยกเลิกได้จากแท็บ 🚚 ออเดอร์จัดส่งแทน">🚚 ดูที่แท็บจัดส่ง</span>
+                                    ) : (
+                                      <button onClick={() => cancelBill(s.bill_no)}
+                                        className="text-red-400 hover:text-red-300 text-[10px] border border-red-900 px-2 py-1 rounded-lg transition-colors">
+                                        ยกเลิก
+                                      </button>
+                                    )}
                                   </td>
                                 </tr>
                               ))}

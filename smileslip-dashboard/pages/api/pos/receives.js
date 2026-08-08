@@ -117,7 +117,9 @@ async function writeReceiveToMainSheets(refreshToken, mainSheetId, { shopId, tot
         note: noteText, sender_name: shopName, receiver_name: supplier || '-',
         branch_name: branchName || shopName, payment_method: 'เงินสด',
         transaction_at: transactionAt.toISOString(),
-        raw_data: { source: 'pos-receives', supplier, notes },
+        // receive_no ใส่ไว้ให้ DELETE (ยกเลิกใบรับสินค้า) หาแถวนี้เจอแบบเป๊ะๆ ภายหลัง — ใบรับ
+        // สินค้าเก่าก่อนมีฟิลด์นี้จะไม่มี receive_no ใน raw_data เลย (จับคู่ไม่ได้ ต้องลบเองถ้าจำเป็น)
+        raw_data: { source: 'pos-receives', supplier, notes, receive_no: receiveNo },
       }),
     });
   } catch (err) {
@@ -262,6 +264,65 @@ export default async function handler(req, res) {
       }
 
       return res.json({ ok: true, receiveNo, subtotal: roundedSubtotal, vatTotal: roundedVat, totalCost: grandTotal, itemCount: items.length, warnings: MARKET_PRICE_FEATURE_LIVE ? warnings : [] });
+    }
+
+    // ── DELETE — ยกเลิกใบรับสินค้า (เช่น กรอกผิด/รับซ้ำ/รายการทดสอบ) ────────────
+    // pos_receives ไม่มีคอลัมน์ deleted_at (ต่างจาก pos_sales/pos_delivery_orders) — ลบจริง
+    // (hard delete) ไม่ใช่ soft-delete เพราะแถวนี้ไม่ใช่ "ธุรกรรมจริงที่ยกเลิกทีหลัง" ต้องเก็บ audit
+    // trail ไว้แบบบิลขาย/ออเดอร์จัดส่ง — ถ้าไม่เคยรับสินค้านี้เลยแถวนี้ก็ไม่ควรมีอยู่ตั้งแต่แรก
+    if (req.method === 'DELETE') {
+      if (!(await requirePermission(req, res, shopId, 'perm_manage_receiving'))) return;
+      const { receive_no } = req.body;
+      if (!receive_no) return res.status(400).json({ error: 'Missing receive_no' });
+
+      const { data: existing, error: fetchErr } = await supabase.from('pos_receives').select('*')
+        .eq('shop_id', shopId).eq('receive_no', receive_no).maybeSingle();
+      if (fetchErr) throw fetchErr;
+      if (!existing) return res.status(404).json({ error: 'ไม่พบใบรับสินค้า' });
+
+      const receive = receiveFromRow(existing);
+      const branch = existing.branch_name || '';
+      const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+
+      // ย้อนกลับผลต่อสต็อค (คืนของที่เพิ่งรับเข้าไปออกจากสต็อค) — **ไม่แตะต้นทุนถ่วงน้ำหนัก (cost)
+      // เลย** เพราะการคำนวณ weighted average ย้อนกลับไม่ได้อย่างปลอดภัยถ้ามีการรับสินค้ารอบอื่นคั่น
+      // กลางระหว่างทาง (known limitation — ต้นทุนอาจคลาดเคลื่อนเล็กน้อยหลังลบ ต้องตรวจ/แก้เองถ้าจำเป็น
+      // เหมือนกับที่ sales.js's DELETE ก็ไม่แตะยอดขายสะสม/รายงานย้อนหลังที่คำนวณไปแล้วเช่นกัน)
+      for (const item of (receive.items || [])) {
+        if (!item.sku) continue;
+        try {
+          const { data: prodRow } = await supabase.from('pos_products').select('*')
+            .eq('shop_id', shopId).eq('sku', item.sku).is('deleted_at', null).maybeSingle();
+          if (!prodRow) continue;
+          const prod = productFromRow(prodRow);
+          const numQty = parseFloat(item.qty) || 0;
+          // ใบรับเก่าก่อนมีตัวเลือก isRefill ไม่มีฟิลด์นี้เก็บไว้เลย ถือเป็นรีฟิลตามพฤติกรรมเดิม
+          // (fallback เดียวกับที่ใช้ในรายงาน "ต้นทุนรีฟิล vs ซื้อใหม่")
+          const isCyclicalRefill = prod.type === 'หมุนเวียน' && item.isRefill !== false;
+          await adjustBranchStock(shopId, item.sku, branch, {
+            qtyDelta: -numQty,
+            emptyWaitingDelta: isCyclicalRefill ? numQty : 0,
+          });
+          await supabase.from('pos_products').update({ product_updated_at: now }).eq('shop_id', shopId).eq('sku', item.sku);
+        } catch (err) {
+          console.error('[pos/receives] cancel: revert stock error:', err.message);
+        }
+      }
+
+      // ลบแถวคู่กันในบัญชีหลัก (ledger_transactions) — จับคู่ผ่าน raw_data.receive_no (มีแค่ใบที่
+      // สร้างหลังแก้ไขนี้เท่านั้น ใบเก่าไม่มีข้อมูลนี้เก็บไว้เลยจับคู่ไม่ได้ — best-effort เท่านั้น)
+      try {
+        await supabase.from('ledger_transactions').delete()
+          .eq('shop_id', shopId).eq('raw_data->>receive_no', receive_no);
+      } catch (err) {
+        console.error('[pos/receives] cancel: delete ledger row error:', err.message);
+      }
+
+      const { error } = await supabase.from('pos_receives').delete()
+        .eq('shop_id', shopId).eq('receive_no', receive_no);
+      if (error) throw error;
+
+      return res.json({ ok: true });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
