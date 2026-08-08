@@ -21,6 +21,13 @@ function f(id, value) {
 function generateBillPaymentPayload(billerId, options = {}) {
   const cleanBiller = String(billerId || '').replace(/\D/g, '');
   if (!cleanBiller) throw new Error('Missing Biller ID');
+  // Biller ID มาตรฐาน ITMX ต้องเป็นตัวเลขล้วน 15 หลักเสมอ — ถ้าค่าที่บันทึกไว้ปนตัวอักษร (มักมาจาก
+  // การกรอกผิดเป็น "เลขอ้างอิง"/Reference number ที่แอปธนาคารโชว์แทน Biller ID จริง) ตัวอักษรจะถูก
+  // ตัดทิ้งไปแล้วในบรรทัดบน เหลือตัวเลขมั่วที่ผ่าน syntax QR แต่ไม่มี biller จริงรองรับ — ธนาคาร
+  // จะปฏิเสธตอนสแกนด้วย error กำกวมแบบ "QR ไม่ถูกต้อง" กันไว้ตรงนี้แทนที่จะปล่อยให้สร้าง QR เพี้ยน
+  if (cleanBiller.length !== 15) {
+    throw new Error(`Biller ID ต้องมี 15 หลักพอดี (ค่าที่ตั้งไว้ตอนนี้มี ${cleanBiller.length} หลักหลังตัดตัวอักษรออก) — ไปแก้ที่หน้าตั้งค่า POS ให้ตรงกับ Biller ID จริงจากเมนู "แก้ไขข้อมูลร้านค้า"/Merchant Settings ของแอปธนาคาร ไม่ใช่เลขที่โชว์หน้าจอ QR`);
+  }
 
   const { amount, ref1 = '', ref2 = '' } = options;
 

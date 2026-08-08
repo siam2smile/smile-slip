@@ -67,6 +67,22 @@ export default async function handler(req, res) {
 
     const { promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, receipt_paper_size, vat_registered } = req.body;
 
+    // Biller ID (Thai QR Bill Payment, Tag 30) ต้องเป็นตัวเลขล้วน 15 หลักตามมาตรฐาน ITMX เสมอ —
+    // สาเหตุที่พบบ่อยที่สุดที่ QR สแกนไม่ได้ ("QR ไม่ถูกต้อง") คือกรอกเลข "เลขอ้างอิง"/Reference
+    // number ที่แอปธนาคารโชว์หน้าจอ QR ผิดตัวมาแทน (มีตัวอักษรปนด้วยบ่อยๆ เช่น "KPS004KB...")
+    // ไม่ใช่ Biller ID จริงที่ต้องไปหาใน "แก้ไขข้อมูลร้านค้า"/Merchant Settings — เดิมโค้ดสร้าง QR
+    // ตัดตัวอักษรทิ้งเงียบๆ แล้วเอาตัวเลขที่เหลือไปใช้ต่อ กลายเป็นเลขมั่วที่ผ่าน syntax แต่ไม่มี
+    // biller จริงรองรับ ธนาคารปฏิเสธตอนสแกน — เช็คตั้งแต่ตอนบันทึกเลย กันเซฟค่าผิดเข้าระบบ
+    if (scb_biller_id) {
+      const digitsOnly = String(scb_biller_id).replace(/[\s-]/g, '');
+      if (!/^\d+$/.test(digitsOnly)) {
+        return res.status(400).json({ error: 'Biller ID ต้องเป็นตัวเลขล้วนเท่านั้น (ไม่มีตัวอักษร) — เลขที่มีตัวอักษรปน มักเป็น "เลขอ้างอิง" ที่แอปธนาคารโชว์ ไม่ใช่ Biller ID จริง ต้องไปหาในเมนู "แก้ไขข้อมูลร้านค้า"/Merchant Settings ของแอปธนาคาร' });
+      }
+      if (digitsOnly.length !== 15) {
+        return res.status(400).json({ error: `Biller ID ต้องมี 15 หลักพอดี (กรอกมา ${digitsOnly.length} หลัก) — ถ้าไม่แน่ใจว่าเลขไหนถูก ให้ไปดูในเมนู "แก้ไขข้อมูลร้านค้า"/Merchant Settings ของแอปธนาคาร ไม่ใช่เลขที่โชว์หน้าจอ QR` });
+      }
+    }
+
     const updates = {};
     if (promptpay_id !== undefined) updates.promptpay_id = promptpay_id || null;
     if (kbank_api_key !== undefined) updates.kbank_api_key = kbank_api_key || null;

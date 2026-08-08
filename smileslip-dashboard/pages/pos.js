@@ -56,6 +56,22 @@ function emptyStaffPerms() {
 function emptyProdForm() {
   return { name: '', category: '', price: '', stock: '', unit: 'ชิ้น', aliases: '', notes: '', type: 'นับสต็อค', product_code: '', barcode: '', description: '', vat_type: 'ไม่มี VAT', is_active: true, empty_ceiling: '', branches: [] };
 }
+
+// Biller ID (Thai QR Bill Payment, Tag 30) ต้องเป็นตัวเลขล้วน 15 หลักเสมอตามมาตรฐาน ITMX — สาเหตุ
+// อันดับ 1 ที่ QR สแกนไม่ได้คือกรอก "เลขอ้างอิง"/Reference number ที่แอปธนาคารโชว์หน้าจอ QR ผิดตัว
+// มาแทน (มักมีตัวอักษรปน เช่น "KPS004KB...") ต้องเตือนตั้งแต่ตอนกรอก ไม่ใช่ปล่อยให้เซฟแล้วไปพังตอน
+// สแกนจริงซึ่งจะโดน error กำกวมจากแอปธนาคารว่า "QR ไม่ถูกต้อง" เฉยๆ ไม่รู้ว่าพังเพราะอะไร
+function validateBillerId(raw) {
+  if (!raw) return { empty: true, valid: true, digitsOnly: '' };
+  const digitsOnly = String(raw).replace(/[\s-]/g, '');
+  if (!/^\d+$/.test(digitsOnly)) {
+    return { empty: false, valid: false, digitsOnly, message: 'มีตัวอักษรปนอยู่ — Biller ID จริงเป็นตัวเลขล้วนเท่านั้น เลขที่มีตัวอักษรมักเป็น "เลขอ้างอิง" ไม่ใช่ Biller ID' };
+  }
+  if (digitsOnly.length !== 15) {
+    return { empty: false, valid: false, digitsOnly, message: `มี ${digitsOnly.length} หลัก แต่ Biller ID จริงต้องมี 15 หลักพอดี` };
+  }
+  return { empty: false, valid: true, digitsOnly };
+}
 function emptyContactForm() {
   return {
     name: '', contact_type: 'ผู้จำหน่าย', phone: '', email: '',
@@ -7187,24 +7203,41 @@ export default function POSPage() {
                 </div>
 
                 {/* Biller ID (Thai QR Payment / Bill Payment — ธนาคารใดก็ได้) */}
-                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
-                  <h3 className="text-white font-bold mb-1">🏦 Biller ID จากธนาคาร</h3>
-                  <p className="text-gray-400 text-xs mb-4">
-                    สำหรับร้าน/บริษัทที่ธนาคารออกการ์ดหรือเอกสารระบุคำว่า "Biller ID" มาให้ (ธนาคารใดก็ได้ ไม่จำกัดแค่ SCB/KBank) —
-                    เป็นคนละระบบกับพร้อมเพย์ด้านบน เงินจะเข้าบัญชีที่ผูกกับ Biller ID นี้โดยตรง <b>ถ้ากรอกช่องนี้ ระบบจะใช้ช่องนี้แทนพร้อมเพย์ทันที</b>
-                    {posConfig.scb_biller_id ? ` — ปัจจุบัน: ${posConfig.scb_biller_id}` : ' — เว้นว่างไว้ถ้าไม่มี'}
-                  </p>
-                  <div>
-                    <label className="block text-gray-400 text-xs mb-1.5">Biller ID</label>
-                    <input
-                      type="text"
-                      value={posSettingsForm.scb_biller_id}
-                      onChange={e => setPosSettingsForm(f => ({ ...f, scb_biller_id: e.target.value }))}
-                      className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
-                      placeholder="เช่น 050556501923609"
-                    />
-                  </div>
-                </div>
+                {(() => {
+                  const billerCheck = validateBillerId(posSettingsForm.scb_biller_id);
+                  return (
+                    <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
+                      <h3 className="text-white font-bold mb-1">🏦 Biller ID จากธนาคาร</h3>
+                      <p className="text-gray-400 text-xs mb-2">
+                        สำหรับร้าน/บริษัทที่ธนาคารออกการ์ดหรือเอกสารระบุคำว่า "Biller ID" มาให้ (ธนาคารใดก็ได้ ไม่จำกัดแค่ SCB/KBank) —
+                        เป็นคนละระบบกับพร้อมเพย์ด้านบน เงินจะเข้าบัญชีที่ผูกกับ Biller ID นี้โดยตรง <b>ถ้ากรอกช่องนี้ ระบบจะใช้ช่องนี้แทนพร้อมเพย์ทันที</b>
+                        {posConfig.scb_biller_id ? ` — ปัจจุบัน: ${posConfig.scb_biller_id}` : ' — เว้นว่างไว้ถ้าไม่มี'}
+                      </p>
+                      <p className="text-amber-400/90 text-xs mb-4 bg-amber-900/20 border border-amber-800/50 rounded-lg px-3 py-2">
+                        ⚠️ เลขที่โชว์หน้าจอ "QR รับเงิน" ของแอปธนาคาร (เช่น "เลขอ้างอิง"/Reference number) <b>มักไม่ใช่</b> Biller ID จริง —
+                        ต้องไปหาที่เมนู "แก้ไขข้อมูลร้านค้า"/Merchant Settings ในแอปธนาคารแทน (ตัวเลขล้วน 15 หลัก) ถ้ากรอกเลขผิด QR จะสร้างได้ปกติแต่สแกนจ่ายไม่ได้ ("QR ไม่ถูกต้อง")
+                      </p>
+                      <div>
+                        <label className="block text-gray-400 text-xs mb-1.5">Biller ID (ตัวเลขล้วน 15 หลัก)</label>
+                        <input
+                          type="text"
+                          value={posSettingsForm.scb_biller_id}
+                          onChange={e => setPosSettingsForm(f => ({ ...f, scb_biller_id: e.target.value }))}
+                          className={`w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border focus:outline-none ${
+                            !billerCheck.valid ? 'border-red-600 focus:border-red-500' : 'border-gray-700 focus:border-green-500'
+                          }`}
+                          placeholder="เช่น 050556501923609"
+                        />
+                        {!billerCheck.valid && (
+                          <p className="text-red-400 text-xs mt-1.5">❌ {billerCheck.message}</p>
+                        )}
+                        {billerCheck.valid && !billerCheck.empty && (
+                          <p className="text-green-400 text-xs mt-1.5">✅ ครบ 15 หลัก</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* ร้านจด VAT */}
                 <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
@@ -7251,7 +7284,7 @@ export default function POSPage() {
 
                 <button
                   onClick={savePosSettings}
-                  disabled={settingsSaving}
+                  disabled={settingsSaving || !validateBillerId(posSettingsForm.scb_biller_id).valid}
                   className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors"
                 >
                   {settingsSaving ? 'กำลังบันทึก...' : '💾 บันทึกตั้งค่า'}
