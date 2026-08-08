@@ -9,6 +9,143 @@ import Script from 'next/script';
 import { useRouter } from 'next/router';
 import { withBrandFooter } from '../lib/branding';
 
+// ก็อปจาก pages/pos.js ตามธรรมเนียมโปรเจกต์ (คนละ bundle คนละหน้า ไม่แชร์ component ข้ามไฟล์)
+// ใช้ Leaflet + OpenStreetMap ฟรี ไม่ต้องมี API key — คนขับปักหมุดตำแหน่งจัดส่งจริงเองได้
+function MapPickerModal({ initCoords, onConfirm, onClose }) {
+  const mapDivRef = useRef(null);
+  const leafletMapRef = useRef(null);
+  const markerRef = useRef(null);
+  const [pickedCoords, setPickedCoords] = useState(initCoords || null);
+  const [loadState, setLoadState] = useState('loading');
+  const [gpsLoading, setGpsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!document.getElementById('leaflet-css')) {
+      const link = document.createElement('link');
+      link.id = 'leaflet-css';
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+    }
+
+    if (window.L) { initLeaflet(); return; }
+
+    if (document.getElementById('leaflet-js')) {
+      const timer = setInterval(() => { if (window.L) { clearInterval(timer); initLeaflet(); } }, 100);
+      return () => clearInterval(timer);
+    }
+
+    const script = document.createElement('script');
+    script.id = 'leaflet-js';
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.onload = initLeaflet;
+    script.onerror = () => setLoadState('error');
+    document.head.appendChild(script);
+  }, []);
+
+  function initLeaflet() {
+    if (!mapDivRef.current || leafletMapRef.current) return;
+    setLoadState('ready');
+
+    const center = initCoords ? [initCoords.lat, initCoords.lng] : [13.7563, 100.5018];
+    const zoom = initCoords ? 16 : 12;
+    const map = window.L.map(mapDivRef.current).setView(center, zoom);
+
+    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+    }).addTo(map);
+
+    if (initCoords) {
+      markerRef.current = window.L.marker([initCoords.lat, initCoords.lng]).addTo(map);
+    }
+
+    map.on('click', e => {
+      const lat = parseFloat(e.latlng.lat.toFixed(6));
+      const lng = parseFloat(e.latlng.lng.toFixed(6));
+      if (markerRef.current) {
+        markerRef.current.setLatLng([lat, lng]);
+      } else {
+        markerRef.current = window.L.marker([lat, lng]).addTo(map);
+      }
+      setPickedCoords({ lat, lng });
+    });
+
+    leafletMapRef.current = map;
+  }
+
+  function useCurrentGps() {
+    if (!navigator.geolocation) { alert('เบราว์เซอร์ไม่รองรับ GPS'); return; }
+    setGpsLoading(true);
+    navigator.geolocation.getCurrentPosition(pos => {
+      const lat = parseFloat(pos.coords.latitude.toFixed(6));
+      const lng = parseFloat(pos.coords.longitude.toFixed(6));
+      if (leafletMapRef.current) {
+        leafletMapRef.current.setView([lat, lng], 17);
+        if (markerRef.current) { markerRef.current.setLatLng([lat, lng]); }
+        else { markerRef.current = window.L.marker([lat, lng]).addTo(leafletMapRef.current); }
+        setPickedCoords({ lat, lng });
+      }
+      setGpsLoading(false);
+    }, () => { alert('ดึง GPS ไม่ได้ — กรุณาอนุญาตการเข้าถึงตำแหน่ง'); setGpsLoading(false); },
+    { enableHighAccuracy: true, timeout: 10000 });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-3">
+      <div className="bg-gray-900 rounded-2xl w-full max-w-lg border border-gray-700 shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: '92vh' }}>
+        <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between shrink-0">
+          <div>
+            <h3 className="text-white font-bold text-sm">📍 เลือกตำแหน่งบนแผนที่</h3>
+            <p className="text-gray-500 text-xs mt-0.5">แตะบนแผนที่เพื่อวางหมุด</p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-white text-xl w-8 h-8 flex items-center justify-center">✕</button>
+        </div>
+
+        <div className="relative" style={{ height: '360px', flexShrink: 0 }}>
+          <div ref={mapDivRef} style={{ height: '100%', width: '100%' }} />
+          {loadState === 'loading' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-900 text-gray-400 text-sm animate-pulse">
+              กำลังโหลดแผนที่...
+            </div>
+          )}
+          {loadState === 'error' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-900 text-red-400 text-sm text-center px-4">
+              โหลดแผนที่ไม่ได้<br/>ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต
+            </div>
+          )}
+        </div>
+
+        <div className="p-3 space-y-2 shrink-0">
+          {pickedCoords ? (
+            <div className="bg-gray-800 rounded-xl px-3 py-2 text-xs text-green-400 flex items-center gap-2">
+              <span>✅</span>
+              <span className="flex-1">วางหมุดที่ {pickedCoords.lat}, {pickedCoords.lng}</span>
+            </div>
+          ) : (
+            <div className="bg-gray-800/50 rounded-xl px-3 py-2 text-xs text-gray-500 text-center">
+              ยังไม่ได้วางหมุด — แตะบนแผนที่เพื่อเลือกตำแหน่ง
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button onClick={useCurrentGps} disabled={gpsLoading}
+              className="flex-1 bg-gray-700 hover:bg-blue-800 disabled:opacity-50 text-gray-300 hover:text-white text-xs py-2.5 rounded-xl transition-colors flex items-center justify-center gap-1.5 border border-gray-600">
+              {gpsLoading
+                ? <><span className="animate-spin inline-block">⏳</span> กำลังดึง GPS...</>
+                : <><span>🎯</span> ตำแหน่งปัจจุบัน</>}
+            </button>
+            <button onClick={() => pickedCoords && onConfirm(pickedCoords.lat, pickedCoords.lng)}
+              disabled={!pickedCoords}
+              className="flex-1 bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm py-2.5 rounded-xl transition-colors">
+              ยืนยัน
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PosStaffPage() {
   const router = useRouter();
   const {
@@ -88,6 +225,14 @@ export default function PosStaffPage() {
   const [deliverDiscountValue, setDeliverDiscountValue] = useState('');
   const [deliverDone, setDeliverDone] = useState(null); // ผลลัพธ์หลังยืนยันจัดส่งสำเร็จ — ใช้แสดงปุ่มพิมพ์สลิป
   const deliverSlipRef = useRef(null);
+
+  // แก้ที่อยู่/ปักหมุดใหม่จากหน้าคนขับ — ลูกค้าบางรายมีทั้งบ้าน+ร้าน หรือหลายบ้าน หมุดที่ตั้งไว้ตอน
+  // สร้างออเดอร์อาจผิด/ไม่ตรงจุดที่ต้องส่งจริง คนขับควรแก้ไขได้เองตอนไปถึงหน้างานโดยไม่ต้องรอแอดมิน
+  const [editingDeliveryAddress, setEditingDeliveryAddress] = useState(false);
+  const [editAddressText, setEditAddressText] = useState('');
+  const [editMapsLink, setEditMapsLink] = useState('');
+  const [savingDeliveryAddress, setSavingDeliveryAddress] = useState(false);
+  const [showStaffMapPicker, setShowStaffMapPicker] = useState(false);
 
   // ── งานเก็บเงิน/ของ (collections) ────────────────────────────────────────
   const [collectionTasks, setCollectionTasks] = useState([]);
@@ -608,6 +753,38 @@ export default function PosStaffPage() {
     ? Math.round(deliverOrderTotal * (parseFloat(deliverDiscountValue) || 0) / 100 * 100) / 100
     : (parseFloat(deliverDiscountValue) || 0);
   const deliverFinalTotal = Math.max(0, Math.round((deliverOrderTotal - deliverDiscountAmount) * 100) / 100);
+
+  function openEditDeliveryAddress() {
+    setEditAddressText(selectedOrder?.address || '');
+    setEditMapsLink(selectedOrder?.maps_link || '');
+    setEditingDeliveryAddress(true);
+  }
+
+  async function saveDeliveryAddress() {
+    if (!selectedOrder || savingDeliveryAddress) return;
+    setSavingDeliveryAddress(true);
+    try {
+      const r = await apiFetch('/api/pos/delivery', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId, order_no: selectedOrder.order_no,
+          address: editAddressText.trim(), maps_link: editMapsLink.trim(),
+        }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        const patch = { address: editAddressText.trim(), maps_link: editMapsLink.trim() };
+        setSelectedOrder(o => ({ ...o, ...patch }));
+        setOrders(prev => prev.map(o => o.order_no === selectedOrder.order_no ? { ...o, ...patch } : o));
+        setEditingDeliveryAddress(false);
+        showToast('✅ บันทึกที่อยู่/หมุดแล้ว');
+      } else {
+        alert(d.error || 'บันทึกไม่สำเร็จ');
+      }
+    } catch (err) { alert(err.message); }
+    setSavingDeliveryAddress(false);
+  }
 
   async function confirmDeliverySubmit() {
     if (!selectedOrder || deliverConfirming) return;
@@ -1219,7 +1396,12 @@ export default function PosStaffPage() {
                       <div className="flex items-start justify-between mb-2">
                         <div>
                           <div className="text-white font-bold">{order.customer_name}</div>
-                          {order.phone && <div className="text-gray-400 text-xs">📞 {order.phone}</div>}
+                          {order.phone && (
+                            <a href={`tel:${order.phone.replace(/[^\d+]/g, '')}`} onClick={e => e.stopPropagation()}
+                              className="text-blue-400 hover:text-blue-300 text-xs underline decoration-dotted underline-offset-2 inline-block">
+                              📞 {order.phone}
+                            </a>
+                          )}
                         </div>
                         <span className="bg-orange-900 text-orange-300 text-xs px-2 py-1 rounded-full shrink-0">{order.status}</span>
                       </div>
@@ -1285,13 +1467,57 @@ export default function PosStaffPage() {
 
               <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800 mb-5">
                 <div className="text-white font-bold text-lg">{selectedOrder.customer_name}</div>
-                {selectedOrder.phone && <div className="text-gray-400 text-xs mt-0.5">📞 {selectedOrder.phone}</div>}
-                {selectedOrder.address && <div className="text-gray-500 text-xs mt-1">📍 {selectedOrder.address}</div>}
-                {selectedOrder.maps_link && (
-                  <a href={selectedOrder.maps_link} target="_blank" rel="noreferrer"
-                    className="inline-block mt-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-medium px-3 py-2 rounded-xl transition-colors">
-                    🗺️ เปิดแผนที่
+                {selectedOrder.phone && (
+                  <a href={`tel:${selectedOrder.phone.replace(/[^\d+]/g, '')}`}
+                    className="text-blue-400 hover:text-blue-300 text-xs mt-0.5 underline decoration-dotted underline-offset-2 inline-block">
+                    📞 {selectedOrder.phone}
                   </a>
+                )}
+                {!editingDeliveryAddress ? (
+                  <>
+                    {selectedOrder.address && <div className="text-gray-500 text-xs mt-1">📍 {selectedOrder.address}</div>}
+                    <div className="flex gap-2 mt-2">
+                      {selectedOrder.maps_link && (
+                        <a href={selectedOrder.maps_link} target="_blank" rel="noreferrer"
+                          className="inline-block bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-medium px-3 py-2 rounded-xl transition-colors">
+                          🗺️ เปิดแผนที่
+                        </a>
+                      )}
+                      <button type="button" onClick={openEditDeliveryAddress}
+                        className="inline-block bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-medium px-3 py-2 rounded-xl transition-colors">
+                        ✏️ แก้ที่อยู่/หมุด
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="mt-2 bg-gray-800 border border-blue-700/50 rounded-xl p-3 space-y-2">
+                    <div className="text-blue-400 text-xs font-bold">
+                      ✏️ แก้ที่อยู่/ปักหมุดใหม่ — ลูกค้ามีหลายที่ (บ้าน/ร้าน) หรือหมุดเดิมผิดจุด แก้ได้เลย
+                    </div>
+                    <textarea value={editAddressText} onChange={e => setEditAddressText(e.target.value)}
+                      placeholder="ที่อยู่จัดส่ง" rows={2}
+                      className="w-full bg-gray-900 text-white text-sm px-3 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-blue-500 resize-none" />
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => setShowStaffMapPicker(true)}
+                        className={`flex-1 text-xs font-medium py-2 rounded-lg transition-colors ${editMapsLink ? 'bg-green-900/40 text-green-300 border border-green-700/50' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+                        {editMapsLink ? '✅ ปักหมุดแล้ว — แก้ไข' : '🗺️ ปักหมุดตำแหน่ง'}
+                      </button>
+                      {editMapsLink && (
+                        <button type="button" onClick={() => setEditMapsLink('')}
+                          className="text-gray-500 hover:text-red-400 text-xs px-2">ลบหมุด</button>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={saveDeliveryAddress} disabled={savingDeliveryAddress}
+                        className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold py-2.5 rounded-lg transition-colors">
+                        {savingDeliveryAddress ? 'กำลังบันทึก...' : '💾 บันทึก'}
+                      </button>
+                      <button type="button" onClick={() => setEditingDeliveryAddress(false)}
+                        className="px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs font-bold py-2.5 rounded-lg transition-colors">
+                        ยกเลิก
+                      </button>
+                    </div>
+                  </div>
                 )}
                 <div className="border-t border-gray-800 mt-3 pt-3 space-y-0.5">
                   {Array.isArray(selectedOrder.items) && selectedOrder.items.map((item, j) => (
@@ -1471,7 +1697,12 @@ export default function PosStaffPage() {
                       <div className="flex items-start justify-between mb-2">
                         <div>
                           <div className="text-white font-bold">{task.customer_name}</div>
-                          {task.phone && <div className="text-gray-400 text-xs">📞 {task.phone}</div>}
+                          {task.phone && (
+                            <a href={`tel:${task.phone.replace(/[^\d+]/g, '')}`} onClick={e => e.stopPropagation()}
+                              className="text-blue-400 hover:text-blue-300 text-xs underline decoration-dotted underline-offset-2 inline-block">
+                              📞 {task.phone}
+                            </a>
+                          )}
                         </div>
                         <span className="bg-orange-900 text-orange-300 text-xs px-2 py-1 rounded-full shrink-0">{task.task_type}</span>
                       </div>
@@ -1506,7 +1737,12 @@ export default function PosStaffPage() {
 
               <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800 mb-5">
                 <div className="text-white font-bold text-lg">{selectedCollection.customer_name}</div>
-                {selectedCollection.phone && <div className="text-gray-400 text-xs mt-0.5">📞 {selectedCollection.phone}</div>}
+                {selectedCollection.phone && (
+                  <a href={`tel:${selectedCollection.phone.replace(/[^\d+]/g, '')}`}
+                    className="text-blue-400 hover:text-blue-300 text-xs mt-0.5 underline decoration-dotted underline-offset-2 inline-block">
+                    📞 {selectedCollection.phone}
+                  </a>
+                )}
                 {selectedCollection.notes && <div className="text-gray-500 text-xs mt-1">📝 {selectedCollection.notes}</div>}
               </div>
 
@@ -1587,6 +1823,24 @@ export default function PosStaffPage() {
             {toast}
           </div>
         )}
+
+        {showStaffMapPicker && (() => {
+          let initCoords = null;
+          if (editMapsLink) {
+            const m = editMapsLink.match(/q=([+-]?\d+\.?\d*),([+-]?\d+\.?\d*)/);
+            if (m) initCoords = { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+          }
+          return (
+            <MapPickerModal
+              initCoords={initCoords}
+              onConfirm={(lat, lng) => {
+                setEditMapsLink(`https://www.google.com/maps?q=${lat},${lng}`);
+                setShowStaffMapPicker(false);
+              }}
+              onClose={() => setShowStaffMapPicker(false)}
+            />
+          );
+        })()}
       </div>
     </>
   );

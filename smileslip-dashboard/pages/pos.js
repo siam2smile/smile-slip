@@ -2885,6 +2885,16 @@ export default function POSPage() {
     } catch (err) { alert(err.message); }
   }
 
+  // "ถัง" ไม่ใช่หน่วยสากล (บางธุรกิจใช้ "ลัง"/"ขวด"/หน่วยอื่น) — pos_contacts.cylinders เป็น
+  // ตัวเลขรวมตัวเดียว (ไม่แยกตาม SKU) จึงเดาหน่วยที่ถูกต้องได้แค่กรณีร้านมีสินค้าหมุนเวียนแบบเดียว
+  // (กรณีส่วนใหญ่) — ถ้ามีหลายชนิดคนละหน่วยกัน fallback เป็น "หน่วย" กลางๆ กันเดาผิด
+  const cyclicalUnitLabel = useMemo(() => {
+    const cyclicalProducts = products.filter(p => p.type === 'หมุนเวียน');
+    if (cyclicalProducts.length === 0) return 'หน่วย';
+    const units = new Set(cyclicalProducts.map(p => p.unit || 'หน่วย'));
+    return units.size === 1 ? [...units][0] : 'หน่วย';
+  }, [products]);
+
   // ── contacts CRUD ─────────────────────────────────────────────────────────
   const displayContacts = useMemo(() => {
     let list = contacts;
@@ -6064,8 +6074,8 @@ export default function POSPage() {
                       <div className="text-gray-500 text-xs">ยอดค้างชำระรวม ({displayContacts.filter(c => c.debt > 0).length} ราย)</div>
                     </div>
                     <div>
-                      <div className="text-orange-400 font-bold">{displayContacts.reduce((s, c) => s + (c.cylinders || 0), 0).toLocaleString()} ถัง</div>
-                      <div className="text-gray-500 text-xs">ถังค้างที่ลูกค้ารวม ({displayContacts.filter(c => c.cylinders > 0).length} ราย)</div>
+                      <div className="text-orange-400 font-bold">{displayContacts.reduce((s, c) => s + (c.cylinders || 0), 0).toLocaleString()} {cyclicalUnitLabel}</div>
+                      <div className="text-gray-500 text-xs">{cyclicalUnitLabel}ค้างที่ลูกค้ารวม ({displayContacts.filter(c => c.cylinders > 0).length} ราย)</div>
                     </div>
                   </div>
                 )}
@@ -6098,7 +6108,7 @@ export default function POSPage() {
                               }`}>{c.contact_type}</span>
                               {c.person_type === 'นิติบุคคล' && <span className="text-xs bg-blue-900/60 text-blue-300 px-2 py-0.5 rounded-full">🏢 นิติบุคคล</span>}
                               {c.debt > 0 && <span className="text-xs bg-red-900/60 text-red-300 px-2 py-0.5 rounded-full">ค้าง ฿{c.debt.toLocaleString()}</span>}
-                              {c.cylinders > 0 && <span className="text-xs bg-orange-900/60 text-orange-300 px-2 py-0.5 rounded-full">ถัง {c.cylinders}</span>}
+                              {c.cylinders > 0 && <span className="text-xs bg-orange-900/60 text-orange-300 px-2 py-0.5 rounded-full">{cyclicalUnitLabel} {c.cylinders}</span>}
                             </div>
                             {c.company_name && <div className="text-gray-400 text-xs mt-0.5">🏛️ {c.company_name}</div>}
                             {c.shop_name && <div className="text-gray-400 text-xs mt-0.5">🏪 {c.shop_name}</div>}
@@ -6666,7 +6676,7 @@ export default function POSPage() {
 
                       {s.over_ceiling_count > 0 && (
                         <div className="bg-red-900/20 border border-red-800 rounded-xl p-3 text-red-300 text-xs">
-                          ⚠️ มีสินค้าหมุนเวียน {s.over_ceiling_count} รายการที่เปล่ารอรีฟิลเกินเพดานที่ตั้งไว้ — ควรรีบรีฟิลหรือตรวจสอบว่ามีถังตกค้างผิดปกติ
+                          ⚠️ มีสินค้าหมุนเวียน {s.over_ceiling_count} รายการที่เปล่ารอรีฟิลเกินเพดานที่ตั้งไว้ — ควรรีบรีฟิลหรือตรวจสอบว่ามีของค้างสต็อกผิดปกติหรือไม่
                         </div>
                       )}
 
@@ -8234,14 +8244,14 @@ export default function POSPage() {
                       placeholder="0" />
                   </div>
                   <div>
-                    <label className="block text-gray-400 text-xs mb-1.5">ถังอยู่กับลูกค้า</label>
+                    <label className="block text-gray-400 text-xs mb-1.5">{cyclicalUnitLabel}อยู่กับลูกค้า</label>
                     <input value={contactForm.cylinders} onChange={e => setContactForm(f => ({...f, cylinders: e.target.value}))}
                       type="number" min="0"
                       className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
                       placeholder="0" />
                   </div>
                   <div className="col-span-2">
-                    <label className="block text-gray-400 text-xs mb-1.5">วงเงินยืมสูงสุด (ชิ้น) — เว้นว่าง/0 = ไม่จำกัด</label>
+                    <label className="block text-gray-400 text-xs mb-1.5">วงเงินยืมสูงสุด ({cyclicalUnitLabel}) — เว้นว่าง/0 = ไม่จำกัด</label>
                     <input value={contactForm.cylinder_limit} onChange={e => setContactForm(f => ({...f, cylinder_limit: e.target.value}))}
                       type="number" min="0"
                       className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
@@ -8441,7 +8451,7 @@ export default function POSPage() {
             <div className="p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-white font-bold">
-                  {showCyclicalModal === 'receive-back' ? '🔄 รับถังคืนจากลูกค้า' : '⛽ รีฟิลถังเปล่า'}
+                  {showCyclicalModal === 'receive-back' ? `🔄 รับ${cyclicalProd.unit || 'ของ'}คืนจากลูกค้า` : `⛽ รีฟิล${cyclicalProd.unit || 'ของ'}เปล่า`}
                 </h3>
                 <button onClick={() => setShowCyclicalModal(null)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
               </div>
