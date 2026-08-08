@@ -31,6 +31,21 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
+// ยอด VAT ไม่ใช่รายได้/รายจ่ายของกิจการ (แค่เก็บแทนกรมสรรพากรแล้วส่งต่อ) — รายงาน pl/topsellers
+// ต้องคำนวณจากฐานราคาก่อน VAT เสมอสำหรับร้านที่จดทะเบียน VAT ไม่งั้นกำไรที่โชว์จะพองเกินจริง
+// (เดิมไม่เคยแยกเลย ใช้ item.price*qty ตรงๆ ซึ่งรวม VAT อยู่แล้วถ้าสินค้าตั้งราคาแบบ "รวม VAT แล้ว")
+// ตรรกะเดียวกับ computeVatBreakdown() ใน google-pos.js เป๊ะ แค่ทำต่อรายการเดียวแทนอาเรย์รวม
+const VAT_RATE = 0.07;
+function lineRevenueBase(price, qty, vatType) {
+  const lineTotal = (parseFloat(price) || 0) * (parseFloat(qty) || 0);
+  if (vatType === 'รวม VAT แล้ว') return lineTotal / (1 + VAT_RATE);
+  return lineTotal; // 'ไม่รวม VAT'/'ไม่มี VAT' — ราคาที่บันทึกไม่มี VAT ปนอยู่แล้ว
+}
+async function getVatRegistered(shopId) {
+  const { data } = await supabase.from('pos_configs').select('vat_registered').eq('shop_id', shopId).maybeSingle();
+  return !!data?.vat_registered;
+}
+
 async function getBranchName(shopId) {
   const { data: sp } = await supabase.from('shop_profiles').select('branch_name').eq('id', shopId).maybeSingle();
   return sp?.branch_name || '';
@@ -346,27 +361,32 @@ export default async function handler(req, res) {
 
     // ── สินค้าขายดี (Top Sellers) ─────────────────────────────────────────
     if (type === 'topsellers') {
-      const [posSales, deliveryOrders] = await Promise.all([fetchSales(shopId), fetchDeliveryOrders(shopId)]);
+      const [posSales, deliveryOrders, products, vatRegistered] = await Promise.all([
+        fetchSales(shopId), fetchDeliveryOrders(shopId), fetchProducts(shopId), getVatRegistered(shopId),
+      ]);
       const deliverySales = deliveryOrders.filter(o => o.status === 'ส่งแล้ว').map(deliveryOrderToSaleShape);
       const allSales = [...posSales, ...deliverySales];
       const sales = allSales
         .filter(s => s.bill_no && s.status !== 'ยกเลิก')
         .filter(s => inRange(s.created_at, from, to));
 
+      const costMap = {};
+      const vatTypeMap = {};
+      products.forEach(p => { costMap[p.sku] = p.cost; vatTypeMap[p.sku] = p.vat_type; });
+
+      // ยอดขาย/รายได้รวมคำนวณจากฐานก่อน VAT เสมอถ้าร้านจด VAT (ดูเหตุผลบน lineRevenueBase ด้านบน)
+      let totalRevenueExVat = 0;
       const tally = {};
       for (const sale of sales) {
         for (const item of sale.items || []) {
           if (!tally[item.sku]) tally[item.sku] = { sku: item.sku, name: item.name, qty: 0, revenue: 0, bills: 0 };
+          const revenue = vatRegistered ? lineRevenueBase(item.price, item.qty, vatTypeMap[item.sku]) : item.price * item.qty;
           tally[item.sku].qty += item.qty;
-          tally[item.sku].revenue += item.price * item.qty;
+          tally[item.sku].revenue += revenue;
           tally[item.sku].bills += 1;
+          totalRevenueExVat += revenue;
         }
       }
-
-      // ดึงราคาทุนจาก pos_products
-      const products = await fetchProducts(shopId);
-      const costMap = {};
-      products.forEach(p => { costMap[p.sku] = p.cost; });
 
       const topSellers = Object.values(tally)
         .map(t => ({
@@ -382,7 +402,7 @@ export default async function handler(req, res) {
         type: 'topsellers',
         top_sellers: topSellers,
         summary: {
-          total_revenue: sales.reduce((a, s) => a + s.total, 0),
+          total_revenue: vatRegistered ? totalRevenueExVat : sales.reduce((a, s) => a + s.total, 0),
           total_bills: sales.length,
           unique_products: Object.keys(tally).length,
         },
@@ -392,22 +412,32 @@ export default async function handler(req, res) {
     // ── กำไรขาดทุน (P&L) ──────────────────────────────────────────────────
     // กำไรขั้นต้น (gross profit) คำนวณจากยอดขาย - ต้นทุนสินค้าต่อหมวดหมู่ ตามเดิม
     // net_profit หักค่าใช้จ่ายร้าน (จาก pos_expenses) ออกเพิ่มด้วย
+    //
+    // VAT ไม่ใช่รายได้/รายจ่ายของกิจการ (แค่เก็บแทนกรมสรรพากรแล้วส่งต่อ ไม่ใช่กำไร/ขาดทุนจริง) —
+    // ร้านที่จดทะเบียน VAT ต้องคำนวณรายรับ/ต้นทุน/ค่าใช้จ่ายจากฐานก่อน VAT เสมอ ไม่งั้นตัวเลขกำไร
+    // ที่โชว์จะพองเกินจริง (เดิมไม่เคยแยกเลย — ต้นทุนสินค้า (costMap) เป็นฐานก่อน VAT อยู่แล้ว
+    // เพราะ receives.js คำนวณต้นทุนถ่วงน้ำหนักจากฐานก่อน VAT เสมอ แต่ "รายได้" ยังใช้ราคาขายรวม
+    // VAT ตรงๆ ทำให้ margin ที่โชว์เพี้ยนไปในทางที่ดูกำไรน้อยกว่าจริง)
     if (type === 'pl') {
-      const [posSales, deliveryOrders, expenses, products] = await Promise.all([
+      const [posSales, deliveryOrders, expenses, products, vatRegistered] = await Promise.all([
         fetchSales(shopId),
         fetchDeliveryOrders(shopId),
         fetchExpenses(shopId),
         fetchProducts(shopId),
+        getVatRegistered(shopId),
       ]);
       const deliverySales = deliveryOrders.filter(o => o.status === 'ส่งแล้ว').map(deliveryOrderToSaleShape);
       const allSales = [...posSales, ...deliverySales];
 
       const filteredExpenses = expenses.filter(e => inRange(e.created_at, from, to));
-      const totalExpenses = filteredExpenses.reduce((a, e) => a + e.total, 0);
+      // ค่าใช้จ่าย: ใช้ยอดก่อน VAT (subtotal) เมื่อร้านจด VAT (ภาษีซื้อเรียกคืนได้ ไม่ใช่ต้นทุนจริง) —
+      // ร้านไม่จด VAT เรียกคืนไม่ได้ VAT ที่จ่ายไปจึงเป็นต้นทุนจริง (ใช้ total ตามเดิม)
+      const totalExpenses = filteredExpenses.reduce((a, e) => a + (vatRegistered ? e.subtotal : e.total), 0);
 
       const costMap = {};
       const catMap = {};
-      products.forEach(p => { costMap[p.sku] = p.cost; catMap[p.sku] = p.category || 'ไม่ระบุหมวด'; });
+      const vatTypeMap = {};
+      products.forEach(p => { costMap[p.sku] = p.cost; catMap[p.sku] = p.category || 'ไม่ระบุหมวด'; vatTypeMap[p.sku] = p.vat_type; });
 
       const sales = allSales
         .filter(s => s.bill_no && s.status !== 'ยกเลิก' && s.status !== 'ค้างชำระ')
@@ -418,7 +448,7 @@ export default async function handler(req, res) {
         for (const item of sale.items || []) {
           const cat = catMap[item.sku] || 'ไม่ระบุหมวด';
           if (!byCategory[cat]) byCategory[cat] = { category: cat, revenue: 0, cost: 0, profit: 0 };
-          const itemRevenue = item.price * item.qty;
+          const itemRevenue = vatRegistered ? lineRevenueBase(item.price, item.qty, vatTypeMap[item.sku]) : item.price * item.qty;
           const itemCost = (costMap[item.sku] || 0) * item.qty;
           byCategory[cat].revenue += itemRevenue;
           byCategory[cat].cost += itemCost;
