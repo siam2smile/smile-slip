@@ -5,8 +5,13 @@
  * มาจาก #สมัครพนักงานขนส่ง / #สมัครผู้จัดการสาขา ในกลุ่ม LINE ของแต่ละสาขา (บอทเขียนลง
  * ตาราง branch_role_requests เป็น status: pending) — เจ้าของร้าน/แอดมินมาอนุมัติที่นี่
  *
- * อนุมัติ delivery_staff → สร้างแถวใน pos_staff ทันที (ใช้งานได้เลย)
- * อนุมัติ branch_manager → แค่เปลี่ยนสถานะ (ยังไม่มีระบบสิทธิ์แยกตามสาขาต่างหาก)
+ * อนุมัติ delivery_staff/branch_manager → สร้างแถวใน pos_staff ทันที พร้อมสิทธิ์ preset ที่เหมาะกับ
+ * บทบาทนั้น (ใช้ preset ชุดเดียวกับที่เจ้าของร้านเพิ่มพนักงานเองในหน้า pos.js — STAFF_PRESETS)
+ * — ถ้าไลไอดีนี้เป็นพนักงานอยู่แล้ว (ยังไม่ถูกลบ) จะ "เลื่อนตำแหน่ง" แถวเดิมแทนสร้างซ้ำ (รวมสิทธิ์
+ * เข้าด้วยกัน ไม่ลบสิทธิ์เดิมที่เคยมี) — แก้ 2026-08-08: เดิม branch_manager แค่เปลี่ยนสถานะ
+ * ไม่เคยสร้าง/แก้ pos_staff เลย (known gap เก่าจากยุค Sheets ก่อนจะมีระบบสิทธิ์ 12 ตัว) และ
+ * delivery_staff เดิมสร้างแถวโดยไม่ให้สิทธิ์อะไรเลยสักอย่าง (perm_manage_delivery ก็ไม่ได้ ทำให้
+ * ยืนยันจัดส่งไม่ได้จริงจนกว่าเจ้าของร้านจะไปเปิดสิทธิ์ให้เองทีหลัง) — ทั้งสองจุดแก้พร้อมกันแล้ว
  *
  * Phase 2 (write-primary flip, 2026-07-29): sync เข้า Supabase (pos_staff) แทน Google Sheets แล้ว
  */
@@ -20,6 +25,19 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
+
+// ต้องตรงกับ STAFF_PRESETS ใน pages/pos.js (แท็บ "สิทธิ์ตำแหน่งสำเร็จรูป") เพื่อให้พนักงานที่
+// อนุมัติผ่าน LINE ได้สิทธิ์ตรงกับที่เจ้าของร้านเพิ่มเองผ่านหน้าเว็บเป๊ะ
+const ROLE_APPROVAL_CONFIG = {
+  delivery_staff: { displayRole: 'พนักงานส่ง', perms: ['perm_manage_delivery'] },
+  branch_manager: {
+    displayRole: 'ผู้จัดการสาขา',
+    perms: [
+      'perm_process_sales', 'perm_void_sales', 'perm_manage_customers', 'perm_view_revenue',
+      'perm_view_pl', 'perm_manage_stock', 'perm_manage_expenses', 'perm_manage_delivery', 'perm_manage_receiving',
+    ],
+  },
+};
 
 // ส่งลิงก์ "ตั้งรหัส PIN" ให้พนักงานหลังได้รับการอนุมัติ — ลิงก์นี้เองคือตัวยืนยันตัวตน
 async function sendPinSetupLink(lineId, shopId, staffId, staffName) {
@@ -83,17 +101,34 @@ export default async function handler(req, res) {
     }
 
     // approve
-    if (reqRow.role === 'delivery_staff') {
+    const roleConfig = ROLE_APPROVAL_CONFIG[reqRow.role];
+    if (roleConfig) {
       try {
-        const staff_id = makeStaffId();
-        const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-        const { error } = await supabase.from('pos_staff').insert({
-          shop_id: shopId, staff_id, name: reqRow.display_name || 'พนักงานส่ง',
-          phone: '', line_id: reqRow.line_user_id, role: 'พนักงานส่ง', notes: '',
-          branch_name: reqRow.branch_name || '', staff_created_at: now,
-        });
-        if (error) throw error;
-        sendPinSetupLink(reqRow.line_user_id, shopId, staff_id, reqRow.display_name).catch(() => {});
+        const permFlags = {};
+        roleConfig.perms.forEach(k => { permFlags[k] = true; });
+
+        // ไลไอดีนี้เป็นพนักงานอยู่แล้วในร้านนี้ไหม (ยังไม่ถูกลบ) — ถ้ามีแล้วถือว่า "เลื่อนตำแหน่ง"
+        // แถวเดิม (รวมสิทธิ์เข้าด้วยกัน ไม่ทับ/ลบสิทธิ์เดิมที่เคยมี) แทนสร้างพนักงานซ้ำคนละแถว
+        const { data: existingStaff } = await supabase.from('pos_staff').select('id')
+          .eq('shop_id', shopId).eq('line_id', reqRow.line_user_id).is('deleted_at', null).maybeSingle();
+
+        if (existingStaff) {
+          const { error } = await supabase.from('pos_staff')
+            .update({ role: roleConfig.displayRole, ...permFlags })
+            .eq('id', existingStaff.id);
+          if (error) throw error;
+        } else {
+          const staff_id = makeStaffId();
+          const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+          const { error } = await supabase.from('pos_staff').insert({
+            shop_id: shopId, staff_id, name: reqRow.display_name || roleConfig.displayRole,
+            phone: '', line_id: reqRow.line_user_id, role: roleConfig.displayRole, notes: '',
+            branch_name: reqRow.branch_name || '', staff_created_at: now,
+            ...permFlags,
+          });
+          if (error) throw error;
+          sendPinSetupLink(reqRow.line_user_id, shopId, staff_id, reqRow.display_name).catch(() => {});
+        }
       } catch (err) {
         console.error('[staff-requests] sync to pos_staff failed:', err.message);
         return res.status(500).json({ error: 'อนุมัติไม่สำเร็จ: ' + err.message });
