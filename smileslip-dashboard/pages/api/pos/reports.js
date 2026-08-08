@@ -90,6 +90,26 @@ function orderFromRow(r) {
     credit_settled: !!r.credit_settled,
   };
 }
+
+// แปลงออเดอร์จัดส่งที่ "ยืนยันจัดส่งสำเร็จแล้ว" ให้อยู่ในรูปเดียวกับยอดขายหน้าร้าน (pos_sales) — ใช้
+// รวมเข้ารายงานยอดขาย/กำไรขาดทุน เพราะเดิม type='sales'/'pl' อ่านแค่ pos_sales อย่างเดียว ทำให้
+// ร้านที่ขายผ่านช่องทางจัดส่งเป็นหลัก (ไม่มีขายหน้าร้านเลย) เห็นรายงานว่างเปล่าตลอด ทั้งที่มียอดขาย
+// จริงจากออเดอร์จัดส่งอยู่ — ยังไม่นับออเดอร์ที่ "รอจัดส่ง" (ยังไม่เกิดรายได้จริง จนกว่าจะยืนยัน)
+// vocabulary ของ status/payment_method map ให้ตรงกับที่ pos_sales ใช้ (ตรงกับ type='credit' ที่ทำ
+// การแปลงแบบเดียวกันนี้อยู่แล้วสำหรับรายงานเงินเชื่อ)
+function deliveryOrderToSaleShape(o) {
+  const payment_method =
+    o.payment_method === 'เก็บปลายทาง' ? 'เงินสด' :
+    o.payment_method === 'โอนแล้ว' ? 'โอน' :
+    o.payment_method === 'ค้างจ่าย' ? 'เชื่อ' :
+    (o.payment_method || 'เงินสด');
+  const status = payment_method === 'เชื่อ' ? (o.credit_settled ? 'ชำระแล้ว' : 'ค้างชำระ') : 'ชำระแล้ว';
+  return {
+    bill_no: o.order_no, created_at: o.created_at, items: o.items, total: o.total,
+    payment_method, status, customer_id: o.customer_id, customer_name: o.customer_name,
+    branch: '', source: 'delivery',
+  };
+}
 function loanFromRow(r) {
   const dt = r.created_at ? new Date(r.created_at) : null;
   return {
@@ -218,10 +238,13 @@ export default async function handler(req, res) {
 
     // ── ยอดขาย (bank-statement format) ────────────────────────────────────
     if (type === 'sales') {
-      let sales = await fetchSales(shopId);
+      const [posSales, deliveryOrders] = await Promise.all([fetchSales(shopId), fetchDeliveryOrders(shopId)]);
+      const deliverySales = deliveryOrders.filter(o => o.status === 'ส่งแล้ว').map(deliveryOrderToSaleShape);
+      let sales = [...posSales, ...deliverySales];
 
       if (branch) sales = sales.filter(s => s.branch === branch || (!s.branch && branch === branchName));
       sales = sales.filter(s => inRange(s.created_at, from, to));
+      sales.sort((a, b) => (parseThaiBEDate(a.created_at) || 0) - (parseThaiBEDate(b.created_at) || 0));
 
       // running balance (bank statement style)
       let balance = 0;
@@ -323,7 +346,9 @@ export default async function handler(req, res) {
 
     // ── สินค้าขายดี (Top Sellers) ─────────────────────────────────────────
     if (type === 'topsellers') {
-      const allSales = await fetchSales(shopId);
+      const [posSales, deliveryOrders] = await Promise.all([fetchSales(shopId), fetchDeliveryOrders(shopId)]);
+      const deliverySales = deliveryOrders.filter(o => o.status === 'ส่งแล้ว').map(deliveryOrderToSaleShape);
+      const allSales = [...posSales, ...deliverySales];
       const sales = allSales
         .filter(s => s.bill_no && s.status !== 'ยกเลิก')
         .filter(s => inRange(s.created_at, from, to));
@@ -368,11 +393,14 @@ export default async function handler(req, res) {
     // กำไรขั้นต้น (gross profit) คำนวณจากยอดขาย - ต้นทุนสินค้าต่อหมวดหมู่ ตามเดิม
     // net_profit หักค่าใช้จ่ายร้าน (จาก pos_expenses) ออกเพิ่มด้วย
     if (type === 'pl') {
-      const [allSales, expenses, products] = await Promise.all([
+      const [posSales, deliveryOrders, expenses, products] = await Promise.all([
         fetchSales(shopId),
+        fetchDeliveryOrders(shopId),
         fetchExpenses(shopId),
         fetchProducts(shopId),
       ]);
+      const deliverySales = deliveryOrders.filter(o => o.status === 'ส่งแล้ว').map(deliveryOrderToSaleShape);
+      const allSales = [...posSales, ...deliverySales];
 
       const filteredExpenses = expenses.filter(e => inRange(e.created_at, from, to));
       const totalExpenses = filteredExpenses.reduce((a, e) => a + e.total, 0);
@@ -457,7 +485,11 @@ export default async function handler(req, res) {
       for (const rec of filteredReceives) {
         for (const item of rec.items || []) {
           const lineBase = (parseFloat(item.qty) || 0) * (parseFloat(item.unitCost) || 0);
-          if (cyclicalSkus.has(item.sku)) refillCost += lineBase;
+          // สินค้าหมุนเวียนที่รับเข้าไม่ได้แปลว่าเป็นการรีฟิลเสมอไป (อาจเป็นซื้อของใหม่เพิ่มก็ได้ —
+          // ดูตัวเลือก isRefill ตอนรับสินค้า) ใบรับสินค้าเก่าก่อนมีตัวเลือกนี้ไม่มีฟิลด์ isRefill เก็บไว้
+          // เลย ถือว่าเป็นรีฟิลตามพฤติกรรมเดิม (fallback true) กันตัวเลขย้อนหลังเปลี่ยนไปจากเดิม
+          const countsAsRefill = cyclicalSkus.has(item.sku) && item.isRefill !== false;
+          if (countsAsRefill) refillCost += lineBase;
           else newPurchaseCost += lineBase;
         }
       }

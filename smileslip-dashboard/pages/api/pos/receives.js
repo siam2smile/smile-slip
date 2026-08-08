@@ -168,7 +168,7 @@ export default async function handler(req, res) {
       // อัปเดตสต็อค + weighted avg cost ทีละสินค้า (ต้นทุนถ่วงน้ำหนักคำนวณจากฐานราคาก่อน VAT เสมอ)
       const itemsForMarket = []; // เก็บไว้ใช้ตรวจราคาตลาด/บันทึกดัชนีราคากลางหลังบันทึกสำเร็จ
       for (const item of items) {
-        const { sku, qty, unitCost, vatType } = item;
+        const { sku, qty, unitCost, vatType, isRefill } = item;
         const numQty = parseFloat(qty) || 0;
         const numCost = parseFloat(unitCost) || 0;
         // ต้นทุนติดลบเคยไม่ถูกกันไว้ — จะทำให้ต้นทุนถ่วงน้ำหนักเพี้ยนติดลบได้ (กระทบ P&L/รายงานทั้งหมด)
@@ -198,11 +198,14 @@ export default async function handler(req, res) {
         }).eq('shop_id', shopId).eq('sku', sku);
 
         // โอนย้ายสต็อกข้ามสาขา Phase 1: เพิ่มสต็อกเข้าสาขาที่รับสินค้าจริง (branch) ไม่ใช่ยอดรวมทั้งร้าน
-        // สินค้าหมุนเวียน: รับสินค้าเข้า = ได้ของที่รีฟิล/บรรจุกลับมาแล้ว ต้องหักออกจาก "เปล่ารอรีฟิล"
-        // ของสาขานั้นด้วยเสมอ
+        // สินค้าหมุนเวียน: เดิม "รับสินค้าเข้า" ถูกตีความว่าเป็นการรีฟิลของที่ส่งไปเติมเสมอ (หักออก
+        // จาก "เปล่ารอรีฟิล" อัตโนมัติทุกครั้งไม่มีข้อยกเว้น) — บั๊กจริงที่เจอ: ถ้าเป็นการซื้อของใหม่
+        // เพิ่ม (ไม่ใช่รีฟิลของเดิม) โค้ดเดิมก็ยังหัก "เปล่ารอรีฟิล" อยู่ดี ทำให้ตัวเลขเพี้ยนติดลบ/
+        // เข้าใกล้ 0 ผิดความจริงเงียบๆ — ตอนนี้ต้องระบุ isRefill มาชัดเจนต่อรายการเท่านั้นถึงจะหัก
+        // (ค่าเริ่มต้น = false ถ้าไม่ส่งมา ปลอดภัยกว่า ไม่ทำให้เปล่ารอรีฟิลเพี้ยนโดยไม่ตั้งใจ)
         await adjustBranchStock(shopId, sku, branch, {
           qtyDelta: numQty,
-          emptyWaitingDelta: prod.type === 'หมุนเวียน' ? -numQty : 0,
+          emptyWaitingDelta: (prod.type === 'หมุนเวียน' && isRefill) ? -numQty : 0,
         });
       }
 
@@ -222,6 +225,7 @@ export default async function handler(req, res) {
           vatType: i.vatType || 'ไม่มี VAT',
           vatAmount: Math.round(lineVat * 100) / 100,
           lineTotal: Math.round((lineSub + lineVat) * 100) / 100,
+          isRefill: !!i.isRefill,
         };
       });
 

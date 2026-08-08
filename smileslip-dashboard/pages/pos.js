@@ -54,7 +54,7 @@ function emptyStaffPerms() {
 }
 
 function emptyProdForm() {
-  return { name: '', category: '', price: '', stock: '', unit: 'ชิ้น', aliases: '', notes: '', type: 'นับสต็อค', product_code: '', barcode: '', description: '', vat_type: 'ไม่มี VAT', is_active: true, empty_ceiling: '', branches: [] };
+  return { name: '', category: '', price: '', stock: '', unit: 'ชิ้น', aliases: '', notes: '', type: 'นับสต็อค', product_code: '', barcode: '', description: '', vat_type: 'ไม่มี VAT', is_active: true, empty_ceiling: '', branches: [], at_customer: '', empty_waiting: '' };
 }
 
 // Biller ID (Thai QR Bill Payment, Tag 30) ต้องเป็นตัวเลขล้วน 15 หลักเสมอตามมาตรฐาน ITMX — สาเหตุ
@@ -2450,6 +2450,8 @@ export default function POSPage() {
     // รวมทั้งร้าน ไม่ใช่ยอดของสาขานั้นจริงๆ) ทำให้สต็อกสาขานั้นเพี้ยนไปเงียบๆ — ดึงยอดจริงต่อสาขามาก่อน
     // เสมอถ้าร้านมีมากกว่า 1 สาขา (ร้านสาขาเดียวไม่กระทบ เพราะ prod.stock = สาขา '' อยู่แล้วเป๊ะ)
     let stockForBranch = prod.stock;
+    let atCustomerForBranch = prod.at_customer || 0;
+    let emptyWaitingForBranch = prod.empty_waiting || 0;
     if (posBranches.length > 0 && prod.type !== 'ไม่นับสต็อค') {
       try {
         const r = await fetch(`/api/pos/stock-transfers?shopId=${shopId}&sku=${encodeURIComponent(prod.sku)}`);
@@ -2457,6 +2459,8 @@ export default function POSPage() {
         const wanted = selectedBranch?.branch_name || '';
         const row = (d.breakdown || []).find(b => b.branch_name === wanted);
         stockForBranch = row ? row.qty : 0;
+        atCustomerForBranch = row ? row.at_customer : 0;
+        emptyWaitingForBranch = row ? row.empty_waiting : 0;
       } catch { /* fail-safe: เหลือค่ายอดรวมทั้งร้านเดิมไว้ ดีกว่าฟอร์มพังทั้งฟอร์ม */ }
     }
     setProdForm({
@@ -2471,6 +2475,8 @@ export default function POSPage() {
       is_active: prod.is_active !== false,
       empty_ceiling: prod.empty_ceiling ? String(prod.empty_ceiling) : '',
       branches: prod.branches || [],
+      at_customer: String(atCustomerForBranch),
+      empty_waiting: String(emptyWaitingForBranch),
     });
     setShowProdForm(true);
   }
@@ -2478,12 +2484,19 @@ export default function POSPage() {
   async function saveProd() {
     if (!prodForm.name) { showToast('กรุณากรอกชื่อสินค้า'); return; }
     setProdSaving(true);
+    const { at_customer, empty_waiting, ...restForm } = prodForm;
     const base = {
-      ...prodForm,
+      ...restForm,
       price: parseFloat(prodForm.price) || 0,
       stock: parseFloat(prodForm.stock) || 0,
       empty_ceiling: parseFloat(prodForm.empty_ceiling) || 0,
     };
+    // at_customer/empty_waiting ส่งเฉพาะตอนแก้ไขสินค้าหมุนเวียนที่มีอยู่แล้วเท่านั้น (สินค้าใหม่/
+    // ประเภทอื่นไม่มีความหมาย ไม่ต้องส่งไปกระตุ้น adjustBranchStock เปล่าๆ ทุกครั้งที่บันทึก)
+    if (editProd && prodForm.type === 'หมุนเวียน') {
+      base.at_customer = parseFloat(at_customer) || 0;
+      base.empty_waiting = parseFloat(empty_waiting) || 0;
+    }
     const branchName = selectedBranch?.branch_name || '';
     const body = editProd ? { shopId, sku: editProd.sku, branch: branchName, ...base } : { shopId, branch: branchName, ...base };
     try {
@@ -2603,7 +2616,10 @@ export default function POSPage() {
       if (ex) return prev; // มีแล้ว ไม่เพิ่มซ้ำ
       // ถ้าผู้จำหน่ายรายนี้เคยขายสินค้าตัวนี้มาก่อน ใส่ราคาล่าสุดให้อัตโนมัติ
       const lastPrice = supplierPrices[prod.sku];
-      return [...prev, { sku: prod.sku, name: prod.name, unit: prod.unit, qty: '', unitCost: lastPrice != null ? String(lastPrice) : '', vatType: 'ไม่มี VAT' }];
+      // สินค้าหมุนเวียน: ค่าเริ่มต้นถือว่าเป็นการรีฟิลของที่ส่งไปเติม (กรณีปกติที่สุดของธุรกิจ
+      // แบบนี้) — ปิดสวิตช์เองได้ถ้าจริงๆ คือซื้อของใหม่เพิ่ม ไม่ใช่รีฟิลของเดิม (ไม่มีผลกับ
+      // สินค้าประเภทอื่นเลย เพราะไม่มี "เปล่ารอรีฟิล" ให้หัก)
+      return [...prev, { sku: prod.sku, name: prod.name, unit: prod.unit, qty: '', unitCost: lastPrice != null ? String(lastPrice) : '', vatType: 'ไม่มี VAT', isRefill: prod.type === 'หมุนเวียน' }];
     });
     setReceiveSearch('');
     showToast(`เพิ่ม "${prod.name}" แล้ว`);
@@ -4656,9 +4672,13 @@ export default function POSPage() {
                                 className="text-xs bg-gray-700 hover:bg-orange-700 text-gray-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors">
                                 รับคืน
                               </button>
-                              <button onClick={() => { setCyclicalProd(prod); setCyclicalQty(''); setShowCyclicalModal('refill'); }}
+                              {/* เดิมมีปุ่ม "รีฟิล" ด่วนตรงนี้ที่อัปเดตสต็อคได้โดยไม่มีใบรับสินค้า/ต้นทุน
+                                  กำกับเลย (กดแล้วจบ ไม่รู้ที่มา) — ตัดออกแล้ว ให้ไปรีฟิลผ่านหน้า
+                                  "รับสินค้า" แทนเสมอ (มีใบรับสินค้า+ต้นทุนถ่วงน้ำหนัก+ตัวเลือกรีฟิล/
+                                  ซื้อใหม่ในตัว) ปุ่มนี้แค่พาไปหน้านั้นพร้อมใส่สินค้าให้อัตโนมัติ */}
+                              <button onClick={() => { setTab('receives'); addReceiveItem(prod); }}
                                 className="text-xs bg-gray-700 hover:bg-blue-700 text-gray-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors">
-                                รีฟิล
+                                🔄 รีฟิล (ไปหน้ารับสินค้า)
                               </button>
                             </>
                           )}
@@ -4808,12 +4828,34 @@ export default function POSPage() {
                       {/* รายการที่เพิ่มแล้ว */}
                       {receiveItems.length > 0 ? (
                         <div className="space-y-3">
-                          {receiveItems.map(item => (
+                          {receiveItems.map(item => {
+                            const itemProd = products.find(p => p.sku === item.sku);
+                            const isCyclicalItem = itemProd?.type === 'หมุนเวียน';
+                            return (
                             <div key={item.sku} className="bg-gray-700 rounded-xl p-3">
                               <div className="flex items-center justify-between mb-2">
                                 <span className="text-white text-sm font-medium">{item.name}</span>
                                 <button onClick={() => removeReceiveItem(item.sku)} className="text-gray-500 hover:text-red-400 text-xs transition-colors">✕</button>
                               </div>
+                              {isCyclicalItem && (
+                                <div className="mb-2 flex bg-gray-600 rounded-lg border border-gray-500 overflow-hidden">
+                                  <button type="button" onClick={() => updateReceiveItem(item.sku, 'isRefill', true)}
+                                    className={`flex-1 py-1.5 text-xs font-bold transition-colors ${item.isRefill ? 'bg-orange-600 text-white' : 'text-gray-300 hover:bg-gray-500'}`}>
+                                    🔄 รีฟิลของที่ส่งไปเติม
+                                  </button>
+                                  <button type="button" onClick={() => updateReceiveItem(item.sku, 'isRefill', false)}
+                                    className={`flex-1 py-1.5 text-xs font-bold transition-colors ${!item.isRefill ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-500'}`}>
+                                    🆕 ซื้อ{itemProd?.unit || 'ของ'}ใหม่เพิ่ม
+                                  </button>
+                                </div>
+                              )}
+                              {isCyclicalItem && (
+                                <p className="text-gray-500 text-[11px] mb-2 -mt-1">
+                                  {item.isRefill
+                                    ? `รีฟิล = ${itemProd?.unit || 'ของ'}เต็ม +${item.qty || 0}, เปล่ารอรีฟิล -${item.qty || 0}`
+                                    : `ซื้อใหม่ = ${itemProd?.unit || 'ของ'}เต็ม +${item.qty || 0} เท่านั้น (ไม่กระทบยอดเปล่ารอรีฟิล)`}
+                                </p>
+                              )}
                               <div className="grid grid-cols-2 gap-2">
                                 <div>
                                   <label className="block text-gray-400 text-xs mb-1">จำนวนที่รับ ({item.unit})</label>
@@ -4867,7 +4909,8 @@ export default function POSPage() {
                                 );
                               })()}
                             </div>
-                          ))}
+                            );
+                          })}
 
                           {/* สรุปยอด — แบบใบกำกับภาษี */}
                           <div className="bg-gray-700 rounded-xl p-3 space-y-1.5">
@@ -7866,6 +7909,29 @@ export default function POSPage() {
                   <input type="number" value={prodForm.empty_ceiling} onChange={e => setProdForm(f => ({...f, empty_ceiling: e.target.value}))}
                     className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
                     placeholder="0" min="0" />
+                </div>
+              )}
+
+              {/* ── ยอดกับลูกค้า/เปล่ารอรีฟิล (เฉพาะสินค้าหมุนเวียนที่มีอยู่แล้ว) — แก้ตรงได้เผื่อ
+                  ตัวเลขคลาดเคลื่อนจากการรับสินค้า/จัดส่ง ไม่ต้องไปนับใหม่ทีละใบ ──*/}
+              {prodForm.type === 'หมุนเวียน' && editProd && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-gray-400 text-xs mb-1.5">
+                      {prodForm.unit || 'ของ'}อยู่กับลูกค้า{posBranches.length > 0 && <span className="text-blue-400"> ({selectedBranch?.branch_name || 'ไม่ระบุสาขา'})</span>}
+                    </label>
+                    <input type="number" value={prodForm.at_customer} onChange={e => setProdForm(f => ({...f, at_customer: e.target.value}))}
+                      className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                      placeholder="0" min="0" />
+                  </div>
+                  <div>
+                    <label className="block text-gray-400 text-xs mb-1.5">
+                      {prodForm.unit || 'ของ'}เปล่ารอรีฟิล{posBranches.length > 0 && <span className="text-blue-400"> ({selectedBranch?.branch_name || 'ไม่ระบุสาขา'})</span>}
+                    </label>
+                    <input type="number" value={prodForm.empty_waiting} onChange={e => setProdForm(f => ({...f, empty_waiting: e.target.value}))}
+                      className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                      placeholder="0" min="0" />
+                  </div>
                 </div>
               )}
 
