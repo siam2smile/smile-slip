@@ -11,6 +11,8 @@
  *   cyclical   → สถานะสินค้าหมุนเวียน (ถัง/ขวด/ฯลฯ) — ใครถืออยู่กี่ชิ้น + สรุปสต็อค เต็ม/กับลูกค้า/เปล่ารอรีฟิล
  *   vat        → ภาษีขาย (จากยอดขาย แยกตามสาขา) vs ภาษีซื้อ (จากรับสินค้า+รายจ่าย ยังไม่แยกสาขา) + ยอด VAT สุทธิที่ต้องนำส่ง
  *   expenses   → รายจ่ายที่ไม่เกี่ยวกับสต็อคสินค้า (ค่าเช่า/ค่าน้ำไฟ ฯลฯ) — รายการ + สรุปยอดรวม/VAT
+ *   annual_tax → ประมาณการณ์ภาษีเงินได้ปลายปี (Phase 3, &year=YYYY) — นิติบุคคล/บุคคลธรรมดา ตาม
+ *                shop_profiles.user_type ดูคำเตือนเรื่องความแม่นยำใน lib/tax-estimate.js
  *
  * Tier E (2026-07-25): รายการที่เป็น transaction log ล้วนๆ (ขาย/ยืม/รับสินค้า/รายจ่าย/ออเดอร์จัดส่ง)
  * อ่านจาก Supabase (pos_sales/pos_loans/pos_receives/pos_expenses/pos_delivery_orders) แทน Sheets แล้ว
@@ -25,6 +27,7 @@ import { createClient } from '@supabase/supabase-js';
 import { requirePermission } from '../../../lib/pos-auth';
 import { productFromRow, contactFromRow } from '../../../lib/google-pos';
 import { getBranchStockMap } from '../../../lib/pos-stock';
+import { estimateAnnualTax } from '../../../lib/tax-estimate';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -178,6 +181,14 @@ async function fetchExpenses(shopId) {
   if (error) throw error;
   return (data || []).map(expenseFromRow).filter(e => e.expense_no);
 }
+// เงินเดือน (Phase 2) — ต้นทุนรวมที่บริษัทจ่ายออกจริงต่อรอบ = gross_pay + sso_employer (ไม่ใช่แค่
+// net_pay ที่พนักงานได้รับ) ใช้ paid_at (timestamptz จริง) กรองช่วงวันที่ผ่าน inRangeISO ไม่ใช่ inRange
+async function fetchPayrollRuns(shopId) {
+  const { data, error } = await supabase.from('pos_payroll_runs').select('*')
+    .eq('shop_id', shopId).is('deleted_at', null);
+  if (error) throw error;
+  return data || [];
+}
 async function fetchReceives(shopId) {
   const { data, error } = await supabase.from('pos_receives').select('*')
     .eq('shop_id', shopId).order('created_at', { ascending: true });
@@ -195,6 +206,65 @@ async function fetchContacts(shopId) {
     .eq('shop_id', shopId).is('deleted_at', null);
   if (error) throw error;
   return (data || []).map(contactFromRow).filter(c => c.contact_id);
+}
+
+// คำนวณกำไรขาดทุนของช่วงเวลาที่กำหนด — ใช้ร่วมกันทั้ง type=pl (รายเดือน/ตามช่วงที่เลือก) และ
+// type=annual_tax (ทั้งปี, Phase 3) กันตรรกะเพี้ยนกันระหว่าง 2 endpoint — ดูเหตุผลเรื่อง VAT
+// exclusion ที่หัวไฟล์คอมเมนต์ของ type=pl เดิม (Phase 1)
+async function computePL(shopId, from, to) {
+  const [posSales, deliveryOrders, expenses, products, payrollRuns, vatRegistered] = await Promise.all([
+    fetchSales(shopId), fetchDeliveryOrders(shopId), fetchExpenses(shopId),
+    fetchProducts(shopId), fetchPayrollRuns(shopId), getVatRegistered(shopId),
+  ]);
+  const deliverySales = deliveryOrders.filter(o => o.status === 'ส่งแล้ว').map(deliveryOrderToSaleShape);
+  const allSales = [...posSales, ...deliverySales];
+
+  const filteredExpenses = expenses.filter(e => inRange(e.created_at, from, to));
+  const expensesCost = filteredExpenses.reduce((a, e) => a + (vatRegistered ? e.subtotal : e.total), 0);
+
+  // เงินเดือน (Phase 2) — ต้นทุนแรงงานที่แท้จริง ไม่เคยถูกนับรวมใน P&L มาก่อนตั้งแต่สร้างระบบเงินเดือน
+  // (payroll-runs.js เขียนเข้า ledger_transactions ตรงๆ ไม่ผ่าน pos_expenses) ทำให้ net_profit เดิม
+  // สูงเกินจริงถ้าร้านมีพนักงานประจำ — แก้ตอนนี้พร้อมกับ Phase 3
+  const filteredPayroll = payrollRuns.filter(r => inRangeISO(r.paid_at, from, to));
+  const payrollCost = filteredPayroll.reduce((a, r) => a + (Number(r.gross_pay) || 0) + (Number(r.sso_employer) || 0), 0);
+
+  const totalExpenses = expensesCost + payrollCost;
+
+  const costMap = {};
+  const catMap = {};
+  const vatTypeMap = {};
+  products.forEach(p => { costMap[p.sku] = p.cost; catMap[p.sku] = p.category || 'ไม่ระบุหมวด'; vatTypeMap[p.sku] = p.vat_type; });
+
+  const sales = allSales
+    .filter(s => s.bill_no && s.status !== 'ยกเลิก' && s.status !== 'ค้างชำระ')
+    .filter(s => inRange(s.created_at, from, to));
+
+  const byCategory = {};
+  for (const sale of sales) {
+    for (const item of sale.items || []) {
+      const cat = catMap[item.sku] || 'ไม่ระบุหมวด';
+      if (!byCategory[cat]) byCategory[cat] = { category: cat, revenue: 0, cost: 0, profit: 0 };
+      const itemRevenue = vatRegistered ? lineRevenueBase(item.price, item.qty, vatTypeMap[item.sku]) : item.price * item.qty;
+      const itemCost = (costMap[item.sku] || 0) * item.qty;
+      byCategory[cat].revenue += itemRevenue;
+      byCategory[cat].cost += itemCost;
+      byCategory[cat].profit += itemRevenue - itemCost;
+    }
+  }
+
+  const categories = Object.values(byCategory)
+    .map(c => ({ ...c, margin: c.revenue > 0 ? Math.round((c.profit / c.revenue) * 100) : 0 }))
+    .sort((a, b) => b.revenue - a.revenue);
+
+  const totalRevenue = categories.reduce((a, c) => a + c.revenue, 0);
+  const totalCost    = categories.reduce((a, c) => a + c.cost, 0);
+  const totalProfit  = categories.reduce((a, c) => a + c.profit, 0);
+  const netProfit = totalProfit - totalExpenses;
+
+  return {
+    categories, filteredExpenses, filteredPayroll, expensesCost, payrollCost,
+    totalRevenue, totalCost, totalProfit, totalExpenses, netProfit,
+  };
 }
 
 export default async function handler(req, res) {
@@ -411,73 +481,63 @@ export default async function handler(req, res) {
 
     // ── กำไรขาดทุน (P&L) ──────────────────────────────────────────────────
     // กำไรขั้นต้น (gross profit) คำนวณจากยอดขาย - ต้นทุนสินค้าต่อหมวดหมู่ ตามเดิม
-    // net_profit หักค่าใช้จ่ายร้าน (จาก pos_expenses) ออกเพิ่มด้วย
+    // net_profit หักค่าใช้จ่ายร้าน (จาก pos_expenses) + ต้นทุนเงินเดือน (Phase 2) ออกเพิ่มด้วย
     //
     // VAT ไม่ใช่รายได้/รายจ่ายของกิจการ (แค่เก็บแทนกรมสรรพากรแล้วส่งต่อ ไม่ใช่กำไร/ขาดทุนจริง) —
-    // ร้านที่จดทะเบียน VAT ต้องคำนวณรายรับ/ต้นทุน/ค่าใช้จ่ายจากฐานก่อน VAT เสมอ ไม่งั้นตัวเลขกำไร
-    // ที่โชว์จะพองเกินจริง (เดิมไม่เคยแยกเลย — ต้นทุนสินค้า (costMap) เป็นฐานก่อน VAT อยู่แล้ว
-    // เพราะ receives.js คำนวณต้นทุนถ่วงน้ำหนักจากฐานก่อน VAT เสมอ แต่ "รายได้" ยังใช้ราคาขายรวม
-    // VAT ตรงๆ ทำให้ margin ที่โชว์เพี้ยนไปในทางที่ดูกำไรน้อยกว่าจริง)
+    // ร้านที่จดทะเบียน VAT ต้องคำนวณรายรับ/ต้นทุน/ค่าใช้จ่ายจากฐานก่อน VAT เสมอ (ดูรายละเอียดใน
+    // computePL() ด้านบน — logic ย้ายไปรวมศูนย์ที่นั่นแล้ว ใช้ร่วมกับ type=annual_tax ด้วย)
     if (type === 'pl') {
-      const [posSales, deliveryOrders, expenses, products, vatRegistered] = await Promise.all([
-        fetchSales(shopId),
-        fetchDeliveryOrders(shopId),
-        fetchExpenses(shopId),
-        fetchProducts(shopId),
-        getVatRegistered(shopId),
-      ]);
-      const deliverySales = deliveryOrders.filter(o => o.status === 'ส่งแล้ว').map(deliveryOrderToSaleShape);
-      const allSales = [...posSales, ...deliverySales];
-
-      const filteredExpenses = expenses.filter(e => inRange(e.created_at, from, to));
-      // ค่าใช้จ่าย: ใช้ยอดก่อน VAT (subtotal) เมื่อร้านจด VAT (ภาษีซื้อเรียกคืนได้ ไม่ใช่ต้นทุนจริง) —
-      // ร้านไม่จด VAT เรียกคืนไม่ได้ VAT ที่จ่ายไปจึงเป็นต้นทุนจริง (ใช้ total ตามเดิม)
-      const totalExpenses = filteredExpenses.reduce((a, e) => a + (vatRegistered ? e.subtotal : e.total), 0);
-
-      const costMap = {};
-      const catMap = {};
-      const vatTypeMap = {};
-      products.forEach(p => { costMap[p.sku] = p.cost; catMap[p.sku] = p.category || 'ไม่ระบุหมวด'; vatTypeMap[p.sku] = p.vat_type; });
-
-      const sales = allSales
-        .filter(s => s.bill_no && s.status !== 'ยกเลิก' && s.status !== 'ค้างชำระ')
-        .filter(s => inRange(s.created_at, from, to));
-
-      const byCategory = {};
-      for (const sale of sales) {
-        for (const item of sale.items || []) {
-          const cat = catMap[item.sku] || 'ไม่ระบุหมวด';
-          if (!byCategory[cat]) byCategory[cat] = { category: cat, revenue: 0, cost: 0, profit: 0 };
-          const itemRevenue = vatRegistered ? lineRevenueBase(item.price, item.qty, vatTypeMap[item.sku]) : item.price * item.qty;
-          const itemCost = (costMap[item.sku] || 0) * item.qty;
-          byCategory[cat].revenue += itemRevenue;
-          byCategory[cat].cost += itemCost;
-          byCategory[cat].profit += itemRevenue - itemCost;
-        }
-      }
-
-      const categories = Object.values(byCategory)
-        .map(c => ({ ...c, margin: c.revenue > 0 ? Math.round((c.profit / c.revenue) * 100) : 0 }))
-        .sort((a, b) => b.revenue - a.revenue);
-
-      const totalRevenue = categories.reduce((a, c) => a + c.revenue, 0);
-      const totalCost    = categories.reduce((a, c) => a + c.cost, 0);
-      const totalProfit  = categories.reduce((a, c) => a + c.profit, 0);
-
-      const netProfit = totalProfit - totalExpenses;
+      const pl = await computePL(shopId, from, to);
       return res.json({
         type: 'pl',
-        categories,
-        expenses: filteredExpenses,
+        categories: pl.categories,
+        expenses: pl.filteredExpenses,
         summary: {
-          total_revenue: totalRevenue,
-          total_cost: totalCost,
-          gross_profit: totalProfit,
-          gross_margin: totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 100) : 0,
-          total_expenses: totalExpenses,
-          net_profit: netProfit,
-          net_margin: totalRevenue > 0 ? Math.round((netProfit / totalRevenue) * 100) : 0,
+          total_revenue: pl.totalRevenue,
+          total_cost: pl.totalCost,
+          gross_profit: pl.totalProfit,
+          gross_margin: pl.totalRevenue > 0 ? Math.round((pl.totalProfit / pl.totalRevenue) * 100) : 0,
+          total_expenses: pl.totalExpenses,
+          total_payroll: pl.payrollCost,
+          net_profit: pl.netProfit,
+          net_margin: pl.totalRevenue > 0 ? Math.round((pl.netProfit / pl.totalRevenue) * 100) : 0,
         },
+      });
+    }
+
+    // ── ประมาณการณ์ภาษีเงินได้ปลายปี (Phase 3) ────────────────────────────
+    // สรุปกำไรขาดทุนทั้งปี (ใช้ตรรกะเดียวกับ type=pl เป๊ะ ผ่าน computePL()) แล้วคำนวณภาษีตามประเภท
+    // นิติบุคคลที่ร้านลงทะเบียนไว้ (shop_profiles.user_type) — ดูคำเตือนเรื่องความแม่นยำใน
+    // lib/tax-estimate.js (ตัวประมาณการณ์สำหรับวางแผนเท่านั้น ไม่ใช่เครื่องมือยื่นภาษีที่แม่นยำ 100%)
+    if (type === 'annual_tax') {
+      if (!(await requirePermission(req, res, shopId, 'perm_view_pl'))) return;
+      const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+      const yearFrom = new Date(year, 0, 1);
+      const yearTo = new Date(year, 11, 31, 23, 59, 59);
+
+      const [pl, { data: shop }] = await Promise.all([
+        computePL(shopId, yearFrom, yearTo),
+        supabase.from('shop_profiles').select('user_type, shop_name').eq('id', shopId).maybeSingle(),
+      ]);
+      const userType = shop?.user_type === 'corporate' ? 'corporate' : 'individual';
+      const taxEstimate = estimateAnnualTax(userType, pl.netProfit);
+
+      return res.json({
+        type: 'annual_tax',
+        year,
+        userType,
+        shopName: shop?.shop_name || '',
+        summary: {
+          total_revenue: pl.totalRevenue,
+          total_cost: pl.totalCost,
+          gross_profit: pl.totalProfit,
+          total_expenses: pl.expensesCost,
+          total_payroll: pl.payrollCost,
+          net_profit: pl.netProfit,
+        },
+        payrollCount: pl.filteredPayroll.length,
+        expenseCount: pl.filteredExpenses.length,
+        taxEstimate,
       });
     }
 

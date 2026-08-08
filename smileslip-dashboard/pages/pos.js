@@ -589,6 +589,7 @@ export default function POSPage() {
   const [reportLoading, setReportLoading] = useState(false);
   const [reportBranch, setReportBranch] = useState('');
   const [reportStatusFilter, setReportStatusFilter] = useState('ทั้งหมด');
+  const [reportTaxYear, setReportTaxYear] = useState(new Date().getFullYear());
   const [expandedCredit, setExpandedCredit] = useState(null);
   const [expandedCyclicalCust, setExpandedCyclicalCust] = useState(null);
   const [cyclicalHoldingsCache, setCyclicalHoldingsCache] = useState({}); // { contact_id: { sku: qty } | 'unreconciled' }
@@ -4012,6 +4013,14 @@ export default function POSPage() {
         setReportLoading(false);
         return;
       }
+      // ภาษีปลายปี (Phase 3) — ใช้ตัวกรอง "ปี" แทนช่วงวันที่ (คนละ query shape จากรายงานอื่นทั้งหมด)
+      if (type === 'annual_tax') {
+        const r = await fetch(`/api/pos/reports?shopId=${shopId}&type=annual_tax&year=${reportTaxYear}`);
+        const d = await r.json();
+        if (d.error) showToast('❌ ' + d.error); else setReportData(d);
+        setReportLoading(false);
+        return;
+      }
       const params = new URLSearchParams({ shopId, type, dateFrom, dateTo });
       if (branch) params.set('branch', branch);
       if (statusF && statusF !== 'ทั้งหมด') params.set('status', statusF);
@@ -6530,6 +6539,7 @@ export default function POSPage() {
                     { key: 'cyclical',   label: '🔄 สินค้าหมุนเวียน' },
                     { key: 'vat',        label: '🧾 ภาษี VAT' },
                     { key: 'expenses',   label: '💸 รายจ่าย' },
+                    { key: 'annual_tax', label: '📑 ภาษีปลายปี' },
                     // ซ่อนแท็บนี้จนกว่าทนายจะยืนยันเรื่อง anti-trust/price-signaling (ดู CLAUDE.md ข้อ 30)
                     // — ข้อมูลเบื้องหลังยังสะสมอยู่ปกติ แค่ไม่โชว์ให้ร้านเห็นจนกว่า MARKET_PRICE_FEATURE_LIVE เป็น true
                     ...(MARKET_PRICE_FEATURE_LIVE ? [{ key: 'fraud', label: '🚩 ราคาผิดปกติ' }] : []),
@@ -6912,15 +6922,87 @@ export default function POSPage() {
                         {!reportData.categories?.length && <div className="text-center text-gray-500 py-8 text-sm">ไม่มีข้อมูล (ต้องใส่ราคาทุนในสินค้าก่อน)</div>}
                       </div>
 
-                      {/* กำไรสุทธิ หลังหักรายจ่ายร้าน (ไม่เกี่ยวกับสต็อค) */}
+                      {/* กำไรสุทธิ หลังหักรายจ่ายร้าน (ไม่เกี่ยวกับสต็อค) + เงินเดือน (Phase 2) */}
                       <div className="bg-gray-900 rounded-xl p-4 flex items-center justify-between">
                         <div>
-                          <div className="text-white font-bold text-sm">กำไรสุทธิ (หักรายจ่ายร้านแล้ว)</div>
-                          <div className="text-gray-500 text-xs mt-0.5">กำไรขั้นต้น ฿{(s.gross_profit||0).toLocaleString()} − รายจ่าย ฿{(s.total_expenses||0).toLocaleString()}</div>
+                          <div className="text-white font-bold text-sm">กำไรสุทธิ (หักรายจ่าย+เงินเดือนแล้ว)</div>
+                          <div className="text-gray-500 text-xs mt-0.5">
+                            กำไรขั้นต้น ฿{(s.gross_profit||0).toLocaleString()} − รายจ่าย ฿{((s.total_expenses||0)-(s.total_payroll||0)).toLocaleString()}
+                            {s.total_payroll > 0 && <> − เงินเดือน ฿{s.total_payroll.toLocaleString()}</>}
+                          </div>
                         </div>
                         <div className={`text-xl font-bold ${(s.net_profit||0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                           ฿{(s.net_profit||0).toLocaleString()} <span className="text-xs text-gray-500">({s.net_margin||0}%)</span>
                         </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* ── ประมาณการณ์ภาษีเงินได้ปลายปี (Phase 3) ── */}
+                {reportType === 'annual_tax' && (
+                  <div className="flex items-center gap-2 -mt-1">
+                    <label className="text-gray-400 text-xs">ปี</label>
+                    <select value={reportTaxYear}
+                      onChange={e => { setReportTaxYear(parseInt(e.target.value, 10)); fetchReport('annual_tax'); }}
+                      className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white">
+                      {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i).map(y => (
+                        <option key={y} value={y}>{y} (พ.ศ. {y + 543})</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {!reportLoading && reportData?.type === 'annual_tax' && (() => {
+                  const s = reportData.summary;
+                  const t = reportData.taxEstimate;
+                  return (
+                    <div className="space-y-4">
+                      <div className="bg-amber-950/40 border border-amber-800/50 rounded-xl px-4 py-2.5 text-amber-300 text-xs">
+                        💡 นี่คือ<b>ตัวประมาณการณ์สำหรับวางแผน</b> ไม่ใช่เครื่องมือยื่นภาษีที่แม่นยำ 100% — ไม่รวมค่าเสื่อมราคา/รายจ่ายต้องห้าม/ค่าลดหย่อนอื่นๆ กรุณาตรวจสอบกับนักบัญชีก่อนยื่นจริงเสมอ
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {[
+                          { label: 'รายได้รวมทั้งปี', value: `฿${(s.total_revenue||0).toLocaleString()}`, color: 'text-green-400' },
+                          { label: 'ต้นทุนสินค้า', value: `฿${(s.total_cost||0).toLocaleString()}`, color: 'text-red-400' },
+                          { label: 'รายจ่ายร้าน', value: `฿${(s.total_expenses||0).toLocaleString()}`, color: 'text-red-400' },
+                          { label: 'เงินเดือนพนักงาน', value: `฿${(s.total_payroll||0).toLocaleString()}`, color: 'text-red-400' },
+                          { label: 'กำไรสุทธิทางบัญชี', value: `฿${(s.net_profit||0).toLocaleString()}`, color: s.net_profit >= 0 ? 'text-blue-400' : 'text-red-400' },
+                          { label: 'ประเภทที่ใช้คำนวณ', value: t.entityType === 'corporate' ? 'นิติบุคคล' : 'บุคคลธรรมดา', color: 'text-gray-300' },
+                        ].map(c => (
+                          <div key={c.label} className="bg-gray-800 rounded-xl p-3 text-center">
+                            <div className={`text-lg font-bold ${c.color}`}>{c.value}</div>
+                            <div className="text-gray-400 text-xs mt-1">{c.label}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="bg-gray-900 rounded-xl p-5 space-y-2">
+                        <h3 className="text-white font-bold text-sm mb-1">
+                          {t.entityType === 'corporate' ? '📑 ภาษีเงินได้นิติบุคคล (อัตรา SME)' : '📑 ภาษีเงินได้บุคคลธรรมดา (ขั้นบันได)'}
+                        </h3>
+                        <div className="flex justify-between text-sm text-gray-300">
+                          <span>กำไรสุทธิทางบัญชี</span><span>฿{(s.net_profit||0).toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                        </div>
+                        {t.entityType === 'individual' && (
+                          <div className="flex justify-between text-sm text-gray-400">
+                            <span>หัก ค่าลดหย่อนส่วนตัว</span><span>-฿{t.personalAllowance.toLocaleString()}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between text-sm text-gray-300 pt-2 border-t border-gray-800">
+                          <span>เงินได้สุทธิที่ต้องเสียภาษี</span><span>฿{t.taxableIncome.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                        </div>
+                        <div className="flex justify-between text-xl font-bold pt-2 border-t border-gray-800">
+                          <span className="text-white">ภาษีที่ประมาณการณ์ต้องจ่าย</span>
+                          <span className="text-amber-400">฿{t.tax.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                        </div>
+                        <p className="text-gray-500 text-[11px] pt-2">{t.note}</p>
+                      </div>
+
+                      <div className="text-gray-500 text-xs text-center">
+                        อ้างอิงจาก {s.total_revenue > 0 || reportData.expenseCount > 0 || reportData.payrollCount > 0
+                          ? `ยอดขาย/รายจ่าย/เงินเดือนที่บันทึกในระบบปี ${reportData.year}`
+                          : `ยังไม่มีข้อมูลบันทึกไว้ในปี ${reportData.year}`}
                       </div>
                     </div>
                   );
