@@ -2387,7 +2387,7 @@ export default function Dashboard() {
                                   {taxReport.summary.map((s, i) => (
                                     <div key={i} className="border border-slate-100 rounded-xl overflow-hidden">
                                       <button
-                                        onClick={() => setTaxExpandedId(taxExpandedId === s.taxId ? null : s.taxId)}
+                                        onClick={() => setTaxExpandedId(taxExpandedId === i ? null : i)}
                                         className="w-full flex items-center gap-3 p-3 hover:bg-slate-50 transition-colors text-left">
                                         <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-[10px] font-black shrink-0">{i+1}</span>
                                         <div className="flex-1 min-w-0">
@@ -2396,10 +2396,10 @@ export default function Dashboard() {
                                         </div>
                                         <div className="text-right shrink-0">
                                           <p className="text-sm font-black text-indigo-600">฿{s.totalTaxAmount.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
-                                          <p className="text-[10px] text-slate-400">{taxExpandedId === s.taxId ? '▲ ซ่อน' : '▼ ดูรายการ'}</p>
+                                          <p className="text-[10px] text-slate-400">{taxExpandedId === i ? '▲ ซ่อน' : '▼ ดูรายการ'}</p>
                                         </div>
                                       </button>
-                                      {taxExpandedId === s.taxId && (
+                                      {taxExpandedId === i && (
                                         <div className="border-t border-slate-100 bg-slate-50 px-3 py-2">
                                           <p className="text-xs text-slate-400 mb-1">{s.taxAddress}</p>
                                           <div className="space-y-1">

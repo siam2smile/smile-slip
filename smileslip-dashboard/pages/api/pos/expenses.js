@@ -43,21 +43,23 @@ function splitVat(amount, vatType) {
 // Google connection ตอนนี้เป็น optional (แค่จำเป็นถ้าจะเขียนเข้าบัญชีหลักของบอทด้วย) — ไม่ throw
 // ถ้ายังไม่ได้เชื่อมต่อ/ยังไม่ได้ตั้งค่า POS อีกต่อไป (products/contacts/expenses ไม่ต้องพึ่ง Sheets เลย)
 async function getMainLedgerConfig(shopId) {
-  const [{ data: gc }, { data: sp }] = await Promise.all([
+  const [{ data: gc }, { data: sp }, { data: pc }] = await Promise.all([
     supabase.from('shop_google_configs').select('google_refresh_token, google_sheet_id').eq('shop_id', shopId).maybeSingle(),
     supabase.from('shop_profiles').select('shop_name, branch_name').eq('id', shopId).maybeSingle(),
+    supabase.from('pos_configs').select('vat_registered').eq('shop_id', shopId).maybeSingle(),
   ]);
   return {
     mainSheetId: gc?.google_sheet_id || null,
     refreshToken: gc?.google_refresh_token || null,
     shopName: sp?.shop_name || '',
     branchName: sp?.branch_name || '',
+    vatRegistered: !!pc?.vat_registered,
   };
 }
 
 // เขียนรายจ่ายลง Sheets บัญชีหลัก (tab ปี ค.ศ.) ด้วย เพื่อให้แสดงในหน้ากราฟวิเคราะห์/Ledger ของ Dashboard
 // และนับรวมใน #กำไรขาดทุน ของบอท LINE เหมือนกับที่ยอดขาย POS ทำอยู่แล้ว (writeToMainSheets ใน sales.js)
-async function writeExpenseToMainSheets(refreshToken, mainSheetId, { shopId, total, label, payment_method, notes, shopName, branchName, recordedBy, transactionDate }) {
+async function writeExpenseToMainSheets(refreshToken, mainSheetId, { shopId, total, label, payment_method, notes, shopName, branchName, recordedBy, transactionDate, expenseNo, vatAmount = 0 }) {
   if (!mainSheetId || !refreshToken) return;
   try {
     const token = await getAccessToken(refreshToken);
@@ -84,7 +86,7 @@ async function writeExpenseToMainSheets(refreshToken, mainSheetId, { shopId, tot
       await appendSheet(token, mainSheetId, year, mainHeaders);
     }
 
-    const noteText = ['รายจ่าย POS', notes].filter(Boolean).join(' | ');
+    const noteText = [label, `เลขที่ ${expenseNo}`, notes].filter(Boolean).join(' | ');
     const paymentMethodFinal = payment_method === 'โอน' ? 'โอน' : 'เงินสด';
 
     // transaction_at ของ ledger_transactions ต้องเป็น timestamp จริง (ไม่ใช่สตริงไทย) — ประกอบจาก
@@ -103,7 +105,9 @@ async function writeExpenseToMainSheets(refreshToken, mainSheetId, { shopId, tot
         label,                  // F ผู้รับ (รายการ/หมวดหมู่ ใช้แทนชื่อผู้รับเงินจริงเพราะไม่ได้เก็บ)
         noteText,               // G หมายเหตุ
         '', todayISO, branchName || shopName,
-        '', '', '', '', '',     // K-O เลขอ้างอิง/ภาษี — ไม่เกี่ยวกับรายจ่ายทั่วไปนี้
+        // K-O เลขอ้างอิง/ภาษี — รายจ่ายทั่วไปไม่ผูกคู่ค้าที่มีเลขภาษีในระบบ (known gap: EXPENSE_HEADERS
+        // ไม่มีช่องเลขภาษีคู่ค้า) แต่ร้านที่จด VAT ยังใส่ยอด VAT (N) ได้จาก vatType ที่กรอกไว้
+        '', '', vatAmount > 0 ? vatAmount : '', '',
         label,                  // P หมวดหมู่
         paymentMethodFinal,     // Q วิธีรับ-จ่าย
         recordedBy || '',       // R ผู้บันทึก
@@ -113,7 +117,8 @@ async function writeExpenseToMainSheets(refreshToken, mainSheetId, { shopId, tot
         note: noteText, sender_name: shopName, receiver_name: label,
         branch_name: branchName || shopName, payment_method: paymentMethodFinal,
         recorder_name: recordedBy || '', transaction_at: transactionAt.toISOString(),
-        raw_data: { source: 'pos-expenses', label, payment_method: paymentMethodFinal, notes },
+        tax_amount: vatAmount > 0 ? vatAmount : null,
+        raw_data: { source: 'pos-expenses', label, payment_method: paymentMethodFinal, notes, expense_no: expenseNo },
       }),
     });
   } catch (err) {
@@ -179,10 +184,11 @@ export default async function handler(req, res) {
 
       // branch (สาขาที่เลือกไว้ในหน้า POS) ต้องมาก่อน branchName (ค่า default ของร้าน) เสมอ —
       // ไม่งั้นรายจ่ายทุกสาขาจะถูกนับรวมเป็นสาขาเดียวกันหมดในบัญชีหลัก/กราฟวิเคราะห์
-      const { mainSheetId, refreshToken, shopName, branchName } = await getMainLedgerConfig(shopId);
+      const { mainSheetId, refreshToken, shopName, branchName, vatRegistered } = await getMainLedgerConfig(shopId);
       await writeExpenseToMainSheets(refreshToken, mainSheetId, {
         shopId, total: numAmount, label: label.trim(), payment_method, notes, shopName,
-        branchName: branch || branchName, recordedBy, transactionDate,
+        branchName: branch || branchName, recordedBy, transactionDate, expenseNo,
+        vatAmount: vatRegistered ? vatAmount : 0,
       });
 
       return res.json({ ok: true, expenseNo, subtotal, vatAmount, total: numAmount });

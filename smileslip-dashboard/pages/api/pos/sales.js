@@ -33,9 +33,10 @@ const supabase = createClient(
 // Google OAuth ยังใช้แบบ "optional" เฉพาะตอนเขียน main ledger sheet ของร้าน (writeToMainSheets)
 // ถ้ายังไม่เชื่อมต่อก็ยังขายได้ปกติ แค่ไม่มีรายการไปโผล่ใน Dashboard Ledger/บอท LINE เท่านั้น
 async function getConfig(shopId) {
-  const [{ data: gc }, { data: sp }] = await Promise.all([
+  const [{ data: gc }, { data: sp }, { data: pc }] = await Promise.all([
     supabase.from('shop_google_configs').select('google_refresh_token, google_sheet_id').eq('shop_id', shopId).maybeSingle(),
     supabase.from('shop_profiles').select('shop_name, branch_name, subscription_tier').eq('id', shopId).single(),
+    supabase.from('pos_configs').select('vat_registered').eq('shop_id', shopId).maybeSingle(),
   ]);
   let token = null;
   if (gc?.google_refresh_token) {
@@ -46,13 +47,14 @@ async function getConfig(shopId) {
     shopName: sp?.shop_name || '',
     branchName: sp?.branch_name || '',
     tier: sp?.subscription_tier || 'normal',
+    vatRegistered: !!pc?.vat_registered,
     token,
   };
 }
 
 // เขียนรายการขายลง Sheets บัญชีหลัก (tab ปี ค.ศ.) เพื่อให้แสดงใน Dashboard Ledger — คงไว้ตามเดิม
 // ทุกประการ (out of scope การตัด Sheets รอบนี้ — ดูเหตุผลที่หัวไฟล์)
-async function writeToMainSheets(token, mainSheetId, { shopId, billNo, items, total, payMethod, customerName, notes, shopName, branchName, slipUrl, slipSender, slipRefNo, transactionDate }) {
+async function writeToMainSheets(token, mainSheetId, { shopId, billNo, items, total, payMethod, customerName, notes, shopName, branchName, slipUrl, slipSender, slipRefNo, transactionDate, vatAmount = 0 }) {
   if (!mainSheetId || !token) return;
   try {
     const now = new Date();
@@ -115,7 +117,11 @@ async function writeToMainSheets(token, mainSheetId, { shopId, billNo, items, to
         todayISO,               // I วันที่บันทึก
         branchName || shopName, // J ชื่อสาขา
         slipRefNo || billNo,    // K เลขอ้างอิง (ref_no จากสลิป ถ้ามี หรือ billNo)
-        '', '', '', '',         // L-O ภาษี
+        // L-O ภาษี — ไม่มีเลขภาษี/ชื่อ/ที่อยู่ผู้ซื้อจริงสำหรับขายปลีกหน้าร้าน (ลูกค้าทั่วไปไม่ได้
+        // ขอใบกำกับภาษีเต็มรูปทุกบิล) แต่ร้านที่จดทะเบียน VAT ต้องนับเป็นภาษีขายอยู่ดีตามกฎหมาย
+        // (ภ.พ.30 นับจากยอดขายทั้งหมด ไม่ใช่แค่บิลที่ออกใบกำกับภาษีเต็มรูปมีเลขผู้ซื้อ) — ใส่แค่ยอด
+        // ภาษี (N) ปล่อย L/M/O ว่างไว้ตามจริง
+        '', '', vatAmount > 0 ? vatAmount : '', '',
         'ขายหน้าร้าน',         // P หมวดหมู่
         payMethodLabel,         // Q วิธีรับ-จ่าย
         '',                     // R ผู้บันทึก
@@ -125,6 +131,7 @@ async function writeToMainSheets(token, mainSheetId, { shopId, billNo, items, to
         note: noteText, sender_name: senderName, receiver_name: shopName,
         branch_name: branchName || shopName, payment_method: payMethodLabel,
         slip_url: slipUrl || null, transaction_at: transactionAt.toISOString(),
+        tax_amount: vatAmount > 0 ? vatAmount : null,
         raw_data: { source: 'pos-sales', bill_no: billNo, ref_no: slipRefNo || billNo },
       }),
     });
@@ -142,7 +149,7 @@ export default async function handler(req, res) {
   if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
 
   try {
-    const { mainSheetId, shopName, branchName, tier, token } = await getConfig(shopId);
+    const { mainSheetId, shopName, branchName, tier, vatRegistered, token } = await getConfig(shopId);
 
     // ── GET ──────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
@@ -203,6 +210,7 @@ export default async function handler(req, res) {
         payMethod: 'เชื่อ/ชำระแล้ว',
         customerName: sale.customer_name, notes: sale.notes,
         shopName, branchName, slipUrl: '', slipSender: '', slipRefNo: '',
+        vatAmount: vatRegistered ? sale.vat_amount : 0,
       });
 
       // ลดยอดค้างชำระของผู้ติดต่อกลับลง (ตอนขายเชื่อเคยบวกยอดนี้ไว้แล้ว — ดู POST ด้านล่าง)
@@ -316,6 +324,7 @@ export default async function handler(req, res) {
           shopId, billNo, items, total, payMethod: payment_method,
           customerName, notes, shopName, branchName: branch || branchName,
           slipUrl, slipSender, slipRefNo, transactionDate,
+          vatAmount: vatRegistered ? vatAmount : 0,
         });
       }
 

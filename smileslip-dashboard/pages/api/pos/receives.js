@@ -49,21 +49,26 @@ const supabase = createClient(
 
 // Google connection ตอนนี้เป็น optional (แค่จำเป็นถ้าจะเขียนเข้าบัญชีหลักของบอทด้วย)
 async function getMainLedgerConfig(shopId) {
-  const [{ data: gc }, { data: sp }] = await Promise.all([
+  const [{ data: gc }, { data: sp }, { data: pc }] = await Promise.all([
     supabase.from('shop_google_configs').select('google_refresh_token, google_sheet_id').eq('shop_id', shopId).maybeSingle(),
     supabase.from('shop_profiles').select('shop_name, branch_name').eq('id', shopId).maybeSingle(),
+    supabase.from('pos_configs').select('vat_registered').eq('shop_id', shopId).maybeSingle(),
   ]);
   return {
     mainSheetId: gc?.google_sheet_id || null,
     refreshToken: gc?.google_refresh_token || null,
     shopName: sp?.shop_name || '',
     branchName: sp?.branch_name || '',
+    vatRegistered: !!pc?.vat_registered,
   };
 }
 
 // เขียนต้นทุนรับสินค้าลง Sheets บัญชีหลัก (tab ปี ค.ศ.) ด้วย เพื่อให้แสดงในหน้ากราฟวิเคราะห์/Ledger ของ
 // Dashboard และนับรวมใน #กำไรขาดทุน ของบอท LINE เหมือนกับที่ยอดขาย/รายจ่าย POS ทำอยู่แล้ว
-async function writeReceiveToMainSheets(refreshToken, mainSheetId, { shopId, total, supplier, notes, shopName, branchName, transactionDate }) {
+async function writeReceiveToMainSheets(refreshToken, mainSheetId, {
+  shopId, total, supplier, notes, shopName, branchName, transactionDate, receiveNo,
+  vatAmount = 0, itemsSummary = '', supplierTaxId = '', supplierTaxpayerName = '', supplierTaxAddress = '',
+}) {
   if (!mainSheetId || !refreshToken) return;
   try {
     const token = await getAccessToken(refreshToken);
@@ -90,7 +95,7 @@ async function writeReceiveToMainSheets(refreshToken, mainSheetId, { shopId, tot
       await appendSheet(token, mainSheetId, year, mainHeaders);
     }
 
-    const noteText = ['รับสินค้าเข้าสต็อค POS', notes].filter(Boolean).join(' | ');
+    const noteText = ['รับสินค้าเข้าสต็อค POS', `เลขที่ ${receiveNo}`, itemsSummary, notes].filter(Boolean).join(' | ');
     const category = 'ซื้อสินค้าเข้าสต็อค (POS)';
 
     const txDate = transactionDate ? new Date(`${transactionDate}T00:00:00+07:00`) : now;
@@ -107,7 +112,10 @@ async function writeReceiveToMainSheets(refreshToken, mainSheetId, { shopId, tot
         supplier || '-',        // F ผู้รับ (ผู้จำหน่าย)
         noteText,               // G หมายเหตุ
         '', todayISO, branchName || shopName,
-        '', '', '', '', '',     // K-O เลขอ้างอิง/ภาษี — ไม่เกี่ยวกับรับสินค้านี้
+        '',                     // K เลขอ้างอิง — ไม่เกี่ยวกับรับสินค้านี้
+        // L-O ภาษีซื้อ (Input VAT) — ถ้าร้านจด VAT และผู้จำหน่ายมีเลขภาษีในระบบ ใส่ให้ครบเพื่อ
+        // ให้รายงานภาษีซื้อ drill-down ได้ว่าซื้อจากใคร — ไม่มีเลขภาษีผู้จำหน่ายก็ยังใส่ยอด VAT (N) ได้
+        supplierTaxId, supplierTaxpayerName, vatAmount > 0 ? vatAmount : '', supplierTaxAddress,
         category,                // P หมวดหมู่ — แยกจากรายจ่ายทั่วไปให้ดูออกว่าเป็นต้นทุนขาย
         'เงินสด',               // Q วิธีรับ-จ่าย — ไม่ได้เก็บวิธีชำระตอนรับสินค้า ใส่ค่า default
         '',                     // R ผู้บันทึก
@@ -117,6 +125,8 @@ async function writeReceiveToMainSheets(refreshToken, mainSheetId, { shopId, tot
         note: noteText, sender_name: shopName, receiver_name: supplier || '-',
         branch_name: branchName || shopName, payment_method: 'เงินสด',
         transaction_at: transactionAt.toISOString(),
+        tax_id: supplierTaxId || null, taxpayer_name: supplierTaxpayerName || null,
+        tax_amount: vatAmount > 0 ? vatAmount : null, tax_address: supplierTaxAddress || null,
         // receive_no ใส่ไว้ให้ DELETE (ยกเลิกใบรับสินค้า) หาแถวนี้เจอแบบเป๊ะๆ ภายหลัง — ใบรับ
         // สินค้าเก่าก่อนมีฟิลด์นี้จะไม่มี receive_no ใน raw_data เลย (จับคู่ไม่ได้ ต้องลบเองถ้าจำเป็น)
         raw_data: { source: 'pos-receives', supplier, notes, receive_no: receiveNo },
@@ -239,9 +249,28 @@ export default async function handler(req, res) {
       });
       if (error) throw error;
 
-      const { mainSheetId, refreshToken, shopName, branchName } = await getMainLedgerConfig(shopId);
+      const { mainSheetId, refreshToken, shopName, branchName, vatRegistered } = await getMainLedgerConfig(shopId);
+
+      // ถ้าร้านจด VAT และผูกผู้จำหน่ายจริง (supplierId) ดึงเลขภาษี/ที่อยู่ผู้จำหน่ายจากผู้ติดต่อมาด้วย
+      // ให้รายงานภาษีซื้อ drill-down ได้ว่าซื้อจากใคร — ไม่มีก็ยังบันทึกยอด VAT ได้ปกติ (แค่ไม่มีเลขภาษี)
+      let supplierTaxId = '', supplierTaxpayerName = '', supplierTaxAddress = '';
+      if (vatRegistered && roundedVat > 0 && supplierId) {
+        try {
+          const { data: supRow } = await supabase.from('pos_contacts').select('company_name, name, tax_id, tax_address')
+            .eq('shop_id', shopId).eq('contact_id', supplierId).is('deleted_at', null).maybeSingle();
+          if (supRow?.tax_id) {
+            supplierTaxId = supRow.tax_id;
+            supplierTaxpayerName = supRow.company_name || supRow.name || supplier;
+            supplierTaxAddress = supRow.tax_address || '';
+          }
+        } catch (e) { console.error('[pos/receives] supplier tax lookup error:', e.message); }
+      }
+
+      const itemsSummary = items.map(i => `${i.name}×${i.qty}${i.unit ? ' ' + i.unit : ''}`).join(', ');
       await writeReceiveToMainSheets(refreshToken, mainSheetId, {
         shopId, total: grandTotal, supplier, notes, shopName, branchName: branch || branchName, transactionDate,
+        receiveNo, itemsSummary,
+        vatAmount: vatRegistered ? roundedVat : 0, supplierTaxId, supplierTaxpayerName, supplierTaxAddress,
       });
 
       // Market Price Index + Procurement Fraud Detection (v1 retail-only, fail-safe เสมอ)

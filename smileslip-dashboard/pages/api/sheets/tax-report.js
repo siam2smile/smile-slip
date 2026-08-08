@@ -46,14 +46,28 @@ export default async function handler(req, res) {
     const sheetYear = year || new Date().getFullYear().toString();
     const allRows = await fetchLedgerRows(shopId, { year: sheetYear, month });
 
-    // กรองเฉพาะแถวที่มีข้อมูลภาษีครบ: taxId ต้องไม่ว่าง และ taxAmount ต้องมากกว่า 0
+    // กรองเฉพาะแถวที่มียอดภาษีจริง (taxAmount > 0) — **ไม่บังคับต้องมีเลขภาษีผู้ซื้อ/ผู้ขายอีกต่อไป**
+    // เหตุผล: ร้านที่จดทะเบียน VAT ต้องนับภาษีขายจากยอดขายทุกบิลตามกฎหมาย (ภ.พ.30 นับจากยอดขายรวม
+    // ทั้งหมด ไม่ใช่แค่บิลที่ลูกค้าขอใบกำกับภาษีเต็มรูปพร้อมเลขผู้ซื้อ) — แถวที่ไม่มีเลขภาษีคู่ค้า
+    // (ขายปลีกหน้าร้าน/ซื้อจากผู้จำหน่ายที่ไม่มีเลขภาษีในระบบ) จะถูกจัดกลุ่มรวมตามหมวดหมู่แทน
     let filtered = allRows
-      .filter(r => r.taxId && r.taxId !== '-' && r.taxId.trim() !== '' && r.taxAmount > 0)
-      .map(r => ({
-        date: r.date, type: r.type, amount: r.amount, note: r.note,
-        branch: r.branch === '-' ? 'ไม่ระบุสาขา' : r.branch,
-        taxId: r.taxId, taxpayerName: r.taxpayerName, taxAmount: r.taxAmount, taxAddress: r.taxAddress,
-      }));
+      .filter(r => r.taxAmount > 0)
+      .map(r => {
+        const hasTaxId = r.taxId && r.taxId !== '-' && r.taxId.trim() !== '';
+        // ไม่มีเลขภาษีคู่ค้า → group รวมตามหมวดหมู่ (P) แทน ให้ยังกดดู drill-down ได้ว่ามาจากรายการ
+        // อะไรบ้าง (ต่างจากเดิมที่ตกหล่นจากรายงานไปเลย) — _groupKey ใช้จัดกลุ่มเท่านั้น ไม่ export
+        // ออกไปเป็นคอลัมน์ "เลขประจำตัวผู้เสียภาษี" (taxId ยังเป็น '-' ตามจริงถ้าไม่มีเลขจริง)
+        const fallbackLabel = `${r.category && r.category !== '-' ? r.category : (r.type === 'รายรับ' ? 'รายรับอื่นๆ' : 'รายจ่ายอื่นๆ')} (ไม่มีเลขภาษี${r.type === 'รายรับ' ? 'ผู้ซื้อ' : 'ผู้ขาย'})`;
+        return {
+          date: r.date, type: r.type, amount: r.amount, note: r.note,
+          branch: r.branch === '-' ? 'ไม่ระบุสาขา' : r.branch,
+          taxId: hasTaxId ? r.taxId : '-',
+          taxpayerName: hasTaxId ? r.taxpayerName : fallbackLabel,
+          taxAmount: r.taxAmount,
+          taxAddress: hasTaxId ? r.taxAddress : '-',
+          _groupKey: hasTaxId ? r.taxId : `__cat__:${r.type}:${fallbackLabel}`,
+        };
+      });
 
     // แยกตามสาขา (คำนวณก่อนกรอง branch เพื่อให้ branchBreakdown เห็นทุกสาขาเสมอในมุมมอง "รวมทุกสาขา")
     const byBranch = {};
@@ -70,10 +84,11 @@ export default async function handler(req, res) {
     // กรองตามสาขาที่เลือก (ถ้าระบุ) — ใช้กับตัวเลขสรุป/ตารางที่เหลือทั้งหมด
     if (branch) filtered = filtered.filter(r => r.branch === branch);
 
-    // สรุปตาม tax_id (คู่ค้า/ผู้เสียภาษี)
+    // สรุปตาม tax_id (คู่ค้า/ผู้เสียภาษี) — จัดกลุ่มด้วย _groupKey (ไม่ใช่ taxId ตรงๆ) เพราะแถวที่
+    // ไม่มีเลขภาษีจริงถูก group รวมตามหมวดหมู่แทน (ดูเหตุผลด้านบน)
     const byTaxId = {};
     for (const row of filtered) {
-      const key = row.taxId;
+      const key = row._groupKey;
       if (!byTaxId[key]) {
         byTaxId[key] = {
           taxId: row.taxId,
@@ -96,6 +111,9 @@ export default async function handler(req, res) {
     const salesCount = filtered.filter(r => r.type === 'รายรับ').length;
     const purchaseCount = filtered.filter(r => r.type === 'รายจ่าย').length;
     const netVat = Math.round((salesVat - purchaseVat) * 100) / 100;
+
+    // ตัด _groupKey ออกก่อนส่งออก (internal only, ไม่ใช่ฟิลด์ที่หน้าเว็บ/export ควรเห็น)
+    filtered = filtered.map(({ _groupKey, ...rest }) => rest);
 
     const reportPayload = {
       rows: filtered,
