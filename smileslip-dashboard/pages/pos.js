@@ -9,6 +9,7 @@ import { MARKET_PRICE_FEATURE_LIVE } from '../lib/market-price-flag';
 import { hasFeature } from '../lib/tier-features';
 import { withBrandFooter } from '../lib/branding';
 import { getOwnerSessionToken, setOwnerSessionToken } from '../lib/client-owner-session';
+import { calcSSO, estimateMonthlyWithholding } from '../lib/payroll';
 
 const UNITS = ['ชิ้น', 'อัน', 'กล่อง', 'แพ็ก', 'ขวด', 'ถัง', 'ถุง', 'กก.', 'กรัม', 'ลิตร', 'มล.', 'เมตร', 'คู่', 'ชุด', 'โหล', 'แผ่น', 'มัด', 'หัว', 'ลูก', 'ท่อน', 'แท่ง', 'ห่อ', 'เส้น', 'จาน', 'ชาม', 'แก้ว'];
 const PAY_METHODS = ['เงินสด', 'โอน', 'บัตรเครดิต', 'QR Code', 'เชื่อ'];
@@ -653,6 +654,28 @@ export default function POSPage() {
   const [pendingExpenses, setPendingExpenses] = useState([]); // มาจากบอท LINE #รายจ่าย รอตรวจสอบ
   const [pendingExpensesLoading, setPendingExpensesLoading] = useState(false);
   const [linkedExpensePendingNo, setLinkedExpensePendingNo] = useState(null);
+
+  // เงินเดือน (Phase 2 ของแผนบัญชีเต็มรูปแบบ) — พนักงานในระบบเงินเดือนแยกจาก pos_staff (คนละแนวคิด
+  // ดู scripts/payroll-01-create-tables.sql) — เจ้าของ/แอดมินร้านเท่านั้นที่เข้าถึงได้ (ไม่โชว์ในโหมดแคชเชียร์)
+  const [payrollView, setPayrollView] = useState('employees'); // 'employees' | 'run' | 'history'
+  const [payrollEmployees, setPayrollEmployees] = useState([]);
+  const [payrollEmployeesLoading, setPayrollEmployeesLoading] = useState(false);
+  const [showAddEmployee, setShowAddEmployee] = useState(false);
+  const [employeeForm, setEmployeeForm] = useState({ name: '', position: '', base_salary: '', id_card_number: '', sso_enrolled: true, notes: '' });
+  const [employeeSaving, setEmployeeSaving] = useState(false);
+  const [editEmployeeId, setEditEmployeeId] = useState(null);
+  const [editEmployeeForm, setEditEmployeeForm] = useState({});
+  const [runForm, setRunForm] = useState({
+    employeeId: '', employeeName: '', baseSalary: '', additions: '', additionNote: '',
+    deductions: '', deductionNote: '', ssoEnrolled: true, yearMonth: '', paidDate: '', notes: '',
+    ssoEmployeeOverride: '', withholdingTaxOverride: '',
+  });
+  const [runSaving, setRunSaving] = useState(false);
+  const [payrollRuns, setPayrollRuns] = useState([]);
+  const [payrollRunsLoading, setPayrollRunsLoading] = useState(false);
+  const [payrollRunsSummary, setPayrollRunsSummary] = useState(null);
+  const [payrollHistoryMonth, setPayrollHistoryMonth] = useState('');
+  const [showPayslip, setShowPayslip] = useState(null); // payroll run object พร้อมพิมพ์
 
   // contacts (ลูกค้า / ผู้จำหน่าย)
   const [contacts, setContacts] = useState([]);
@@ -2108,6 +2131,10 @@ export default function POSPage() {
     if (tab === 'expenses' && shopId) { fetchExpenseHistory(); fetchPendingExpenses(); }
   }, [tab, shopId]);
 
+  useEffect(() => {
+    if (tab === 'payroll' && shopId) { fetchPayrollEmployees(); fetchPayrollRuns(); }
+  }, [tab, shopId]);
+
   // โอนย้ายสต็อกข้ามสาขา Phase 5 — sync สต็อกเฉพาะสาขาที่กำลังขายทุกครั้งที่เปลี่ยนสาขา/ร้าน หรือ
   // สินค้าเปลี่ยน (ขายไปแล้วต้องอัปเดตตัวเลขทันที ไม่ใช่แค่ตอนสลับสาขา)
   useEffect(() => {
@@ -2880,6 +2907,185 @@ export default function POSPage() {
       alert(err.message);
     }
     setExpenseSaving(false);
+  }
+
+  // ── เงินเดือน (Phase 2 ของแผนบัญชีเต็มรูปแบบ) ──────────────────────────────
+  async function fetchPayrollEmployees() {
+    if (!shopId) return;
+    setPayrollEmployeesLoading(true);
+    try {
+      const r = await fetch(`/api/pos/payroll-employees?shopId=${shopId}`);
+      const d = await r.json();
+      setPayrollEmployees(d.employees || []);
+    } catch {}
+    setPayrollEmployeesLoading(false);
+  }
+
+  async function saveEmployee() {
+    if (!employeeForm.name.trim()) { showToast('กรุณากรอกชื่อพนักงาน'); return; }
+    setEmployeeSaving(true);
+    try {
+      const r = await fetch('/api/pos/payroll-employees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId, name: employeeForm.name.trim(), position: employeeForm.position.trim(),
+          base_salary: employeeForm.base_salary, id_card_number: employeeForm.id_card_number.trim(),
+          sso_enrolled: employeeForm.sso_enrolled, notes: employeeForm.notes.trim(),
+          branch: selectedBranch?.branch_name || '',
+        }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        showToast('✅ เพิ่มพนักงานแล้ว');
+        setEmployeeForm({ name: '', position: '', base_salary: '', id_card_number: '', sso_enrolled: true, notes: '' });
+        setShowAddEmployee(false);
+        fetchPayrollEmployees();
+      } else alert(d.error);
+    } catch (err) { alert(err.message); }
+    setEmployeeSaving(false);
+  }
+
+  function startEditEmployee(emp) {
+    setEditEmployeeId(emp.id);
+    setEditEmployeeForm({
+      name: emp.name, position: emp.position, base_salary: emp.base_salary,
+      id_card_number: emp.id_card_number, sso_enrolled: emp.sso_enrolled, status: emp.status, notes: emp.notes,
+    });
+  }
+
+  async function saveEditEmployee() {
+    if (!editEmployeeForm.name?.trim()) { showToast('กรุณากรอกชื่อพนักงาน'); return; }
+    setEmployeeSaving(true);
+    try {
+      const r = await fetch('/api/pos/payroll-employees', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, id: editEmployeeId, ...editEmployeeForm }),
+      });
+      const d = await r.json();
+      if (d.ok) { setEditEmployeeId(null); fetchPayrollEmployees(); showToast('บันทึกแล้ว'); }
+      else alert(d.error);
+    } catch (err) { alert(err.message); }
+    setEmployeeSaving(false);
+  }
+
+  async function deleteEmployeeRecord(id) {
+    if (!confirm('ลบพนักงานคนนี้ออกจากระบบเงินเดือน?\n\n(ประวัติการจ่ายเงินเดือนเก่ายังอยู่ครบ ไม่หายไปด้วย)')) return;
+    const r = await fetch('/api/pos/payroll-employees', {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shopId, id }),
+    });
+    const d = await r.json();
+    if (d.ok) fetchPayrollEmployees(); else alert(d.error);
+  }
+
+  function currentYearMonth() {
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit' }).formatToParts(now);
+    return `${parts.find(p => p.type === 'year').value}-${parts.find(p => p.type === 'month').value}`;
+  }
+
+  function selectEmployeeForRun(emp) {
+    setRunForm(f => ({
+      ...f, employeeId: emp.id, employeeName: emp.name, baseSalary: emp.base_salary,
+      ssoEnrolled: emp.sso_enrolled, yearMonth: f.yearMonth || currentYearMonth(),
+      ssoEmployeeOverride: '', withholdingTaxOverride: '',
+    }));
+    setPayrollView('run');
+  }
+
+  // คำนวณตัวเลขล่วงหน้าให้ดูสดๆ ก่อนกดยืนยัน (ใช้ helper เดียวกับฝั่ง server เป๊ะ กัน preview ไม่ตรงกับ
+  // ที่บันทึกจริง) — ยังแก้ไข SSO/ภาษีเองได้เสมอ ผ่าน ssoEmployeeOverride/withholdingTaxOverride ก่อนกดบันทึก
+  const runPreview = useMemo(() => {
+    const base = parseFloat(runForm.baseSalary) || 0;
+    const add = parseFloat(runForm.additions) || 0;
+    const deduct = parseFloat(runForm.deductions) || 0;
+    const gross = Math.max(0, base + add - deduct);
+    const sso = calcSSO(gross, runForm.ssoEnrolled);
+    const ssoEmployee = runForm.ssoEmployeeOverride !== '' ? (parseFloat(runForm.ssoEmployeeOverride) || 0) : sso.employee;
+    const withholding = runForm.withholdingTaxOverride !== '' ? (parseFloat(runForm.withholdingTaxOverride) || 0) : estimateMonthlyWithholding(gross);
+    const net = Math.max(0, gross - ssoEmployee - withholding);
+    return { gross, ssoEmployee, ssoEmployer: sso.employer, withholding, net };
+  }, [runForm.baseSalary, runForm.additions, runForm.deductions, runForm.ssoEnrolled, runForm.ssoEmployeeOverride, runForm.withholdingTaxOverride]);
+
+  async function submitPayrollRun() {
+    if (!runForm.employeeName.trim()) { showToast('กรุณาเลือกพนักงาน'); return; }
+    if (!runForm.yearMonth) { showToast('กรุณาระบุเดือนที่จ่าย'); return; }
+    setRunSaving(true);
+    try {
+      const r = await fetch('/api/pos/payroll-runs', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId, employeeId: runForm.employeeId, employeeName: runForm.employeeName,
+          yearMonth: runForm.yearMonth, baseSalary: runForm.baseSalary, additions: runForm.additions,
+          additionNote: runForm.additionNote, deductions: runForm.deductions, deductionNote: runForm.deductionNote,
+          ssoEnrolled: runForm.ssoEnrolled,
+          ssoEmployeeOverride: runForm.ssoEmployeeOverride !== '' ? runForm.ssoEmployeeOverride : undefined,
+          withholdingTaxOverride: runForm.withholdingTaxOverride !== '' ? runForm.withholdingTaxOverride : undefined,
+          branch: selectedBranch?.branch_name || '', notes: runForm.notes, paidDate: runForm.paidDate || '',
+        }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        showToast(`✅ บันทึกจ่ายเงินเดือน ${runForm.employeeName} แล้ว (สุทธิ ฿${d.netPay.toLocaleString(undefined,{minimumFractionDigits:2})})`);
+        setRunForm({ employeeId: '', employeeName: '', baseSalary: '', additions: '', additionNote: '', deductions: '', deductionNote: '', ssoEnrolled: true, yearMonth: '', paidDate: '', notes: '', ssoEmployeeOverride: '', withholdingTaxOverride: '' });
+        fetchPayrollRuns();
+        setPayrollView('history');
+      } else alert(d.error);
+    } catch (err) { alert(err.message); }
+    setRunSaving(false);
+  }
+
+  async function fetchPayrollRuns(yearMonth = payrollHistoryMonth) {
+    if (!shopId) return;
+    setPayrollRunsLoading(true);
+    try {
+      const params = new URLSearchParams({ shopId });
+      if (yearMonth) params.set('yearMonth', yearMonth);
+      const r = await fetch(`/api/pos/payroll-runs?${params}`);
+      const d = await r.json();
+      setPayrollRuns(d.runs || []);
+      setPayrollRunsSummary(d.summary || null);
+    } catch {}
+    setPayrollRunsLoading(false);
+  }
+
+  async function cancelPayrollRun(id) {
+    if (!confirm('ยกเลิกรอบจ่ายเงินเดือนนี้? (จะลบรายจ่ายที่บันทึกเข้าบัญชีหลักไปด้วย)')) return;
+    const r = await fetch('/api/pos/payroll-runs', {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shopId, id }),
+    });
+    const d = await r.json();
+    if (d.ok) fetchPayrollRuns(); else alert(d.error);
+  }
+
+  function printPayslip(run) {
+    const fmt = n => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>สลิปเงินเดือน ${run.run_no}</title>
+      <style>body{font-family:'Sarabun',sans-serif;padding:24px;max-width:420px;margin:0 auto;font-size:14px}
+      h2{text-align:center;margin-bottom:2px}p.sub{text-align:center;color:#666;margin-top:0;font-size:12px}
+      table{width:100%;border-collapse:collapse;margin-top:12px}td{padding:6px 0;border-bottom:1px solid #eee}
+      td.r{text-align:right}tr.total td{font-weight:bold;border-top:2px solid #333;border-bottom:none;font-size:16px}
+      @media print{button{display:none}}</style></head><body>
+      <h2>${shopInfo?.shop_name || 'ร้านค้า'}</h2>
+      <p class="sub">สลิปเงินเดือน — เลขที่ ${run.run_no}</p>
+      <table>
+        <tr><td>พนักงาน</td><td class="r">${run.employee_name}</td></tr>
+        <tr><td>เดือนที่จ่าย</td><td class="r">${run.year_month}</td></tr>
+        <tr><td>เงินเดือนพื้นฐาน</td><td class="r">฿${fmt(run.base_salary)}</td></tr>
+        ${run.additions > 0 ? `<tr><td>เพิ่ม${run.addition_note ? ` (${run.addition_note})` : ''}</td><td class="r">+฿${fmt(run.additions)}</td></tr>` : ''}
+        ${run.deductions > 0 ? `<tr><td>หัก${run.deduction_note ? ` (${run.deduction_note})` : ''}</td><td class="r">-฿${fmt(run.deductions)}</td></tr>` : ''}
+        <tr><td>ยอดก่อนหัก (Gross)</td><td class="r">฿${fmt(run.gross_pay)}</td></tr>
+        <tr><td>ประกันสังคม (5%)</td><td class="r">-฿${fmt(run.sso_employee)}</td></tr>
+        <tr><td>ภาษีหัก ณ ที่จ่าย (ประมาณการณ์)</td><td class="r">-฿${fmt(run.withholding_tax)}</td></tr>
+        <tr class="total"><td>สุทธิที่ได้รับ</td><td class="r">฿${fmt(run.net_pay)}</td></tr>
+      </table>
+      <p style="font-size:11px;color:#999;margin-top:16px">นายจ้างสมทบประกันสังคมเพิ่ม ฿${fmt(run.sso_employer)} (ไม่ได้หักจากพนักงาน)</p>
+      <p style="font-size:10px;color:#bbb;margin-top:24px;text-align:center">ยอดภาษีหัก ณ ที่จ่ายเป็นตัวประมาณการณ์ อาจไม่ตรงกับที่ต้องยื่นจริงทุกกรณี</p>
+      <script>window.onload=()=>window.print()</script></body></html>`;
+    openPrintWindow(html);
   }
 
   async function deleteExpense(expense_no) {
@@ -4267,8 +4473,9 @@ export default function POSPage() {
             { key: 'receive',  label: '📥 รับสินค้า' },
             { key: 'expenses', label: '🧾 รายจ่าย' },
             { key: 'report',   label: '📊 รายงาน' },
-            // ตั้งค่าร้าน (พร้อมเพย์/API ธนาคาร/จัดการพนักงาน) — เจ้าของ/แอดมินเท่านั้น ไม่โชว์
-            // ในโหมดแคชเชียร์เลย (ฝั่ง API เองก็บล็อก session พนักงานทุกคนจาก pos-config.js อยู่แล้ว)
+            // เงินเดือน/ตั้งค่าร้าน — ข้อมูลอ่อนไหวระดับเจ้าของร้าน/แอดมินเท่านั้น ไม่โชว์ในโหมด
+            // แคชเชียร์เลย (ฝั่ง API เองก็บล็อก session พนักงานทุกคนจาก payroll-*.js/pos-config.js อยู่แล้ว)
+            ...(cashierMode ? [] : [{ key: 'payroll', label: '💰 เงินเดือน' }]),
             ...(cashierMode ? [] : [{ key: 'settings', label: '⚙️ ตั้งค่า' }]),
           ];
           const isMoreActive = moreTabs.some(t => t.key === tab);
@@ -4315,6 +4522,7 @@ export default function POSPage() {
                   { key: 'receive',  label: '📥 รับสินค้า' },
                   { key: 'expenses', label: '🧾 รายจ่าย' },
                   { key: 'report',   label: '📊 รายงาน' },
+                  ...(cashierMode ? [] : [{ key: 'payroll', label: '💰 เงินเดือน' }]),
                   ...(cashierMode ? [] : [{ key: 'settings', label: '⚙️ ตั้งค่า' }]),
                 ].map(t => (
                   <button key={t.key}
@@ -7026,6 +7234,251 @@ export default function POSPage() {
                   );
                 })()}
 
+              </div>
+            </div>
+          )}
+
+          {/* ══ TAB: เงินเดือน ══════════════════════════════════════════════ */}
+          {/* กันไว้อีกชั้นเหมือน settings — ไม่โชว์ในโหมดแคชเชียร์แม้จะเผลอตั้ง tab นี้ทางอ้อม */}
+          {tab === 'payroll' && !cashierMode && (
+            <div className="h-full overflow-y-auto">
+              <div className="p-4 max-w-2xl mx-auto space-y-4">
+                <div className="bg-amber-950/40 border border-amber-800/50 rounded-xl px-4 py-2.5 text-amber-300 text-xs">
+                  💡 ประกันสังคม/ภาษีหัก ณ ที่จ่ายที่คำนวณให้เป็น <b>ตัวประมาณการณ์</b> (สมมติพนักงานโสด ไม่มีค่าลดหย่อนอื่น) แก้ไขตัวเลขเองได้เสมอก่อนบันทึกจริง
+                </div>
+
+                <div className="flex gap-2">
+                  {[['employees','👥 พนักงาน'],['run','➕ รันจ่ายเงินเดือน'],['history','📋 ประวัติ']].map(([k,label]) => (
+                    <button key={k} onClick={() => setPayrollView(k)}
+                      className={`flex-1 py-2 rounded-xl text-xs font-bold transition-colors ${
+                        payrollView === k ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      }`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* ── พนักงาน ── */}
+                {payrollView === 'employees' && (
+                  <div className="space-y-3">
+                    <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden">
+                      <div className="px-5 py-3 border-b border-gray-800 flex items-center justify-between">
+                        <h3 className="text-white font-bold text-sm">พนักงานในระบบเงินเดือน</h3>
+                        <button onClick={() => setShowAddEmployee(v => !v)}
+                          className="text-xs bg-green-700 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg font-medium">
+                          + เพิ่มพนักงาน
+                        </button>
+                      </div>
+
+                      {showAddEmployee && (
+                        <div className="p-4 bg-gray-850 border-b border-gray-800 space-y-2.5">
+                          <input placeholder="ชื่อ-นามสกุล *" value={employeeForm.name}
+                            onChange={e => setEmployeeForm(f => ({ ...f, name: e.target.value }))}
+                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
+                          <div className="grid grid-cols-2 gap-2">
+                            <input placeholder="ตำแหน่ง" value={employeeForm.position}
+                              onChange={e => setEmployeeForm(f => ({ ...f, position: e.target.value }))}
+                              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
+                            <input type="number" placeholder="เงินเดือน (บาท)" value={employeeForm.base_salary}
+                              onChange={e => setEmployeeForm(f => ({ ...f, base_salary: e.target.value }))}
+                              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
+                          </div>
+                          <input placeholder="เลขบัตรประชาชน (ไม่บังคับ — ใช้ตอนยื่นภาษี)" value={employeeForm.id_card_number}
+                            onChange={e => setEmployeeForm(f => ({ ...f, id_card_number: e.target.value }))}
+                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500 font-mono"/>
+                          <label className="flex items-center gap-2 text-xs text-gray-300">
+                            <input type="checkbox" checked={employeeForm.sso_enrolled}
+                              onChange={e => setEmployeeForm(f => ({ ...f, sso_enrolled: e.target.checked }))}/>
+                            เข้าประกันสังคม (มาตรา 33)
+                          </label>
+                          <div className="flex gap-2">
+                            <button onClick={saveEmployee} disabled={employeeSaving}
+                              className="flex-1 bg-green-700 hover:bg-green-600 text-white text-sm font-bold py-2 rounded-lg disabled:opacity-50">
+                              {employeeSaving ? 'กำลังบันทึก...' : 'บันทึกพนักงาน'}
+                            </button>
+                            <button onClick={() => setShowAddEmployee(false)}
+                              className="px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm rounded-lg">ยกเลิก</button>
+                          </div>
+                        </div>
+                      )}
+
+                      {payrollEmployeesLoading ? (
+                        <div className="text-center text-gray-500 py-8 animate-pulse">กำลังโหลด...</div>
+                      ) : payrollEmployees.length === 0 ? (
+                        <div className="text-center text-gray-500 py-10 text-sm">ยังไม่มีพนักงานในระบบเงินเดือน</div>
+                      ) : (
+                        <div className="divide-y divide-gray-800">
+                          {payrollEmployees.map(emp => (
+                            <div key={emp.id} className="px-5 py-3.5">
+                              {editEmployeeId === emp.id ? (
+                                <div className="space-y-2">
+                                  <input value={editEmployeeForm.name || ''} onChange={e => setEditEmployeeForm(f => ({ ...f, name: e.target.value }))}
+                                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <input value={editEmployeeForm.position || ''} onChange={e => setEditEmployeeForm(f => ({ ...f, position: e.target.value }))}
+                                      placeholder="ตำแหน่ง" className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                    <input type="number" value={editEmployeeForm.base_salary ?? ''} onChange={e => setEditEmployeeForm(f => ({ ...f, base_salary: e.target.value }))}
+                                      placeholder="เงินเดือน" className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <label className="flex items-center gap-2 text-xs text-gray-300">
+                                      <input type="checkbox" checked={!!editEmployeeForm.sso_enrolled} onChange={e => setEditEmployeeForm(f => ({ ...f, sso_enrolled: e.target.checked }))}/>
+                                      ประกันสังคม
+                                    </label>
+                                    <select value={editEmployeeForm.status || 'active'} onChange={e => setEditEmployeeForm(f => ({ ...f, status: e.target.value }))}
+                                      className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs text-white">
+                                      <option value="active">ทำงานอยู่</option>
+                                      <option value="inactive">พ้นสภาพแล้ว</option>
+                                    </select>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <button onClick={saveEditEmployee} disabled={employeeSaving} className="flex-1 bg-green-700 text-white text-xs font-bold py-1.5 rounded-lg">บันทึก</button>
+                                    <button onClick={() => setEditEmployeeId(null)} className="px-3 bg-gray-700 text-gray-300 text-xs rounded-lg">ยกเลิก</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <p className={`font-bold text-sm truncate ${emp.status === 'inactive' ? 'text-gray-500 line-through' : 'text-white'}`}>{emp.name}</p>
+                                    <p className="text-gray-500 text-xs">{emp.position || '—'} · ฿{emp.base_salary.toLocaleString()}/เดือน{emp.sso_enrolled ? ' · ประกันสังคม' : ''}</p>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    {emp.status !== 'inactive' && (
+                                      <button onClick={() => selectEmployeeForRun(emp)} className="text-[11px] bg-green-800 hover:bg-green-700 text-green-200 px-2.5 py-1.5 rounded-lg font-medium">จ่ายเงินเดือน</button>
+                                    )}
+                                    <button onClick={() => startEditEmployee(emp)} className="p-1.5 text-gray-400 hover:text-white"><Edit3 size={13}/></button>
+                                    <button onClick={() => deleteEmployeeRecord(emp.id)} className="p-1.5 text-gray-500 hover:text-red-400"><Trash2 size={13}/></button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── รันจ่ายเงินเดือน ── */}
+                {payrollView === 'run' && (
+                  <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800 space-y-3">
+                    <h3 className="text-white font-bold">➕ รันจ่ายเงินเดือน</h3>
+                    <div>
+                      <label className="block text-gray-400 text-xs mb-1.5">พนักงาน</label>
+                      <select value={runForm.employeeId} onChange={e => {
+                          const emp = payrollEmployees.find(x => x.id === e.target.value);
+                          if (emp) selectEmployeeForRun(emp); else setRunForm(f => ({ ...f, employeeId: '', employeeName: '' }));
+                        }}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white">
+                        <option value="">— เลือกพนักงาน —</option>
+                        {payrollEmployees.filter(e => e.status !== 'inactive').map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                      </select>
+                    </div>
+                    {runForm.employeeName && (<>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-gray-400 text-xs mb-1.5">เดือนที่จ่าย</label>
+                          <input type="month" value={runForm.yearMonth} onChange={e => setRunForm(f => ({ ...f, yearMonth: e.target.value }))}
+                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
+                        </div>
+                        <div>
+                          <label className="block text-gray-400 text-xs mb-1.5">วันที่จ่ายจริง</label>
+                          <input type="date" value={runForm.paidDate} onChange={e => setRunForm(f => ({ ...f, paidDate: e.target.value }))}
+                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-gray-400 text-xs mb-1.5">เงินเดือนพื้นฐาน</label>
+                        <input type="number" value={runForm.baseSalary} onChange={e => setRunForm(f => ({ ...f, baseSalary: e.target.value }))}
+                          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-gray-400 text-xs mb-1.5">เพิ่ม (โบนัส/OT)</label>
+                          <input type="number" value={runForm.additions} onChange={e => setRunForm(f => ({ ...f, additions: e.target.value }))}
+                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
+                        </div>
+                        <div>
+                          <label className="block text-gray-400 text-xs mb-1.5">หัก (เบิกล่วงหน้า ฯลฯ)</label>
+                          <input type="number" value={runForm.deductions} onChange={e => setRunForm(f => ({ ...f, deductions: e.target.value }))}
+                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
+                        </div>
+                      </div>
+
+                      <div className="bg-gray-800 rounded-xl p-4 space-y-1.5 text-sm">
+                        <div className="flex justify-between text-gray-300"><span>ยอดก่อนหัก (Gross)</span><span>฿{runPreview.gross.toLocaleString(undefined,{minimumFractionDigits:2})}</span></div>
+                        <div className="flex justify-between text-gray-400 items-center">
+                          <span>ประกันสังคม (พนักงาน)</span>
+                          <input type="number" value={runForm.ssoEmployeeOverride} placeholder={runPreview.ssoEmployee.toFixed(2)}
+                            onChange={e => setRunForm(f => ({ ...f, ssoEmployeeOverride: e.target.value }))}
+                            className="w-24 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-right text-xs text-white"/>
+                        </div>
+                        <div className="flex justify-between text-gray-500 text-xs"><span>ประกันสังคม (นายจ้างสมทบ — ไม่หักพนักงาน)</span><span>฿{runPreview.ssoEmployer.toLocaleString(undefined,{minimumFractionDigits:2})}</span></div>
+                        <div className="flex justify-between text-gray-400 items-center">
+                          <span>ภาษีหัก ณ ที่จ่าย (ประมาณการณ์)</span>
+                          <input type="number" value={runForm.withholdingTaxOverride} placeholder={runPreview.withholding.toFixed(2)}
+                            onChange={e => setRunForm(f => ({ ...f, withholdingTaxOverride: e.target.value }))}
+                            className="w-24 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-right text-xs text-white"/>
+                        </div>
+                        <div className="flex justify-between text-white font-bold text-base pt-2 border-t border-gray-700">
+                          <span>สุทธิที่พนักงานได้รับ</span><span className="text-green-400">฿{runPreview.net.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                        </div>
+                      </div>
+
+                      <button onClick={submitPayrollRun} disabled={runSaving}
+                        className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-3 rounded-xl disabled:opacity-50">
+                        {runSaving ? 'กำลังบันทึก...' : `✅ ยืนยันจ่ายเงินเดือน ${runForm.employeeName}`}
+                      </button>
+                    </>)}
+                  </div>
+                )}
+
+                {/* ── ประวัติ ── */}
+                {payrollView === 'history' && (
+                  <div className="space-y-3">
+                    <div className="flex gap-2">
+                      <input type="month" value={payrollHistoryMonth}
+                        onChange={e => { setPayrollHistoryMonth(e.target.value); fetchPayrollRuns(e.target.value); }}
+                        className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
+                      {payrollHistoryMonth && (
+                        <button onClick={() => { setPayrollHistoryMonth(''); fetchPayrollRuns(''); }}
+                          className="px-3 bg-gray-700 text-gray-300 text-xs rounded-lg">ทั้งหมด</button>
+                      )}
+                    </div>
+                    {payrollRunsSummary && payrollRunsSummary.count > 0 && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                          <p className="text-gray-500 text-[10px]">ยอดจ่ายรวม (Gross)</p>
+                          <p className="text-white font-bold">฿{payrollRunsSummary.total_gross.toLocaleString(undefined,{minimumFractionDigits:2})}</p>
+                        </div>
+                        <div className="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                          <p className="text-gray-500 text-[10px]">ต้นทุนรวม (รวมสมทบนายจ้าง)</p>
+                          <p className="text-white font-bold">฿{(payrollRunsSummary.total_gross + payrollRunsSummary.total_sso_employer).toLocaleString(undefined,{minimumFractionDigits:2})}</p>
+                        </div>
+                      </div>
+                    )}
+                    {payrollRunsLoading ? (
+                      <div className="text-center text-gray-500 py-8 animate-pulse">กำลังโหลด...</div>
+                    ) : payrollRuns.length === 0 ? (
+                      <div className="text-center text-gray-500 py-10 text-sm">ยังไม่มีประวัติจ่ายเงินเดือน</div>
+                    ) : (
+                      <div className="bg-gray-900 rounded-2xl border border-gray-800 divide-y divide-gray-800 overflow-hidden">
+                        {payrollRuns.map(run => (
+                          <div key={run.id} className="px-5 py-3.5 flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-white font-bold text-sm truncate">{run.employee_name} <span className="text-gray-500 font-normal">· {run.year_month}</span></p>
+                              <p className="text-gray-500 text-xs">สุทธิ ฿{run.net_pay.toLocaleString(undefined,{minimumFractionDigits:2})} · {run.run_no}</p>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button onClick={() => printPayslip(run)} className="text-[11px] bg-gray-800 hover:bg-gray-700 text-gray-300 px-2.5 py-1.5 rounded-lg">🖨️ สลิป</button>
+                              <button onClick={() => cancelPayrollRun(run.id)} className="p-1.5 text-gray-500 hover:text-red-400"><Trash2 size={13}/></button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
