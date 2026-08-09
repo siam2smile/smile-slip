@@ -7914,7 +7914,7 @@ export default function POSPage() {
                             className={`w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border focus:outline-none ${
                               !billerIdOk ? 'border-red-600 focus:border-red-500' : 'border-gray-700 focus:border-green-500'
                             }`}
-                            placeholder="เช่น 010753600031508"
+                            placeholder='ตัวเลขล้วน 15 หลัก (ดูในเมนู "แก้ไขข้อมูลร้านค้า"/Merchant Settings ของแอปธนาคาร)'
                           />
                           {!billerIdOk && (
                             <p className="text-red-400 text-xs mt-1.5">❌ {validateBillerId(posSettingsForm.scb_biller_id, 'x').message}</p>
@@ -7930,7 +7930,7 @@ export default function POSPage() {
                               className={`w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border focus:outline-none ${
                                 !posSettingsForm.scb_biller_ref1?.trim() || posSettingsForm.scb_biller_ref1.trim().length > 20 ? 'border-red-600 focus:border-red-500' : 'border-gray-700 focus:border-green-500'
                               }`}
-                              placeholder="เช่น KPS004KB000001925570 (โชว์คู่กับ Biller ID ในหน้าจอ QR ของแอปธนาคาร)"
+                              placeholder="ตัวเลข/ตัวอักษรที่โชว์คู่กับ Biller ID ในหน้าจอ QR ของแอปธนาคาร (ไม่เกิน 20 ตัวอักษร)"
                               maxLength={20}
                             />
                           </div>
