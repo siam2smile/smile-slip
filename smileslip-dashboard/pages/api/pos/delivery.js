@@ -246,7 +246,13 @@ export default async function handler(req, res) {
         }
       }
 
-      // อัปเดตจำนวนถังกับลูกค้า (สินค้าหมุนเวียน) + เช็ควงเงินยืมสูงสุด (soft warning ไม่บล็อค)
+      // จำนวนถังกับลูกค้า (สินค้าหมุนเวียน) — **ไม่คอมมิตค่าจริงตรงนี้แล้ว** เดิมเคยบวก
+      // cylinders_delivered เข้า cust.cylinders ทันทีตอนสร้างออเดอร์ (สมมติว่าลูกค้าจะไม่คืน
+      // ของเดิมเลยสักชิ้น) แล้ว confirm_delivery ก็ไปบวกซ้ำอีกทีด้วยยอดสุทธิจริง (net หลังหักคืน)
+      // — ทำให้ยอด "ถังอยู่กับลูกค้า" เฟ้อขึ้นเป็น 2 เท่าทุกครั้งที่ลูกค้าไม่ได้คืนของเก่าครบ 100%
+      // (เจอบั๊กจริงจากผู้ใช้ทดสอบระบบขายจริง หน้าผู้ติดต่อขึ้น "ค้างสินค้า" ทั้งที่ยืนยันจัดส่งไปแล้ว)
+      // แก้โดยเลื่อนการคอมมิตยอดจริงไปไว้ที่ confirm_delivery จุดเดียว (เหมือนสต็อคสินค้าที่ก็ไม่ถูก
+      // แตะตอนสร้างออเดอร์อยู่แล้วเช่นกัน — รอให้รู้ผลจริงตอนยืนยันจัดส่งสำเร็จก่อนค่อยคอมมิต)
       const deliveryWarnings = [];
       // เตือน (ไม่บล็อค) ถ้าสร้างออเดอร์โดยไม่มีที่อยู่/เบอร์โทร/ลิงก์แผนที่ — พนักงานส่งของจะเปิดมาเจอ
       // ไม่มีทางติดต่อ/หาที่อยู่ลูกค้าเลย และถ้ายอดรวมเป็น 0 ทั้งที่มีสินค้า อาจเป็นราคาที่กรอกผิด
@@ -255,29 +261,20 @@ export default async function handler(req, res) {
       if (!phone.trim()) deliveryWarnings.push('⚠️ ไม่ได้กรอกเบอร์โทรลูกค้า');
       if (total <= 0 && items.length) deliveryWarnings.push('⚠️ ยอดรวมออเดอร์เป็น 0 บาท ทั้งที่มีรายการสินค้า');
       if (cylinders_delivered > 0 && customer_id) {
+        // แค่เตือนแบบประมาณการณ์ (ไม่ commit ค่าจริง) ว่าถ้าลูกค้าไม่คืนของเดิมเลยสักชิ้น จะดันยอด
+        // เกินวงเงินยืมสูงสุดที่ตั้งไว้หรือไม่ — ยอดจริงคำนวณและคอมมิตอีกทีตอนยืนยันจัดส่งสำเร็จ
         try {
           const { data: cust } = await supabase.from('pos_contacts').select('cylinders, cylinder_limit')
             .eq('shop_id', shopId).eq('contact_id', customer_id).is('deleted_at', null).maybeSingle();
-          if (cust) {
-            const newCylinders = (Number(cust.cylinders) || 0) + cylinders_delivered;
-            await supabase.from('pos_contacts').update({
-              cylinders: newCylinders, contact_updated_at: now,
-            }).eq('shop_id', shopId).eq('contact_id', customer_id);
-            if (Number(cust.cylinder_limit) > 0 && newCylinders > Number(cust.cylinder_limit)) {
-              deliveryWarnings.push(`⚠️ ลูกค้ายืมสินค้าหมุนเวียนเกินวงเงินที่ตั้งไว้ (${newCylinders}/${cust.cylinder_limit})`);
+          if (cust && Number(cust.cylinder_limit) > 0) {
+            const projected = (Number(cust.cylinders) || 0) + cylinders_delivered;
+            if (projected > Number(cust.cylinder_limit)) {
+              deliveryWarnings.push(`⚠️ ถ้าลูกค้าไม่คืนของเดิมเลย จะยืมสินค้าหมุนเวียนเกินวงเงินที่ตั้งไว้ (${projected}/${cust.cylinder_limit})`);
             }
           }
         } catch (cylErr) {
-          console.error('[delivery] update customer cylinders error:', cylErr.message);
+          console.error('[delivery] cylinder-limit warning check error:', cylErr.message);
         }
-        // audit log — ยืมสินค้าหมุนเวียนไปกับออเดอร์จัดส่งนี้ (รวมเป็นยอดเดียว ไม่แยกราย SKU
-        // เพราะ cylinders_delivered ที่ส่งมาเป็นยอดรวมอยู่แล้ว ไม่ได้แยกต่อสินค้า)
-        await logCyclicalTransaction({
-          shopId,
-          sku: '', name: 'สินค้าหมุนเวียน (รวม)', source: 'จัดส่ง', action: 'ยืม',
-          qty: cylinders_delivered, customerId: customer_id, customerName: customer_name,
-          performedBy: staff_name || created_by,
-        });
       }
 
       // LINE push หาพนักงาน
@@ -303,7 +300,7 @@ export default async function handler(req, res) {
         customer_id, customer_name, phone, address,
         items, total, payment_method, staff_id, staff_name,
         confirm_delivery, slip_url, confirmed_by, cash_received, goods_received, credit_settled,
-        partial_paid_amount,
+        partial_paid_amount, collected_method,
       } = req.body;
       if (!order_no) return res.status(400).json({ error: 'Missing order_no' });
 
@@ -334,6 +331,12 @@ export default async function handler(req, res) {
       // ลดยอด "ยอดค้างชำระ" ของผู้ติดต่อกลับลง (ตอนสร้างออเดอร์ ค้างจ่าย เคยบวกยอดนี้ไว้แล้ว)
       if (credit_settled === true && !existing.credit_settled) {
         updates.credit_settled = true;
+        // บันทึกว่าลูกค้าเอาอะไรมาจ่ายจริง (เงินสด/โอน) ไว้ในหมายเหตุออเดอร์ — ไม่กระทบ
+        // payment_method เดิม (ยังคง 'ค้างจ่าย' ตลอดไป ตรงกับที่ type=credit ใน reports.js กรองด้วย)
+        if (collected_method) {
+          const methodLabel = collected_method === 'โอน' ? 'โอน' : 'เงินสด';
+          updates.notes = [existing.notes, `ชำระด้วย: ${methodLabel}`].filter(Boolean).join(' | ');
+        }
         const custId = customer_id !== undefined ? customer_id : existing.customer_id;
         const orderTotal = total !== undefined ? parseFloat(total) || 0 : existing.total;
         if (custId && orderTotal > 0) {
@@ -352,7 +355,7 @@ export default async function handler(req, res) {
         }
       }
 
-      let debtAdded = 0;
+      let orderRemainingDebt = 0; // ยอดค้างชำระของ "ออเดอร์นี้" หลัง confirm — ใช้แสดงในใบเสร็จ/สรุปฝั่งพนักงาน
       if (confirm_delivery) {
         updates.status = 'ส่งแล้ว'; // ใช้ label เดียวกับสถานะที่แอดมินกดเปลี่ยนเองในหน้า pos.js
         updates.confirmed_at = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
@@ -362,24 +365,33 @@ export default async function handler(req, res) {
         const cust = customer_id !== undefined ? customer_id : existing.customer_id;
         let netCylinderDeltaForCustomer = 0;
 
-        // พนักงานเลือก "ค้างจ่าย" ตอนยืนยันจัดส่ง (คนละจุดกับตอนสร้างออเดอร์) — รองรับจ่ายมาบางส่วนได้ด้วย:
-        // ค้างชำระ = ยอดสุทธิ - จ่ายมาแล้ว (ไม่ต่ำกว่า 0)
-        if (payment_method === 'ค้างจ่าย' && cust) {
+        // ── หนี้เชื่อ: ต้อง "กระทบยอด" (reconcile) กับหนี้ที่อาจคอมมิตไปแล้วตั้งแต่ตอนสร้างออเดอร์
+        // (POST handler บวก debt ทันทีถ้า payment_method='ค้างจ่าย' ตอนสร้าง) ไม่ใช่บวกซ้ำแบบไม่มี
+        // เงื่อนไข — เดิมเป็นบั๊กคู่: (1) หน้ายืนยันจัดส่งของพนักงาน (pos-staff.js) พรีฟิลวิธีชำระเป็น
+        // ค่าเดิมตอนสร้างออเดอร์เป๊ะ ถ้าพนักงานไม่เปลี่ยนอะไรเลย (กรณีปกติที่สุด — ลูกค้ายังค้างเหมือนเดิม)
+        // จะบวกหนี้เข้าไปซ้ำสองเท่าเงียบๆ (2) ถ้าลูกค้าจ่ายเต็มตอนของถึงจริง พนักงานเปลี่ยนวิธีชำระ
+        // เป็นเงินสด/โอนตอนยืนยัน หนี้เดิมที่คอมมิตไว้ตั้งแต่สร้างออเดอร์ก็ไม่เคยถูกล้างออกเลยสักครั้ง
+        // (ค้างชำระไม่มีทางกลับมาเป็น 0 บาทได้เลยแม้จะรับเงินเต็มจำนวนแล้วจริงๆ)
+        const wasCreditAtCreation = existing.payment_method === 'ค้างจ่าย';
+        const creationDebtAmount = wasCreditAtCreation ? (Number(existing.total) || 0) : 0;
+        const nowCredit = payment_method === 'ค้างจ่าย';
+        if (cust && (wasCreditAtCreation || nowCredit)) {
           const orderTotal = total !== undefined ? parseFloat(total) || 0 : existing.total;
           const paidNow = Math.min(orderTotal, Math.max(0, parseFloat(partial_paid_amount) || 0));
-          debtAdded = Math.round((orderTotal - paidNow) * 100) / 100;
-          if (debtAdded > 0) {
+          orderRemainingDebt = nowCredit ? Math.max(0, Math.round((orderTotal - paidNow) * 100) / 100) : 0;
+          const contactDebtDelta = Math.round((orderRemainingDebt - creationDebtAmount) * 100) / 100;
+          if (contactDebtDelta !== 0) {
             try {
               const { data: custRow } = await supabase.from('pos_contacts').select('debt')
                 .eq('shop_id', shopId).eq('contact_id', cust).is('deleted_at', null).maybeSingle();
               if (custRow) {
                 await supabase.from('pos_contacts').update({
-                  debt: (Number(custRow.debt) || 0) + debtAdded,
+                  debt: Math.max(0, (Number(custRow.debt) || 0) + contactDebtDelta),
                   contact_updated_at: new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }),
                 }).eq('shop_id', shopId).eq('contact_id', cust);
               }
             } catch (debtErr) {
-              console.error('[delivery] confirm_delivery add debt error:', debtErr.message);
+              console.error('[delivery] confirm_delivery reconcile debt error:', debtErr.message);
             }
           }
         }
@@ -463,7 +475,7 @@ export default async function handler(req, res) {
       const { error } = await supabase.from('pos_delivery_orders').update(updates)
         .eq('shop_id', shopId).eq('order_no', order_no);
       if (error) throw error;
-      return res.json({ ok: true, order_no, debtAdded });
+      return res.json({ ok: true, order_no, debtAdded: orderRemainingDebt });
     }
 
     // ── DELETE — ลบออเดอร์ (เช่น ลูกค้ามารับเองแทนการจัดส่ง) ──────────────────

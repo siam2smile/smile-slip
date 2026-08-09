@@ -186,8 +186,18 @@ export default async function handler(req, res) {
 
     // ── PATCH (รับชำระเงินเชื่อ) ─────────────────────────────────────────
     if (req.method === 'PATCH') {
-      const { bill_no, notes: patchNotes = '' } = req.body;
+      const { bill_no, notes: patchNotes = '', collected_method = 'เงินสด' } = req.body;
       if (!bill_no) return res.status(400).json({ error: 'Missing bill_no' });
+      // วิธีที่ลูกค้าเอามาจ่ายจริงตอนมาชำระเชื่อที่ร้าน (เงินสด/โอน) — เดิม hardcode เป็น
+      // "เชื่อ/ชำระแล้ว" เสมอ (ตกไปแสดงเป็น "เงินสด" ในบัญชีหลักทุกครั้งไม่ว่าจะจ่ายด้วยวิธีไหนจริง
+      // เพราะ writeToMainSheets แปลค่าอื่นที่ไม่ใช่ "โอน" เป็น "เงินสด" หมด) — **ตั้งใจไม่เปลี่ยน
+      // pos_sales.payment_method เอง (ยังคงเป็น "เชื่อ" ตลอดไป)** เพราะ type=credit ใน reports.js
+      // ใช้ payment_method==='เชื่อ' เป็นตัวกรองว่าบิลนี้เคยเป็นเงินเชื่อ (รวมที่ชำระแล้ว) ถ้าเปลี่ยน
+      // จะทำให้บิลที่ชำระแล้วหายจากรายงานเงินเชื่อไปเลย — บันทึกวิธีชำระจริงไว้ใน notes + ป้ายในบัญชี
+      // หลักแทน (known gap: ยังไม่ผูกเข้าระบบกะเงินสด/computeExpectedCash เพราะต้องแยกคอลัมน์ใหม่
+      // ก่อนถึงจะทำได้โดยไม่ชนกับตัวกรองรายงานเงินเชื่อข้างบน — รอทำต่อถ้าจำเป็นจริง)
+      const methodLabel = collected_method === 'โอน' ? 'โอน' : 'เงินสด';
+      const collectNote = `ชำระด้วย: ${methodLabel}`;
 
       const { data: existing, error: fetchErr } = await supabase.from('pos_sales').select('*')
         .eq('shop_id', shopId).eq('bill_no', bill_no).is('deleted_at', null).maybeSingle();
@@ -196,7 +206,7 @@ export default async function handler(req, res) {
       if (existing.status === 'ชำระแล้ว') return res.status(400).json({ error: 'ชำระแล้ว' });
 
       const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-      const mergedNotes = patchNotes ? [existing.notes, patchNotes].filter(Boolean).join(' | ') : existing.notes;
+      const mergedNotes = [existing.notes, collectNote, patchNotes].filter(Boolean).join(' | ');
 
       const { error } = await supabase.from('pos_sales').update({
         status: 'ชำระแล้ว', paid_at: now, notes: mergedNotes,
@@ -207,7 +217,7 @@ export default async function handler(req, res) {
       const sale = saleFromRow({ ...existing, status: 'ชำระแล้ว', paid_at: now, notes: mergedNotes });
       await writeToMainSheets(token, mainSheetId, {
         shopId, billNo: sale.bill_no, items: sale.items, total: sale.total,
-        payMethod: 'เชื่อ/ชำระแล้ว',
+        payMethod: methodLabel,
         customerName: sale.customer_name, notes: sale.notes,
         shopName, branchName, slipUrl: '', slipSender: '', slipRefNo: '',
         vatAmount: vatRegistered ? sale.vat_amount : 0,

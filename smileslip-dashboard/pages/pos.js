@@ -591,6 +591,7 @@ export default function POSPage() {
   const [reportStatusFilter, setReportStatusFilter] = useState('ทั้งหมด');
   const [reportTaxYear, setReportTaxYear] = useState(new Date().getFullYear());
   const [expandedCredit, setExpandedCredit] = useState(null);
+  const [creditPayChoice, setCreditPayChoice] = useState(null); // {billNo, source, custName, amount} — ให้เลือกเงินสด/โอนก่อนบันทึกรับชำระ
   const [expandedCyclicalCust, setExpandedCyclicalCust] = useState(null);
   const [cyclicalHoldingsCache, setCyclicalHoldingsCache] = useState({}); // { contact_id: { sku: qty } | 'unreconciled' }
   const [expandedLoan, setExpandedLoan] = useState(null);
@@ -4059,19 +4060,20 @@ export default function POSPage() {
   }
 
   // source: 'pos' (ขายเชื่อหน้าร้าน) หรือ 'delivery' (ออเดอร์จัดส่งค้างจ่าย) — คนละ endpoint กัน
-  async function markCreditPaid(billNo, source = 'pos') {
-    if (!confirm(`ยืนยันรับชำระบิล ${billNo}?`)) return;
+  // collected_method: 'เงินสด' | 'โอน' — ลูกค้าเอาอะไรมาจ่ายจริงตอนมาชำระที่ร้าน (เลือกผ่าน modal
+  // creditPayChoice ก่อนเสมอ ไม่เดาว่าเป็นเงินสดเฉยๆ แบบเดิม)
+  async function markCreditPaid(billNo, source = 'pos', collected_method = 'เงินสด') {
     try {
       const r = source === 'delivery'
         ? await fetch('/api/pos/delivery', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ shopId, order_no: billNo, credit_settled: true }),
+            body: JSON.stringify({ shopId, order_no: billNo, credit_settled: true, collected_method }),
           })
         : await fetch('/api/pos/sales', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ shopId, bill_no: billNo }),
+            body: JSON.stringify({ shopId, bill_no: billNo, collected_method }),
           });
       const d = await r.json();
       if (d.ok) { showToast('✅ บันทึกรับชำระแล้ว'); fetchReport(); }
@@ -6240,6 +6242,33 @@ export default function POSPage() {
             </div>
           )}
 
+          {/* ══ MODAL: เลือกวิธีชำระตอนรับชำระเงินเชื่อ (เงินสด/โอน) ══════════════ */}
+          {creditPayChoice && (
+            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-gray-900 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl">
+                <div className="p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-white font-bold">✅ รับชำระ {creditPayChoice.billNo}</h3>
+                    <button onClick={() => setCreditPayChoice(null)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+                  </div>
+                  <div className="text-gray-400 text-sm mb-1">{creditPayChoice.custName}</div>
+                  <div className="text-white text-2xl font-bold mb-4">฿{(creditPayChoice.amount || 0).toLocaleString()}</div>
+                  <div className="text-gray-400 text-xs mb-2">ลูกค้าเอาเงินมาจ่ายด้วยวิธีไหน?</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button onClick={() => { markCreditPaid(creditPayChoice.billNo, creditPayChoice.source, 'เงินสด'); setCreditPayChoice(null); }}
+                      className="bg-green-700 hover:bg-green-600 text-white font-bold py-3 rounded-xl transition-colors">
+                      💵 เงินสด
+                    </button>
+                    <button onClick={() => { markCreditPaid(creditPayChoice.billNo, creditPayChoice.source, 'โอน'); setCreditPayChoice(null); }}
+                      className="bg-blue-700 hover:bg-blue-600 text-white font-bold py-3 rounded-xl transition-colors">
+                      🏦 โอน
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ══ MODAL: ส่งพนักงานไปเก็บเงินเชื่อ/สินค้ายืม ══════════════════════ */}
           {showCollectDispatch && collectDispatchCust && (
             <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
@@ -6747,6 +6776,19 @@ export default function POSPage() {
                                 {cust.paid > 0 && <div className="text-green-400 text-xs">ชำระแล้ว ฿{cust.paid.toLocaleString()}</div>}
                               </div>
                             </button>
+                            {cust.outstanding > 0 && (
+                              <div className="px-4 pb-3 -mt-1">
+                                <button
+                                  onClick={() => {
+                                    const matched = contacts.find(c => c.contact_id === cust.customer_id);
+                                    if (matched) openCollectDispatch(matched);
+                                    else alert('ไม่พบข้อมูลผู้ติดต่อนี้ในระบบ (อาจถูกลบไปแล้ว หรือบิลนี้ไม่ได้ผูกกับผู้ติดต่อ) — ไปที่หน้าผู้ติดต่อเพื่อส่งงานเก็บเงินแทน');
+                                  }}
+                                  className="text-xs bg-orange-800 hover:bg-orange-700 text-orange-200 hover:text-white px-3 py-1.5 rounded-lg transition-colors">
+                                  📤 ส่งพนักงานไปเก็บ
+                                </button>
+                              </div>
+                            )}
                             {expandedCredit === cust.customer_name && (
                               <div className="border-t border-gray-800 divide-y divide-gray-800/50">
                                 {(cust.bills||[]).map((bill, j) => (
@@ -6765,7 +6807,7 @@ export default function POSPage() {
                                       <div className="text-white font-bold text-sm">฿{bill.total.toLocaleString()}</div>
                                       <span className={`text-xs px-2 py-0.5 rounded-full ${bill.status==='ค้างชำระ' ? 'bg-red-900/60 text-red-300' : 'bg-green-900/60 text-green-300'}`}>{bill.status}</span>
                                       {bill.status === 'ค้างชำระ' && (
-                                        <button onClick={() => markCreditPaid(bill.bill_no, bill.source)}
+                                        <button onClick={() => setCreditPayChoice({ billNo: bill.bill_no, source: bill.source, custName: cust.customer_name, amount: bill.total })}
                                           className="text-xs bg-green-700 hover:bg-green-600 text-white px-2 py-0.5 rounded-lg transition-colors">
                                           ✅ รับชำระ
                                         </button>
