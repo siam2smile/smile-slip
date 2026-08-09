@@ -3321,13 +3321,27 @@ export default function POSPage() {
     return `${Math.floor(days / 365)} ปีก่อน`;
   }
 
-  // ตัวกรองออเดอร์จัดส่ง — สถานะ (ค้าง/จัดส่งแล้ว) + วันที่ (วันนี้/เดือนนี้) กันหายากตอนออเดอร์เยอะ
+  // ออเดอร์ที่พนักงานยืนยันจัดส่งแล้ว (status='ส่งแล้ว') ยังไม่ถือว่า "เสร็จสมบูรณ์" จนกว่าแอดมิน/
+  // แคชเชียร์จะกดยืนยันรับเงิน/รับของคืนเข้าคลังครบทุกอย่างที่เกี่ยวข้องก่อน (สองชั้นกันเงิน/ของหาย,
+  // ปุ่มยืนยันอยู่ในการ์ดออเดอร์ด้านล่าง) — pattern เดียวกับ isFullyDone ของแท็บ "เก็บเงิน/ของ"
+  function isOrderFullyConfirmed(order) {
+    if (order.status !== 'ส่งแล้ว') return false;
+    const needsCash = order.payment_method !== 'ค้างจ่าย';
+    const needsGoods = Array.isArray(order.items) && order.items.some(i => i.returned_qty > 0);
+    return (!needsCash || order.cash_received) && (!needsGoods || order.goods_received);
+  }
+
+  // ตัวกรองออเดอร์จัดส่ง — สถานะ (ค้าง/รอยืนยัน/จัดส่งแล้ว) + วันที่ (วันนี้/เดือนนี้) กันหายากตอนออเดอร์เยอะ
+  // — "รอยืนยัน" แยกออกมาจาก "จัดส่งแล้ว" เพราะเดิมปนกันหมด ทำให้ต้องเลื่อนหาออเดอร์ที่พนักงานส่งแล้ว
+  // แต่แอดมินยังไม่ได้กดรับเงิน/รับของ ท่ามกลางออเดอร์ที่เสร็จสมบูรณ์แล้วจริงๆ (ช้ามากตอนออเดอร์เยอะ)
   const displayOrders = useMemo(() => {
     let list = orders;
     if (orderStatusFilter === 'pending') {
       list = list.filter(o => o.status === 'รอจัดส่ง' || o.status === 'กำลังส่ง');
+    } else if (orderStatusFilter === 'awaiting_confirm') {
+      list = list.filter(o => o.status === 'ส่งแล้ว' && !isOrderFullyConfirmed(o));
     } else if (orderStatusFilter === 'delivered') {
-      list = list.filter(o => o.status === 'ส่งแล้ว');
+      list = list.filter(o => isOrderFullyConfirmed(o));
     }
     if (orderDateFilter !== 'all') {
       const today = new Date();
@@ -4770,15 +4784,24 @@ export default function POSPage() {
                   {cart.length === 0 ? (
                     <div className="text-center text-gray-600 py-8 text-sm">เลือกสินค้าเพื่อเพิ่มในตะกร้า</div>
                   ) : cart.map(item => (
-                    <div key={item.sku} className="flex items-center gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-white text-xs font-medium truncate">{item.name}</div>
-                        <div className="text-green-400 text-xs">฿{(item.price * item.qty).toLocaleString()}</div>
+                    <div key={item.sku} className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0 text-white text-xs font-medium truncate">{item.name}</div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button onClick={() => updateQty(item.sku, item.qty - 1)} className="w-6 h-6 rounded-full bg-gray-700 hover:bg-red-700 text-white text-sm flex items-center justify-center transition-colors">−</button>
+                          <span className="text-white text-xs w-6 text-center">{item.qty}</span>
+                          <button onClick={() => updateQty(item.sku, item.qty + 1)} className="w-6 h-6 rounded-full bg-gray-700 hover:bg-green-700 text-white text-sm flex items-center justify-center transition-colors">+</button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button onClick={() => updateQty(item.sku, item.qty - 1)} className="w-6 h-6 rounded-full bg-gray-700 hover:bg-red-700 text-white text-sm flex items-center justify-center transition-colors">−</button>
-                        <span className="text-white text-xs w-6 text-center">{item.qty}</span>
-                        <button onClick={() => updateQty(item.sku, item.qty + 1)} className="w-6 h-6 rounded-full bg-gray-700 hover:bg-green-700 text-white text-sm flex items-center justify-center transition-colors">+</button>
+                      {/* แก้ราคาต่อรายการได้ตรงนี้เลย — เดิมต้องเปิด modal ชำระเงินก่อนถึงจะแก้ได้
+                          ทำให้กดจัดส่งตรงๆ ไม่ได้ถ้าจะแก้ราคาก่อน (updatePrice() ใช้ฟังก์ชันเดียวกับใน
+                          modal ชำระเงิน แก้ที่ cart ตรงๆ เลย ใช้ได้ทั้งสองทาง) */}
+                      <div className="flex items-center gap-1.5 justify-end">
+                        <span className="text-gray-500 text-xs">฿</span>
+                        <input type="number" value={item.price} min="0"
+                          onChange={e => updatePrice(item.sku, e.target.value)}
+                          className="w-16 bg-gray-800 text-white text-right px-1.5 py-1 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500 text-xs"/>
+                        <span className="text-green-400 text-xs w-16 text-right">= ฿{(item.price * item.qty).toLocaleString()}</span>
                       </div>
                     </div>
                   ))}
@@ -5549,7 +5572,8 @@ export default function POSPage() {
                   {[
                     { v: 'all', label: 'ทั้งหมด' },
                     { v: 'pending', label: '🕒 ค้างจัดส่ง' },
-                    { v: 'delivered', label: '✅ จัดส่งแล้ว' },
+                    { v: 'awaiting_confirm', label: '💰 รอยืนยันรับเงิน/ของ' },
+                    { v: 'delivered', label: '✅ จัดส่งสำเร็จ' },
                   ].map(f => (
                     <button key={f.v} onClick={() => setOrderStatusFilter(f.v)}
                       className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${orderStatusFilter === f.v ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
@@ -7916,15 +7940,22 @@ export default function POSPage() {
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {cart.map(item => (
-                <div key={item.sku} className="flex items-center gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="text-white text-sm font-medium truncate">{item.name}</div>
-                    <div className="text-green-400 text-xs">฿{(item.price * item.qty).toLocaleString()}</div>
+                <div key={item.sku} className="space-y-1.5">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 min-w-0 text-white text-sm font-medium truncate">{item.name}</div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button onClick={() => updateQty(item.sku, item.qty - 1)} className="w-7 h-7 rounded-full bg-gray-700 hover:bg-red-700 text-white flex items-center justify-center transition-colors">−</button>
+                      <span className="text-white text-sm w-6 text-center">{item.qty}</span>
+                      <button onClick={() => updateQty(item.sku, item.qty + 1)} className="w-7 h-7 rounded-full bg-gray-700 hover:bg-green-700 text-white flex items-center justify-center transition-colors">+</button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <button onClick={() => updateQty(item.sku, item.qty - 1)} className="w-7 h-7 rounded-full bg-gray-700 hover:bg-red-700 text-white flex items-center justify-center transition-colors">−</button>
-                    <span className="text-white text-sm w-6 text-center">{item.qty}</span>
-                    <button onClick={() => updateQty(item.sku, item.qty + 1)} className="w-7 h-7 rounded-full bg-gray-700 hover:bg-green-700 text-white flex items-center justify-center transition-colors">+</button>
+                  {/* แก้ราคาต่อรายการได้ตรงนี้เลย (เหมือนฝั่ง desktop sidebar) — ไม่ต้องเปิด modal ชำระเงินก่อน */}
+                  <div className="flex items-center gap-1.5 justify-end">
+                    <span className="text-gray-500 text-xs">฿</span>
+                    <input type="number" value={item.price} min="0"
+                      onChange={e => updatePrice(item.sku, e.target.value)}
+                      className="w-20 bg-gray-800 text-white text-right px-2 py-1 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500 text-sm"/>
+                    <span className="text-green-400 text-xs w-20 text-right">= ฿{(item.price * item.qty).toLocaleString()}</span>
                   </div>
                 </div>
               ))}
