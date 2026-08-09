@@ -42,11 +42,13 @@ export default async function handler(req, res) {
     // แทนที่จะทำให้ทั้ง endpoint พังจนตั้งค่า promptpay เดิมใช้ไม่ได้ไปด้วย
     let receipt_paper_size = '80mm';
     let vat_registered = false;
+    let scb_biller_ref1 = '';
     try {
       const { data: rd } = await supabase
-        .from('pos_configs').select('receipt_paper_size, vat_registered').eq('shop_id', shopId).single();
+        .from('pos_configs').select('receipt_paper_size, vat_registered, scb_biller_ref1').eq('shop_id', shopId).single();
       if (rd?.receipt_paper_size) receipt_paper_size = rd.receipt_paper_size;
       vat_registered = !!rd?.vat_registered;
+      scb_biller_ref1 = rd?.scb_biller_ref1 || '';
     } catch {}
 
     return res.json({
@@ -55,6 +57,7 @@ export default async function handler(req, res) {
       has_kbank: !!(data?.kbank_api_key),
       has_scb: !!(data?.scb_api_key),
       scb_biller_id: data?.scb_biller_id || '',
+      scb_biller_ref1,
       receipt_paper_size,
       vat_registered,
     });
@@ -65,7 +68,7 @@ export default async function handler(req, res) {
     // ไม่ว่าจะเปิดสิทธิ์อะไรก็ตาม (เจ้าของ/แอดมินเท่านั้น ต้องพิสูจน์ owner-session จริง)
     if (!blockAllStaffSessions(req, res, shopId)) return;
 
-    const { promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, receipt_paper_size, vat_registered } = req.body;
+    const { promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, scb_biller_ref1, receipt_paper_size, vat_registered } = req.body;
 
     // Biller ID (Thai QR Bill Payment, Tag 30) ต้องเป็นตัวเลขล้วน 15 หลักตามมาตรฐาน ITMX เสมอ —
     // สาเหตุที่พบบ่อยที่สุดที่ QR สแกนไม่ได้ ("QR ไม่ถูกต้อง") คือกรอกเลข "เลขอ้างอิง"/Reference
@@ -80,6 +83,19 @@ export default async function handler(req, res) {
       }
       if (digitsOnly.length !== 15) {
         return res.status(400).json({ error: `Biller ID ต้องมี 15 หลักพอดี (กรอกมา ${digitsOnly.length} หลัก) — ถ้าไม่แน่ใจว่าเลขไหนถูก ให้ไปดูในเมนู "แก้ไขข้อมูลร้านค้า"/Merchant Settings ของแอปธนาคาร ไม่ใช่เลขที่โชว์หน้าจอ QR` });
+      }
+      // Reference 1 (sub-tag 02 ของ Tag 30) เป็นฟิลด์ "บังคับ" (Mandatory) ตามสเปกทางการของ
+      // ธปท. (Bank of Thailand — Standardized Thai QR Code for Payment Transactions, Attachment 1
+      // ตาราง 2.3: Tag 30 > Reference 1 > Presence = "M") ไม่ใช่แค่ทางเลือกเสริมแบบ Reference 2 —
+      // เดิมโค้ดสร้าง QR ไม่เคยส่งค่านี้เลยสักครั้ง (ปล่อยว่างเสมอ) ทำให้ QR ที่ได้ขาดฟิลด์บังคับ
+      // แอปธนาคารบางเจ้า (ยืนยันแล้วกับ K PLUS) ปฏิเสธทันทีด้วย "ข้อมูล QR/บาร์โค้ดไม่ถูกต้อง"
+      // ก่อนจะถึงขั้นเช็คว่า biller มีจริงไหมด้วยซ้ำ — ค่าที่ใส่ควรเป็น "เลขอ้างอิง" ที่แอปธนาคาร
+      // ของร้านโชว์คู่กับ Biller ID เอง (เช่น K SHOP โชว์ "เลขอ้างอิง: KPS004KB000001925570")
+      if (!scb_biller_ref1 || !String(scb_biller_ref1).trim()) {
+        return res.status(400).json({ error: 'ต้องกรอก "เลขอ้างอิง" (Reference 1) คู่กับ Biller ID เสมอ — เป็นฟิลด์บังคับตามมาตรฐาน ธปท. ไม่ใช่ทางเลือกเสริม ไปดูค่านี้ที่หน้าจอ "QR รับเงิน" ของแอปธนาคาร (จะโชว์คู่กับ Biller ID เช่น "เลขอ้างอิง: KPS004KB000001925570")' });
+      }
+      if (String(scb_biller_ref1).trim().length > 20) {
+        return res.status(400).json({ error: 'เลขอ้างอิง (Reference 1) ต้องไม่เกิน 20 ตัวอักษร' });
       }
     }
 
@@ -104,6 +120,11 @@ export default async function handler(req, res) {
     if (vat_registered !== undefined) {
       try {
         await supabase.from('pos_configs').update({ vat_registered: !!vat_registered }).eq('shop_id', shopId);
+      } catch {}
+    }
+    if (scb_biller_ref1 !== undefined) {
+      try {
+        await supabase.from('pos_configs').update({ scb_biller_ref1: scb_biller_ref1 ? String(scb_biller_ref1).trim() : null }).eq('shop_id', shopId);
       } catch {}
     }
 

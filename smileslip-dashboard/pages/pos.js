@@ -62,7 +62,7 @@ function emptyProdForm() {
 // อันดับ 1 ที่ QR สแกนไม่ได้คือกรอก "เลขอ้างอิง"/Reference number ที่แอปธนาคารโชว์หน้าจอ QR ผิดตัว
 // มาแทน (มักมีตัวอักษรปน เช่น "KPS004KB...") ต้องเตือนตั้งแต่ตอนกรอก ไม่ใช่ปล่อยให้เซฟแล้วไปพังตอน
 // สแกนจริงซึ่งจะโดน error กำกวมจากแอปธนาคารว่า "QR ไม่ถูกต้อง" เฉยๆ ไม่รู้ว่าพังเพราะอะไร
-function validateBillerId(raw) {
+function validateBillerId(raw, ref1raw) {
   if (!raw) return { empty: true, valid: true, digitsOnly: '' };
   const digitsOnly = String(raw).replace(/[\s-]/g, '');
   if (!/^\d+$/.test(digitsOnly)) {
@@ -70,6 +70,14 @@ function validateBillerId(raw) {
   }
   if (digitsOnly.length !== 15) {
     return { empty: false, valid: false, digitsOnly, message: `มี ${digitsOnly.length} หลัก แต่ Biller ID จริงต้องมี 15 หลักพอดี` };
+  }
+  // เลขอ้างอิง (Reference 1) เป็นฟิลด์บังคับตามสเปก ธปท. คู่กับ Biller ID เสมอ — ไม่ใช่ทางเลือกเสริม
+  // (ดูเหตุผลเต็มใน api/pos/pos-config.js) ไม่มีค่านี้ QR จะขาดฟิลด์บังคับ สแกนไม่ได้แน่นอน
+  if (!ref1raw || !String(ref1raw).trim()) {
+    return { empty: false, valid: false, digitsOnly, message: 'ต้องกรอก "เลขอ้างอิง" (Reference 1) คู่กันด้วยเสมอ — เป็นฟิลด์บังคับ ไม่ใช่ทางเลือกเสริม' };
+  }
+  if (String(ref1raw).trim().length > 20) {
+    return { empty: false, valid: false, digitsOnly, message: 'เลขอ้างอิงต้องไม่เกิน 20 ตัวอักษร' };
   }
   return { empty: false, valid: true, digitsOnly };
 }
@@ -507,8 +515,8 @@ export default function POSPage() {
   const [qrLoading, setQrLoading] = useState(false);
 
   // POS settings (PromptPay + Biller ID) — Staff PIN เปลี่ยนเป็นรายบุคคลแล้ว ไม่มี PIN ร้านรวมอีกต่อไป
-  const [posConfig, setPosConfig] = useState({ promptpay_id: '', scb_biller_id: '', receipt_paper_size: '80mm', vat_registered: false });
-  const [posSettingsForm, setPosSettingsForm] = useState({ promptpay_id: '', scb_biller_id: '', vat_registered: false });
+  const [posConfig, setPosConfig] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', receipt_paper_size: '80mm', vat_registered: false });
+  const [posSettingsForm, setPosSettingsForm] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', vat_registered: false });
   const [settingsSaving, setSettingsSaving] = useState(false);
 
   // ── เปิดกะ/ปิดกะเงินสด (ผูกกับพนักงานรายคนผ่าน PIN ไม่ใช่สาขา/เครื่อง) ─────────
@@ -1212,7 +1220,7 @@ export default function POSPage() {
       const d = await r.json();
       if (d.ok !== false) {
         setPosConfig(d);
-        setPosSettingsForm({ promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '', receipt_paper_size: d.receipt_paper_size || '80mm', vat_registered: !!d.vat_registered });
+        setPosSettingsForm({ promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '', scb_biller_ref1: d.scb_biller_ref1 || '', receipt_paper_size: d.receipt_paper_size || '80mm', vat_registered: !!d.vat_registered });
       }
     } catch {}
   }
@@ -1224,6 +1232,7 @@ export default function POSPage() {
       const body = { shopId };
       if (posSettingsForm.promptpay_id !== undefined) body.promptpay_id = posSettingsForm.promptpay_id;
       if (posSettingsForm.scb_biller_id !== undefined) body.scb_biller_id = posSettingsForm.scb_biller_id;
+      if (posSettingsForm.scb_biller_ref1 !== undefined) body.scb_biller_ref1 = posSettingsForm.scb_biller_ref1;
       if (posSettingsForm.receipt_paper_size !== undefined) body.receipt_paper_size = posSettingsForm.receipt_paper_size;
       body.vat_registered = !!posSettingsForm.vat_registered;
       const r = await fetch('/api/pos/pos-config', {
@@ -7880,7 +7889,8 @@ export default function POSPage() {
 
                 {/* Biller ID (Thai QR Payment / Bill Payment — ธนาคารใดก็ได้) */}
                 {(() => {
-                  const billerCheck = validateBillerId(posSettingsForm.scb_biller_id);
+                  const billerCheck = validateBillerId(posSettingsForm.scb_biller_id, posSettingsForm.scb_biller_ref1);
+                  const billerIdOk = !posSettingsForm.scb_biller_id || /^\d{15}$/.test(String(posSettingsForm.scb_biller_id).replace(/[\s-]/g, ''));
                   return (
                     <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
                       <h3 className="text-white font-bold mb-1">🏦 Biller ID จากธนาคาร</h3>
@@ -7892,23 +7902,41 @@ export default function POSPage() {
                       <p className="text-amber-400/90 text-xs mb-4 bg-amber-900/20 border border-amber-800/50 rounded-lg px-3 py-2">
                         ⚠️ เลขที่โชว์หน้าจอ "QR รับเงิน" ของแอปธนาคาร (เช่น "เลขอ้างอิง"/Reference number) <b>มักไม่ใช่</b> Biller ID จริง —
                         ต้องไปหาที่เมนู "แก้ไขข้อมูลร้านค้า"/Merchant Settings ในแอปธนาคารแทน (ตัวเลขล้วน 15 หลัก) ถ้ากรอกเลขผิด QR จะสร้างได้ปกติแต่สแกนจ่ายไม่ได้ ("QR ไม่ถูกต้อง")
+                        <br/>แต่ <b>"เลขอ้างอิง" ตัวนั้นห้ามทิ้ง</b> — ต้องเอามากรอกในช่องแยกด้านล่างนี้แทน เพราะเป็นฟิลด์บังคับตามมาตรฐาน ธปท. (ไม่มี = QR ขาดข้อมูล สแกนไม่ผ่านทันที)
                       </p>
-                      <div>
-                        <label className="block text-gray-400 text-xs mb-1.5">Biller ID (ตัวเลขล้วน 15 หลัก)</label>
-                        <input
-                          type="text"
-                          value={posSettingsForm.scb_biller_id}
-                          onChange={e => setPosSettingsForm(f => ({ ...f, scb_biller_id: e.target.value }))}
-                          className={`w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border focus:outline-none ${
-                            !billerCheck.valid ? 'border-red-600 focus:border-red-500' : 'border-gray-700 focus:border-green-500'
-                          }`}
-                          placeholder="เช่น 050556501923609"
-                        />
-                        {!billerCheck.valid && (
-                          <p className="text-red-400 text-xs mt-1.5">❌ {billerCheck.message}</p>
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-gray-400 text-xs mb-1.5">Biller ID (ตัวเลขล้วน 15 หลัก)</label>
+                          <input
+                            type="text"
+                            value={posSettingsForm.scb_biller_id}
+                            onChange={e => setPosSettingsForm(f => ({ ...f, scb_biller_id: e.target.value }))}
+                            className={`w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border focus:outline-none ${
+                              !billerIdOk ? 'border-red-600 focus:border-red-500' : 'border-gray-700 focus:border-green-500'
+                            }`}
+                            placeholder="เช่น 010753600031508"
+                          />
+                          {!billerIdOk && (
+                            <p className="text-red-400 text-xs mt-1.5">❌ {validateBillerId(posSettingsForm.scb_biller_id, 'x').message}</p>
+                          )}
+                        </div>
+                        {!!posSettingsForm.scb_biller_id && (
+                          <div>
+                            <label className="block text-gray-400 text-xs mb-1.5">เลขอ้างอิง (Reference 1) — บังคับกรอกคู่กับ Biller ID เสมอ</label>
+                            <input
+                              type="text"
+                              value={posSettingsForm.scb_biller_ref1}
+                              onChange={e => setPosSettingsForm(f => ({ ...f, scb_biller_ref1: e.target.value }))}
+                              className={`w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border focus:outline-none ${
+                                !posSettingsForm.scb_biller_ref1?.trim() || posSettingsForm.scb_biller_ref1.trim().length > 20 ? 'border-red-600 focus:border-red-500' : 'border-gray-700 focus:border-green-500'
+                              }`}
+                              placeholder="เช่น KPS004KB000001925570 (โชว์คู่กับ Biller ID ในหน้าจอ QR ของแอปธนาคาร)"
+                              maxLength={20}
+                            />
+                          </div>
                         )}
                         {billerCheck.valid && !billerCheck.empty && (
-                          <p className="text-green-400 text-xs mt-1.5">✅ ครบ 15 หลัก</p>
+                          <p className="text-green-400 text-xs">✅ ครบทุกช่อง พร้อมสร้าง QR</p>
                         )}
                       </div>
                     </div>
@@ -7960,7 +7988,7 @@ export default function POSPage() {
 
                 <button
                   onClick={savePosSettings}
-                  disabled={settingsSaving || !validateBillerId(posSettingsForm.scb_biller_id).valid}
+                  disabled={settingsSaving || !validateBillerId(posSettingsForm.scb_biller_id, posSettingsForm.scb_biller_ref1).valid}
                   className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors"
                 >
                   {settingsSaving ? 'กำลังบันทึก...' : '💾 บันทึกตั้งค่า'}

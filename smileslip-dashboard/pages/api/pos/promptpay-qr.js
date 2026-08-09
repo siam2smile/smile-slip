@@ -31,16 +31,23 @@ export default async function handler(req, res) {
 
   try {
     // อ่านค่าตั้งค่า QR จาก pos_configs ก่อน ถ้าไม่มีใช้ phone จาก shop_profiles เป็น fallback
+    // scb_biller_ref1 แยก query ต่างหาก + กันพัง (คอลัมน์ใหม่ อาจยังไม่ได้รัน ALTER TABLE)
     const [{ data: pc }, { data: sp }] = await Promise.all([
       supabase.from('pos_configs').select('promptpay_id, scb_biller_id').eq('shop_id', shopId).single(),
       supabase.from('shop_profiles').select('phone').eq('id', shopId).single(),
     ]);
+    let billerRef1 = '';
+    try {
+      const { data: rd } = await supabase.from('pos_configs').select('scb_biller_ref1').eq('shop_id', shopId).single();
+      billerRef1 = rd?.scb_biller_ref1 || '';
+    } catch {}
 
     // ถ้าตั้งค่า Biller ID จากธนาคารไว้ (ธนาคารใดก็ได้ ไม่จำกัดแค่ SCB) ให้ใช้แบบ Bill Payment
     // (Tag 30) แทนพร้อมเพย์ส่วนบุคคล — เป็นคนละระบบกัน เงินจะเข้าบัญชีที่ผูกกับ Biller ID
-    // นั้นโดยตรง ไม่ผ่านทะเบียนพร้อมเพย์
+    // นั้นโดยตรง ไม่ผ่านทะเบียนพร้อมเพย์ — ref1 (เลขอ้างอิง) เป็นฟิลด์บังคับตามสเปก ธปท. (ดู
+    // เหตุผลเต็มใน pos-config.js) ไม่ใส่ = QR ขาดฟิลด์บังคับ สแกนไม่ได้แน่นอน
     if (pc?.scb_biller_id) {
-      const payload = generateBillPaymentPayload(pc.scb_biller_id, { amount: numAmount });
+      const payload = generateBillPaymentPayload(pc.scb_biller_id, { amount: numAmount, ref1: billerRef1 });
       const qrDataUrl = await QRCode.toDataURL(payload, {
         errorCorrectionLevel: 'M',
         margin: 2,
