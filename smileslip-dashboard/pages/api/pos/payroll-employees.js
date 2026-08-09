@@ -34,23 +34,45 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST') {
-      const { name, id_card_number = '', position = '', base_salary = 0, sso_enrolled = true, branch = '', start_date = '', notes = '' } = req.body;
+      const {
+        name, id_card_number = '', position = '', base_salary = 0, sso_enrolled = true, branch = '', start_date = '', notes = '',
+        pay_type = 'monthly', daily_rate = 0, cycle_days = 10, cycle_rate = 0, address = '', phone = '', days_off_per_week_override = '',
+      } = req.body;
       if (!name?.trim()) return res.status(400).json({ error: 'กรุณาระบุชื่อพนักงาน' });
+      if (!['monthly', 'daily', 'cycle'].includes(pay_type)) return res.status(400).json({ error: 'ประเภทการจ่ายไม่ถูกต้อง' });
       const numSalary = parseFloat(base_salary) || 0;
-      if (numSalary < 0) return res.status(400).json({ error: 'เงินเดือนต้องไม่ติดลบ' });
+      const numDaily = parseFloat(daily_rate) || 0;
+      const numCycleRate = parseFloat(cycle_rate) || 0;
+      const numCycleDays = Math.max(1, parseInt(cycle_days) || 10);
+      if (numSalary < 0 || numDaily < 0 || numCycleRate < 0) return res.status(400).json({ error: 'อัตราค่าแรงต้องไม่ติดลบ' });
 
       const employeeNo = makePayrollEmployeeNo();
-      const { error } = await supabase.from('pos_payroll_employees').insert({
+      const insertBody = {
         shop_id: shopId, employee_no: employeeNo, name: name.trim(), id_card_number: id_card_number.trim(),
         position: position.trim(), base_salary: numSalary, sso_enrolled: !!sso_enrolled,
         branch_name: branch, start_date: start_date || null, notes: notes.trim(),
-      });
+      };
+      const { error } = await supabase.from('pos_payroll_employees').insert(insertBody);
       if (error) throw error;
+
+      // คอลัมน์ใหม่ (pay_type/rates/address/phone/days_off override) — เพิ่ม 2026-08-10 แยก
+      // update ต่างหากหลัง insert หลักสำเร็จเสมอ + กันพัง (ต้องรัน ALTER TABLE ก่อน ดู CLAUDE.md)
+      try {
+        await supabase.from('pos_payroll_employees').update({
+          pay_type, daily_rate: numDaily, cycle_days: numCycleDays, cycle_rate: numCycleRate,
+          address: address.trim(), phone: phone.trim(),
+          days_off_per_week_override: days_off_per_week_override === '' ? null : Math.max(0, parseFloat(days_off_per_week_override) || 0),
+        }).eq('shop_id', shopId).eq('employee_no', employeeNo);
+      } catch {}
+
       return res.json({ ok: true, employee_no: employeeNo });
     }
 
     if (req.method === 'PATCH') {
-      const { id, name, id_card_number, position, base_salary, sso_enrolled, branch, start_date, status, notes } = req.body;
+      const {
+        id, name, id_card_number, position, base_salary, sso_enrolled, branch, start_date, status, notes,
+        pay_type, daily_rate, cycle_days, cycle_rate, address, phone, days_off_per_week_override,
+      } = req.body;
       if (!id) return res.status(400).json({ error: 'Missing id' });
 
       const updates = { updated_at: new Date().toISOString() };
@@ -70,6 +92,25 @@ export default async function handler(req, res) {
 
       const { error } = await supabase.from('pos_payroll_employees').update(updates).eq('shop_id', shopId).eq('id', id);
       if (error) throw error;
+
+      // คอลัมน์ใหม่ — แยก update ต่างหาก + กันพัง เหมือน POST ด้านบน
+      const extraUpdates = {};
+      if (pay_type !== undefined) {
+        if (!['monthly', 'daily', 'cycle'].includes(pay_type)) return res.status(400).json({ error: 'ประเภทการจ่ายไม่ถูกต้อง' });
+        extraUpdates.pay_type = pay_type;
+      }
+      if (daily_rate !== undefined) extraUpdates.daily_rate = Math.max(0, parseFloat(daily_rate) || 0);
+      if (cycle_days !== undefined) extraUpdates.cycle_days = Math.max(1, parseInt(cycle_days) || 10);
+      if (cycle_rate !== undefined) extraUpdates.cycle_rate = Math.max(0, parseFloat(cycle_rate) || 0);
+      if (address !== undefined) extraUpdates.address = address.trim();
+      if (phone !== undefined) extraUpdates.phone = phone.trim();
+      if (days_off_per_week_override !== undefined) {
+        extraUpdates.days_off_per_week_override = days_off_per_week_override === '' ? null : Math.max(0, parseFloat(days_off_per_week_override) || 0);
+      }
+      if (Object.keys(extraUpdates).length) {
+        try { await supabase.from('pos_payroll_employees').update(extraUpdates).eq('shop_id', shopId).eq('id', id); } catch {}
+      }
+
       return res.json({ ok: true });
     }
 

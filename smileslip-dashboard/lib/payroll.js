@@ -62,6 +62,48 @@ export function estimateMonthlyWithholding(monthlyGrossPay) {
   return Math.round((annualTax / 12) * 100) / 100;
 }
 
+// ── ประเภทการจ่ายค่าแรง (pay_type) — ร้านค้าแต่ละร้านมีรูปแบบพนักงานไม่เหมือนกัน (รายเดือน/
+// รายวัน/แทรค N วัน เช่น "แทรค 10 วัน" ของธุรกิจขนส่ง/แก๊ส) — เก็บทุกแบบไว้ในระบบเงินเดือน
+// เดียวกัน (เลือกประเภทตอนเพิ่มพนักงาน) แทนแยกเป็นคนละหน้า เพราะทุกแบบยังเป็นค่าใช้จ่ายสาขา
+// ที่ต้องเข้า P&L เดียวกัน — ตัดสินใจตามที่ผู้ใช้เลือกเมื่อ 2026-08-10
+export const PAY_TYPES = [
+  { value: 'monthly', label: 'รายเดือน' },
+  { value: 'daily', label: 'รายวัน' },
+  { value: 'cycle', label: 'แทรค (จ่ายเป็นรอบ)' },
+];
+
+// ── นโยบายวันหยุด/หักเงินกรณีหยุดเกินสิทธิ์ (เฉพาะพนักงานรายเดือน) ────────────────
+// สูตรตามที่ผู้ใช้อธิบายเอง: อัตราต่อวัน = เงินเดือน ÷ จำนวนวันจริงในเดือนนั้น (28-31 วันตามเดือน
+// จริง ไม่ใช่ 30 วันคงที่) แล้วหักเฉพาะจำนวนวันที่เกินสิทธิ์ที่ได้รับอนุญาต — "สิทธิ์" คำนวณจาก
+// นโยบาย "หยุดกี่วันต่อสัปดาห์" (ตั้งเป็นค่ากลางของร้านใน pos_configs.payroll_days_off_per_week
+// ปรับต่อคนได้ผ่าน employee.days_off_per_week_override) เทียบสัดส่วนกับจำนวนวันจริงในเดือนนั้น
+export function computeDaysOffDeduction({ baseSalary, daysInMonth, daysOffAllowedPerWeek, daysAbsent }) {
+  const salary = Math.max(0, parseFloat(baseSalary) || 0);
+  const totalDays = Math.max(1, parseInt(daysInMonth) || 30);
+  const allowedPerWeek = Math.max(0, parseFloat(daysOffAllowedPerWeek) || 0);
+  const absent = Math.max(0, parseFloat(daysAbsent) || 0);
+  const dailyRate = Math.round((salary / totalDays) * 100) / 100;
+  const allowedThisMonth = Math.round((allowedPerWeek * totalDays / 7) * 100) / 100;
+  const excessDays = Math.max(0, Math.round((absent - allowedThisMonth) * 100) / 100);
+  const deduction = Math.round(dailyRate * excessDays * 100) / 100;
+  return { dailyRate, allowedThisMonth, excessDays, deduction };
+}
+
+/** ค่า OT — ไม่คำนวณอัตราให้อัตโนมัติ (กฎหมายแรงงานไทยมีหลายอัตราต่างกันตามวันธรรมดา/วันหยุด/
+ * กลางคืน) ให้ร้านกรอกอัตรา/ชม. ที่ตกลงกับพนักงานเองเสมอ กันคำนวณผิดกฎหมายโดยไม่รู้ตัว */
+export function computeOtPay({ hours, ratePerHour }) {
+  const h = Math.max(0, parseFloat(hours) || 0);
+  const rate = Math.max(0, parseFloat(ratePerHour) || 0);
+  return Math.round(h * rate * 100) / 100;
+}
+
+/** จำนวนวันจริงในเดือนนั้น (28-31) จาก yearMonth แบบ "YYYY-MM" */
+export function daysInYearMonth(yearMonth) {
+  const [y, m] = String(yearMonth || '').split('-').map(Number);
+  if (!y || !m) return 30;
+  return new Date(y, m, 0).getDate();
+}
+
 export function makePayrollEmployeeNo() {
   const now = new Date();
   const pad = (n, len = 2) => String(n).padStart(len, '0');
@@ -81,6 +123,15 @@ export function payrollEmployeeFromRow(r) {
     base_salary: Number(r.base_salary) || 0, sso_enrolled: r.sso_enrolled !== false,
     branch: r.branch_name || '', start_date: r.start_date || '',
     status: r.status || 'active', notes: r.notes || '',
+    // คอลัมน์ใหม่ — เพิ่ม 2026-08-10 (ยังไม่ได้รัน SQL, ดู CLAUDE.md) ใช้ || '' /
+    // Number(...)||0 กันพังถ้าคอลัมน์ยังไม่มีจริงในแถวที่ query กลับมา
+    pay_type: r.pay_type || 'monthly',
+    daily_rate: Number(r.daily_rate) || 0,
+    cycle_days: r.cycle_days ? Number(r.cycle_days) : 10,
+    cycle_rate: Number(r.cycle_rate) || 0,
+    address: r.address || '', phone: r.phone || '',
+    days_off_per_week_override: r.days_off_per_week_override === null || r.days_off_per_week_override === undefined
+      ? '' : Number(r.days_off_per_week_override),
   };
 }
 

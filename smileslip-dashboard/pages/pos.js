@@ -10,7 +10,7 @@ import { MARKET_PRICE_FEATURE_LIVE } from '../lib/market-price-flag';
 import { hasFeature } from '../lib/tier-features';
 import { withBrandFooter } from '../lib/branding';
 import { getOwnerSessionToken, setOwnerSessionToken } from '../lib/client-owner-session';
-import { calcSSO, estimateMonthlyWithholding } from '../lib/payroll';
+import { calcSSO, estimateMonthlyWithholding, PAY_TYPES, computeDaysOffDeduction, computeOtPay, daysInYearMonth } from '../lib/payroll';
 
 const UNITS = ['ชิ้น', 'อัน', 'กล่อง', 'แพ็ก', 'ขวด', 'ถัง', 'ถุง', 'กก.', 'กรัม', 'ลิตร', 'มล.', 'เมตร', 'คู่', 'ชุด', 'โหล', 'แผ่น', 'มัด', 'หัว', 'ลูก', 'ท่อน', 'แท่ง', 'ห่อ', 'เส้น', 'จาน', 'ชาม', 'แก้ว'];
 const PAY_METHODS = ['เงินสด', 'โอน', 'บัตรเครดิต', 'QR Code', 'เชื่อ'];
@@ -81,6 +81,13 @@ function validateBillerId(raw, ref1raw) {
     return { empty: false, valid: false, digitsOnly, message: 'เลขอ้างอิงต้องไม่เกิน 20 ตัวอักษร' };
   }
   return { empty: false, valid: true, digitsOnly };
+}
+function emptyEmployeeForm() {
+  return {
+    name: '', position: '', base_salary: '', id_card_number: '', sso_enrolled: true, notes: '',
+    pay_type: 'monthly', daily_rate: '', cycle_days: '10', cycle_rate: '',
+    address: '', phone: '', days_off_per_week_override: '',
+  };
 }
 function emptyContactForm() {
   return {
@@ -516,8 +523,8 @@ export default function POSPage() {
   const [qrLoading, setQrLoading] = useState(false);
 
   // POS settings (PromptPay + Biller ID) — Staff PIN เปลี่ยนเป็นรายบุคคลแล้ว ไม่มี PIN ร้านรวมอีกต่อไป
-  const [posConfig, setPosConfig] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', receipt_paper_size: '80mm', vat_registered: false });
-  const [posSettingsForm, setPosSettingsForm] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', vat_registered: false });
+  const [posConfig, setPosConfig] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', receipt_paper_size: '80mm', vat_registered: false, payroll_days_off_per_week: 1 });
+  const [posSettingsForm, setPosSettingsForm] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', vat_registered: false, payroll_days_off_per_week: 1 });
   const [settingsSaving, setSettingsSaving] = useState(false);
 
   // ── เปิดกะ/ปิดกะเงินสด (ผูกกับพนักงานรายคนผ่าน PIN ไม่ใช่สาขา/เครื่อง) ─────────
@@ -672,14 +679,19 @@ export default function POSPage() {
   const [payrollEmployees, setPayrollEmployees] = useState([]);
   const [payrollEmployeesLoading, setPayrollEmployeesLoading] = useState(false);
   const [showAddEmployee, setShowAddEmployee] = useState(false);
-  const [employeeForm, setEmployeeForm] = useState({ name: '', position: '', base_salary: '', id_card_number: '', sso_enrolled: true, notes: '' });
+  const [employeeForm, setEmployeeForm] = useState(emptyEmployeeForm());
   const [employeeSaving, setEmployeeSaving] = useState(false);
   const [editEmployeeId, setEditEmployeeId] = useState(null);
   const [editEmployeeForm, setEditEmployeeForm] = useState({});
   const [runForm, setRunForm] = useState({
-    employeeId: '', employeeName: '', baseSalary: '', additions: '', additionNote: '',
+    employeeId: '', employeeName: '', payType: 'monthly', baseSalary: '', additions: '', additionNote: '',
     deductions: '', deductionNote: '', ssoEnrolled: true, yearMonth: '', paidDate: '', notes: '',
     ssoEmployeeOverride: '', withholdingTaxOverride: '',
+    // ตัวช่วยคำนวณ (ไม่ได้บันทึกลง DB ตรงๆ — คำนวณแล้วกดปุ่ม "ใช้ยอดนี้" เพื่อ merge เข้า
+    // additions/deductions ด้านบนซึ่งเป็นฟิลด์จริงที่บันทึกอยู่แล้ว)
+    daysAbsent: '', daysOffAllowed: 0, dailyRateForCalc: 0,
+    otHours: '', otRatePerHour: '',
+    unitsWorked: '', dailyRate: 0, cycleDays: 10, cycleRate: 0,
   });
   const [runSaving, setRunSaving] = useState(false);
   const [payrollRuns, setPayrollRuns] = useState([]);
@@ -1221,7 +1233,7 @@ export default function POSPage() {
       const d = await r.json();
       if (d.ok !== false) {
         setPosConfig(d);
-        setPosSettingsForm({ promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '', scb_biller_ref1: d.scb_biller_ref1 || '', receipt_paper_size: d.receipt_paper_size || '80mm', vat_registered: !!d.vat_registered });
+        setPosSettingsForm({ promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '', scb_biller_ref1: d.scb_biller_ref1 || '', receipt_paper_size: d.receipt_paper_size || '80mm', vat_registered: !!d.vat_registered, payroll_days_off_per_week: d.payroll_days_off_per_week ?? 1 });
       }
     } catch {}
   }
@@ -1236,6 +1248,7 @@ export default function POSPage() {
       if (posSettingsForm.scb_biller_ref1 !== undefined) body.scb_biller_ref1 = posSettingsForm.scb_biller_ref1;
       if (posSettingsForm.receipt_paper_size !== undefined) body.receipt_paper_size = posSettingsForm.receipt_paper_size;
       body.vat_registered = !!posSettingsForm.vat_registered;
+      body.payroll_days_off_per_week = posSettingsForm.payroll_days_off_per_week;
       const r = await fetch('/api/pos/pos-config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -2945,12 +2958,16 @@ export default function POSPage() {
           base_salary: employeeForm.base_salary, id_card_number: employeeForm.id_card_number.trim(),
           sso_enrolled: employeeForm.sso_enrolled, notes: employeeForm.notes.trim(),
           branch: selectedBranch?.branch_name || '',
+          pay_type: employeeForm.pay_type, daily_rate: employeeForm.daily_rate,
+          cycle_days: employeeForm.cycle_days, cycle_rate: employeeForm.cycle_rate,
+          address: employeeForm.address.trim(), phone: employeeForm.phone.trim(),
+          days_off_per_week_override: employeeForm.days_off_per_week_override,
         }),
       });
       const d = await r.json();
       if (d.ok) {
         showToast('✅ เพิ่มพนักงานแล้ว');
-        setEmployeeForm({ name: '', position: '', base_salary: '', id_card_number: '', sso_enrolled: true, notes: '' });
+        setEmployeeForm(emptyEmployeeForm());
         setShowAddEmployee(false);
         fetchPayrollEmployees();
       } else alert(d.error);
@@ -2963,6 +2980,8 @@ export default function POSPage() {
     setEditEmployeeForm({
       name: emp.name, position: emp.position, base_salary: emp.base_salary,
       id_card_number: emp.id_card_number, sso_enrolled: emp.sso_enrolled, status: emp.status, notes: emp.notes,
+      pay_type: emp.pay_type, daily_rate: emp.daily_rate, cycle_days: emp.cycle_days, cycle_rate: emp.cycle_rate,
+      address: emp.address, phone: emp.phone, days_off_per_week_override: emp.days_off_per_week_override,
     });
   }
 
@@ -2999,12 +3018,58 @@ export default function POSPage() {
   }
 
   function selectEmployeeForRun(emp) {
+    // นโยบายวันหยุด: ใช้ค่าเฉพาะคนถ้าตั้งไว้ (days_off_per_week_override) ไม่งั้น fallback เป็น
+    // ค่ากลางของร้าน (posConfig.payroll_days_off_per_week) — ตามที่ผู้ใช้เลือกไว้ 2026-08-10
+    const daysOffAllowedPerWeek = emp.days_off_per_week_override !== '' && emp.days_off_per_week_override !== null
+      ? Number(emp.days_off_per_week_override) : (Number(posConfig.payroll_days_off_per_week) || 0);
     setRunForm(f => ({
-      ...f, employeeId: emp.id, employeeName: emp.name, baseSalary: emp.base_salary,
+      ...f, employeeId: emp.id, employeeName: emp.name, payType: emp.pay_type || 'monthly',
+      baseSalary: emp.pay_type === 'monthly' ? emp.base_salary : '',
       ssoEnrolled: emp.sso_enrolled, yearMonth: f.yearMonth || currentYearMonth(),
       ssoEmployeeOverride: '', withholdingTaxOverride: '',
+      daysAbsent: '', daysOffAllowed: daysOffAllowedPerWeek, dailyRateForCalc: 0,
+      otHours: '', otRatePerHour: '',
+      unitsWorked: '', dailyRate: emp.daily_rate || 0, cycleDays: emp.cycle_days || 10, cycleRate: emp.cycle_rate || 0,
     }));
     setPayrollView('run');
+  }
+
+  // พนักงานรายวัน/แทรค N วัน — ยอด "เงินเดือน" ของรอบนี้คำนวณจากจำนวนที่ทำจริง × อัตรา แทนที่จะเป็น
+  // ยอดคงที่แบบรายเดือน (ยังไหลเข้าสูตร gross/SSO/ภาษีเดิมเหมือนกันหมด แค่เปลี่ยนวิธีได้ตัวเลข base มา)
+  function applyUnitsWorkedToBase() {
+    const units = parseFloat(runForm.unitsWorked) || 0;
+    const rate = runForm.payType === 'cycle' ? (parseFloat(runForm.cycleRate) || 0) : (parseFloat(runForm.dailyRate) || 0);
+    setRunForm(f => ({ ...f, baseSalary: String(Math.round(units * rate * 100) / 100) }));
+  }
+
+  // ตัวช่วยคำนวณหักวันหยุดเกินสิทธิ์ (เฉพาะรายเดือน) — คำนวณแล้ว "เติม" เข้าช่องยอดหักที่มีอยู่แล้ว
+  // (ไม่ทับของเดิมที่อาจกรอกเหตุผลอื่นไว้ก่อนแล้ว) พร้อมต่อท้ายหมายเหตุอัตโนมัติ
+  const daysOffCalc = useMemo(() => {
+    const daysInMonth = daysInYearMonth(runForm.yearMonth);
+    return computeDaysOffDeduction({
+      baseSalary: runForm.baseSalary, daysInMonth,
+      daysOffAllowedPerWeek: runForm.daysOffAllowed, daysAbsent: runForm.daysAbsent,
+    });
+  }, [runForm.baseSalary, runForm.yearMonth, runForm.daysOffAllowed, runForm.daysAbsent]);
+
+  function applyDaysOffDeduction() {
+    if (daysOffCalc.deduction <= 0) return;
+    setRunForm(f => ({
+      ...f,
+      deductions: String(Math.round(((parseFloat(f.deductions) || 0) + daysOffCalc.deduction) * 100) / 100),
+      deductionNote: [f.deductionNote, `หยุดเกินสิทธิ์ ${daysOffCalc.excessDays} วัน (วันละ ฿${daysOffCalc.dailyRate.toLocaleString()})`].filter(Boolean).join(' | '),
+    }));
+  }
+
+  const otCalc = useMemo(() => computeOtPay({ hours: runForm.otHours, ratePerHour: runForm.otRatePerHour }), [runForm.otHours, runForm.otRatePerHour]);
+
+  function applyOtAddition() {
+    if (otCalc <= 0) return;
+    setRunForm(f => ({
+      ...f,
+      additions: String(Math.round(((parseFloat(f.additions) || 0) + otCalc) * 100) / 100),
+      additionNote: [f.additionNote, `OT ${parseFloat(f.otHours) || 0} ชม. × ฿${parseFloat(f.otRatePerHour) || 0}/ชม.`].filter(Boolean).join(' | '),
+    }));
   }
 
   // คำนวณตัวเลขล่วงหน้าให้ดูสดๆ ก่อนกดยืนยัน (ใช้ helper เดียวกับฝั่ง server เป๊ะ กัน preview ไม่ตรงกับ
@@ -3026,6 +3091,10 @@ export default function POSPage() {
     if (!runForm.yearMonth) { showToast('กรุณาระบุเดือนที่จ่าย'); return; }
     setRunSaving(true);
     try {
+      // ไม่ได้เพิ่มคอลัมน์ pay_type ใน pos_payroll_runs (ตั้งใจ ดูเหตุผลใน CLAUDE.md ข้อ payroll
+      // expansion) — ต่อท้าย notes แทนให้ประวัติย้อนหลังยังดูออกว่ารอบนี้คิดจากฐานอะไร
+      const payTypeContext = runForm.payType === 'daily' ? `[รายวัน ${runForm.unitsWorked || 0} วัน × ฿${runForm.dailyRate}]`
+        : runForm.payType === 'cycle' ? `[แทรค ${runForm.unitsWorked || 0} รอบ × ฿${runForm.cycleRate}/${runForm.cycleDays}วัน]` : '';
       const r = await fetch('/api/pos/payroll-runs', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -3035,7 +3104,7 @@ export default function POSPage() {
           ssoEnrolled: runForm.ssoEnrolled,
           ssoEmployeeOverride: runForm.ssoEmployeeOverride !== '' ? runForm.ssoEmployeeOverride : undefined,
           withholdingTaxOverride: runForm.withholdingTaxOverride !== '' ? runForm.withholdingTaxOverride : undefined,
-          branch: selectedBranch?.branch_name || '', notes: runForm.notes, paidDate: runForm.paidDate || '',
+          branch: selectedBranch?.branch_name || '', notes: [payTypeContext, runForm.notes].filter(Boolean).join(' '), paidDate: runForm.paidDate || '',
         }),
       });
       const d = await r.json();
@@ -7433,17 +7502,64 @@ export default function POSPage() {
                           <input placeholder="ชื่อ-นามสกุล *" value={employeeForm.name}
                             onChange={e => setEmployeeForm(f => ({ ...f, name: e.target.value }))}
                             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
-                          <div className="grid grid-cols-2 gap-2">
-                            <input placeholder="ตำแหน่ง" value={employeeForm.position}
-                              onChange={e => setEmployeeForm(f => ({ ...f, position: e.target.value }))}
-                              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
-                            <input type="number" placeholder="เงินเดือน (บาท)" value={employeeForm.base_salary}
-                              onChange={e => setEmployeeForm(f => ({ ...f, base_salary: e.target.value }))}
-                              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
+                          <input placeholder="ตำแหน่ง" value={employeeForm.position}
+                            onChange={e => setEmployeeForm(f => ({ ...f, position: e.target.value }))}
+                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
+
+                          <div>
+                            <label className="block text-gray-500 text-[11px] mb-1">ประเภทการจ่าย</label>
+                            <div className="grid grid-cols-3 gap-1.5">
+                              {PAY_TYPES.map(pt => (
+                                <button key={pt.value} type="button" onClick={() => setEmployeeForm(f => ({ ...f, pay_type: pt.value }))}
+                                  className={`py-1.5 rounded-lg text-xs font-medium ${employeeForm.pay_type === pt.value ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400'}`}>
+                                  {pt.label}
+                                </button>
+                              ))}
+                            </div>
                           </div>
-                          <input placeholder="เลขบัตรประชาชน (ไม่บังคับ — ใช้ตอนยื่นภาษี)" value={employeeForm.id_card_number}
-                            onChange={e => setEmployeeForm(f => ({ ...f, id_card_number: e.target.value }))}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500 font-mono"/>
+
+                          {employeeForm.pay_type === 'monthly' && (
+                            <input type="number" placeholder="เงินเดือน (บาท/เดือน)" value={employeeForm.base_salary}
+                              onChange={e => setEmployeeForm(f => ({ ...f, base_salary: e.target.value }))}
+                              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
+                          )}
+                          {employeeForm.pay_type === 'daily' && (
+                            <input type="number" placeholder="ค่าแรง (บาท/วัน)" value={employeeForm.daily_rate}
+                              onChange={e => setEmployeeForm(f => ({ ...f, daily_rate: e.target.value }))}
+                              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
+                          )}
+                          {employeeForm.pay_type === 'cycle' && (
+                            <div className="grid grid-cols-2 gap-2">
+                              <input type="number" placeholder="แทรคละกี่วัน" value={employeeForm.cycle_days}
+                                onChange={e => setEmployeeForm(f => ({ ...f, cycle_days: e.target.value }))}
+                                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
+                              <input type="number" placeholder="ค่าแรง (บาท/แทรค)" value={employeeForm.cycle_rate}
+                                onChange={e => setEmployeeForm(f => ({ ...f, cycle_rate: e.target.value }))}
+                                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <input placeholder="เบอร์ติดต่อ" value={employeeForm.phone}
+                              onChange={e => setEmployeeForm(f => ({ ...f, phone: e.target.value }))}
+                              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
+                            <input placeholder="เลขบัตรประชาชน (ไม่บังคับ)" value={employeeForm.id_card_number}
+                              onChange={e => setEmployeeForm(f => ({ ...f, id_card_number: e.target.value }))}
+                              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500 font-mono"/>
+                          </div>
+                          <textarea placeholder="ที่อยู่" value={employeeForm.address} rows={2}
+                            onChange={e => setEmployeeForm(f => ({ ...f, address: e.target.value }))}
+                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500 resize-none"/>
+
+                          {employeeForm.pay_type === 'monthly' && (
+                            <div>
+                              <label className="block text-gray-500 text-[11px] mb-1">วันหยุด/สัปดาห์ของคนนี้ (ว่าง = ใช้ค่ากลางของร้าน)</label>
+                              <input type="number" min="0" step="0.5" placeholder={`ค่ากลางร้าน: ${posConfig.payroll_days_off_per_week}`} value={employeeForm.days_off_per_week_override}
+                                onChange={e => setEmployeeForm(f => ({ ...f, days_off_per_week_override: e.target.value }))}
+                                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
+                            </div>
+                          )}
+
                           <label className="flex items-center gap-2 text-xs text-gray-300">
                             <input type="checkbox" checked={employeeForm.sso_enrolled}
                               onChange={e => setEmployeeForm(f => ({ ...f, sso_enrolled: e.target.checked }))}/>
@@ -7454,7 +7570,7 @@ export default function POSPage() {
                               className="flex-1 bg-green-700 hover:bg-green-600 text-white text-sm font-bold py-2 rounded-lg disabled:opacity-50">
                               {employeeSaving ? 'กำลังบันทึก...' : 'บันทึกพนักงาน'}
                             </button>
-                            <button onClick={() => setShowAddEmployee(false)}
+                            <button onClick={() => { setShowAddEmployee(false); setEmployeeForm(emptyEmployeeForm()); }}
                               className="px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm rounded-lg">ยกเลิก</button>
                           </div>
                         </div>
@@ -7472,12 +7588,48 @@ export default function POSPage() {
                                 <div className="space-y-2">
                                   <input value={editEmployeeForm.name || ''} onChange={e => setEditEmployeeForm(f => ({ ...f, name: e.target.value }))}
                                     className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
-                                  <div className="grid grid-cols-2 gap-2">
-                                    <input value={editEmployeeForm.position || ''} onChange={e => setEditEmployeeForm(f => ({ ...f, position: e.target.value }))}
-                                      placeholder="ตำแหน่ง" className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
-                                    <input type="number" value={editEmployeeForm.base_salary ?? ''} onChange={e => setEditEmployeeForm(f => ({ ...f, base_salary: e.target.value }))}
-                                      placeholder="เงินเดือน" className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                  <input value={editEmployeeForm.position || ''} onChange={e => setEditEmployeeForm(f => ({ ...f, position: e.target.value }))}
+                                    placeholder="ตำแหน่ง" className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+
+                                  <div className="grid grid-cols-3 gap-1.5">
+                                    {PAY_TYPES.map(pt => (
+                                      <button key={pt.value} type="button" onClick={() => setEditEmployeeForm(f => ({ ...f, pay_type: pt.value }))}
+                                        className={`py-1.5 rounded-lg text-xs font-medium ${(editEmployeeForm.pay_type || 'monthly') === pt.value ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400'}`}>
+                                        {pt.label}
+                                      </button>
+                                    ))}
                                   </div>
+                                  {(editEmployeeForm.pay_type || 'monthly') === 'monthly' && (
+                                    <input type="number" value={editEmployeeForm.base_salary ?? ''} onChange={e => setEditEmployeeForm(f => ({ ...f, base_salary: e.target.value }))}
+                                      placeholder="เงินเดือน (บาท/เดือน)" className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                  )}
+                                  {editEmployeeForm.pay_type === 'daily' && (
+                                    <input type="number" value={editEmployeeForm.daily_rate ?? ''} onChange={e => setEditEmployeeForm(f => ({ ...f, daily_rate: e.target.value }))}
+                                      placeholder="ค่าแรง (บาท/วัน)" className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                  )}
+                                  {editEmployeeForm.pay_type === 'cycle' && (
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <input type="number" value={editEmployeeForm.cycle_days ?? ''} onChange={e => setEditEmployeeForm(f => ({ ...f, cycle_days: e.target.value }))}
+                                        placeholder="แทรคละกี่วัน" className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                      <input type="number" value={editEmployeeForm.cycle_rate ?? ''} onChange={e => setEditEmployeeForm(f => ({ ...f, cycle_rate: e.target.value }))}
+                                        placeholder="ค่าแรง (บาท/แทรค)" className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                    </div>
+                                  )}
+
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <input value={editEmployeeForm.phone || ''} onChange={e => setEditEmployeeForm(f => ({ ...f, phone: e.target.value }))}
+                                      placeholder="เบอร์ติดต่อ" className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                    <input value={editEmployeeForm.id_card_number || ''} onChange={e => setEditEmployeeForm(f => ({ ...f, id_card_number: e.target.value }))}
+                                      placeholder="เลขบัตรประชาชน" className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white font-mono"/>
+                                  </div>
+                                  <textarea value={editEmployeeForm.address || ''} rows={2} onChange={e => setEditEmployeeForm(f => ({ ...f, address: e.target.value }))}
+                                    placeholder="ที่อยู่" className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white resize-none"/>
+                                  {(editEmployeeForm.pay_type || 'monthly') === 'monthly' && (
+                                    <input type="number" min="0" step="0.5" value={editEmployeeForm.days_off_per_week_override ?? ''}
+                                      onChange={e => setEditEmployeeForm(f => ({ ...f, days_off_per_week_override: e.target.value }))}
+                                      placeholder={`วันหยุด/สัปดาห์ (ว่าง = ค่ากลางร้าน ${posConfig.payroll_days_off_per_week})`}
+                                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                  )}
                                   <div className="flex items-center justify-between">
                                     <label className="flex items-center gap-2 text-xs text-gray-300">
                                       <input type="checkbox" checked={!!editEmployeeForm.sso_enrolled} onChange={e => setEditEmployeeForm(f => ({ ...f, sso_enrolled: e.target.checked }))}/>
@@ -7498,7 +7650,16 @@ export default function POSPage() {
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="min-w-0">
                                     <p className={`font-bold text-sm truncate ${emp.status === 'inactive' ? 'text-gray-500 line-through' : 'text-white'}`}>{emp.name}</p>
-                                    <p className="text-gray-500 text-xs">{emp.position || '—'} · ฿{emp.base_salary.toLocaleString()}/เดือน{emp.sso_enrolled ? ' · ประกันสังคม' : ''}</p>
+                                    <p className="text-gray-500 text-xs">
+                                      {emp.position || '—'} · {
+                                        emp.pay_type === 'daily' ? `฿${(emp.daily_rate||0).toLocaleString()}/วัน (รายวัน)`
+                                        : emp.pay_type === 'cycle' ? `฿${(emp.cycle_rate||0).toLocaleString()}/แทรค ${emp.cycle_days||10} วัน`
+                                        : `฿${emp.base_salary.toLocaleString()}/เดือน`
+                                      }{emp.sso_enrolled ? ' · ประกันสังคม' : ''}
+                                    </p>
+                                    {(emp.phone || emp.address) && (
+                                      <p className="text-gray-600 text-[11px] mt-0.5 truncate">{[emp.phone, emp.address].filter(Boolean).join(' · ')}</p>
+                                    )}
                                   </div>
                                   <div className="flex items-center gap-1.5 shrink-0">
                                     {emp.status !== 'inactive' && (
@@ -7545,21 +7706,104 @@ export default function POSPage() {
                             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
                         </div>
                       </div>
-                      <div>
-                        <label className="block text-gray-400 text-xs mb-1.5">เงินเดือนพื้นฐาน</label>
-                        <input type="number" value={runForm.baseSalary} onChange={e => setRunForm(f => ({ ...f, baseSalary: e.target.value }))}
-                          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
+                      {runForm.payType === 'monthly' && (
                         <div>
-                          <label className="block text-gray-400 text-xs mb-1.5">เพิ่ม (โบนัส/OT)</label>
-                          <input type="number" value={runForm.additions} onChange={e => setRunForm(f => ({ ...f, additions: e.target.value }))}
+                          <label className="block text-gray-400 text-xs mb-1.5">เงินเดือนพื้นฐาน</label>
+                          <input type="number" value={runForm.baseSalary} onChange={e => setRunForm(f => ({ ...f, baseSalary: e.target.value }))}
                             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
                         </div>
+                      )}
+                      {runForm.payType === 'daily' && (
                         <div>
-                          <label className="block text-gray-400 text-xs mb-1.5">หัก (เบิกล่วงหน้า ฯลฯ)</label>
+                          <label className="block text-gray-400 text-xs mb-1.5">จำนวนวันที่ทำงาน (× ฿{(runForm.dailyRate||0).toLocaleString()}/วัน)</label>
+                          <input type="number" value={runForm.unitsWorked}
+                            onChange={e => {
+                              const units = e.target.value;
+                              const base = Math.round((parseFloat(units) || 0) * (parseFloat(runForm.dailyRate) || 0) * 100) / 100;
+                              setRunForm(f => ({ ...f, unitsWorked: units, baseSalary: String(base) }));
+                            }}
+                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
+                          <p className="text-gray-500 text-xs mt-1">= ฿{(parseFloat(runForm.baseSalary)||0).toLocaleString()} (แก้ยอดนี้ตรงๆ ได้ถ้าไม่ตรง)</p>
+                        </div>
+                      )}
+                      {runForm.payType === 'cycle' && (
+                        <div>
+                          <label className="block text-gray-400 text-xs mb-1.5">จำนวนรอบที่ทำ (แทรคละ {runForm.cycleDays} วัน × ฿{(runForm.cycleRate||0).toLocaleString()}/แทรค)</label>
+                          <input type="number" value={runForm.unitsWorked}
+                            onChange={e => {
+                              const units = e.target.value;
+                              const base = Math.round((parseFloat(units) || 0) * (parseFloat(runForm.cycleRate) || 0) * 100) / 100;
+                              setRunForm(f => ({ ...f, unitsWorked: units, baseSalary: String(base) }));
+                            }}
+                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
+                          <p className="text-gray-500 text-xs mt-1">= ฿{(parseFloat(runForm.baseSalary)||0).toLocaleString()} (แก้ยอดนี้ตรงๆ ได้ถ้าไม่ตรง)</p>
+                        </div>
+                      )}
+
+                      {/* OT — กรอกชั่วโมง+อัตราเอง (ไม่คำนวณอัตราให้อัตโนมัติ เพราะกฎหมายแรงงานมีหลาย
+                          อัตราต่างกันตามวันธรรมดา/วันหยุด/กลางคืน) กด "รวมเข้ายอดเพิ่ม" เพื่อ merge
+                          เข้าช่อง "เพิ่ม" ด้านล่าง (ไม่ทับของเดิมถ้ามีการกรอกไว้ก่อนแล้ว) */}
+                      <div className="bg-gray-800/50 rounded-xl p-3 space-y-2">
+                        <p className="text-gray-400 text-xs font-medium">⏱️ ค่า OT (ไม่บังคับ)</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <input type="number" placeholder="ชั่วโมง OT" value={runForm.otHours}
+                            onChange={e => setRunForm(f => ({ ...f, otHours: e.target.value }))}
+                            className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                          <input type="number" placeholder="อัตรา/ชม. (บาท)" value={runForm.otRatePerHour}
+                            onChange={e => setRunForm(f => ({ ...f, otRatePerHour: e.target.value }))}
+                            className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                        </div>
+                        {otCalc > 0 && (
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-gray-400">รวม OT = ฿{otCalc.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                            <button onClick={applyOtAddition} className="bg-green-800 hover:bg-green-700 text-green-200 px-3 py-1 rounded-lg font-medium">+ รวมเข้ายอดเพิ่ม</button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* หักวันหยุดเกินสิทธิ์ — เฉพาะพนักงานรายเดือน (รายวัน/แทรคจ่ายตามที่ทำจริงอยู่แล้ว
+                          ไม่มีแนวคิด "วันหยุดที่ได้รับเงิน" แบบเดียวกับรายเดือน) */}
+                      {runForm.payType === 'monthly' && (
+                        <div className="bg-gray-800/50 rounded-xl p-3 space-y-2">
+                          <p className="text-gray-400 text-xs font-medium">📅 หักวันหยุดเกินสิทธิ์ (ไม่บังคับ)</p>
+                          <div className="grid grid-cols-2 gap-2 items-end">
+                            <div>
+                              <label className="block text-gray-500 text-[11px] mb-1">จำนวนวันที่หยุดจริงเดือนนี้</label>
+                              <input type="number" min="0" value={runForm.daysAbsent}
+                                onChange={e => setRunForm(f => ({ ...f, daysAbsent: e.target.value }))}
+                                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                            </div>
+                            <div>
+                              <label className="block text-gray-500 text-[11px] mb-1">สิทธิ์วันหยุด/สัปดาห์</label>
+                              <input type="number" min="0" step="0.5" value={runForm.daysOffAllowed}
+                                onChange={e => setRunForm(f => ({ ...f, daysOffAllowed: e.target.value }))}
+                                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                            </div>
+                          </div>
+                          <p className="text-gray-500 text-[11px]">
+                            เดือนนี้มี {daysInYearMonth(runForm.yearMonth)} วัน → สิทธิ์ ~{daysOffCalc.allowedThisMonth} วัน · อัตราหักวันละ ฿{daysOffCalc.dailyRate.toLocaleString()}
+                          </p>
+                          {daysOffCalc.excessDays > 0 && (
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-red-400">หยุดเกินสิทธิ์ {daysOffCalc.excessDays} วัน = หัก ฿{daysOffCalc.deduction.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                              <button onClick={applyDaysOffDeduction} className="bg-red-900/60 hover:bg-red-800 text-red-200 px-3 py-1 rounded-lg font-medium">+ รวมเข้ายอดหัก</button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-gray-400 text-xs mb-1.5">เพิ่ม (โบนัส/OT/อื่นๆ)</label>
+                          <input type="number" value={runForm.additions} onChange={e => setRunForm(f => ({ ...f, additions: e.target.value }))}
+                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
+                          {runForm.additionNote && <p className="text-gray-600 text-[10px] mt-1 truncate">{runForm.additionNote}</p>}
+                        </div>
+                        <div>
+                          <label className="block text-gray-400 text-xs mb-1.5">หัก (เบิกล่วงหน้า/หยุดเกิน ฯลฯ)</label>
                           <input type="number" value={runForm.deductions} onChange={e => setRunForm(f => ({ ...f, deductions: e.target.value }))}
                             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
+                          {runForm.deductionNote && <p className="text-gray-600 text-[10px] mt-1 truncate">{runForm.deductionNote}</p>}
                         </div>
                       </div>
 
@@ -7966,6 +8210,18 @@ export default function POSPage() {
                       ไม่จด VAT
                     </button>
                   </div>
+                </div>
+
+                {/* นโยบายวันหยุด (ค่าเริ่มต้นทั้งร้าน — ใช้คำนวณหักเงินพนักงานรายเดือนที่หยุดเกินสิทธิ์) */}
+                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
+                  <h3 className="text-white font-bold mb-1">📅 วันหยุดต่อสัปดาห์ (ค่าเริ่มต้นทั้งร้าน)</h3>
+                  <p className="text-gray-400 text-xs mb-4">
+                    ใช้คำนวณ "หักเงินกรณีหยุดเกินสิทธิ์" ในหน้ารันจ่ายเงินเดือน (เฉพาะพนักงานรายเดือน) — ตั้งเป็นค่ากลางของร้าน แก้เฉพาะรายคนได้ที่หน้าแก้ไขพนักงานถ้าจำเป็น
+                  </p>
+                  <input type="number" min="0" step="0.5" value={posSettingsForm.payroll_days_off_per_week}
+                    onChange={e => setPosSettingsForm(f => ({ ...f, payroll_days_off_per_week: e.target.value }))}
+                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    placeholder="เช่น 1"/>
                 </div>
 
                 {/* ขนาดกระดาษเครื่องพิมพ์ใบเสร็จ */}
