@@ -5,6 +5,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
+import { Edit3, Trash2 } from 'lucide-react';
 import { MARKET_PRICE_FEATURE_LIVE } from '../lib/market-price-flag';
 import { hasFeature } from '../lib/tier-features';
 import { withBrandFooter } from '../lib/branding';
