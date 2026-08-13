@@ -88,6 +88,20 @@ function inRangeISO(isoStr, from, to) {
   return true;
 }
 
+// VAT ไม่ใช่รายได้ของกิจการ — คำนวณรายได้จากฐานราคาก่อน VAT เสมอสำหรับร้านที่จดทะเบียน VAT
+// (เดิม export.js ไม่เคยแยกเลย ใช้ item.price*qty ตรงๆ ต่างจาก reports.js ที่แก้ไปแล้ว) —
+// ตรรกะเดียวกับ lineRevenueBase() ใน reports.js/computeVatBreakdown() ใน google-pos.js เป๊ะ
+const VAT_RATE = 0.07;
+function lineRevenueBase(price, qty, vatType) {
+  const lineTotal = (parseFloat(price) || 0) * (parseFloat(qty) || 0);
+  if (vatType === 'รวม VAT แล้ว') return lineTotal / (1 + VAT_RATE);
+  return lineTotal;
+}
+async function getVatRegistered(shopId) {
+  const { data } = await supabase.from('pos_configs').select('vat_registered').eq('shop_id', shopId).maybeSingle();
+  return !!data?.vat_registered;
+}
+
 // ── Tier E: อ่าน transaction log จาก Supabase แทน Sheets — adapter แปลง row → shape เดียวกับ
 // rowToX() เดิมทุกฟิลด์ (ดูเหตุผลเต็มในหัวไฟล์ reports.js ซึ่งใช้ pattern เดียวกันนี้) ──────────
 function saleFromRow(r) {
@@ -98,6 +112,30 @@ function saleFromRow(r) {
     status: r.status || 'ชำระแล้ว', customer_id: r.customer_id || '', customer_name: r.customer_name || '',
     paid_at: r.paid_at || '', branch: r.branch_name || '', vat_subtotal: Number(r.vat_subtotal) || 0,
     vat_amount: Number(r.vat_amount) || 0,
+  };
+}
+function orderFromRow(r) {
+  return {
+    order_no: r.order_no || '', created_at: r.transaction_at || '', customer_id: r.customer_id || '',
+    customer_name: r.customer_name || '', items: r.items || [], total: Number(r.total) || 0,
+    payment_method: r.payment_method || '', status: r.status || 'รอจัดส่ง',
+    credit_settled: !!r.credit_settled,
+  };
+}
+// แปลงออเดอร์จัดส่งที่ "ยืนยันจัดส่งสำเร็จแล้ว" ให้อยู่ในรูปเดียวกับยอดขายหน้าร้าน — export.js เดิม
+// ไม่เคยรวมยอดขายจากออเดอร์จัดส่งเข้ารายงานเลย (ช่องว่างเดียวกับที่ reports.js แก้ไปแล้ว ข้อ 72/74
+// แต่ยังไม่ได้ไล่แก้ไฟล์นี้จนกระทั่งตอนนี้) — ยังไม่นับออเดอร์ที่ "รอจัดส่ง" (ยังไม่เกิดรายได้จริง)
+function deliveryOrderToSaleShape(o) {
+  const payment_method =
+    o.payment_method === 'เก็บปลายทาง' ? 'เงินสด' :
+    o.payment_method === 'โอนแล้ว' ? 'โอน' :
+    o.payment_method === 'ค้างจ่าย' ? 'เชื่อ' :
+    (o.payment_method || 'เงินสด');
+  const status = payment_method === 'เชื่อ' ? (o.credit_settled ? 'ชำระแล้ว' : 'ค้างชำระ') : 'ชำระแล้ว';
+  return {
+    bill_no: o.order_no, created_at: o.created_at, items: o.items, total: o.total,
+    payment_method, status, customer_id: o.customer_id, customer_name: o.customer_name,
+    branch: '', source: 'delivery',
   };
 }
 function loanFromRow(r) {
@@ -138,6 +176,12 @@ async function fetchSales(supabase, shopId) {
     .eq('shop_id', shopId).is('deleted_at', null).order('created_at', { ascending: true });
   if (error) throw error;
   return (data || []).map(saleFromRow).filter(s => s.bill_no);
+}
+async function fetchDeliveryOrders(supabase, shopId) {
+  const { data, error } = await supabase.from('pos_delivery_orders').select('*')
+    .eq('shop_id', shopId).is('deleted_at', null).order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(orderFromRow).filter(o => o.order_no);
 }
 async function fetchLoans(supabase, shopId) {
   const { data, error } = await supabase.from('pos_loans').select('*')
@@ -206,7 +250,11 @@ export default async function handler(req, res) {
 
     // ── ยอดขาย (bank-statement) ──────────────────────────────────────────
     if (typeList.includes('sales')) {
-      let sales = await fetchSales(supabase, shopId);
+      const [posSalesForSheet, deliveryOrdersForSheet] = await Promise.all([
+        fetchSales(supabase, shopId), fetchDeliveryOrders(supabase, shopId),
+      ]);
+      const deliverySalesForSheet = deliveryOrdersForSheet.filter(o => o.status === 'ส่งแล้ว').map(deliveryOrderToSaleShape);
+      let sales = [...posSalesForSheet, ...deliverySalesForSheet];
       if (branch) sales = sales.filter(s => s.branch === branch || (!s.branch && branch === branchName));
       sales = sales.filter(s => inRange(s.created_at, from, to));
 
@@ -271,8 +319,21 @@ export default async function handler(req, res) {
 
     // ── เงินเชื่อ ─────────────────────────────────────────────────────────
     if (typeList.includes('credit')) {
-      const allSalesForCredit = await fetchSales(supabase, shopId);
-      let credits = allSalesForCredit.filter(s => s.bill_no && s.payment_method === 'เชื่อ');
+      // รวม 2 แหล่ง: ขายเชื่อหน้าร้าน (pos_sales, payment_method=เชื่อ) + ออเดอร์จัดส่งค้างจ่าย
+      // (pos_delivery_orders, payment_method=ค้างจ่าย) — เดิมไฟล์นี้อ่านแค่ pos_sales เท่านั้น
+      // (ต่างจาก reports.js's type=credit ที่รวมทั้งสองแหล่งมาตั้งแต่ข้อ 22 แล้ว)
+      const [allSalesForCredit, allOrdersForCredit] = await Promise.all([
+        fetchSales(supabase, shopId), fetchDeliveryOrders(supabase, shopId),
+      ]);
+      const posCreditsForSheet = allSalesForCredit.filter(s => s.bill_no && s.payment_method === 'เชื่อ');
+      const deliveryCreditsForSheet = allOrdersForCredit
+        .filter(o => o.order_no && o.payment_method === 'ค้างจ่าย')
+        .map(o => ({
+          bill_no: o.order_no, created_at: o.created_at, items: o.items, total: o.total,
+          status: o.credit_settled ? 'ชำระแล้ว' : 'ค้างชำระ',
+          customer_id: o.customer_id, customer_name: o.customer_name, branch: '',
+        }));
+      let credits = [...posCreditsForSheet, ...deliveryCreditsForSheet];
       if (branch) credits = credits.filter(s => s.branch === branch);
       credits = credits.filter(s => inRange(s.created_at, from, to));
 
@@ -316,12 +377,14 @@ export default async function handler(req, res) {
 
     // ── สินค้าขายดี ──────────────────────────────────────────────────────
     if (typeList.includes('topsellers')) {
-      const [allSalesForTop, products] = await Promise.all([
-        fetchSales(supabase, shopId),
-        fetchProducts(supabase, shopId),
+      const [posSalesForTop, deliveryOrdersForTop, products, vatRegisteredForTop] = await Promise.all([
+        fetchSales(supabase, shopId), fetchDeliveryOrders(supabase, shopId),
+        fetchProducts(supabase, shopId), getVatRegistered(shopId),
       ]);
-      const costMap = {};
-      products.forEach(p => { costMap[p.sku] = p.cost; });
+      const deliverySalesForTop = deliveryOrdersForTop.filter(o => o.status === 'ส่งแล้ว').map(deliveryOrderToSaleShape);
+      const allSalesForTop = [...posSalesForTop, ...deliverySalesForTop];
+      const costMap = {}, vatTypeMapForTop = {};
+      products.forEach(p => { costMap[p.sku] = p.cost; vatTypeMapForTop[p.sku] = p.vat_type; });
 
       let sales = allSalesForTop.filter(s => s.bill_no && s.status !== 'ยกเลิก');
       if (branch) sales = sales.filter(s => s.branch === branch);
@@ -332,7 +395,7 @@ export default async function handler(req, res) {
         for (const item of s.items || []) {
           if (!tally[item.sku]) tally[item.sku] = { rank: 0, sku: item.sku, name: item.name, qty: 0, revenue: 0 };
           tally[item.sku].qty += item.qty;
-          tally[item.sku].revenue += item.price * item.qty;
+          tally[item.sku].revenue += vatRegisteredForTop ? lineRevenueBase(item.price, item.qty, vatTypeMapForTop[item.sku]) : item.price * item.qty;
         }
       }
       const topSellers = Object.values(tally).sort((a, b) => b.qty - a.qty).slice(0, 30).map((t, i) => ({ ...t, rank: i + 1, profit: t.revenue - (costMap[t.sku] || 0) * t.qty }));
@@ -350,12 +413,14 @@ export default async function handler(req, res) {
 
     // ── กำไรขาดทุน ────────────────────────────────────────────────────────
     if (typeList.includes('pl')) {
-      const [allSalesForPl, products] = await Promise.all([
-        fetchSales(supabase, shopId),
-        fetchProducts(supabase, shopId),
+      const [posSalesForPl, deliveryOrdersForPl, products, vatRegisteredForPl] = await Promise.all([
+        fetchSales(supabase, shopId), fetchDeliveryOrders(supabase, shopId),
+        fetchProducts(supabase, shopId), getVatRegistered(shopId),
       ]);
-      const costMap = {}, catMap = {};
-      products.forEach(p => { costMap[p.sku] = p.cost; catMap[p.sku] = p.category || 'ไม่ระบุ'; });
+      const deliverySalesForPl = deliveryOrdersForPl.filter(o => o.status === 'ส่งแล้ว').map(deliveryOrderToSaleShape);
+      const allSalesForPl = [...posSalesForPl, ...deliverySalesForPl];
+      const costMap = {}, catMap = {}, vatTypeMapForPl = {};
+      products.forEach(p => { costMap[p.sku] = p.cost; catMap[p.sku] = p.category || 'ไม่ระบุ'; vatTypeMapForPl[p.sku] = p.vat_type; });
 
       let sales = allSalesForPl.filter(s => s.bill_no && s.status !== 'ยกเลิก' && s.status !== 'ค้างชำระ');
       if (branch) sales = sales.filter(s => s.branch === branch);
@@ -366,9 +431,11 @@ export default async function handler(req, res) {
         for (const item of s.items || []) {
           const cat = catMap[item.sku] || 'ไม่ระบุ';
           if (!byCategory[cat]) byCategory[cat] = { category: cat, revenue: 0, cost: 0, profit: 0 };
-          byCategory[cat].revenue += item.price * item.qty;
-          byCategory[cat].cost += (costMap[item.sku] || 0) * item.qty;
-          byCategory[cat].profit += item.price * item.qty - (costMap[item.sku] || 0) * item.qty;
+          const itemRevenue = vatRegisteredForPl ? lineRevenueBase(item.price, item.qty, vatTypeMapForPl[item.sku]) : item.price * item.qty;
+          const itemCost = (costMap[item.sku] || 0) * item.qty;
+          byCategory[cat].revenue += itemRevenue;
+          byCategory[cat].cost += itemCost;
+          byCategory[cat].profit += itemRevenue - itemCost;
         }
       }
       const cats = Object.values(byCategory).sort((a, b) => b.revenue - a.revenue);
@@ -508,7 +575,11 @@ export default async function handler(req, res) {
 
     // ── แม่แบบ 2: สรุปยอดขายแยกสาขา + วิธีชำระเงิน — Business+ ────────────────
     if (typeList.includes('sales_by_branch')) {
-      const allSalesForBranch = await fetchSales(supabase, shopId);
+      const [posSalesForBranch, deliveryOrdersForBranch] = await Promise.all([
+        fetchSales(supabase, shopId), fetchDeliveryOrders(supabase, shopId),
+      ]);
+      const deliverySalesForBranch = deliveryOrdersForBranch.filter(o => o.status === 'ส่งแล้ว').map(deliveryOrderToSaleShape);
+      const allSalesForBranch = [...posSalesForBranch, ...deliverySalesForBranch];
       let sales = allSalesForBranch.filter(s => s.bill_no && s.status !== 'ยกเลิก' && s.status !== 'ค้างชำระ');
       sales = sales.filter(s => inRange(s.created_at, from, to));
 

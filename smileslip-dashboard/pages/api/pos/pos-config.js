@@ -43,15 +43,18 @@ export default async function handler(req, res) {
     let receipt_paper_size = '80mm';
     let vat_registered = false;
     let scb_biller_ref1 = '';
-    let payroll_days_off_per_week = 1;
+    // payroll_days_off_per_month — เพิ่ม 2026-08-10 แทนที่ payroll_days_off_per_week เดิม (สูตร
+    // เดิมคูณจากอัตราต่อสัปดาห์ ผิดสมมติฐาน ธุรกิจจริงหลายเจ้าให้วันหยุดเป็นโควตารายเดือนแบบยืดหยุ่น
+    // เลือกวันไหนก็ได้ ไม่ผูกกับรอบสัปดาห์เลย) default 6 ตรงกับนโยบายจริงของร้านที่ทำให้พบปัญหานี้
+    let payroll_days_off_per_month = 6;
     try {
       const { data: rd } = await supabase
-        .from('pos_configs').select('receipt_paper_size, vat_registered, scb_biller_ref1, payroll_days_off_per_week').eq('shop_id', shopId).single();
+        .from('pos_configs').select('receipt_paper_size, vat_registered, scb_biller_ref1, payroll_days_off_per_month').eq('shop_id', shopId).single();
       if (rd?.receipt_paper_size) receipt_paper_size = rd.receipt_paper_size;
       vat_registered = !!rd?.vat_registered;
       scb_biller_ref1 = rd?.scb_biller_ref1 || '';
-      if (rd?.payroll_days_off_per_week !== null && rd?.payroll_days_off_per_week !== undefined) {
-        payroll_days_off_per_week = Number(rd.payroll_days_off_per_week);
+      if (rd?.payroll_days_off_per_month !== null && rd?.payroll_days_off_per_month !== undefined) {
+        payroll_days_off_per_month = Number(rd.payroll_days_off_per_month);
       }
     } catch {}
 
@@ -64,7 +67,7 @@ export default async function handler(req, res) {
       scb_biller_ref1,
       receipt_paper_size,
       vat_registered,
-      payroll_days_off_per_week,
+      payroll_days_off_per_month,
     });
   }
 
@@ -73,7 +76,7 @@ export default async function handler(req, res) {
     // ไม่ว่าจะเปิดสิทธิ์อะไรก็ตาม (เจ้าของ/แอดมินเท่านั้น ต้องพิสูจน์ owner-session จริง)
     if (!blockAllStaffSessions(req, res, shopId)) return;
 
-    const { promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, scb_biller_ref1, receipt_paper_size, vat_registered, payroll_days_off_per_week } = req.body;
+    const { promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, scb_biller_ref1, receipt_paper_size, vat_registered, payroll_days_off_per_month } = req.body;
 
     // Biller ID (Thai QR Bill Payment, Tag 30) ต้องเป็นตัวเลขล้วน 15 หลักตามมาตรฐาน ITMX เสมอ —
     // สาเหตุที่พบบ่อยที่สุดที่ QR สแกนไม่ได้ ("QR ไม่ถูกต้อง") คือกรอกเลข "เลขอ้างอิง"/Reference
@@ -132,9 +135,9 @@ export default async function handler(req, res) {
         await supabase.from('pos_configs').update({ scb_biller_ref1: scb_biller_ref1 ? String(scb_biller_ref1).trim() : null }).eq('shop_id', shopId);
       } catch {}
     }
-    if (payroll_days_off_per_week !== undefined) {
+    if (payroll_days_off_per_month !== undefined) {
       try {
-        await supabase.from('pos_configs').update({ payroll_days_off_per_week: Math.max(0, parseFloat(payroll_days_off_per_week) || 0) }).eq('shop_id', shopId);
+        await supabase.from('pos_configs').update({ payroll_days_off_per_month: Math.max(0, parseFloat(payroll_days_off_per_month) || 0) }).eq('shop_id', shopId);
       } catch {}
     }
 

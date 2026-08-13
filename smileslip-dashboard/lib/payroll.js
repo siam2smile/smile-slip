@@ -73,17 +73,18 @@ export const PAY_TYPES = [
 ];
 
 // ── นโยบายวันหยุด/หักเงินกรณีหยุดเกินสิทธิ์ (เฉพาะพนักงานรายเดือน) ────────────────
-// สูตรตามที่ผู้ใช้อธิบายเอง: อัตราต่อวัน = เงินเดือน ÷ จำนวนวันจริงในเดือนนั้น (28-31 วันตามเดือน
-// จริง ไม่ใช่ 30 วันคงที่) แล้วหักเฉพาะจำนวนวันที่เกินสิทธิ์ที่ได้รับอนุญาต — "สิทธิ์" คำนวณจาก
-// นโยบาย "หยุดกี่วันต่อสัปดาห์" (ตั้งเป็นค่ากลางของร้านใน pos_configs.payroll_days_off_per_week
-// ปรับต่อคนได้ผ่าน employee.days_off_per_week_override) เทียบสัดส่วนกับจำนวนวันจริงในเดือนนั้น
-export function computeDaysOffDeduction({ baseSalary, daysInMonth, daysOffAllowedPerWeek, daysAbsent }) {
+// สูตร: อัตราต่อวัน = เงินเดือน ÷ จำนวนวันจริงในเดือนนั้น (28-31 วันตามเดือนจริง ไม่ใช่ 30 วัน
+// คงที่) แล้วหักเฉพาะจำนวนวันที่เกินสิทธิ์ที่ได้รับอนุญาต — "สิทธิ์" เป็น**โควตาวันหยุดตรงๆ ต่อเดือน**
+// (ตั้งเป็นค่ากลางของร้านใน pos_configs.payroll_days_off_per_month ปรับต่อคนได้ผ่าน
+// employee.days_off_per_month_override) — **เดิม (ก่อน 2026-08-10) ใช้สูตรคูณจาก "วันหยุด/
+// สัปดาห์" ผิดสมมติฐาน เพราะธุรกิจจริงหลายเจ้าให้วันหยุดเป็นโควตารายเดือนแบบยืดหยุ่น (เช่น หยุด 6
+// วัน/เดือน เลือกวันไหนก็ได้ ไม่ผูกกับรอบสัปดาห์เลย) — แก้เป็นโควตาต่อเดือนตรงๆ ไม่ต้องคูณ/หารแปลง
+export function computeDaysOffDeduction({ baseSalary, daysInMonth, daysOffAllowedPerMonth, daysAbsent }) {
   const salary = Math.max(0, parseFloat(baseSalary) || 0);
   const totalDays = Math.max(1, parseInt(daysInMonth) || 30);
-  const allowedPerWeek = Math.max(0, parseFloat(daysOffAllowedPerWeek) || 0);
+  const allowedThisMonth = Math.max(0, parseFloat(daysOffAllowedPerMonth) || 0);
   const absent = Math.max(0, parseFloat(daysAbsent) || 0);
   const dailyRate = Math.round((salary / totalDays) * 100) / 100;
-  const allowedThisMonth = Math.round((allowedPerWeek * totalDays / 7) * 100) / 100;
   const excessDays = Math.max(0, Math.round((absent - allowedThisMonth) * 100) / 100);
   const deduction = Math.round(dailyRate * excessDays * 100) / 100;
   return { dailyRate, allowedThisMonth, excessDays, deduction };
@@ -130,8 +131,11 @@ export function payrollEmployeeFromRow(r) {
     cycle_days: r.cycle_days ? Number(r.cycle_days) : 10,
     cycle_rate: Number(r.cycle_rate) || 0,
     address: r.address || '', phone: r.phone || '',
-    days_off_per_week_override: r.days_off_per_week_override === null || r.days_off_per_week_override === undefined
-      ? '' : Number(r.days_off_per_week_override),
+    // days_off_per_month_override — เพิ่ม 2026-08-10 แทนที่ days_off_per_week_override เดิม
+    // (ออกแบบผิดสมมติฐานตั้งแต่วันแรกที่ shipped ดู CLAUDE.md ข้อ 81 — ยังไม่มีข้อมูลจริงใช้ค่าเก่า
+    // เลยสักแถวตอนแก้ จึงแทนที่ตรงๆ ได้โดยไม่ต้อง migrate ข้อมูล)
+    days_off_per_month_override: r.days_off_per_month_override === null || r.days_off_per_month_override === undefined
+      ? '' : Number(r.days_off_per_month_override),
   };
 }
 

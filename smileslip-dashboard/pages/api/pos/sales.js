@@ -186,7 +186,7 @@ export default async function handler(req, res) {
 
     // ── PATCH (รับชำระเงินเชื่อ) ─────────────────────────────────────────
     if (req.method === 'PATCH') {
-      const { bill_no, notes: patchNotes = '', collected_method = 'เงินสด' } = req.body;
+      const { bill_no, notes: patchNotes = '', collected_method = 'เงินสด', settled_shift_no = '' } = req.body;
       if (!bill_no) return res.status(400).json({ error: 'Missing bill_no' });
       // วิธีที่ลูกค้าเอามาจ่ายจริงตอนมาชำระเชื่อที่ร้าน (เงินสด/โอน) — เดิม hardcode เป็น
       // "เชื่อ/ชำระแล้ว" เสมอ (ตกไปแสดงเป็น "เงินสด" ในบัญชีหลักทุกครั้งไม่ว่าจะจ่ายด้วยวิธีไหนจริง
@@ -194,8 +194,9 @@ export default async function handler(req, res) {
       // pos_sales.payment_method เอง (ยังคงเป็น "เชื่อ" ตลอดไป)** เพราะ type=credit ใน reports.js
       // ใช้ payment_method==='เชื่อ' เป็นตัวกรองว่าบิลนี้เคยเป็นเงินเชื่อ (รวมที่ชำระแล้ว) ถ้าเปลี่ยน
       // จะทำให้บิลที่ชำระแล้วหายจากรายงานเงินเชื่อไปเลย — บันทึกวิธีชำระจริงไว้ใน notes + ป้ายในบัญชี
-      // หลักแทน (known gap: ยังไม่ผูกเข้าระบบกะเงินสด/computeExpectedCash เพราะต้องแยกคอลัมน์ใหม่
-      // ก่อนถึงจะทำได้โดยไม่ชนกับตัวกรองรายงานเงินเชื่อข้างบน — รอทำต่อถ้าจำเป็นจริง)
+      // หลักเหมือนเดิม **และตอนนี้บันทึกเป็นคอลัมน์แยกด้วย (collected_method/settled_shift_no)**
+      // ให้ computeExpectedCash() ใน cash-shifts.js นับยอดที่เก็บได้จากลูกหนี้เข้ากะที่เปิดอยู่ตอน
+      // เก็บเงินจริงได้ (คนละกะจาก shift_no เดิมของบิลที่ผูกไว้ตอนสร้างบิล) — แก้ known gap เดิม
       const methodLabel = collected_method === 'โอน' ? 'โอน' : 'เงินสด';
       const collectNote = `ชำระด้วย: ${methodLabel}`;
 
@@ -212,6 +213,15 @@ export default async function handler(req, res) {
         status: 'ชำระแล้ว', paid_at: now, notes: mergedNotes,
       }).eq('shop_id', shopId).eq('bill_no', bill_no);
       if (error) throw error;
+
+      // คอลัมน์ใหม่ (collected_method/settled_shift_no) — แยก update ต่างหาก + กันพัง เหมือน
+      // คอลัมน์ใหม่อื่นๆ ในโปรเจกต์นี้เสมอ (ต้องรัน ALTER TABLE ก่อน ดู CLAUDE.md) ถ้ายังไม่ได้รัน
+      // การบันทึกรับชำระเชื่อหลักยังสำเร็จปกติ แค่ยังไม่นับเข้ากะเงินสดจนกว่าจะรัน SQL
+      try {
+        await supabase.from('pos_sales').update({
+          collected_method: methodLabel, settled_shift_no: settled_shift_no || null,
+        }).eq('shop_id', shopId).eq('bill_no', bill_no);
+      } catch {}
 
       // เขียนลง Main Sheets หลังชำระ (best-effort — ดูหัวไฟล์)
       const sale = saleFromRow({ ...existing, status: 'ชำระแล้ว', paid_at: now, notes: mergedNotes });

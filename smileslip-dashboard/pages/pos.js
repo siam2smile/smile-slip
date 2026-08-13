@@ -86,7 +86,7 @@ function emptyEmployeeForm() {
   return {
     name: '', position: '', base_salary: '', id_card_number: '', sso_enrolled: true, notes: '',
     pay_type: 'monthly', daily_rate: '', cycle_days: '10', cycle_rate: '',
-    address: '', phone: '', days_off_per_week_override: '',
+    address: '', phone: '', days_off_per_month_override: '',
   };
 }
 function emptyContactForm() {
@@ -523,8 +523,8 @@ export default function POSPage() {
   const [qrLoading, setQrLoading] = useState(false);
 
   // POS settings (PromptPay + Biller ID) — Staff PIN เปลี่ยนเป็นรายบุคคลแล้ว ไม่มี PIN ร้านรวมอีกต่อไป
-  const [posConfig, setPosConfig] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', receipt_paper_size: '80mm', vat_registered: false, payroll_days_off_per_week: 1 });
-  const [posSettingsForm, setPosSettingsForm] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', vat_registered: false, payroll_days_off_per_week: 1 });
+  const [posConfig, setPosConfig] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', receipt_paper_size: '80mm', vat_registered: false, payroll_days_off_per_month: 6 });
+  const [posSettingsForm, setPosSettingsForm] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', vat_registered: false, payroll_days_off_per_month: 6 });
   const [settingsSaving, setSettingsSaving] = useState(false);
 
   // ── เปิดกะ/ปิดกะเงินสด (ผูกกับพนักงานรายคนผ่าน PIN ไม่ใช่สาขา/เครื่อง) ─────────
@@ -1233,7 +1233,7 @@ export default function POSPage() {
       const d = await r.json();
       if (d.ok !== false) {
         setPosConfig(d);
-        setPosSettingsForm({ promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '', scb_biller_ref1: d.scb_biller_ref1 || '', receipt_paper_size: d.receipt_paper_size || '80mm', vat_registered: !!d.vat_registered, payroll_days_off_per_week: d.payroll_days_off_per_week ?? 1 });
+        setPosSettingsForm({ promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '', scb_biller_ref1: d.scb_biller_ref1 || '', receipt_paper_size: d.receipt_paper_size || '80mm', vat_registered: !!d.vat_registered, payroll_days_off_per_month: d.payroll_days_off_per_month ?? 6 });
       }
     } catch {}
   }
@@ -1248,7 +1248,7 @@ export default function POSPage() {
       if (posSettingsForm.scb_biller_ref1 !== undefined) body.scb_biller_ref1 = posSettingsForm.scb_biller_ref1;
       if (posSettingsForm.receipt_paper_size !== undefined) body.receipt_paper_size = posSettingsForm.receipt_paper_size;
       body.vat_registered = !!posSettingsForm.vat_registered;
-      body.payroll_days_off_per_week = posSettingsForm.payroll_days_off_per_week;
+      body.payroll_days_off_per_month = posSettingsForm.payroll_days_off_per_month;
       const r = await fetch('/api/pos/pos-config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -2961,7 +2961,7 @@ export default function POSPage() {
           pay_type: employeeForm.pay_type, daily_rate: employeeForm.daily_rate,
           cycle_days: employeeForm.cycle_days, cycle_rate: employeeForm.cycle_rate,
           address: employeeForm.address.trim(), phone: employeeForm.phone.trim(),
-          days_off_per_week_override: employeeForm.days_off_per_week_override,
+          days_off_per_month_override: employeeForm.days_off_per_month_override,
         }),
       });
       const d = await r.json();
@@ -2981,7 +2981,7 @@ export default function POSPage() {
       name: emp.name, position: emp.position, base_salary: emp.base_salary,
       id_card_number: emp.id_card_number, sso_enrolled: emp.sso_enrolled, status: emp.status, notes: emp.notes,
       pay_type: emp.pay_type, daily_rate: emp.daily_rate, cycle_days: emp.cycle_days, cycle_rate: emp.cycle_rate,
-      address: emp.address, phone: emp.phone, days_off_per_week_override: emp.days_off_per_week_override,
+      address: emp.address, phone: emp.phone, days_off_per_month_override: emp.days_off_per_month_override,
     });
   }
 
@@ -3018,16 +3018,17 @@ export default function POSPage() {
   }
 
   function selectEmployeeForRun(emp) {
-    // นโยบายวันหยุด: ใช้ค่าเฉพาะคนถ้าตั้งไว้ (days_off_per_week_override) ไม่งั้น fallback เป็น
-    // ค่ากลางของร้าน (posConfig.payroll_days_off_per_week) — ตามที่ผู้ใช้เลือกไว้ 2026-08-10
-    const daysOffAllowedPerWeek = emp.days_off_per_week_override !== '' && emp.days_off_per_week_override !== null
-      ? Number(emp.days_off_per_week_override) : (Number(posConfig.payroll_days_off_per_week) || 0);
+    // นโยบายวันหยุด: ใช้ค่าเฉพาะคนถ้าตั้งไว้ (days_off_per_month_override) ไม่งั้น fallback เป็น
+    // ค่ากลางของร้าน (posConfig.payroll_days_off_per_month) — โควตาตรงต่อเดือน ไม่คูณจากรอบสัปดาห์
+    // (แก้ไข 2026-08-10 — ดูเหตุผลใน lib/payroll.js's computeDaysOffDeduction())
+    const daysOffAllowedPerMonth = emp.days_off_per_month_override !== '' && emp.days_off_per_month_override !== null
+      ? Number(emp.days_off_per_month_override) : (Number(posConfig.payroll_days_off_per_month) || 0);
     setRunForm(f => ({
       ...f, employeeId: emp.id, employeeName: emp.name, payType: emp.pay_type || 'monthly',
       baseSalary: emp.pay_type === 'monthly' ? emp.base_salary : '',
       ssoEnrolled: emp.sso_enrolled, yearMonth: f.yearMonth || currentYearMonth(),
       ssoEmployeeOverride: '', withholdingTaxOverride: '',
-      daysAbsent: '', daysOffAllowed: daysOffAllowedPerWeek, dailyRateForCalc: 0,
+      daysAbsent: '', daysOffAllowed: daysOffAllowedPerMonth, dailyRateForCalc: 0,
       otHours: '', otRatePerHour: '',
       unitsWorked: '', dailyRate: emp.daily_rate || 0, cycleDays: emp.cycle_days || 10, cycleRate: emp.cycle_rate || 0,
     }));
@@ -3048,7 +3049,7 @@ export default function POSPage() {
     const daysInMonth = daysInYearMonth(runForm.yearMonth);
     return computeDaysOffDeduction({
       baseSalary: runForm.baseSalary, daysInMonth,
-      daysOffAllowedPerWeek: runForm.daysOffAllowed, daysAbsent: runForm.daysAbsent,
+      daysOffAllowedPerMonth: runForm.daysOffAllowed, daysAbsent: runForm.daysAbsent,
     });
   }, [runForm.baseSalary, runForm.yearMonth, runForm.daysOffAllowed, runForm.daysAbsent]);
 
@@ -4142,17 +4143,21 @@ export default function POSPage() {
   // collected_method: 'เงินสด' | 'โอน' — ลูกค้าเอาอะไรมาจ่ายจริงตอนมาชำระที่ร้าน (เลือกผ่าน modal
   // creditPayChoice ก่อนเสมอ ไม่เดาว่าเป็นเงินสดเฉยๆ แบบเดิม)
   async function markCreditPaid(billNo, source = 'pos', collected_method = 'เงินสด') {
+    // ผูกกะเงินสดที่เปิดอยู่ตอนนี้ไว้ด้วย เฉพาะตอนเก็บเป็นเงินสดจริง (โอนไม่กระทบเงินสดในลิ้นชัก
+    // เหมือน pattern เดียวกับตอนขาย/บันทึกรายจ่าย) ให้ computeExpectedCash() นับยอดที่เก็บได้
+    // จากลูกหนี้เข้ากะปัจจุบัน — แยกจาก shift_no เดิมของบิล (ตอนสร้างบิลอาจเปิดคนละกะ/คนละวันเลย)
+    const settled_shift_no = collected_method === 'เงินสด' ? (activeShift?.shift_no || '') : '';
     try {
       const r = source === 'delivery'
         ? await fetch('/api/pos/delivery', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ shopId, order_no: billNo, credit_settled: true, collected_method }),
+            body: JSON.stringify({ shopId, order_no: billNo, credit_settled: true, collected_method, settled_shift_no }),
           })
         : await fetch('/api/pos/sales', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ shopId, bill_no: billNo, collected_method }),
+            body: JSON.stringify({ shopId, bill_no: billNo, collected_method, settled_shift_no }),
           });
       const d = await r.json();
       if (d.ok) { showToast('✅ บันทึกรับชำระแล้ว'); fetchReport(); }
@@ -7553,9 +7558,9 @@ export default function POSPage() {
 
                           {employeeForm.pay_type === 'monthly' && (
                             <div>
-                              <label className="block text-gray-500 text-[11px] mb-1">วันหยุด/สัปดาห์ของคนนี้ (ว่าง = ใช้ค่ากลางของร้าน)</label>
-                              <input type="number" min="0" step="0.5" placeholder={`ค่ากลางร้าน: ${posConfig.payroll_days_off_per_week}`} value={employeeForm.days_off_per_week_override}
-                                onChange={e => setEmployeeForm(f => ({ ...f, days_off_per_week_override: e.target.value }))}
+                              <label className="block text-gray-500 text-[11px] mb-1">โควตาวันหยุด/เดือนของคนนี้ (ว่าง = ใช้ค่ากลางของร้าน)</label>
+                              <input type="number" min="0" step="0.5" placeholder={`ค่ากลางร้าน: ${posConfig.payroll_days_off_per_month} วัน/เดือน`} value={employeeForm.days_off_per_month_override}
+                                onChange={e => setEmployeeForm(f => ({ ...f, days_off_per_month_override: e.target.value }))}
                                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
                             </div>
                           )}
@@ -7625,9 +7630,9 @@ export default function POSPage() {
                                   <textarea value={editEmployeeForm.address || ''} rows={2} onChange={e => setEditEmployeeForm(f => ({ ...f, address: e.target.value }))}
                                     placeholder="ที่อยู่" className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white resize-none"/>
                                   {(editEmployeeForm.pay_type || 'monthly') === 'monthly' && (
-                                    <input type="number" min="0" step="0.5" value={editEmployeeForm.days_off_per_week_override ?? ''}
-                                      onChange={e => setEditEmployeeForm(f => ({ ...f, days_off_per_week_override: e.target.value }))}
-                                      placeholder={`วันหยุด/สัปดาห์ (ว่าง = ค่ากลางร้าน ${posConfig.payroll_days_off_per_week})`}
+                                    <input type="number" min="0" step="0.5" value={editEmployeeForm.days_off_per_month_override ?? ''}
+                                      onChange={e => setEditEmployeeForm(f => ({ ...f, days_off_per_month_override: e.target.value }))}
+                                      placeholder={`โควตาวันหยุด/เดือน (ว่าง = ค่ากลางร้าน ${posConfig.payroll_days_off_per_month} วัน)`}
                                       className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
                                   )}
                                   <div className="flex items-center justify-between">
@@ -7774,14 +7779,14 @@ export default function POSPage() {
                                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
                             </div>
                             <div>
-                              <label className="block text-gray-500 text-[11px] mb-1">สิทธิ์วันหยุด/สัปดาห์</label>
+                              <label className="block text-gray-500 text-[11px] mb-1">โควตาวันหยุด/เดือน</label>
                               <input type="number" min="0" step="0.5" value={runForm.daysOffAllowed}
                                 onChange={e => setRunForm(f => ({ ...f, daysOffAllowed: e.target.value }))}
                                 className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
                             </div>
                           </div>
                           <p className="text-gray-500 text-[11px]">
-                            เดือนนี้มี {daysInYearMonth(runForm.yearMonth)} วัน → สิทธิ์ ~{daysOffCalc.allowedThisMonth} วัน · อัตราหักวันละ ฿{daysOffCalc.dailyRate.toLocaleString()}
+                            เดือนนี้มี {daysInYearMonth(runForm.yearMonth)} วัน · อัตราหักวันละ ฿{daysOffCalc.dailyRate.toLocaleString()} (หยุดได้ {daysOffCalc.allowedThisMonth} วันโดยไม่ถูกหัก เลือกวันไหนก็ได้)
                           </p>
                           {daysOffCalc.excessDays > 0 && (
                             <div className="flex items-center justify-between text-xs">
@@ -8214,14 +8219,14 @@ export default function POSPage() {
 
                 {/* นโยบายวันหยุด (ค่าเริ่มต้นทั้งร้าน — ใช้คำนวณหักเงินพนักงานรายเดือนที่หยุดเกินสิทธิ์) */}
                 <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
-                  <h3 className="text-white font-bold mb-1">📅 วันหยุดต่อสัปดาห์ (ค่าเริ่มต้นทั้งร้าน)</h3>
+                  <h3 className="text-white font-bold mb-1">📅 โควตาวันหยุด/เดือน (ค่าเริ่มต้นทั้งร้าน)</h3>
                   <p className="text-gray-400 text-xs mb-4">
-                    ใช้คำนวณ "หักเงินกรณีหยุดเกินสิทธิ์" ในหน้ารันจ่ายเงินเดือน (เฉพาะพนักงานรายเดือน) — ตั้งเป็นค่ากลางของร้าน แก้เฉพาะรายคนได้ที่หน้าแก้ไขพนักงานถ้าจำเป็น
+                    จำนวนวันหยุดที่ได้รับต่อเดือน เลือกวันไหนก็ได้ ไม่ผูกกับรอบสัปดาห์ — ใช้คำนวณ "หักเงินกรณีหยุดเกินสิทธิ์" ในหน้ารันจ่ายเงินเดือน (เฉพาะพนักงานรายเดือน) ตั้งเป็นค่ากลางของร้าน แก้เฉพาะรายคนได้ที่หน้าแก้ไขพนักงานถ้าจำเป็น
                   </p>
-                  <input type="number" min="0" step="0.5" value={posSettingsForm.payroll_days_off_per_week}
-                    onChange={e => setPosSettingsForm(f => ({ ...f, payroll_days_off_per_week: e.target.value }))}
+                  <input type="number" min="0" step="0.5" value={posSettingsForm.payroll_days_off_per_month}
+                    onChange={e => setPosSettingsForm(f => ({ ...f, payroll_days_off_per_month: e.target.value }))}
                     className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
-                    placeholder="เช่น 1"/>
+                    placeholder="เช่น 6"/>
                 </div>
 
                 {/* ขนาดกระดาษเครื่องพิมพ์ใบเสร็จ */}

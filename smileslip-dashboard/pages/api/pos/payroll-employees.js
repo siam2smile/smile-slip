@@ -36,7 +36,7 @@ export default async function handler(req, res) {
     if (req.method === 'POST') {
       const {
         name, id_card_number = '', position = '', base_salary = 0, sso_enrolled = true, branch = '', start_date = '', notes = '',
-        pay_type = 'monthly', daily_rate = 0, cycle_days = 10, cycle_rate = 0, address = '', phone = '', days_off_per_week_override = '',
+        pay_type = 'monthly', daily_rate = 0, cycle_days = 10, cycle_rate = 0, address = '', phone = '', days_off_per_month_override = '',
       } = req.body;
       if (!name?.trim()) return res.status(400).json({ error: 'กรุณาระบุชื่อพนักงาน' });
       if (!['monthly', 'daily', 'cycle'].includes(pay_type)) return res.status(400).json({ error: 'ประเภทการจ่ายไม่ถูกต้อง' });
@@ -61,7 +61,7 @@ export default async function handler(req, res) {
         await supabase.from('pos_payroll_employees').update({
           pay_type, daily_rate: numDaily, cycle_days: numCycleDays, cycle_rate: numCycleRate,
           address: address.trim(), phone: phone.trim(),
-          days_off_per_week_override: days_off_per_week_override === '' ? null : Math.max(0, parseFloat(days_off_per_week_override) || 0),
+          days_off_per_month_override: days_off_per_month_override === '' ? null : Math.max(0, parseFloat(days_off_per_month_override) || 0),
         }).eq('shop_id', shopId).eq('employee_no', employeeNo);
       } catch {}
 
@@ -71,7 +71,7 @@ export default async function handler(req, res) {
     if (req.method === 'PATCH') {
       const {
         id, name, id_card_number, position, base_salary, sso_enrolled, branch, start_date, status, notes,
-        pay_type, daily_rate, cycle_days, cycle_rate, address, phone, days_off_per_week_override,
+        pay_type, daily_rate, cycle_days, cycle_rate, address, phone, days_off_per_month_override,
       } = req.body;
       if (!id) return res.status(400).json({ error: 'Missing id' });
 
@@ -104,8 +104,8 @@ export default async function handler(req, res) {
       if (cycle_rate !== undefined) extraUpdates.cycle_rate = Math.max(0, parseFloat(cycle_rate) || 0);
       if (address !== undefined) extraUpdates.address = address.trim();
       if (phone !== undefined) extraUpdates.phone = phone.trim();
-      if (days_off_per_week_override !== undefined) {
-        extraUpdates.days_off_per_week_override = days_off_per_week_override === '' ? null : Math.max(0, parseFloat(days_off_per_week_override) || 0);
+      if (days_off_per_month_override !== undefined) {
+        extraUpdates.days_off_per_month_override = days_off_per_month_override === '' ? null : Math.max(0, parseFloat(days_off_per_month_override) || 0);
       }
       if (Object.keys(extraUpdates).length) {
         try { await supabase.from('pos_payroll_employees').update(extraUpdates).eq('shop_id', shopId).eq('id', id); } catch {}

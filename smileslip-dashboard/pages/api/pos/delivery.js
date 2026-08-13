@@ -300,7 +300,7 @@ export default async function handler(req, res) {
         customer_id, customer_name, phone, address,
         items, total, payment_method, staff_id, staff_name,
         confirm_delivery, slip_url, confirmed_by, cash_received, goods_received, credit_settled,
-        partial_paid_amount, collected_method,
+        partial_paid_amount, collected_method, settled_shift_no,
       } = req.body;
       if (!order_no) return res.status(400).json({ error: 'Missing order_no' });
 
@@ -475,6 +475,19 @@ export default async function handler(req, res) {
       const { error } = await supabase.from('pos_delivery_orders').update(updates)
         .eq('shop_id', shopId).eq('order_no', order_no);
       if (error) throw error;
+
+      // คอลัมน์ใหม่ (collected_method/settled_shift_no) — เฉพาะตอนเพิ่งยืนยันรับชำระเงินเชื่อ
+      // รอบนี้เท่านั้น — แยก update ต่างหาก + กันพัง (ต้องรัน ALTER TABLE ก่อน ดู CLAUDE.md) ให้
+      // computeExpectedCash() ใน cash-shifts.js นับยอดที่เก็บได้จากลูกหนี้เข้ากะที่เปิดอยู่ตอนเก็บจริง
+      if (credit_settled === true && !existing.credit_settled && collected_method) {
+        try {
+          const methodLabel = collected_method === 'โอน' ? 'โอน' : 'เงินสด';
+          await supabase.from('pos_delivery_orders').update({
+            collected_method: methodLabel, settled_shift_no: settled_shift_no || null,
+          }).eq('shop_id', shopId).eq('order_no', order_no);
+        } catch {}
+      }
+
       return res.json({ ok: true, order_no, debtAdded: orderRemainingDebt });
     }
 

@@ -16,7 +16,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
-import { makeShiftNo, cashShiftFromRow, saleFromRow, expenseFromRow } from '../../../lib/google-pos';
+import { makeShiftNo, cashShiftFromRow, saleFromRow, expenseFromRow, deliveryOrderFromRow } from '../../../lib/google-pos';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -37,9 +37,14 @@ async function pushLineMessage(lineId, message) {
   }
 }
 
-// คำนวณ "เงินสดที่ควรมี" ของกะนี้จากข้อมูลจริง — เงินสดตั้งต้น + ขายเงินสดที่ผูกกะนี้ − รายจ่ายเงินสดที่ผูกกะนี้
-// (payment_method='เงินสด' เท่านั้น — โอน/เชื่อไม่กระทบเงินสดในลิ้นชัก) ใช้ `total` ของบิลตรงๆ
-// (เงินทอนหักรวมอยู่ในนั้นแล้ว: รับ 500 ทอน 120 = สุทธิ 380 = total พอดี ไม่ต้องแยกคำนวณเงินทอนเอง
+// คำนวณ "เงินสดที่ควรมี" ของกะนี้จากข้อมูลจริง — เงินสดตั้งต้น + ขายเงินสดที่ผูกกะนี้ + เงินที่เก็บ
+// ได้จากลูกหนี้เป็นเงินสดระหว่างกะนี้ (ขายเชื่อ/ค้างจ่ายที่เพิ่งชำระ) − รายจ่ายเงินสดที่ผูกกะนี้
+// (payment_method='เงินสด' เท่านั้น — โอน/เชื่อที่ยังไม่ชำระไม่กระทบเงินสดในลิ้นชัก) ใช้ `total`
+// ของบิลตรงๆ (เงินทอนหักรวมอยู่ในนั้นแล้ว: รับ 500 ทอน 120 = สุทธิ 380 = total พอดี ไม่ต้องแยก
+// คำนวณเงินทอนเอง) — ส่วนเก็บเงินจากลูกหนี้ (collected_method/settled_shift_no) เป็นคอลัมน์ใหม่
+// (แก้ known gap เดิม: เดิมกะเงินสดไม่เคยนับเงินที่เก็บจากรับชำระเงินเชื่อเลย เพราะ payment_method
+// ของบิลเชื่อคงเป็น 'เชื่อ'/'ค้างจ่าย' ตลอดไปโดยตั้งใจ ไม่ผ่านตัวกรอง payment_method='เงินสด' ข้างบน
+// — แยก query + กันพังถ้ายังไม่ได้รัน ALTER TABLE เพิ่มคอลัมน์เหล่านี้ ดู CLAUDE.md)
 async function computeExpectedCash(shopId, shift) {
   const [{ data: saleRows, error: saleErr }, { data: expenseRows, error: expErr }] = await Promise.all([
     supabase.from('pos_sales').select('*').eq('shop_id', shopId).eq('shift_no', shift.shift_no).is('deleted_at', null),
@@ -51,10 +56,28 @@ async function computeExpectedCash(shopId, shift) {
     .filter(s => s.bill_no && s.payment_method === 'เงินสด' && s.status !== 'ยกเลิก');
   const cashExpenses = (expenseRows || []).map(expenseFromRow)
     .filter(e => e.expense_no && e.payment_method === 'เงินสด');
-  const totalCashIn = cashSales.reduce((s, x) => s + x.total, 0);
+
+  let cashCollectedFromCredit = [];
+  try {
+    const [{ data: settledSaleRows }, { data: settledOrderRows }] = await Promise.all([
+      supabase.from('pos_sales').select('*').eq('shop_id', shopId).eq('settled_shift_no', shift.shift_no)
+        .eq('collected_method', 'เงินสด').is('deleted_at', null),
+      supabase.from('pos_delivery_orders').select('*').eq('shop_id', shopId).eq('settled_shift_no', shift.shift_no)
+        .eq('collected_method', 'เงินสด').is('deleted_at', null),
+    ]);
+    cashCollectedFromCredit = [
+      ...(settledSaleRows || []).map(saleFromRow).filter(s => s.bill_no),
+      ...(settledOrderRows || []).map(deliveryOrderFromRow).filter(o => o.order_no),
+    ];
+  } catch {}
+
+  const totalCashIn = cashSales.reduce((s, x) => s + x.total, 0) + cashCollectedFromCredit.reduce((s, x) => s + x.total, 0);
   const totalCashOut = cashExpenses.reduce((s, x) => s + x.total, 0);
   const expected = Math.round((shift.opening_cash + totalCashIn - totalCashOut) * 100) / 100;
-  return { expected, cashSalesCount: cashSales.length, cashExpensesCount: cashExpenses.length, totalCashIn, totalCashOut };
+  return {
+    expected, cashSalesCount: cashSales.length, cashExpensesCount: cashExpenses.length,
+    cashCollectedFromCreditCount: cashCollectedFromCredit.length, totalCashIn, totalCashOut,
+  };
 }
 
 export default async function handler(req, res) {
