@@ -11,6 +11,7 @@ import { hasFeature } from '../lib/tier-features';
 import { withBrandFooter } from '../lib/branding';
 import { getOwnerSessionToken, setOwnerSessionToken } from '../lib/client-owner-session';
 import { calcSSO, estimateMonthlyWithholding, PAY_TYPES, computeDaysOffDeduction, computeOtPay, daysInYearMonth } from '../lib/payroll';
+import { isBluetoothPrintSupported, pairPrinter, openCashDrawer } from '../lib/escpos-bluetooth';
 
 const UNITS = ['ชิ้น', 'อัน', 'กล่อง', 'แพ็ก', 'ขวด', 'ถัง', 'ถุง', 'กก.', 'กรัม', 'ลิตร', 'มล.', 'เมตร', 'คู่', 'ชุด', 'โหล', 'แผ่น', 'มัด', 'หัว', 'ลูก', 'ท่อน', 'แท่ง', 'ห่อ', 'เส้น', 'จาน', 'ชาม', 'แก้ว'];
 const PAY_METHODS = ['เงินสด', 'โอน', 'บัตรเครดิต', 'QR Code', 'เชื่อ'];
@@ -2432,6 +2433,34 @@ export default function POSPage() {
       isWhiteLabel: hasFeature(shopInfo?.subscription_tier, 'white_label'),
     });
     openPrintWindow(html);
+  }
+
+  // ── เปิดลิ้นชักเงินสด (Bluetooth, Chrome บน Android เท่านั้น — ดู lib/escpos-bluetooth.js) ──
+  // เช็ค navigator.bluetooth หลัง mount เท่านั้น (ไม่เช็คตรงๆ ตอน render) — หน้านี้ prerender เป็น
+  // static HTML ตอน build (ไม่มี navigator เลยตอนนั้น) ถ้าเช็คตรงๆ ระหว่าง render จะได้ผลไม่ตรงกับ
+  // ตอน hydrate ฝั่ง client ครั้งแรก (React hydration mismatch) — ใช้ state ว่างเปล่าก่อนเสมอ
+  // แล้วอัปเดตทีหลังใน useEffect กันปัญหานี้
+  const [drawerBusy, setDrawerBusy] = useState(false);
+  const [btPrintSupported, setBtPrintSupported] = useState(false);
+  useEffect(() => { setBtPrintSupported(isBluetoothPrintSupported()); }, []);
+  async function handleOpenDrawer() {
+    if (drawerBusy) return;
+    setDrawerBusy(true);
+    try {
+      await openCashDrawer();
+      showToast('🔓 เปิดลิ้นชักแล้ว');
+    } catch (err) {
+      showToast('❌ ' + (err.message || 'เปิดลิ้นชักไม่สำเร็จ'));
+    }
+    setDrawerBusy(false);
+  }
+  async function handlePairPrinter() {
+    try {
+      const device = await pairPrinter();
+      showToast(`✅ จับคู่เครื่องพิมพ์ "${device.name || 'ไม่ทราบชื่อ'}" แล้ว`);
+    } catch (err) {
+      showToast('❌ ' + (err.message || 'จับคู่ไม่สำเร็จ'));
+    }
   }
 
   function openTaxInvoiceForm(bill) {
@@ -8248,6 +8277,26 @@ export default function POSPage() {
                   </div>
                 </div>
 
+                {/* เปิดลิ้นชักเงินสด (Bluetooth) — เฉพาะ Chrome บน Android เท่านั้น (Web Bluetooth ถูก
+                    Safari/iOS บล็อกไว้ในระดับเบราว์เซอร์ ไม่มีทางเลี่ยง) — best-effort ข้ามยี่ห้อ/รุ่น
+                    เครื่องพิมพ์ ดูรายละเอียดใน lib/escpos-bluetooth.js */}
+                {btPrintSupported && (
+                  <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
+                    <h3 className="text-white font-bold mb-1">🔓 ลิ้นชักเงินสด (Bluetooth)</h3>
+                    <p className="text-gray-400 text-xs mb-4">
+                      เปิดลิ้นชักเงินสดอัตโนมัติผ่านเครื่องพิมพ์ใบเสร็จ Bluetooth ที่จับคู่กับเครื่องนี้ไว้แล้ว — ใช้ได้เฉพาะ Chrome บน Android เท่านั้น (iPhone เปิดลิ้นชักอัตโนมัติไม่ได้ ใช้ปุ่มบนตัวเครื่องพิมพ์แทน) — เป็นการเชื่อมต่อแบบพยายามให้เข้ากับเครื่องพิมพ์ ESC/POS ทั่วไปที่สุด ไม่รับประกันว่าใช้ได้กับทุกรุ่น
+                    </p>
+                    <button type="button" onClick={handlePairPrinter}
+                      className="w-full bg-amber-600 hover:bg-amber-500 text-white text-sm font-bold py-2.5 rounded-xl transition-colors mb-2">
+                      🔗 จับคู่เครื่องพิมพ์
+                    </button>
+                    <button type="button" onClick={handleOpenDrawer} disabled={drawerBusy}
+                      className="w-full bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 text-sm font-bold py-2.5 rounded-xl transition-colors">
+                      {drawerBusy ? '⏳ กำลังทดสอบ...' : '🧪 ทดสอบเปิดลิ้นชัก'}
+                    </button>
+                  </div>
+                )}
+
                 <button
                   onClick={savePosSettings}
                   disabled={settingsSaving || !validateBillerId(posSettingsForm.scb_biller_id, posSettingsForm.scb_biller_ref1).valid}
@@ -8631,6 +8680,12 @@ export default function POSPage() {
                 🧾 ใบกำกับภาษี
               </button>
             </div>
+            {btPrintSupported && (
+              <button onClick={handleOpenDrawer} disabled={drawerBusy}
+                className="w-full bg-amber-100 hover:bg-amber-200 disabled:opacity-50 text-amber-800 text-sm font-bold py-2.5 rounded-xl transition-colors mb-2">
+                {drawerBusy ? '⏳ กำลังเปิด...' : '🔓 เปิดลิ้นชักเงินสด'}
+              </button>
+            )}
             <button onClick={() => setShowBill(false)}
               className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl transition-colors">
               ปิด / รายการถัดไป
