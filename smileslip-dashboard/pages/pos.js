@@ -11,7 +11,7 @@ import { hasFeature } from '../lib/tier-features';
 import { withBrandFooter } from '../lib/branding';
 import { getOwnerSessionToken, setOwnerSessionToken } from '../lib/client-owner-session';
 import { calcSSO, estimateMonthlyWithholding, PAY_TYPES, computeDaysOffDeduction, computeOtPay, daysInYearMonth } from '../lib/payroll';
-import { isBluetoothPrintSupported, pairPrinter, openCashDrawer } from '../lib/escpos-bluetooth';
+import { isBluetoothPrintSupported, pairPrinter, openCashDrawer, printReceiptViaBluetooth } from '../lib/escpos-bluetooth';
 
 const UNITS = ['ชิ้น', 'อัน', 'กล่อง', 'แพ็ก', 'ขวด', 'ถัง', 'ถุง', 'กก.', 'กรัม', 'ลิตร', 'มล.', 'เมตร', 'คู่', 'ชุด', 'โหล', 'แผ่น', 'มัด', 'หัว', 'ลูก', 'ท่อน', 'แท่ง', 'ห่อ', 'เส้น', 'จาน', 'ชาม', 'แก้ว'];
 const PAY_METHODS = ['เงินสด', 'โอน', 'บัตรเครดิต', 'QR Code', 'เชื่อ'];
@@ -2460,6 +2460,58 @@ export default function POSPage() {
       showToast(`✅ จับคู่เครื่องพิมพ์ "${device.name || 'ไม่ทราบชื่อ'}" แล้ว`);
     } catch (err) {
       showToast('❌ ' + (err.message || 'จับคู่ไม่สำเร็จ'));
+    }
+  }
+
+  // ── พิมพ์ใบเสร็จตรงผ่านเครื่องพิมพ์ Bluetooth (วาดเป็นภาพ+ส่ง ESC/POS raster — ดู lib/escpos-bluetooth.js) ──
+  const [btPrintBusy, setBtPrintBusy] = useState(false);
+  function buildBtReceiptPayload(bill) {
+    const receiptShopInfo = (selectedBranch?.brand_name || selectedBranch?.address)
+      ? { ...shopInfo, shop_name: selectedBranch.brand_name || shopInfo?.shop_name, address: selectedBranch.address || shopInfo?.address }
+      : shopInfo;
+    return {
+      paperSize: posConfig.receipt_paper_size || '80mm',
+      shopInfo: receiptShopInfo,
+      showVat: !!posConfig.vat_registered,
+      docNo: bill.billNo,
+      dateStr: new Date().toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' }) + ' ' + bill.time,
+      items: bill.items,
+      subtotal: bill.vatSubtotal || bill.subtotal,
+      vat: bill.vatAmount || 0,
+      discount: bill.discount,
+      total: bill.total,
+      payMethod: bill.payMethod,
+      cashReceived: bill.payMethod === 'เงินสด' ? bill.cashReceived : 0,
+      change: bill.change,
+      footerLines: withBrandFooter('ขอบคุณที่ใช้บริการ', hasFeature(shopInfo?.subscription_tier, 'white_label')).split('\n'),
+    };
+  }
+  async function handleBtPrintReceipt(bill) {
+    if (btPrintBusy) return;
+    setBtPrintBusy(true);
+    try {
+      await printReceiptViaBluetooth(buildBtReceiptPayload(bill));
+      showToast('🖨️ พิมพ์ผ่าน Bluetooth สำเร็จ');
+    } catch (err) {
+      showToast('❌ ' + (err.message || 'พิมพ์ไม่สำเร็จ'));
+    }
+    setBtPrintBusy(false);
+  }
+  async function handleTestBtPrint() {
+    try {
+      await printReceiptViaBluetooth({
+        paperSize: posConfig.receipt_paper_size || '80mm',
+        shopInfo,
+        showVat: false,
+        docNo: 'TEST',
+        dateStr: new Date().toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' }),
+        items: [{ name: 'ทดสอบพิมพ์ Bluetooth', qty: 1, price: 0 }],
+        subtotal: 0, vat: 0, discount: 0, total: 0, payMethod: '',
+        footerLines: ['ทดสอบเครื่องพิมพ์สำเร็จ 🎉'],
+      });
+      showToast('🖨️ พิมพ์ทดสอบสำเร็จ');
+    } catch (err) {
+      showToast('❌ ' + (err.message || 'พิมพ์ไม่สำเร็จ'));
     }
   }
 
@@ -8277,23 +8329,29 @@ export default function POSPage() {
                   </div>
                 </div>
 
-                {/* เปิดลิ้นชักเงินสด (Bluetooth) — เฉพาะ Chrome บน Android เท่านั้น (Web Bluetooth ถูก
-                    Safari/iOS บล็อกไว้ในระดับเบราว์เซอร์ ไม่มีทางเลี่ยง) — best-effort ข้ามยี่ห้อ/รุ่น
-                    เครื่องพิมพ์ ดูรายละเอียดใน lib/escpos-bluetooth.js */}
+                {/* เครื่องพิมพ์ Bluetooth (พิมพ์ตรง + เปิดลิ้นชัก) — เฉพาะ Chrome บน Android เท่านั้น
+                    (Web Bluetooth ถูก Safari/iOS บล็อกไว้ในระดับเบราว์เซอร์ ไม่มีทางเลี่ยง) —
+                    best-effort ข้ามยี่ห้อ/รุ่นเครื่องพิมพ์ ดูรายละเอียดใน lib/escpos-bluetooth.js */}
                 {btPrintSupported && (
                   <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
-                    <h3 className="text-white font-bold mb-1">🔓 ลิ้นชักเงินสด (Bluetooth)</h3>
+                    <h3 className="text-white font-bold mb-1">🖨️ เครื่องพิมพ์ Bluetooth</h3>
                     <p className="text-gray-400 text-xs mb-4">
-                      เปิดลิ้นชักเงินสดอัตโนมัติผ่านเครื่องพิมพ์ใบเสร็จ Bluetooth ที่จับคู่กับเครื่องนี้ไว้แล้ว — ใช้ได้เฉพาะ Chrome บน Android เท่านั้น (iPhone เปิดลิ้นชักอัตโนมัติไม่ได้ ใช้ปุ่มบนตัวเครื่องพิมพ์แทน) — เป็นการเชื่อมต่อแบบพยายามให้เข้ากับเครื่องพิมพ์ ESC/POS ทั่วไปที่สุด ไม่รับประกันว่าใช้ได้กับทุกรุ่น
+                      จับคู่เครื่องพิมพ์ใบเสร็จ Bluetooth ไว้ล่วงหน้าที่นี่ (ไม่บังคับ — ครั้งแรกที่กด "พิมพ์ (Bluetooth)" หรือ "เปิดลิ้นชัก" หลังขายของ ระบบจะเปิดหน้าต่างเลือกเครื่องพิมพ์ให้เองอัตโนมัติอยู่แล้ว) — ใช้ได้เฉพาะ Chrome บน Android เท่านั้น (iPhone พิมพ์ผ่านปุ่ม "พิมพ์ใบเสร็จ" ปกติ/AirPrint แทนได้) — เป็นการเชื่อมต่อแบบพยายามให้เข้ากับเครื่องพิมพ์ ESC/POS ทั่วไปที่สุด ไม่รับประกันว่าใช้ได้กับทุกรุ่น ต้องเปิดเครื่องพิมพ์รอไว้และไม่ได้เชื่อมต่ออยู่กับแอปอื่นก่อนกด
                     </p>
                     <button type="button" onClick={handlePairPrinter}
                       className="w-full bg-amber-600 hover:bg-amber-500 text-white text-sm font-bold py-2.5 rounded-xl transition-colors mb-2">
                       🔗 จับคู่เครื่องพิมพ์
                     </button>
-                    <button type="button" onClick={handleOpenDrawer} disabled={drawerBusy}
-                      className="w-full bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 text-sm font-bold py-2.5 rounded-xl transition-colors">
-                      {drawerBusy ? '⏳ กำลังทดสอบ...' : '🧪 ทดสอบเปิดลิ้นชัก'}
-                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" onClick={handleTestBtPrint}
+                        className="bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-bold py-2.5 rounded-xl transition-colors">
+                        🧪 ทดสอบพิมพ์
+                      </button>
+                      <button type="button" onClick={handleOpenDrawer} disabled={drawerBusy}
+                        className="bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 text-sm font-bold py-2.5 rounded-xl transition-colors">
+                        {drawerBusy ? '⏳ กำลังทดสอบ...' : '🧪 ทดสอบเปิดลิ้นชัก'}
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -8681,10 +8739,16 @@ export default function POSPage() {
               </button>
             </div>
             {btPrintSupported && (
-              <button onClick={handleOpenDrawer} disabled={drawerBusy}
-                className="w-full bg-amber-100 hover:bg-amber-200 disabled:opacity-50 text-amber-800 text-sm font-bold py-2.5 rounded-xl transition-colors mb-2">
-                {drawerBusy ? '⏳ กำลังเปิด...' : '🔓 เปิดลิ้นชักเงินสด'}
-              </button>
+              <div className="flex gap-2 mb-2">
+                <button onClick={() => handleBtPrintReceipt(lastBill)} disabled={btPrintBusy}
+                  className="flex-1 bg-purple-100 hover:bg-purple-200 disabled:opacity-50 text-purple-800 text-sm font-bold py-2.5 rounded-xl transition-colors">
+                  {btPrintBusy ? '⏳ กำลังพิมพ์...' : '🖨️ พิมพ์ (Bluetooth)'}
+                </button>
+                <button onClick={handleOpenDrawer} disabled={drawerBusy}
+                  className="flex-1 bg-amber-100 hover:bg-amber-200 disabled:opacity-50 text-amber-800 text-sm font-bold py-2.5 rounded-xl transition-colors">
+                  {drawerBusy ? '⏳ กำลังเปิด...' : '🔓 เปิดลิ้นชัก'}
+                </button>
+              </div>
             )}
             <button onClick={() => setShowBill(false)}
               className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl transition-colors">
