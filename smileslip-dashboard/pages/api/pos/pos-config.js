@@ -1,6 +1,6 @@
 /**
  * GET  /api/pos/pos-config?shopId=xxx  → อ่านการตั้งค่า POS
- * PATCH /api/pos/pos-config { shopId, promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, receipt_paper_size, vat_registered }
+ * PATCH /api/pos/pos-config { shopId, promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, receipt_paper_size, vat_registered, receipt_footer_message, receipt_line_url }
  * (staff_pin ร้านเดียวใช้ร่วมกันแบบเดิมยกเลิกไปแล้ว — ดู api/pos/staff.js + staff-setpin.js สำหรับ PIN รายบุคคล)
  */
 import { createClient } from '@supabase/supabase-js';
@@ -47,15 +47,22 @@ export default async function handler(req, res) {
     // เดิมคูณจากอัตราต่อสัปดาห์ ผิดสมมติฐาน ธุรกิจจริงหลายเจ้าให้วันหยุดเป็นโควตารายเดือนแบบยืดหยุ่น
     // เลือกวันไหนก็ได้ ไม่ผูกกับรอบสัปดาห์เลย) default 6 ตรงกับนโยบายจริงของร้านที่ทำให้พบปัญหานี้
     let payroll_days_off_per_month = 6;
+    // ปรับแต่งท้ายใบเสร็จ — เพิ่ม 2026-08-13 (ผู้ใช้ขอหลังทดสอบพิมพ์ Bluetooth สำเร็จ): ข้อความ
+    // ขอบคุณ/โปรโมชั่นที่ร้านกำหนดเอง + QR ไลน์ของร้าน — ใช้ร่วมกันทั้งปุ่ม "พิมพ์ใบเสร็จ" (window.print)
+    // และ "พิมพ์ (Bluetooth)" (ESC/POS raster)
+    let receipt_footer_message = '';
+    let receipt_line_url = '';
     try {
       const { data: rd } = await supabase
-        .from('pos_configs').select('receipt_paper_size, vat_registered, scb_biller_ref1, payroll_days_off_per_month').eq('shop_id', shopId).single();
+        .from('pos_configs').select('receipt_paper_size, vat_registered, scb_biller_ref1, payroll_days_off_per_month, receipt_footer_message, receipt_line_url').eq('shop_id', shopId).single();
       if (rd?.receipt_paper_size) receipt_paper_size = rd.receipt_paper_size;
       vat_registered = !!rd?.vat_registered;
       scb_biller_ref1 = rd?.scb_biller_ref1 || '';
       if (rd?.payroll_days_off_per_month !== null && rd?.payroll_days_off_per_month !== undefined) {
         payroll_days_off_per_month = Number(rd.payroll_days_off_per_month);
       }
+      receipt_footer_message = rd?.receipt_footer_message || '';
+      receipt_line_url = rd?.receipt_line_url || '';
     } catch {}
 
     return res.json({
@@ -68,6 +75,8 @@ export default async function handler(req, res) {
       receipt_paper_size,
       vat_registered,
       payroll_days_off_per_month,
+      receipt_footer_message,
+      receipt_line_url,
     });
   }
 
@@ -76,7 +85,7 @@ export default async function handler(req, res) {
     // ไม่ว่าจะเปิดสิทธิ์อะไรก็ตาม (เจ้าของ/แอดมินเท่านั้น ต้องพิสูจน์ owner-session จริง)
     if (!blockAllStaffSessions(req, res, shopId)) return;
 
-    const { promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, scb_biller_ref1, receipt_paper_size, vat_registered, payroll_days_off_per_month } = req.body;
+    const { promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, scb_biller_ref1, receipt_paper_size, vat_registered, payroll_days_off_per_month, receipt_footer_message, receipt_line_url } = req.body;
 
     // Biller ID (Thai QR Bill Payment, Tag 30) ต้องเป็นตัวเลขล้วน 15 หลักตามมาตรฐาน ITMX เสมอ —
     // สาเหตุที่พบบ่อยที่สุดที่ QR สแกนไม่ได้ ("QR ไม่ถูกต้อง") คือกรอกเลข "เลขอ้างอิง"/Reference
@@ -138,6 +147,16 @@ export default async function handler(req, res) {
     if (payroll_days_off_per_month !== undefined) {
       try {
         await supabase.from('pos_configs').update({ payroll_days_off_per_month: Math.max(0, parseFloat(payroll_days_off_per_month) || 0) }).eq('shop_id', shopId);
+      } catch {}
+    }
+    if (receipt_footer_message !== undefined) {
+      try {
+        await supabase.from('pos_configs').update({ receipt_footer_message: receipt_footer_message ? String(receipt_footer_message).slice(0, 500) : null }).eq('shop_id', shopId);
+      } catch {}
+    }
+    if (receipt_line_url !== undefined) {
+      try {
+        await supabase.from('pos_configs').update({ receipt_line_url: receipt_line_url ? String(receipt_line_url).trim().slice(0, 300) : null }).eq('shop_id', shopId);
       } catch {}
     }
 

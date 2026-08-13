@@ -77,11 +77,38 @@ export async function pairPrinter() {
     optionalServices: KNOWN_PRINTER_SERVICES.map(c => c.service),
   });
   try { localStorage.setItem(STORAGE_KEY, device.id); } catch {}
+  cachedDevice = device; // จับคู่มือครั้งนี้ ใช้ต่อได้ทันทีโดยไม่ต้องรอ getDevices()
   return device;
 }
 
-/** เชื่อมต่อเครื่องพิมพ์ (ลองจับคู่เดิมแบบเงียบๆ ก่อน ไม่ได้ค่อยเปิด picker) คืน {server, char} — ใช้ร่วมกันทั้งเปิดลิ้นชักและพิมพ์ */
+// เก็บ BluetoothDevice ที่เชื่อมต่อสำเร็จล่าสุดไว้ในหน่วยความจำ (คงอยู่แค่ช่วงที่หน้าเว็บนี้ยังไม่
+// รีโหลด) — เหตุผล: `navigator.bluetooth.getDevices()` (คืนอุปกรณ์ที่เคยได้สิทธิ์ถาวรไว้แล้ว) ไม่
+// เสถียรเท่ากันในทุกรุ่น Chrome/Android (บางเครื่องคืนค่าว่างเปล่าแม้เคยจับคู่สำเร็จมาก่อน) ถ้าพึ่ง
+// ฟังก์ชันนี้อย่างเดียวจะทำให้ต้องเปิดหน้าต่างเลือกเครื่องพิมพ์ใหม่ทุกครั้งที่กดพิมพ์ (บั๊กที่ผู้ใช้
+// เจอจริง) — cache ตัวแปรนี้ไว้เป็นทางลัดอันดับแรกเสมอ ทำให้อย่างน้อยภายในเซสชันเดียวกัน (ไม่ปิด/
+// รีเฟรชหน้า) กดพิมพ์กี่ครั้งก็ไม่ต้องเลือกอุปกรณ์ซ้ำอีกเลย
+let cachedDevice = null;
+
+async function connectGatt(device) {
+  const server = await device.gatt.connect();
+  const char = await findWritableCharacteristic(server);
+  if (!char) {
+    try { server.disconnect(); } catch {}
+    throw new Error('หาช่องสำหรับส่งคำสั่งไปเครื่องพิมพ์ไม่เจอ — เครื่องพิมพ์รุ่นนี้อาจยังไม่รองรับ ลองเครื่องพิมพ์รุ่นอื่น หรือแจ้งยี่ห้อ/รุ่นเครื่องให้ทีมงานเพิ่มการรองรับ');
+  }
+  return { server, char };
+}
+
+/** เชื่อมต่อเครื่องพิมพ์ (ลองใช้อุปกรณ์ที่เพิ่งเชื่อมสำเร็จในเซสชันนี้ก่อน แล้วค่อย getDevices() แบบเงียบๆ สุดท้ายค่อยเปิด picker) คืน {server, char} — ใช้ร่วมกันทั้งเปิดลิ้นชักและพิมพ์ */
 async function connectToPrinter() {
+  if (cachedDevice) {
+    try {
+      return await connectGatt(cachedDevice);
+    } catch {
+      cachedDevice = null; // เชื่อมต่อซ้ำไม่ได้ (อุปกรณ์อาจถูกปิด/อยู่นอกระยะ) — ลองหาใหม่ด้านล่างแทน
+    }
+  }
+
   let device = null;
   try {
     const savedId = localStorage.getItem(STORAGE_KEY);
@@ -95,13 +122,9 @@ async function connectToPrinter() {
 
   if (!device) device = await pairPrinter();
 
-  const server = await device.gatt.connect();
-  const char = await findWritableCharacteristic(server);
-  if (!char) {
-    try { server.disconnect(); } catch {}
-    throw new Error('หาช่องสำหรับส่งคำสั่งไปเครื่องพิมพ์ไม่เจอ — เครื่องพิมพ์รุ่นนี้อาจยังไม่รองรับ ลองเครื่องพิมพ์รุ่นอื่น หรือแจ้งยี่ห้อ/รุ่นเครื่องให้ทีมงานเพิ่มการรองรับ');
-  }
-  return { server, char };
+  const result = await connectGatt(device);
+  cachedDevice = device;
+  return result;
 }
 
 /** เขียนไบต์ไปเครื่องพิมพ์เป็นก้อนเล็กๆ (กัน BLE MTU เกิน/บัฟเฟอร์เครื่องพิมพ์ล้น) */
@@ -150,11 +173,21 @@ function wrapTextLines(ctx, text, maxWidth) {
   return lines;
 }
 
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('โหลดรูป QR ไม่สำเร็จ'));
+    img.src = src;
+  });
+}
+
 /**
  * วาดใบเสร็จลง canvas ตามข้อมูลที่ส่งมา (โครงเดียวกับ buildReceiptHtml ใน pos.js แค่วาดเป็นภาพ
  * แทน HTML) — คืน canvas ที่ตัดความสูงพอดีกับเนื้อหาจริงแล้ว (ไม่เหลือพื้นที่ขาวเปล่าด้านล่าง)
+ * qrDataUrl (ถ้ามี — QR ไลน์ร้านค้าที่ปรับแต่งไว้ในหน้าตั้งค่า) วาดคั่นก่อนข้อความท้ายใบเสร็จ
  */
-function renderReceiptCanvas({ widthDots, shopInfo, docNo, dateStr, items, subtotal, vat, discount, total, payMethod, cashReceived, change, showVat, footerLines }) {
+async function renderReceiptCanvas({ widthDots, shopInfo, docNo, dateStr, items, subtotal, vat, discount, total, payMethod, cashReceived, change, showVat, footerLines, qrDataUrl }) {
   const MAX_HEIGHT = 4000; // ผืนผ้าใบชั่วคราวสูงพอสำหรับบิลยาวๆ — ตัดเหลือแค่ส่วนที่ใช้จริงตอนท้าย
   const draft = document.createElement('canvas');
   draft.width = widthDots;
@@ -249,6 +282,18 @@ function renderReceiptCanvas({ widthDots, shopInfo, docNo, dateStr, items, subto
   if (change > 0) row('เงินทอน', money(change));
   dashedLine();
 
+  if (qrDataUrl) {
+    try {
+      const qrImg = await loadImage(qrDataUrl);
+      const qrSize = Math.round(widthDots * 0.42);
+      y += 4;
+      ctx.drawImage(qrImg, (widthDots - qrSize) / 2, y, qrSize, qrSize);
+      y += qrSize + 8;
+    } catch {
+      // โหลดรูป QR ไม่สำเร็จ — ข้ามไปพิมพ์ต่อโดยไม่มี QR แทนที่จะทำให้พิมพ์ทั้งใบไม่ได้เลย
+    }
+  }
+
   for (const line of footerLines || []) center(line, baseSize - 6, false, 2);
   y += 30; // เผื่อพื้นที่ก่อนดึงกระดาษ (ไม่มีคำสั่งตัดกระดาษ — ดูเหตุผลบนสุดของไฟล์)
 
@@ -310,7 +355,7 @@ export async function printReceiptViaBluetooth(receiptData) {
   const { server, char } = await connectToPrinter();
   try {
     const widthDots = receiptData.paperSize === '58mm' ? 384 : 576;
-    const canvas = renderReceiptCanvas({ ...receiptData, widthDots });
+    const canvas = await renderReceiptCanvas({ ...receiptData, widthDots });
     const bands = canvasToRasterBands(canvas);
     await writeBytes(char, ESC_INIT_BYTES);
     for (const band of bands) {

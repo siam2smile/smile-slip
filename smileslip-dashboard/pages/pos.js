@@ -147,7 +147,36 @@ function escapeHtml(s) {
 }
 
 // paperSize: '58mm' | '80mm' — isTaxInvoice: true เมื่อพิมพ์ใบกำกับภาษีเต็มรูปแบบ (มีข้อมูลผู้ซื้อ + แยก VAT)
-function buildReceiptHtml({ paperSize = '80mm', shopInfo, isTaxInvoice, showVat, docNo, dateStr, buyer, items, subtotal, vat, discount, total, payMethod, cashReceived, change, footer, isWhiteLabel }) {
+// โหลดไลบรารี QRCode ผ่าน CDN ครั้งเดียว (ใช้ pattern เดียวกับ QrContactModal ด้านล่าง) — ใช้สร้าง
+// QR ไลน์ร้านค้าสำหรับท้ายใบเสร็จ (ปรับแต่งได้ในหน้าตั้งค่า) ทั้งฝั่ง window.print (buildReceiptHtml
+// รับเป็น data URL ใส่ <img>) และฝั่ง Bluetooth (escpos-bluetooth.js's renderReceiptCanvas วาดลง canvas)
+function loadQrCodeLib() {
+  return new Promise((resolve, reject) => {
+    if (window.QRCode) return resolve();
+    if (document.getElementById('qrcode-js')) {
+      const t = setInterval(() => { if (window.QRCode) { clearInterval(t); resolve(); } }, 100);
+      setTimeout(() => { clearInterval(t); if (!window.QRCode) reject(new Error('โหลด QR ไลบรารีไม่สำเร็จ')); }, 8000);
+      return;
+    }
+    const s = document.createElement('script');
+    s.id = 'qrcode-js';
+    s.src = 'https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js';
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('โหลด QR ไลบรารีไม่สำเร็จ'));
+    document.head.appendChild(s);
+  });
+}
+async function generateLineQrDataUrl(url) {
+  if (!url || !url.trim()) return null;
+  try {
+    await loadQrCodeLib();
+    return await window.QRCode.toDataURL(url.trim(), { width: 300, margin: 1 });
+  } catch {
+    return null; // สร้างไม่สำเร็จ (เช่น เน็ตหลุดตอนโหลด CDN) — พิมพ์ใบเสร็จต่อได้โดยไม่มี QR แทนที่จะพังทั้งใบ
+  }
+}
+
+function buildReceiptHtml({ paperSize = '80mm', shopInfo, isTaxInvoice, showVat, docNo, dateStr, buyer, items, subtotal, vat, discount, total, payMethod, cashReceived, change, footer, isWhiteLabel, lineQrDataUrl }) {
   const widthMm = paperSize === '58mm' ? 58 : 80;
   const title = isTaxInvoice ? 'ใบกำกับภาษี / ใบเสร็จรับเงิน' : 'ใบเสร็จรับเงิน';
   const itemRows = (items || []).map(i => {
@@ -222,6 +251,7 @@ function buildReceiptHtml({ paperSize = '80mm', shopInfo, isTaxInvoice, showVat,
   </table>
   ${isTaxInvoice ? `<div style="margin-top:4px">(${bahtText(total)})</div>` : ''}
   <div class="line"></div>
+  ${lineQrDataUrl ? `<div class="center" style="margin:4mm 0"><img src="${lineQrDataUrl}" style="width:${Math.round(widthMm * 0.42)}mm;height:${Math.round(widthMm * 0.42)}mm"/></div>` : ''}
   <div class="foot">${withBrandFooter(footer || 'ขอบคุณที่ใช้บริการ', isWhiteLabel).split('\n').map(escapeHtml).join('<br>')}</div>
 </body></html>`;
 }
@@ -524,8 +554,8 @@ export default function POSPage() {
   const [qrLoading, setQrLoading] = useState(false);
 
   // POS settings (PromptPay + Biller ID) — Staff PIN เปลี่ยนเป็นรายบุคคลแล้ว ไม่มี PIN ร้านรวมอีกต่อไป
-  const [posConfig, setPosConfig] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', receipt_paper_size: '80mm', vat_registered: false, payroll_days_off_per_month: 6 });
-  const [posSettingsForm, setPosSettingsForm] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', vat_registered: false, payroll_days_off_per_month: 6 });
+  const [posConfig, setPosConfig] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', receipt_paper_size: '80mm', vat_registered: false, payroll_days_off_per_month: 6, receipt_footer_message: '', receipt_line_url: '' });
+  const [posSettingsForm, setPosSettingsForm] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', vat_registered: false, payroll_days_off_per_month: 6, receipt_footer_message: '', receipt_line_url: '' });
   const [settingsSaving, setSettingsSaving] = useState(false);
 
   // ── เปิดกะ/ปิดกะเงินสด (ผูกกับพนักงานรายคนผ่าน PIN ไม่ใช่สาขา/เครื่อง) ─────────
@@ -1234,7 +1264,7 @@ export default function POSPage() {
       const d = await r.json();
       if (d.ok !== false) {
         setPosConfig(d);
-        setPosSettingsForm({ promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '', scb_biller_ref1: d.scb_biller_ref1 || '', receipt_paper_size: d.receipt_paper_size || '80mm', vat_registered: !!d.vat_registered, payroll_days_off_per_month: d.payroll_days_off_per_month ?? 6 });
+        setPosSettingsForm({ promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '', scb_biller_ref1: d.scb_biller_ref1 || '', receipt_paper_size: d.receipt_paper_size || '80mm', vat_registered: !!d.vat_registered, payroll_days_off_per_month: d.payroll_days_off_per_month ?? 6, receipt_footer_message: d.receipt_footer_message || '', receipt_line_url: d.receipt_line_url || '' });
       }
     } catch {}
   }
@@ -1250,6 +1280,8 @@ export default function POSPage() {
       if (posSettingsForm.receipt_paper_size !== undefined) body.receipt_paper_size = posSettingsForm.receipt_paper_size;
       body.vat_registered = !!posSettingsForm.vat_registered;
       body.payroll_days_off_per_month = posSettingsForm.payroll_days_off_per_month;
+      body.receipt_footer_message = posSettingsForm.receipt_footer_message || '';
+      body.receipt_line_url = posSettingsForm.receipt_line_url || '';
       const r = await fetch('/api/pos/pos-config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -2410,11 +2442,12 @@ export default function POSPage() {
   }
 
   // ── พิมพ์ใบเสร็จ / ใบกำกับภาษี ───────────────────────────────────────────────
-  function printReceipt(bill) {
+  async function printReceipt(bill) {
     // ถ้าสาขาที่เลือกอยู่ตั้งชื่อแบรนด์/ที่อยู่แยกไว้ (หน้าตั้งค่า → จัดการสาขา) ใบเสร็จแสดงของสาขานั้นแทน
     const receiptShopInfo = (selectedBranch?.brand_name || selectedBranch?.address)
       ? { ...shopInfo, shop_name: selectedBranch.brand_name || shopInfo?.shop_name, address: selectedBranch.address || shopInfo?.address }
       : shopInfo;
+    const lineQrDataUrl = await generateLineQrDataUrl(posConfig.receipt_line_url);
     const html = buildReceiptHtml({
       paperSize: posConfig.receipt_paper_size || '80mm',
       shopInfo: receiptShopInfo,
@@ -2430,6 +2463,8 @@ export default function POSPage() {
       payMethod: bill.payMethod,
       cashReceived: bill.payMethod === 'เงินสด' ? bill.cashReceived : 0,
       change: bill.change,
+      footer: posConfig.receipt_footer_message || undefined,
+      lineQrDataUrl,
       isWhiteLabel: hasFeature(shopInfo?.subscription_tier, 'white_label'),
     });
     openPrintWindow(html);
@@ -2465,10 +2500,21 @@ export default function POSPage() {
 
   // ── พิมพ์ใบเสร็จตรงผ่านเครื่องพิมพ์ Bluetooth (วาดเป็นภาพ+ส่ง ESC/POS raster — ดู lib/escpos-bluetooth.js) ──
   const [btPrintBusy, setBtPrintBusy] = useState(false);
-  function buildBtReceiptPayload(bill) {
+  const [footerQrPreviewUrl, setFooterQrPreviewUrl] = useState('');
+  const [footerQrPreviewBusy, setFooterQrPreviewBusy] = useState(false);
+  async function previewFooterQr() {
+    if (!posSettingsForm.receipt_line_url?.trim()) { showToast('กรอกลิงก์ไลน์ก่อน'); return; }
+    setFooterQrPreviewBusy(true);
+    const url = await generateLineQrDataUrl(posSettingsForm.receipt_line_url);
+    setFooterQrPreviewUrl(url || '');
+    if (!url) showToast('❌ สร้าง QR ตัวอย่างไม่สำเร็จ ลองใหม่อีกครั้ง');
+    setFooterQrPreviewBusy(false);
+  }
+  async function buildBtReceiptPayload(bill) {
     const receiptShopInfo = (selectedBranch?.brand_name || selectedBranch?.address)
       ? { ...shopInfo, shop_name: selectedBranch.brand_name || shopInfo?.shop_name, address: selectedBranch.address || shopInfo?.address }
       : shopInfo;
+    const qrDataUrl = await generateLineQrDataUrl(posConfig.receipt_line_url);
     return {
       paperSize: posConfig.receipt_paper_size || '80mm',
       shopInfo: receiptShopInfo,
@@ -2483,14 +2529,15 @@ export default function POSPage() {
       payMethod: bill.payMethod,
       cashReceived: bill.payMethod === 'เงินสด' ? bill.cashReceived : 0,
       change: bill.change,
-      footerLines: withBrandFooter('ขอบคุณที่ใช้บริการ', hasFeature(shopInfo?.subscription_tier, 'white_label')).split('\n'),
+      footerLines: withBrandFooter(posConfig.receipt_footer_message || 'ขอบคุณที่ใช้บริการ', hasFeature(shopInfo?.subscription_tier, 'white_label')).split('\n'),
+      qrDataUrl,
     };
   }
   async function handleBtPrintReceipt(bill) {
     if (btPrintBusy) return;
     setBtPrintBusy(true);
     try {
-      await printReceiptViaBluetooth(buildBtReceiptPayload(bill));
+      await printReceiptViaBluetooth(await buildBtReceiptPayload(bill));
       showToast('🖨️ พิมพ์ผ่าน Bluetooth สำเร็จ');
     } catch (err) {
       showToast('❌ ' + (err.message || 'พิมพ์ไม่สำเร็จ'));
@@ -2499,6 +2546,7 @@ export default function POSPage() {
   }
   async function handleTestBtPrint() {
     try {
+      const qrDataUrl = await generateLineQrDataUrl(posConfig.receipt_line_url);
       await printReceiptViaBluetooth({
         paperSize: posConfig.receipt_paper_size || '80mm',
         shopInfo,
@@ -2507,7 +2555,8 @@ export default function POSPage() {
         dateStr: new Date().toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' }),
         items: [{ name: 'ทดสอบพิมพ์ Bluetooth', qty: 1, price: 0 }],
         subtotal: 0, vat: 0, discount: 0, total: 0, payMethod: '',
-        footerLines: ['ทดสอบเครื่องพิมพ์สำเร็จ 🎉'],
+        footerLines: [posConfig.receipt_footer_message || 'ทดสอบเครื่องพิมพ์สำเร็จ 🎉'],
+        qrDataUrl,
       });
       showToast('🖨️ พิมพ์ทดสอบสำเร็จ');
     } catch (err) {
@@ -8327,6 +8376,39 @@ export default function POSPage() {
                       </button>
                     ))}
                   </div>
+                </div>
+
+                {/* ปรับแต่งท้ายใบเสร็จ — ข้อความขอบคุณ/โปรโมชั่นที่ร้านกำหนดเอง + QR ไลน์ร้านค้า —
+                    ใช้ร่วมกันทั้งปุ่ม "พิมพ์ใบเสร็จ" (window.print) และ "พิมพ์ (Bluetooth)" */}
+                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
+                  <h3 className="text-white font-bold mb-1">🧾 ปรับแต่งท้ายใบเสร็จ</h3>
+                  <p className="text-gray-400 text-xs mb-4">
+                    ใช้กับใบเสร็จทุกใบทั้งพิมพ์ผ่านเครื่องพิมพ์ปกติ/AirPrint และพิมพ์ตรงผ่าน Bluetooth — ไม่กระทบใบกำกับภาษี (ยังใช้รูปแบบเดิม)
+                  </p>
+                  <label className="block text-gray-300 text-xs font-medium mb-1.5">ข้อความท้ายใบเสร็จ (ขอบคุณ / โปรโมชั่น)</label>
+                  <textarea
+                    value={posSettingsForm.receipt_footer_message}
+                    onChange={e => setPosSettingsForm(f => ({ ...f, receipt_footer_message: e.target.value }))}
+                    rows={3}
+                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 mb-4"
+                    placeholder="เช่น ขอบคุณที่อุดหนุนค่ะ 🙏&#10;โปรโมชั่นเดือนนี้ ซื้อครบ 500 บาท รับส่วนลด 10%"/>
+                  <label className="block text-gray-300 text-xs font-medium mb-1.5">ลิงก์ไลน์ร้านค้า (แสดงเป็น QR ให้ลูกค้าสแกนเพิ่มเพื่อน)</label>
+                  <p className="text-gray-500 text-xs mb-2">
+                    หาได้จาก LINE Official Account Manager → "หน้าแรก" → "เพิ่มเพื่อน" → คัดลอกลิงก์ (รูปแบบ https://lin.ee/xxxx) หรือใช้ลิงก์ไลน์ส่วนตัวก็ได้ — เว้นว่างไว้ถ้าไม่ต้องการแสดง QR
+                  </p>
+                  <div className="flex gap-2 mb-2">
+                    <input type="text" value={posSettingsForm.receipt_line_url}
+                      onChange={e => setPosSettingsForm(f => ({ ...f, receipt_line_url: e.target.value }))}
+                      className="flex-1 bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                      placeholder="https://lin.ee/xxxxxxx"/>
+                    <button type="button" onClick={previewFooterQr} disabled={footerQrPreviewBusy}
+                      className="bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 text-sm font-bold px-4 rounded-xl transition-colors whitespace-nowrap">
+                      {footerQrPreviewBusy ? '⏳' : '👁️ ดูตัวอย่าง'}
+                    </button>
+                  </div>
+                  {footerQrPreviewUrl && (
+                    <img src={footerQrPreviewUrl} alt="ตัวอย่าง QR ท้ายใบเสร็จ" className="w-32 h-32 bg-white p-2 rounded-xl mx-auto" />
+                  )}
                 </div>
 
                 {/* เครื่องพิมพ์ Bluetooth (พิมพ์ตรง + เปิดลิ้นชัก) — เฉพาะ Chrome บน Android เท่านั้น
