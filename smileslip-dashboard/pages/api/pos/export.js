@@ -97,6 +97,18 @@ function lineRevenueBase(price, qty, vatType) {
   if (vatType === 'รวม VAT แล้ว') return lineTotal / (1 + VAT_RATE);
   return lineTotal;
 }
+// lineRevenueBase() อย่างเดียวไม่พอสำหรับ sheet ภาษี VAT ที่ต้องการยอด VAT จริง — สินค้าประเภท
+// "ไม่รวม VAT" ให้ฐานรายได้เท่ากับ "ไม่มี VAT" (ถูกต้องแล้วสำหรับ revenue) แต่ vat ต้องไม่ใช่ 0 —
+// ตรรกะเดียวกับ computeVatBreakdown() ใน lib/google-pos.js เป๊ะ แค่ทำต่อรายการเดียว
+function lineVatBreakdown(price, qty, vatType) {
+  const lineTotal = (parseFloat(price) || 0) * (parseFloat(qty) || 0);
+  if (vatType === 'รวม VAT แล้ว') {
+    const base = lineTotal / (1 + VAT_RATE);
+    return { base, vat: lineTotal - base };
+  }
+  if (vatType === 'ไม่รวม VAT') return { base: lineTotal, vat: lineTotal * VAT_RATE };
+  return { base: lineTotal, vat: 0 };
+}
 async function getVatRegistered(shopId) {
   const { data } = await supabase.from('pos_configs').select('vat_registered').eq('shop_id', shopId).maybeSingle();
   return !!data?.vat_registered;
@@ -476,12 +488,23 @@ export default async function handler(req, res) {
     }
 
     // ── ภาษี VAT (ภาษีขายแยกสาขา + ภาษีซื้อจากรับสินค้า+รายจ่าย) ────────────────
+    // เดิม sheet นี้อ่านแค่ pos_sales (ใช้ vat_subtotal/vat_amount ที่ dual-write ไว้แล้วตอนขาย)
+    // ไม่เคยรวมยอดขายจากออเดอร์จัดส่งเลย (ต่างจาก sales/topsellers/pl/sales_by_branch ที่แก้ไปแล้ว
+    // ในข้อ 72/74) เพราะ pos_delivery_orders ไม่มีคอลัมน์ vat_subtotal/vat_amount ของตัวเอง — แก้โดย
+    // คำนวณ VAT ต่อรายการสดจาก vat_type ของสินค้าแทน (pattern เดียวกับที่ pl/topsellers ใช้อยู่แล้ว
+    // ในไฟล์นี้ — ใช้วิธีเดียวกันทั้ง pos_sales และออเดอร์จัดส่ง เพื่อความสม่ำเสมอ ไม่ผสมค่าที่เก็บไว้
+    // ล่วงหน้ากับค่าที่คำนวณสด)
     if (typeList.includes('vat')) {
-      const [allSalesForVat, allReceivesForVat, allExpensesForVat] = await Promise.all([
-        fetchSales(supabase, shopId), fetchReceives(supabase, shopId), fetchExpenses(supabase, shopId),
+      const [allSalesForVat, deliveryOrdersForVat, allReceivesForVat, allExpensesForVat, productsForVat, vatRegisteredForVat] = await Promise.all([
+        fetchSales(supabase, shopId), fetchDeliveryOrders(supabase, shopId),
+        fetchReceives(supabase, shopId), fetchExpenses(supabase, shopId),
+        fetchProducts(supabase, shopId), getVatRegistered(shopId),
       ]);
+      const deliverySalesForVat = deliveryOrdersForVat.filter(o => o.status === 'ส่งแล้ว').map(deliveryOrderToSaleShape);
+      const vatTypeMapForVat = {};
+      productsForVat.forEach(p => { vatTypeMapForVat[p.sku] = p.vat_type; });
 
-      let sales = allSalesForVat.filter(s => s.bill_no && s.status !== 'ยกเลิก' && s.status !== 'ค้างชำระ');
+      let sales = [...allSalesForVat, ...deliverySalesForVat].filter(s => s.bill_no && s.status !== 'ยกเลิก' && s.status !== 'ค้างชำระ');
       sales = sales.filter(s => inRange(s.created_at, from, to));
       let receives = allReceivesForVat.filter(r => r.receive_no);
       receives = receives.filter(r => inRange(r.created_at, from, to));
@@ -492,14 +515,22 @@ export default async function handler(req, res) {
       for (const s of sales) {
         const key = s.branch || branchName || 'ไม่ระบุสาขา';
         if (!byBranch[key]) byBranch[key] = { branch: key, subtotal: 0, vat: 0, count: 0 };
-        byBranch[key].subtotal += s.vat_subtotal;
-        byBranch[key].vat += s.vat_amount;
+        let saleSubtotal = 0, saleVat = 0;
+        if (vatRegisteredForVat) {
+          for (const item of s.items || []) {
+            const { base, vat: lineVat } = lineVatBreakdown(item.price, item.qty, vatTypeMapForVat[item.sku]);
+            saleSubtotal += base;
+            saleVat += lineVat;
+          }
+        }
+        byBranch[key].subtotal += saleSubtotal;
+        byBranch[key].vat += saleVat;
         byBranch[key].count += 1;
       }
       const branchRows = Object.values(byBranch).sort((a, b) => b.vat - a.vat);
 
-      const outputVat = sales.reduce((a, s) => a + s.vat_amount, 0);
-      const outputVatSubtotal = sales.reduce((a, s) => a + s.vat_subtotal, 0);
+      const outputVat = branchRows.reduce((a, b) => a + b.vat, 0);
+      const outputVatSubtotal = branchRows.reduce((a, b) => a + b.subtotal, 0);
       const inputVatReceives = receives.reduce((a, r) => a + r.vat_total, 0);
       const inputVatExpenses = expensesForVat.reduce((a, e) => a + e.vat_amount, 0);
       const inputVat = inputVatReceives + inputVatExpenses;

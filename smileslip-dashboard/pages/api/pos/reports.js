@@ -44,6 +44,19 @@ function lineRevenueBase(price, qty, vatType) {
   if (vatType === 'รวม VAT แล้ว') return lineTotal / (1 + VAT_RATE);
   return lineTotal; // 'ไม่รวม VAT'/'ไม่มี VAT' — ราคาที่บันทึกไม่มี VAT ปนอยู่แล้ว
 }
+// lineRevenueBase() อย่างเดียวไม่พอสำหรับรายงานภาษีที่ต้องการยอด VAT จริง — สินค้าประเภท "ไม่รวม
+// VAT" (ราคาที่ตั้งไม่มี VAT ปนอยู่ ต้องบวก VAT เพิ่มต่างหากตอนขาย) ให้ฐานรายได้เท่ากับ "ไม่มี VAT"
+// (ถูกต้องแล้วสำหรับ revenue) แต่ vat ต้องไม่ใช่ 0 — ตรรกะเดียวกับ computeVatBreakdown() ใน
+// lib/google-pos.js เป๊ะ แค่ทำต่อรายการเดียวแทนอาเรย์รวม
+function lineVatBreakdown(price, qty, vatType) {
+  const lineTotal = (parseFloat(price) || 0) * (parseFloat(qty) || 0);
+  if (vatType === 'รวม VAT แล้ว') {
+    const base = lineTotal / (1 + VAT_RATE);
+    return { base, vat: lineTotal - base };
+  }
+  if (vatType === 'ไม่รวม VAT') return { base: lineTotal, vat: lineTotal * VAT_RATE };
+  return { base: lineTotal, vat: 0 }; // ไม่มี VAT
+}
 async function getVatRegistered(shopId) {
   const { data } = await supabase.from('pos_configs').select('vat_registered').eq('shop_id', shopId).maybeSingle();
   return !!data?.vat_registered;
@@ -607,9 +620,30 @@ export default async function handler(req, res) {
     // ภาษีซื้อ (input VAT) รวม 2 แหล่ง: ใบรับสินค้า (ซื้อเข้าสต็อค) + รายจ่าย (ค่าใช้จ่ายร้านที่มี VAT)
     // ทั้งคู่ยังไม่มีคอลัมน์สาขา (ไม่ได้ผูกกับสาขาที่ขาย) จึงรวมเป็นยอดเดียวของทั้งร้าน ไม่แยกสาขาในเวอร์ชันนี้
     if (type === 'vat') {
-      const [allSales, allReceives, allExpenses] = await Promise.all([
-        fetchSales(shopId), fetchReceives(shopId), fetchExpenses(shopId),
+      // เดิมอ่านแค่ pos_sales ไม่เคยรวมยอดขายจากออเดอร์จัดส่งเลย (ต่างจาก type=pl/topsellers ที่แก้
+      // ไปแล้ว) เพราะ pos_delivery_orders ไม่มีคอลัมน์ vat_subtotal/vat_amount ของตัวเอง — แก้โดย
+      // คำนวณ VAT ต่อรายการสดจาก vat_type ของสินค้าแทน (pattern เดียวกับ type=pl/topsellers) แล้ว
+      // ผนวกกลับเข้า sale object เป็น vat_subtotal/vat_amount ก่อนเข้า loop เดิมทั้งหมด (ทั้งสอง
+      // ฟิลด์นี้ต้องมีค่าเสมอไม่ว่า sale จะมาจาก pos_sales หรือออเดอร์จัดส่ง ไม่งั้น byBranch จะได้
+      // NaN จากการบวก undefined)
+      const [allSalesRaw, deliveryOrdersForVat, allReceives, allExpenses, productsForVat, vatRegisteredForVat] = await Promise.all([
+        fetchSales(shopId), fetchDeliveryOrders(shopId), fetchReceives(shopId), fetchExpenses(shopId),
+        fetchProducts(shopId), getVatRegistered(shopId),
       ]);
+      const vatTypeMapForVat = {};
+      productsForVat.forEach(p => { vatTypeMapForVat[p.sku] = p.vat_type; });
+      const deliverySalesForVat = deliveryOrdersForVat.filter(o => o.status === 'ส่งแล้ว').map(deliveryOrderToSaleShape);
+      const allSales = [...allSalesRaw, ...deliverySalesForVat].map(s => {
+        let subtotal = 0, vat = 0;
+        if (vatRegisteredForVat) {
+          for (const item of s.items || []) {
+            const { base, vat: lineVat } = lineVatBreakdown(item.price, item.qty, vatTypeMapForVat[item.sku]);
+            subtotal += base;
+            vat += lineVat;
+          }
+        }
+        return { ...s, vat_subtotal: subtotal, vat_amount: vat };
+      });
 
       let sales = allSales
         .filter(s => s.bill_no && s.status !== 'ยกเลิก' && s.status !== 'ค้างชำระ')
