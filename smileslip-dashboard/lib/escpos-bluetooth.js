@@ -177,7 +177,7 @@ function loadImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('โหลดรูป QR ไม่สำเร็จ'));
+    img.onerror = () => reject(new Error('โหลดรูปไม่สำเร็จ'));
     img.src = src;
   });
 }
@@ -185,9 +185,12 @@ function loadImage(src) {
 /**
  * วาดใบเสร็จลง canvas ตามข้อมูลที่ส่งมา (โครงเดียวกับ buildReceiptHtml ใน pos.js แค่วาดเป็นภาพ
  * แทน HTML) — คืน canvas ที่ตัดความสูงพอดีกับเนื้อหาจริงแล้ว (ไม่เหลือพื้นที่ขาวเปล่าด้านล่าง)
+ * logoDataUrl (ถ้ามี — โลโก้ร้านค้าที่อัปโหลดไว้ในหน้าตั้งค่า) วาดที่หัวใบเสร็จก่อนชื่อร้าน
  * qrDataUrl (ถ้ามี — QR ไลน์ร้านค้าที่ปรับแต่งไว้ในหน้าตั้งค่า) วาดคั่นก่อนข้อความท้ายใบเสร็จ
+ * ทั้งสองตัวต้องเป็น data URL (base64) เท่านั้น ไม่ใช่ลิงก์ข้าม origin — กันปัญหา canvas ถูก
+ * "tainted" ตอนแปลงเป็น raster (ดูเหตุผลเต็มใน pos-config.js ที่เลือกเก็บโลโก้เป็น data URL)
  */
-async function renderReceiptCanvas({ widthDots, shopInfo, docNo, dateStr, items, subtotal, vat, discount, total, payMethod, cashReceived, change, showVat, footerLines, qrDataUrl }) {
+async function renderReceiptCanvas({ widthDots, shopInfo, docNo, dateStr, items, subtotal, vat, discount, total, payMethod, cashReceived, change, showVat, footerLines, qrDataUrl, logoDataUrl }) {
   const MAX_HEIGHT = 4000; // ผืนผ้าใบชั่วคราวสูงพอสำหรับบิลยาวๆ — ตัดเหลือแค่ส่วนที่ใช้จริงตอนท้าย
   const draft = document.createElement('canvas');
   draft.width = widthDots;
@@ -246,6 +249,23 @@ async function renderReceiptCanvas({ widthDots, shopInfo, docNo, dateStr, items,
     y += 10;
   }
   const money = n => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  if (logoDataUrl) {
+    try {
+      const logoImg = await loadImage(logoDataUrl);
+      const maxW = widthDots * 0.55;
+      const maxH = widthDots * 0.3;
+      let w = logoImg.naturalWidth || logoImg.width || 1;
+      let h = logoImg.naturalHeight || logoImg.height || 1;
+      const scale = Math.min(maxW / w, maxH / h);
+      w *= scale; h *= scale;
+      y += 4;
+      ctx.drawImage(logoImg, (widthDots - w) / 2, y, w, h);
+      y += h + 8;
+    } catch {
+      // โหลดโลโก้ไม่สำเร็จ — พิมพ์ต่อโดยไม่มีโลโก้แทนที่จะทำให้พิมพ์ทั้งใบไม่ได้
+    }
+  }
 
   if (shopInfo?.shop_name) center(shopInfo.shop_name, baseSize + 4, true);
   if (shopInfo?.address) center(shopInfo.address, baseSize - 4);

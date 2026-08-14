@@ -854,6 +854,15 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
       - **Deploy production แล้ว (2026-08-13)** — revision จริง `smileslip-dashboard-00322-n9h` (เช็คด้วย `gcloud run revisions list --sort-by=~metadata.creationTimestamp` แล้ว pin traffic เอง ตามธรรมเนียม — รอบนี้ตรวจ env vars ของ revision ใหม่ด้วยมือว่าไม่มีเครื่องหมายคำพูดหลงเหลือก่อน route traffic แล้วยิง `/api/shop/data` ยืนยัน 200 ทันทีหลัง route ตามบทเรียนจากข้อควรระวังข้อ 44) — verified บน production จริงว่า `GET /api/pos/pos-config` คืนฟิลด์ `receipt_footer_message`/`receipt_line_url` ถูกต้อง (ค่าว่างเพราะยังไม่ได้รัน SQL)
       - **ผู้ใช้รัน SQL แล้ว (2026-08-13) — verified บน production จริง:** ยิง `PATCH`/`GET` `/api/pos/pos-config` ตรงกับ production URL ด้วยค่าทดสอบ (`receipt_footer_message`/`receipt_line_url`) ยืนยันบันทึก+อ่านกลับถูกต้องตรงกันเป๊ะ แล้วล้างค่าทดสอบกลับเป็นค่าว่างทันที (ไม่ทิ้งข้อความทดสอบไว้ในการตั้งค่าจริงของร้าน) — **ยังไม่ได้ทดสอบผลลัพธ์จริงบนกระดาษทั้งบั๊ก reconnect ที่แก้และ QR/ข้อความท้ายใบเสร็จที่เพิ่ม** (ฝั่งข้อมูล/backend ยืนยันถูกต้องครบแล้ว แต่การเรนเดอร์ QR บน canvas + การเชื่อมต่อ Bluetooth ซ้ำต้องรอผู้ใช้ทดสอบกับเครื่องพิมพ์จริงอีกรอบ เพราะเครื่องมือทดสอบนี้ไม่มีฮาร์ดแวร์ Bluetooth ให้จำลอง)
 
+84. **เพิ่มโลโก้หัวใบเสร็จ + จัดหมวดหมู่หน้าตั้งค่า POS — ผู้ใช้ขอต่อทันทีหลังทดสอบพิมพ์ Bluetooth สำเร็จ (ข้อ 83): "เพิ่มหัวสลิปสำหรับใส่โลโก้ร้านค้า" + บ่นว่าหน้าตั้งค่าต้องเลื่อนยาวเดียว ต้องแบ่งหมวดหมู่:**
+    - **โลโก้หัวใบเสร็จ — ตัดสินใจสำคัญ: เก็บเป็น data URL (base64) ตรงในคอลัมน์ `pos_configs.receipt_logo_data` เอง ไม่ใช่ลิงก์ Google Drive** เหตุผล 2 ข้อ: (1) ใช้ได้แม้ร้านยังไม่เชื่อมต่อ Google Drive เลย (ต่างจาก `/api/pos/upload-photo` ที่มีอยู่แล้วในระบบ ซึ่งบังคับต้องเชื่อม Google ก่อนเสมอ) (2) **เลี่ยงความเสี่ยง CORS/tainted-canvas โดยสิ้นเชิง** — ถ้าเก็บเป็นลิงก์ Drive (`drive.google.com/uc?id=...`) แล้วโหลดมาวาดลง canvas ตอนพิมพ์ผ่าน Bluetooth จะเสี่ยงทำให้ **ทั้ง canvas ถูก "tainted"** (เพราะ Drive ไม่รับประกันส่ง CORS header ที่ถูกต้อง) ทำให้ `ctx.getImageData()` (ใน `canvasToRasterBands()`) throw `SecurityError` และพิมพ์ทั้งใบไม่ได้เลย ไม่ใช่แค่โลโก้หายเฉยๆ — เก็บเป็น data URL ตัดปัญหานี้ทิ้งทั้งหมดเพราะไม่มีการข้าม origin เลยสักจุด
+      - ฝั่งเว็บ: `resizeImageToDataUrl()` ย่อรูปเหลือสูงสุด 300px (FileReader → Image → canvas ในเครื่อง ไม่ผ่านเครือข่ายเลยจึงไม่มีความเสี่ยง CORS ด้วย) ก่อนแปลงเป็น data URL แล้วเก็บในฟอร์ม รอกด "บันทึกตั้งค่า" เหมือนฟิลด์อื่นในหน้านี้ (ไม่ auto-save ทันทีต่างจาก `handleExpensePhoto`/`handleReceivePhoto` ที่มีอยู่แล้ว)
+      - `api/pos/pos-config.js`: เพิ่ม `export const config = { api: { bodyParser: { sizeLimit: '2mb' } } }` (ดีฟอลต์ 1mb ของ Next.js ไม่พอสำหรับ payload ที่มีรูปแนบ) + validate รูปแบบ (`data:image/...;base64,`) และขนาด (≤1.5MB) ก่อนบันทึกเสมอ — fail-safe pattern เดิมทุกจุด (แยก query, กันพังถ้ายังไม่ได้รัน SQL)
+      - `buildReceiptHtml()` (window.print) วาด `<img>` ที่หัวใบเสร็จเหนือชื่อร้าน — ไม่มีความเสี่ยง CORS อยู่แล้วสำหรับ `<img>` ธรรมดา (ต่างจาก canvas) แต่ใช้ data URL เดียวกันเพื่อความสม่ำเสมอ
+      - `escpos-bluetooth.js`'s `renderReceiptCanvas()` เพิ่มพารามิเตอร์ `logoDataUrl` วาดที่หัวใบเสร็จก่อนชื่อร้าน (คำนวณสัดส่วนพอดีกับกรอบ ~55%×30% ของความกว้างกระดาษ รักษาอัตราส่วนภาพเดิม) — `try/catch` กันพังทั้งใบถ้าโหลดรูปไม่สำเร็จ (ถึงจะไม่ควรเกิดขึ้นแล้วเพราะเป็น data URL แต่กันไว้เผื่อ)
+    - **จัดหมวดหมู่หน้าตั้งค่า POS** — เดิมเป็นการ์ดตั้งค่าเรียงยาวเดียว ~13 การ์ดในหน้าเดียว (ต้องเลื่อนอย่างเดียว) แบ่งเป็น 6 หมวดด้วยปุ่ม pill แนวนอนที่เลื่อนดูได้ (`SETTINGS_CATEGORIES` const ใหม่): 🔗 ลิงก์ (pos-staff/แคชเชียร์/สั่งซื้อลูกค้า), 🪑 โต๊ะ/บิล, 🛵 พนักงาน (คำขอสมัคร+รายชื่อ), 💳 รับเงิน (พร้อมเพย์/Biller ID), 🧾 ภาษี/บัญชี (VAT/โควตาวันหยุด), 🖨️ ใบเสร็จ (โลโก้ใหม่/ขนาดกระดาษ/ปรับแต่งท้ายใบเสร็จ/เครื่องพิมพ์ Bluetooth) — เลือกดูได้ทีละหมวด (state `settingsCategory`) ปุ่ม "💾 บันทึกตั้งค่า" ยังอยู่ล่างสุดเสมอนอกทุกหมวด (บันทึกทุกฟิลด์พร้อมกันเหมือนเดิม ไม่ต้องสลับหมวดไปมาเพื่อบันทึก) — ทำโดยห่อกลุ่มการ์ดเดิมด้วย `{settingsCategory === 'x' && (<>...</>)}` ไม่แตะเนื้อหาการ์ดเดิมเลยสักบรรทัด (ลดความเสี่ยงพังจากการ refactor)
+    - **ทดสอบ:** `npx next build` ผ่านทุก route — ยิง `GET`/`PATCH` `/api/pos/pos-config` (รวมทดสอบ validation รูปแบบ/ขนาดโลโก้ที่ผิด → 400 ถูกต้อง) กับ dev server ก่อนรัน SQL ยืนยัน fail-safe ถูกต้องครบ — **ยังไม่ได้ทดสอบ UI ผ่านเบราว์เซอร์จริง** (ปัญหาเดิมของ `/pos` กับเครื่องมือทดสอบที่ query ไม่ hydrate) รอ deploy แล้ว verify ผ่าน production ต่อ
+
 ## Tech Stack
 
 ### Bot (`smileslip-pro/`)
@@ -1779,6 +1788,17 @@ ALTER TABLE pos_delivery_orders
 ALTER TABLE pos_configs
   ADD COLUMN IF NOT EXISTS receipt_footer_message text,
   ADD COLUMN IF NOT EXISTS receipt_line_url text;
+```
+
+**เพิ่มคอลัมน์ receipt_logo_data ใน pos_configs (โลโก้หัวใบเสร็จ — เก็บเป็น data URL/base64 ตรงในคอลัมน์
+เอง ไม่ใช่ลิงก์ Google Drive โดยเจตนา — ดูเหตุผลเต็มในข้อ 84 เรื่อง CORS/tainted-canvas — เพิ่ม 2026-08-13,
+ยังไม่ได้รัน):**
+ก่อนรัน SQL นี้ ระบบยังทำงานปกติทุกอย่าง (ทดสอบแล้วจริงทั้ง GET/PATCH รวม validation รูปแบบ/ขนาดผิด
+ก่อนรัน SQL) — `api/pos/pos-config.js` แยกเขียนคอลัมน์นี้เป็น query ต่างหากเสมอ (เหมือนคอลัมน์ใหม่อื่นๆ)
+ถ้าคอลัมน์ยังไม่มีจะแค่บันทึกโลโก้ไม่ได้จริง ไม่ error/ไม่พังการตั้งค่าอื่น — ใบเสร็จจะยังพิมพ์ได้ปกติ
+แค่ไม่มีโลโก้จนกว่าจะรัน SQL แล้วอัปโหลดใหม่อีกครั้ง
+```sql
+ALTER TABLE pos_configs ADD COLUMN IF NOT EXISTS receipt_logo_data text;
 ```
 
 ### ต้องทำด้วยมือ (ไม่ใช่โค้ด)

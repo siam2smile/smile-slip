@@ -18,6 +18,16 @@ const PAY_METHODS = ['เงินสด', 'โอน', 'บัตรเคร�
 // หมวดหมู่รายจ่ายที่พบบ่อย — กดเลือกแทนพิมพ์เอง (ยังพิมพ์/แก้เพิ่มเองได้เหมือนเดิม ไม่ใช่ dropdown บังคับ)
 const EXPENSE_CATEGORIES = ['ค่าเช่าร้าน', 'ค่าน้ำ', 'ค่าไฟ', 'ค่าน้ำมัน/ขนส่ง', 'เงินเดือนพนักงาน', 'ค่าโทรศัพท์/อินเทอร์เน็ต', 'ค่าซ่อมบำรุง', 'ค่าวัสดุสิ้นเปลือง', 'ค่าการตลาด/โฆษณา'];
 const CONTACT_TYPES = ['ผู้จำหน่าย', 'ลูกค้า', 'ทั้งคู่'];
+// หมวดหมู่การตั้งค่า POS — จัดกลุ่มการ์ดตั้งค่าเดิมที่เคยเรียงยาวหน้าเดียวให้เลือกดูเป็นหมวดแทน
+// (ผู้ใช้ขอเพราะเลื่อนหาการตั้งค่าที่ต้องการยากขึ้นเรื่อยๆ ตามจำนวนฟีเจอร์ที่เพิ่มมา)
+const SETTINGS_CATEGORIES = [
+  { key: 'links', label: '🔗 ลิงก์' },
+  { key: 'tables', label: '🪑 โต๊ะ/บิล' },
+  { key: 'staff', label: '🛵 พนักงาน' },
+  { key: 'payment', label: '💳 รับเงิน' },
+  { key: 'accounting', label: '🧾 ภาษี/บัญชี' },
+  { key: 'receipt', label: '🖨️ ใบเสร็จ' },
+];
 
 // สิทธิ์เชิงลึกของพนักงาน (session ที่เซ็นชื่อผ่าน PIN) — บังคับจริงฝั่ง API ผ่าน lib/pos-auth.js
 // ไม่ใช่แค่ซ่อน UI เฉยๆ — 4 ตัวแรกมีมาก่อน (ดูยอดขาย/กำไรขาดทุน/จัดการสต็อก/export VAT),
@@ -176,7 +186,32 @@ async function generateLineQrDataUrl(url) {
   }
 }
 
-function buildReceiptHtml({ paperSize = '80mm', shopInfo, isTaxInvoice, showVat, docNo, dateStr, buyer, items, subtotal, vat, discount, total, payMethod, cashReceived, change, footer, isWhiteLabel, lineQrDataUrl }) {
+// ย่อรูปโลโก้ที่ผู้ใช้อัปโหลดแล้วแปลงเป็น data URL เก็บตรงในฐานข้อมูล (ไม่ผ่าน Google Drive) —
+// ทำงานล้วนๆ ฝั่ง client จากไฟล์ในเครื่อง (FileReader → Image → canvas) จึงไม่มีความเสี่ยง CORS
+// เลย ต่างจากถ้าจะโหลดรูปจากลิงก์ข้าม origin มาวาดลง canvas ตอนพิมพ์ (ดูเหตุผลเต็มใน pos-config.js)
+function resizeImageToDataUrl(file, maxDim = 300) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.naturalWidth, h = img.naturalHeight;
+        const scale = Math.min(1, maxDim / Math.max(w, h));
+        w = Math.round(w * scale); h = Math.round(h * scale);
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(c.toDataURL('image/png'));
+      };
+      img.onerror = () => reject(new Error('อ่านไฟล์รูปไม่สำเร็จ — ลองไฟล์อื่น'));
+      img.src = reader.result;
+    };
+    reader.onerror = () => reject(new Error('อ่านไฟล์ไม่สำเร็จ'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function buildReceiptHtml({ paperSize = '80mm', shopInfo, isTaxInvoice, showVat, docNo, dateStr, buyer, items, subtotal, vat, discount, total, payMethod, cashReceived, change, footer, isWhiteLabel, lineQrDataUrl, logoDataUrl }) {
   const widthMm = paperSize === '58mm' ? 58 : 80;
   const title = isTaxInvoice ? 'ใบกำกับภาษี / ใบเสร็จรับเงิน' : 'ใบเสร็จรับเงิน';
   const itemRows = (items || []).map(i => {
@@ -219,6 +254,7 @@ function buildReceiptHtml({ paperSize = '80mm', shopInfo, isTaxInvoice, showVat,
   .foot { text-align: center; margin-top: 8px; font-size: ${paperSize === '58mm' ? '9px' : '10px'}; color: #444; }
 </style></head>
 <body onload="window.print()">
+  ${logoDataUrl ? `<div class="center" style="margin-bottom:2mm"><img src="${logoDataUrl}" style="max-width:${Math.round(widthMm * 0.55)}mm;max-height:18mm"/></div>` : ''}
   <div class="center shop-name">${escapeHtml(shopInfo?.shop_name || '')}</div>
   ${shopInfo?.address ? `<div class="center">${escapeHtml(shopInfo.address)}</div>` : ''}
   ${shopInfo?.tax_id ? `<div class="center">เลขผู้เสียภาษี ${escapeHtml(shopInfo.tax_id)}</div>` : ''}
@@ -554,8 +590,9 @@ export default function POSPage() {
   const [qrLoading, setQrLoading] = useState(false);
 
   // POS settings (PromptPay + Biller ID) — Staff PIN เปลี่ยนเป็นรายบุคคลแล้ว ไม่มี PIN ร้านรวมอีกต่อไป
-  const [posConfig, setPosConfig] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', receipt_paper_size: '80mm', vat_registered: false, payroll_days_off_per_month: 6, receipt_footer_message: '', receipt_line_url: '' });
-  const [posSettingsForm, setPosSettingsForm] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', vat_registered: false, payroll_days_off_per_month: 6, receipt_footer_message: '', receipt_line_url: '' });
+  const [posConfig, setPosConfig] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', receipt_paper_size: '80mm', vat_registered: false, payroll_days_off_per_month: 6, receipt_footer_message: '', receipt_line_url: '', receipt_logo_data: '' });
+  const [posSettingsForm, setPosSettingsForm] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', vat_registered: false, payroll_days_off_per_month: 6, receipt_footer_message: '', receipt_line_url: '', receipt_logo_data: '' });
+  const [settingsCategory, setSettingsCategory] = useState('links');
   const [settingsSaving, setSettingsSaving] = useState(false);
 
   // ── เปิดกะ/ปิดกะเงินสด (ผูกกับพนักงานรายคนผ่าน PIN ไม่ใช่สาขา/เครื่อง) ─────────
@@ -1264,7 +1301,7 @@ export default function POSPage() {
       const d = await r.json();
       if (d.ok !== false) {
         setPosConfig(d);
-        setPosSettingsForm({ promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '', scb_biller_ref1: d.scb_biller_ref1 || '', receipt_paper_size: d.receipt_paper_size || '80mm', vat_registered: !!d.vat_registered, payroll_days_off_per_month: d.payroll_days_off_per_month ?? 6, receipt_footer_message: d.receipt_footer_message || '', receipt_line_url: d.receipt_line_url || '' });
+        setPosSettingsForm({ promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '', scb_biller_ref1: d.scb_biller_ref1 || '', receipt_paper_size: d.receipt_paper_size || '80mm', vat_registered: !!d.vat_registered, payroll_days_off_per_month: d.payroll_days_off_per_month ?? 6, receipt_footer_message: d.receipt_footer_message || '', receipt_line_url: d.receipt_line_url || '', receipt_logo_data: d.receipt_logo_data || '' });
       }
     } catch {}
   }
@@ -1282,6 +1319,7 @@ export default function POSPage() {
       body.payroll_days_off_per_month = posSettingsForm.payroll_days_off_per_month;
       body.receipt_footer_message = posSettingsForm.receipt_footer_message || '';
       body.receipt_line_url = posSettingsForm.receipt_line_url || '';
+      body.receipt_logo_data = posSettingsForm.receipt_logo_data || '';
       const r = await fetch('/api/pos/pos-config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -2465,6 +2503,7 @@ export default function POSPage() {
       change: bill.change,
       footer: posConfig.receipt_footer_message || undefined,
       lineQrDataUrl,
+      logoDataUrl: posConfig.receipt_logo_data || undefined,
       isWhiteLabel: hasFeature(shopInfo?.subscription_tier, 'white_label'),
     });
     openPrintWindow(html);
@@ -2502,6 +2541,22 @@ export default function POSPage() {
   const [btPrintBusy, setBtPrintBusy] = useState(false);
   const [footerQrPreviewUrl, setFooterQrPreviewUrl] = useState('');
   const [footerQrPreviewBusy, setFooterQrPreviewBusy] = useState(false);
+  const [logoUploading, setLogoUploading] = useState(false);
+  async function handleLogoUpload(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // เลือกไฟล์เดิมซ้ำได้ (input ไม่ trigger onChange ถ้า value ไม่เปลี่ยน)
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showToast('กรุณาเลือกไฟล์รูปภาพ'); return; }
+    setLogoUploading(true);
+    try {
+      const dataUrl = await resizeImageToDataUrl(file, 300);
+      setPosSettingsForm(f => ({ ...f, receipt_logo_data: dataUrl }));
+      showToast('📎 เลือกโลโก้แล้ว — กด "บันทึกตั้งค่า" เพื่อยืนยัน');
+    } catch (err) {
+      showToast('❌ ' + err.message);
+    }
+    setLogoUploading(false);
+  }
   async function previewFooterQr() {
     if (!posSettingsForm.receipt_line_url?.trim()) { showToast('กรอกลิงก์ไลน์ก่อน'); return; }
     setFooterQrPreviewBusy(true);
@@ -2531,6 +2586,7 @@ export default function POSPage() {
       change: bill.change,
       footerLines: withBrandFooter(posConfig.receipt_footer_message || 'ขอบคุณที่ใช้บริการ', hasFeature(shopInfo?.subscription_tier, 'white_label')).split('\n'),
       qrDataUrl,
+      logoDataUrl: posConfig.receipt_logo_data || undefined,
     };
   }
   async function handleBtPrintReceipt(bill) {
@@ -2557,6 +2613,7 @@ export default function POSPage() {
         subtotal: 0, vat: 0, discount: 0, total: 0, payMethod: '',
         footerLines: [posConfig.receipt_footer_message || 'ทดสอบเครื่องพิมพ์สำเร็จ 🎉'],
         qrDataUrl,
+        logoDataUrl: posConfig.receipt_logo_data || undefined,
       });
       showToast('🖨️ พิมพ์ทดสอบสำเร็จ');
     } catch (err) {
@@ -8026,6 +8083,19 @@ export default function POSPage() {
           {tab === 'settings' && !cashierMode && (
             <div className="h-full overflow-y-auto">
               <div className="p-4 max-w-xl mx-auto space-y-6">
+                {/* หมวดหมู่การตั้งค่า — เลื่อนดูทีละหมวดแทนการเลื่อนหน้ายาวเดียว */}
+                <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+                  {SETTINGS_CATEGORIES.map(c => (
+                    <button key={c.key} type="button" onClick={() => setSettingsCategory(c.key)}
+                      className={`shrink-0 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${
+                        settingsCategory === c.key ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700'
+                      }`}>
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+
+                {settingsCategory === 'links' && (<>
                 {/* Staff PIN — เปลี่ยนเป็น PIN รายบุคคลแล้ว ตั้ง/รีเซ็ตได้ที่แท็บ "พนักงาน" ด้านล่าง */}
                 <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
                   <h3 className="text-white font-bold mb-1">🔐 หน้าพนักงาน (pos-staff)</h3>
@@ -8104,6 +8174,9 @@ export default function POSPage() {
                   )}
                 </div>
 
+                </>)}
+
+                {settingsCategory === 'tables' && (<>
                 {/* Table names */}
                 <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
                   <h3 className="text-white font-bold mb-1">🪑 ชื่อโต๊ะ / บิล</h3>
@@ -8133,6 +8206,9 @@ export default function POSPage() {
                   )}
                 </div>
 
+                </>)}
+
+                {settingsCategory === 'staff' && (<>
                 {/* คำขอสมัคร (#สมัครพนักงานขนส่ง / #สมัครผู้จัดการสาขา) */}
                 {staffRequests.filter(r => r.status === 'pending').length > 0 && (
                   <div className="bg-gray-900 rounded-2xl p-5 border border-orange-800/50">
@@ -8248,6 +8324,9 @@ export default function POSPage() {
                   )}
                 </div>
 
+                </>)}
+
+                {settingsCategory === 'payment' && (<>
                 {/* PromptPay ID */}
                 <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
                   <h3 className="text-white font-bold mb-1">📲 พร้อมเพย์ QR</h3>
@@ -8323,6 +8402,9 @@ export default function POSPage() {
                   );
                 })()}
 
+                </>)}
+
+                {settingsCategory === 'accounting' && (<>
                 {/* ร้านจด VAT */}
                 <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
                   <h3 className="text-white font-bold mb-1">🧾 ร้านนี้จดทะเบียน VAT</h3>
@@ -8357,6 +8439,38 @@ export default function POSPage() {
                     onChange={e => setPosSettingsForm(f => ({ ...f, payroll_days_off_per_month: e.target.value }))}
                     className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
                     placeholder="เช่น 6"/>
+                </div>
+
+                </>)}
+
+                {settingsCategory === 'receipt' && (<>
+                {/* โลโก้หัวใบเสร็จ — เก็บเป็น data URL ตรงในฐานข้อมูล (ไม่ผ่าน Google Drive) ใช้ได้
+                    แม้ร้านยังไม่เชื่อมต่อ Google เลย และไม่มีความเสี่ยง CORS ตอนวาดลง canvas สำหรับ
+                    พิมพ์ผ่าน Bluetooth (ดูรายละเอียดใน pos-config.js/escpos-bluetooth.js) */}
+                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
+                  <h3 className="text-white font-bold mb-1">🎨 โลโก้ร้านค้า (หัวใบเสร็จ)</h3>
+                  <p className="text-gray-400 text-xs mb-4">
+                    แสดงที่หัวใบเสร็จทุกใบ (เหนือชื่อร้าน) ทั้งพิมพ์ผ่านเครื่องพิมพ์ปกติ/AirPrint และ Bluetooth — แนะนำรูปพื้นหลังโปร่งใส/ขาว ไม่ต้องใช้ไฟล์ความละเอียดสูง (ระบบย่อให้อัตโนมัติ)
+                  </p>
+                  <div className="flex items-center gap-4">
+                    {posSettingsForm.receipt_logo_data ? (
+                      <img src={posSettingsForm.receipt_logo_data} alt="โลโก้ร้านค้า" className="w-20 h-20 object-contain bg-white rounded-xl p-1.5 border border-gray-700" />
+                    ) : (
+                      <div className="w-20 h-20 rounded-xl bg-gray-800 border border-dashed border-gray-700 flex items-center justify-center text-gray-600 text-xs text-center px-1">ไม่มีโลโก้</div>
+                    )}
+                    <div className="flex-1 space-y-2">
+                      <label className={`block w-full text-center cursor-pointer bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 text-sm font-bold py-2.5 rounded-xl transition-colors ${logoUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                        {logoUploading ? '⏳ กำลังประมวลผล...' : '📁 เลือกรูปโลโก้'}
+                        <input type="file" accept="image/*" onChange={handleLogoUpload} disabled={logoUploading} className="hidden" />
+                      </label>
+                      {posSettingsForm.receipt_logo_data && (
+                        <button type="button" onClick={() => setPosSettingsForm(f => ({ ...f, receipt_logo_data: '' }))}
+                          className="w-full bg-gray-800 hover:bg-red-900/40 text-gray-400 hover:text-red-300 text-xs font-bold py-2 rounded-xl transition-colors">
+                          🗑️ ลบโลโก้
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 {/* ขนาดกระดาษเครื่องพิมพ์ใบเสร็จ */}
@@ -8436,6 +8550,7 @@ export default function POSPage() {
                     </div>
                   </div>
                 )}
+                </>)}
 
                 <button
                   onClick={savePosSettings}
