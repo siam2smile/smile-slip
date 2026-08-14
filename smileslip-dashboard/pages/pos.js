@@ -6728,7 +6728,7 @@ export default function POSPage() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-white font-medium text-sm">{c.name}</span>
+                              <span className={`font-medium text-sm ${c.name ? 'text-white' : 'text-gray-500 italic'}`}>{c.name || '(ไม่มีชื่อ)'}</span>
                               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                                 c.contact_type === 'ผู้จำหน่าย' ? 'bg-blue-900 text-blue-300'
                                 : c.contact_type === 'ทั้งคู่' ? 'bg-teal-900 text-teal-300'
@@ -10337,7 +10337,7 @@ export default function POSPage() {
                             className="w-4 h-4 shrink-0 accent-red-600" />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-white text-sm font-medium truncate">{c.name}</span>
+                              <span className={`text-sm font-medium truncate ${c.name ? 'text-white' : 'text-gray-500 italic'}`}>{c.name || '(ไม่มีชื่อ)'}</span>
                               {c._cleanup?.is_duplicate && (
                                 <span className="text-[10px] bg-amber-900/60 text-amber-300 px-2 py-0.5 rounded-full shrink-0">
                                   🔁 ซ้ำ x{c._cleanup.duplicate_group_size}

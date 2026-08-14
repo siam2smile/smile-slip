@@ -40,7 +40,14 @@ export default async function handler(req, res) {
         data = data.concat(page || []);
         if (!page || page.length < PAGE) break;
       }
-      let contacts = data.map(contactFromRow).filter(c => c.contact_id && c.name);
+      // เดิมกรอง `&& c.name` ด้วย ทำให้ผู้ติดต่อที่ชื่อว่างเปล่า (เช่น นำเข้าไฟล์แล้วบาง
+      // แถวไม่มีชื่อ) หายไปเงียบๆ จากหน้ารายชื่อ — แต่ contacts-cleanup.js (เครื่องมือเช็ค
+      // รายการซ้ำ) ไม่มีการกรองแบบนี้ ทำให้เจอบั๊กจริง: ผู้ติดต่อคู่ที่ฝั่งหนึ่งชื่อว่างจะถูก
+      // contacts-cleanup.js นับเป็น "ซ้ำ" แต่ฝั่งเว็บมองไม่เห็นตัวที่ชื่อว่างเลย ทำให้ปุ่ม
+      // "เลือกเฉพาะรายการซ้ำส่วนเกิน" คำนวณกลุ่มผิด (เห็นแค่สมาชิก 1 คนต่อกลุ่ม เพราะคู่ที่
+      // ชื่อว่างหายไปจาก state) เลยไม่เลือกอะไรให้เลย — ตัดเงื่อนไข c.name ออก ยังกรองแค่
+      // contact_id (ต้องมีเสมอ เป็น primary key) พอ
+      let contacts = data.map(contactFromRow).filter(c => c.contact_id);
 
       // filter by type (ลูกค้า/ผู้จำหน่าย/ทั้งคู่)
       if (req.query.type) {
