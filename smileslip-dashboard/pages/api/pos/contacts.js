@@ -33,8 +33,16 @@ export default async function handler(req, res) {
       const PAGE = 1000;
       let data = [];
       for (let from = 0; ; from += PAGE) {
+        // .order('created_at') อย่างเดียวไม่พอ — เจอบั๊กจริง: 296 แถวจากการนำเข้าทีเดียวมี
+        // created_at เหมือนกันเป๊ะ (นำเข้า batch เดียวกัน timestamp เดียวกันหมด) ทำให้ Postgres
+        // ไม่มีลำดับที่แน่นอนให้แถวที่ค่าเท่ากันเหล่านี้ระหว่างการ query แต่ละหน้า (.range()) แยกกัน
+        // เกิด "เห็นซ้ำบางแถว มองไม่เห็นบางแถวเลย" (ตรวจสอบจริง: 2242 แถวที่คืนมามีแค่ 2180
+        // contact_id ไม่ซ้ำกัน อีก 62 คือแถวเดิมที่โผล่มา 2 รอบ ส่วนแถวที่หายไปจริงก็มีจำนวนพอๆ กัน)
+        // แก้โดยเพิ่ม order ตาม id (primary key, unique เสมอ) เป็นตัวตัดสินลำดับที่แน่นอนเมื่อ
+        // created_at เท่ากัน
         const { data: page, error } = await supabase.from('pos_contacts').select('*')
-          .eq('shop_id', shopId).is('deleted_at', null).order('created_at', { ascending: true })
+          .eq('shop_id', shopId).is('deleted_at', null)
+          .order('created_at', { ascending: true }).order('id', { ascending: true })
           .range(from, from + PAGE - 1);
         if (error) throw error;
         data = data.concat(page || []);

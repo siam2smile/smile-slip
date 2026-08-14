@@ -16,8 +16,11 @@ async function fetchAllPaginated(table, columns, shopId) {
   const PAGE = 1000;
   let all = [];
   for (let from = 0; ; from += PAGE) {
+    // ต้องมี .order() ที่ unique เสมอ ไม่งั้น .range() ข้ามหน้าแบบไม่แน่นอนถ้ามีแถวหลายอันที่ค่า
+    // เรียงลำดับเริ่มต้น (ไม่มีการระบุ) เท่ากัน — เจอบั๊กจริงแบบนี้แล้วใน contacts.js (id ใช้เป็น
+    // tie-breaker ที่รับประกัน unique เสมอเพราะเป็น primary key)
     const { data, error } = await supabase.from(table).select(columns)
-      .eq('shop_id', shopId).range(from, from + PAGE - 1);
+      .eq('shop_id', shopId).order('id', { ascending: true }).range(from, from + PAGE - 1);
     if (error) throw error;
     all = all.concat(data || []);
     if (!data || data.length < PAGE) break;
@@ -36,7 +39,8 @@ export default async function handler(req, res) {
       const PAGE = 1000;
       for (let from = 0; ; from += PAGE) {
         const { data, error } = await supabase.from('pos_contacts')
-          .select('contact_id,name,phone,created_at').eq('shop_id', shopId).is('deleted_at', null)
+          .select('contact_id,name,phone,created_at,id').eq('shop_id', shopId).is('deleted_at', null)
+          .order('created_at', { ascending: true }).order('id', { ascending: true })
           .range(from, from + PAGE - 1);
         if (error) throw error;
         contactRows.push(...(data || []));

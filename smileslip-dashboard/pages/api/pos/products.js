@@ -38,8 +38,12 @@ export default async function handler(req, res) {
       const PAGE = 1000;
       let data = [];
       for (let from = 0; ; from += PAGE) {
+        // .order('created_at') อย่างเดียวไม่พอ — เจอบั๊กจริงในไฟล์ contacts.js (แถวที่ created_at
+        // ตรงกันเป๊ะจากการนำเข้าทีเดียวทำให้ .range() ข้ามหน้าแบบไม่แน่นอน) แก้ไว้ล่วงหน้าเผื่อร้าน
+        // ที่นำเข้าสินค้าทีละมากๆ (เช่น import Excel) เจอปัญหาเดียวกัน — เพิ่ม order ตาม id (unique เสมอ)
         const { data: page, error } = await supabase.from('pos_products').select('*')
-          .eq('shop_id', shopId).is('deleted_at', null).order('created_at', { ascending: true })
+          .eq('shop_id', shopId).is('deleted_at', null)
+          .order('created_at', { ascending: true }).order('id', { ascending: true })
           .range(from, from + PAGE - 1);
         if (error) throw error;
         data = data.concat(page || []);
