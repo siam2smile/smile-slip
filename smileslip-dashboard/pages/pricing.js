@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { CheckCircle, Zap, Shield, Building2, Crown, CreditCard, ArrowLeft, Sparkles } from 'lucide-react';
+import { findOwnerSessionTokenForOwnerId } from '../lib/client-owner-session';
 
 export default function PricingPage() {
   const router = useRouter();
@@ -13,7 +14,11 @@ export default function PricingPage() {
 
   useEffect(() => {
     if (userId) {
-      fetch(`/api/shop/data?userId=${encodeURIComponent(userId)}`)
+      // เผื่อ shop/data.js กลับมา enforce:true อีกครั้งในอนาคต — แนบ token ถ้ามีเสมอ ไม่มีก็ไม่เป็นไร
+      // (หน้านี้เข้าได้โดยไม่ login ด้วย ใช้แค่โชว์ "แพ็กเกจปัจจุบัน" เสริมถ้ามี userId)
+      const priceToken = findOwnerSessionTokenForOwnerId(userId);
+      fetch(`/api/shop/data?userId=${encodeURIComponent(userId)}`,
+        priceToken ? { headers: { 'x-owner-session': priceToken } } : undefined)
         .then(r => r.json())
         .then(d => {
           if (d.profile?.id) {

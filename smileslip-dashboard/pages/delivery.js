@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
+import { findOwnerSessionTokenForOwnerId } from '../lib/client-owner-session';
 
 const STATUS = {
   pending:   { label: 'รอดำเนินการ', color: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
@@ -66,7 +67,12 @@ export default function DeliveryPage() {
   useEffect(() => {
     if (!userId) return;
     (async () => {
-      const shopRes = await fetch(`/api/shop/data?userId=${userId}`).then(r => r.json()).catch(() => ({}));
+      // เผื่อ shop/data.js กลับมา enforce:true อีกครั้งในอนาคต (ตอนนี้ enforce:false อยู่ — ดูเหตุผล
+      // ในคอมเมนต์ของ pages/api/shop/data.js) แนบ token ถ้ามีเสมอ ไม่มีก็ไม่เป็นไร
+      const dataToken = findOwnerSessionTokenForOwnerId(userId);
+      const shopRes = await fetch(`/api/shop/data?userId=${userId}`,
+        dataToken ? { headers: { 'x-owner-session': dataToken } } : undefined
+      ).then(r => r.json()).catch(() => ({}));
       if (shopRes.profile) {
         const sid = shopRes.profile.id;
         setShopId(sid);
