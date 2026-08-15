@@ -23,6 +23,13 @@ export default async function handler(req, res) {
   // ครอบคลุมไม่ถึงเพราะเป็น browser-native navigation ไม่ใช่ fetch())
   if (!requireOwnerAuth(req, res, shopId, { enforce: true })) return;
 
+  // ⚠️ บั๊กจริงที่เจอ 2026-08-15: token ที่ผ่าน requireOwnerAuth ข้างบนแล้วไม่เคยถูกส่งต่อให้ call
+  // ภายใน (ด้านล่าง) ไปหา shop/analytics.js เลย — ทำให้ shop/analytics.js (ก็ enforce:true เหมือนกัน
+  // จากข้อ 57) ปฏิเสธ request ภายในนี้ด้วย 401 เสมอ ไม่ว่า caller ตัวนอกจะมี token ถูกต้องแค่ไหนก็ตาม
+  // (แล้ว endpoint นี้ห่อ error 401 นั้นเป็น 500 กลับไปให้ browser อีกที) — สรุปคือปุ่ม "⬇ PDF" พังมา
+  // ตั้งแต่ shop/analytics.js ถูก enforce:true (ก่อนเซสชันนี้) ต้องแนบ token เดียวกันต่อไปด้วยเสมอ
+  const forwardToken = req.headers['x-owner-session'] || req.query?.ownerSession || '';
+
   // ตรวจสิทธิ์ Pro+
   const { data: shop } = await supabase
     .from('shop_profiles')
@@ -37,7 +44,8 @@ export default async function handler(req, res) {
 
   // ดึง analytics data จาก API ภายใน
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.FRONTEND_URL || 'http://localhost:3000';
-  const analyticsRes = await fetch(`${baseUrl}/api/shop/analytics?shopId=${shopId}&year=${year}&month=${month}`);
+  const analyticsRes = await fetch(`${baseUrl}/api/shop/analytics?shopId=${shopId}&year=${year}&month=${month}`,
+    forwardToken ? { headers: { 'x-owner-session': forwardToken } } : undefined);
   const data = await analyticsRes.json();
 
   if (data.error) return res.status(500).json({ error: data.error });
