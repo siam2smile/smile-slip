@@ -6,7 +6,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { blockAllStaffSessions } from '../../../lib/pos-auth';
-import { requireOwnerAuth } from '../../../lib/owner-auth';
+import { requireOwnerOrStaffAuth } from '../../../lib/owner-auth';
 
 // โลโก้หัวใบเสร็จเก็บเป็น data URL (base64) ตรงในคอลัมน์เอง ไม่ใช่ลิงก์ Google Drive — ตั้งใจ
 // เพราะ (1) ใช้ได้แม้ร้านยังไม่เชื่อมต่อ Google Drive เลย (2) ไม่มีความเสี่ยง CORS/tainted-canvas
@@ -31,10 +31,14 @@ export default async function handler(req, res) {
 
 
   if (req.method === 'GET') {
-    // คืน kbank_api_key/scb_api_key ตรงๆ (credential ธนาคารจริง) — ยังไม่ enforce:true เพราะเรียก
-    // ซิงโครนัสตอนโหลดหน้าครั้งแรกใน pos.js's loadShopBody() ก่อน fetch-override จะติดตั้งเสร็จ
-    // (chicken-and-egg เดียวกับ shop/data.js) แต่ token ที่ shopId ไม่ตรงกันต้องถูกบล็อกเสมอ
-    if (!requireOwnerAuth(req, res, shopId, { enforce: false })) return;
+    // คืน kbank_api_key/scb_api_key ตรงๆ (credential ธนาคารจริง) — เดิม enforce:false (chicken-and-egg
+    // เดียวกับ shop/data.js เพราะเรียกซิงโครนัสตอนโหลดหน้าครั้งแรกใน pos.js's loadShopBody() ก่อน
+    // fetch-override จะติดตั้งเสร็จ) — แก้แล้วฝั่งเว็บ (fetchPosConfig แนบ token เองจาก sid ที่เป็น
+    // local variable ไม่ต้องรอ override) จึงปิด enforce:true ได้จริง — requireOwnerOrStaffAuth
+    // (ไม่ใช่ requireOwnerAuth เฉยๆ) เพราะ endpoint นี้ถูกเรียกจาก loadShopBody() ทั้งเส้นทางเจ้าของ
+    // ร้านและเส้นทางแคชเชียร์ (staff-session) ร่วมกัน — แคชเชียร์ต้องเห็นค่าตั้งค่า VAT/Biller ID/
+    // ขนาดกระดาษใบเสร็จเพื่อใช้ตอน checkout
+    if (!requireOwnerOrStaffAuth(req, res, shopId, { enforce: true })) return;
 
     const { data, error } = await supabase
       .from('pos_configs')

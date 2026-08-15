@@ -12,6 +12,7 @@
  * ปล่อยผ่านได้)
  */
 import { verifyOwnerSession } from './owner-session';
+import { verifyStaffSession } from './staff-session';
 
 // แนบ session ได้ 2 ทาง: header `x-owner-session` (fetch() ปกติ) หรือ query param `ownerSession`
 // (จำเป็นสำหรับดาวน์โหลดไฟล์ที่เปิดผ่าน window.open()/<a href> ตรงๆ เช่น export Excel/PDF ที่แนบ
@@ -53,6 +54,27 @@ export function requireOwnerAuth(req, res, shopId, { enforce = false, requireOwn
     return false;
   }
   return true;
+}
+
+/**
+ * เหมือน requireOwnerAuth แต่ยอมรับ staff-session ที่ถูกต้อง (ไม่ต้องมีสิทธิ์เฉพาะเจาะจง) เป็น
+ * หลักฐานพิสูจน์ตัวตนแทนได้ด้วย — ใช้กับ endpoint ที่ pos.js's loadShopBody() เรียกใช้ร่วมกันทั้ง
+ * เส้นทางเจ้าของร้าน (owner-session) และเส้นทางแคชเชียร์ (staff-session, เข้าผ่าน PIN) เช่น
+ * pos/setup.js กับ pos/pos-config.js GET — ข้อมูลที่ endpoint พวกนี้คืนเป็นแค่การตั้งค่าร้าน/สถานะ
+ * เปิดใช้งาน ไม่ใช่ข้อมูลที่ต้องจำกัดสิทธิ์เฉพาะบางตำแหน่งพนักงาน จึงพอแค่ "มี staff-session ที่
+ * shopId ตรงกันจริง" โดยไม่ต้องเช็ค permission เจาะจงแบบ requirePermission()
+ */
+export function requireOwnerOrStaffAuth(req, res, shopId, options = {}) {
+  const staffToken = req.headers['x-staff-session'] || req.query?.session || null;
+  if (staffToken) {
+    const staffSession = verifyStaffSession(staffToken);
+    if (staffSession && staffSession.shopId === shopId) return true;
+    // มี staff-session แต่ไม่ถูกต้อง/shopId ไม่ตรง — อย่าเงียบผ่านไปเช็ค owner-session ต่อ (การส่ง
+    // token ผิดมาแปลว่ามีความพยายามยืนยันตัวตนแต่ล้มเหลว) ปฏิเสธตรงนี้เลย
+    res.status(401).json({ error: 'session พนักงานหมดอายุหรือไม่ถูกต้อง กรุณาใส่ PIN ใหม่' });
+    return false;
+  }
+  return requireOwnerAuth(req, res, shopId, options);
 }
 
 /** ดึง ownerId จาก session (ถ้ามี) — ใช้บันทึก "ผู้บันทึก"/audit trail ในบางจุด */

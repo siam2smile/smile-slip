@@ -10,7 +10,7 @@ import {
   Shield, UserPlus, UserX, HelpCircle, X
 } from 'lucide-react';
 import Link from 'next/link';
-import { getOwnerSessionToken, setOwnerSessionToken } from '../lib/client-owner-session';
+import { getOwnerSessionToken, setOwnerSessionToken, findOwnerSessionTokenForOwnerId } from '../lib/client-owner-session';
 
 // ─── Tier utilities ───
 const TIER_ORDER = { normal: 0, pro: 1, advance: 2, business: 3, enterprise: 4, super: 4 };
@@ -200,7 +200,7 @@ export default function Dashboard() {
       // ไม่ผ่าน /login) — ยังเก็บลง localStorage ไม่ได้ตอนนี้เพราะยังไม่รู้ shopInfo.id จริง
       // (localStorage key ผูกกับ shopId ไม่ใช่ userId) รอ useEffect ถัดไปที่ shopInfo พร้อมแล้ว
       if (ownerSession) setPendingOwnerSessionToken(ownerSession);
-      fetchData(userId);
+      fetchData(userId, ownerSession);
     }
   }, [router.isReady, router.query]);
 
@@ -297,10 +297,19 @@ export default function Dashboard() {
   }, [activeTab, shopInfo, isUnlimited]);
 
   // ─── Fetch functions ───
-  const fetchData = async (userId) => {
+  // เรียกก่อนรู้ shopId เลย (มีแค่ userId) เลยแนบ token ด้วยมือตรงนี้แทนพึ่ง window.fetch override
+  // (ที่ผูกกับ shopInfo.id ใน React state — ยังไม่ตั้งตอนนี้ ต้อง set เสร็จก่อนถึงจะรัน effect ได้
+  // เป็น chicken-and-egg ที่แก้ไม่ได้ด้วยการรอ render) — ลำดับการหา token: (1) ownerSession จาก
+  // query ตรงๆ ถ้ามี (deep-link จากบอท/OAuth callback ที่เพิ่ง redirect มา) (2) ค้นจาก
+  // localStorage ด้วย ownerId (login.js/callback ทุกทาง pre-store token ไว้ก่อน redirect มาหน้านี้
+  // เสมออยู่แล้ว แค่ยังไม่รู้ shopId จะ lookup ตรงๆ เท่านั้น)
+  const fetchData = async (userId, directOwnerSession) => {
     setIsLoaded(false);
     try {
-      const res = await fetch(`/api/shop/data?userId=${encodeURIComponent(userId)}`);
+      const token = directOwnerSession || findOwnerSessionTokenForOwnerId(userId);
+      const res = await fetch(`/api/shop/data?userId=${encodeURIComponent(userId)}`,
+        token ? { headers: { 'x-owner-session': token } } : undefined);
+      if (res.status === 401) { router.push(`/login?next=dashboard`); return; }
       const data = await res.json();
       if (data.profile) {
         setShopInfo(data.profile);
@@ -322,7 +331,12 @@ export default function Dashboard() {
 
   const fetchReferral = async (shopId) => {
     try {
-      const res = await fetch(`/api/shop/referral?shopId=${shopId}`);
+      // shopId มาเป็น argument ตรงๆ (ไม่ใช่ React state) เรียกจาก fetchData ทันทีที่รู้ผล — เกิดก่อน
+      // render รอบถัดไปเสมอ จึงต้องแนบ token เองแบบเดียวกับ fetchData ด้านบน ไม่พึ่ง window.fetch
+      // override (ซึ่งตอนนี้ยังไม่ได้ติดตั้งเพราะ shopInfo.id ใน state ยังไม่ถูกตั้งด้วยซ้ำ)
+      const token = getOwnerSessionToken(shopId);
+      const res = await fetch(`/api/shop/referral?shopId=${shopId}`,
+        token ? { headers: { 'x-owner-session': token } } : undefined);
       const data = await res.json();
       if (!data.error) setReferralInfo(data);
     } catch {}

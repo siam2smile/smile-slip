@@ -10,7 +10,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { getAccessToken, createFolder } from '../../../lib/google-pos';
-import { requireOwnerAuth } from '../../../lib/owner-auth';
+import { requireOwnerOrStaffAuth } from '../../../lib/owner-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -22,10 +22,12 @@ export default async function handler(req, res) {
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
 
   if (req.method === 'GET') {
-    // ยังไม่ enforce:true เพราะเรียกซิงโครนัสตอนโหลดหน้าครั้งแรกใน pos.js's loadShopBody()
-    // ก่อน fetch-override จะติดตั้งเสร็จ (chicken-and-egg เดียวกับ shop/data.js) — แต่ token ที่
-    // shopId ไม่ตรงกันต้องถูกบล็อกเสมอ
-    if (!requireOwnerAuth(req, res, shopId, { enforce: false })) return;
+    // เดิม enforce:false (chicken-and-egg เดียวกับ shop/data.js — เรียกซิงโครนัสตอนโหลดหน้าครั้งแรก
+    // ใน pos.js's loadShopBody() ก่อน fetch-override จะติดตั้งเสร็จ) — แก้แล้วฝั่งเว็บ (loadShopBody
+    // แนบ token เองจาก profile.id ที่เป็น local variable ไม่ต้องรอ override) จึงปิด enforce:true ได้จริง
+    // — requireOwnerOrStaffAuth (ไม่ใช่ requireOwnerAuth เฉยๆ) เพราะ endpoint นี้ถูกเรียกจาก
+    // loadShopBody() ทั้งเส้นทางเจ้าของร้านและเส้นทางแคชเชียร์ (staff-session) ร่วมกัน
+    if (!requireOwnerOrStaffAuth(req, res, shopId, { enforce: true })) return;
 
     const { data, error } = await supabase
       .from('pos_configs')

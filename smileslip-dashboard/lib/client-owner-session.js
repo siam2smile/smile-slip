@@ -39,6 +39,29 @@ export function getOwnerSessionToken(shopId) {
   return token;
 }
 
+/**
+ * หา token สำหรับ ownerId ที่ระบุ โดยไม่ต้องรู้ shopId ล่วงหน้า — ใช้เฉพาะจุดที่หน้าเว็บเรียก
+ * shop/data.js ครั้งแรกสุด (รู้แค่ userId/owner_line_id จาก URL ยังไม่รู้ shopId เลย เพราะ
+ * endpoint นั้นแหละคือตัวที่จะบอกว่า userId นี้เป็นร้านไหน) — สแกนทุก key `owner_session_*`
+ * ใน localStorage แล้วถอด payload ดูว่า ownerId ตรงกันไหม (login.js/callback ทุกทาง pre-store
+ * token ไว้ก่อน redirect มาหน้านี้เสมออยู่แล้ว แค่ยังไม่รู้จะ lookup ด้วย key ไหนเท่านั้นเอง)
+ */
+export function findOwnerSessionTokenForOwnerId(ownerId) {
+  if (typeof window === 'undefined' || !ownerId) return null;
+  for (let i = 0; i < window.localStorage.length; i++) {
+    const key = window.localStorage.key(i);
+    if (!key || !key.startsWith('owner_session_')) continue;
+    const token = window.localStorage.getItem(key);
+    if (!token) continue;
+    const payload = decodePayload(token);
+    if (!payload?.exp || !payload?.ownerId) continue;
+    if (payload.ownerId !== ownerId) continue;
+    if (Math.floor(Date.now() / 1000) > payload.exp) { window.localStorage.removeItem(key); continue; }
+    return token;
+  }
+  return null;
+}
+
 export function setOwnerSessionToken(shopId, token) {
   if (typeof window === 'undefined' || !shopId || !token) return;
   window.localStorage.setItem(storageKey(shopId), token);

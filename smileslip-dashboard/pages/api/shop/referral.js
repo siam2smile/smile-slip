@@ -16,9 +16,10 @@ export default async function handler(req, res) {
   const { shopId } = req.query;
   if (!shopId) return res.status(400).json({ error: 'shopId required' });
 
-  // ยังไม่ enforce:true เพราะเรียกจากตอนโหลดหน้าครั้งแรก (chicken-and-egg เดียวกับ shop/data.js) —
-  // แต่ token ที่ shopId ไม่ตรงกันต้องถูกบล็อกเสมอ กันข้อมูลรั่วข้ามร้าน
-  if (!requireOwnerAuth(req, res, shopId, { enforce: false })) return;
+  // เดิม enforce:false (chicken-and-egg เดียวกับ shop/data.js) — แก้แล้วฝั่งเว็บ (dashboard.js's
+  // fetchReferral รับ shopId ตรงๆ เป็น argument อยู่แล้ว ไม่ต้องรอ React state) แนบ token ได้ทันที
+  // จึงปิด enforce:true ได้จริง
+  if (!requireOwnerAuth(req, res, shopId, { enforce: true })) return;
 
   try {
     // ดึง referral_code ของร้านนี้

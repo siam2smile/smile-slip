@@ -9,7 +9,7 @@ import { Edit3, Trash2 } from 'lucide-react';
 import { MARKET_PRICE_FEATURE_LIVE } from '../lib/market-price-flag';
 import { hasFeature } from '../lib/tier-features';
 import { withBrandFooter } from '../lib/branding';
-import { getOwnerSessionToken, setOwnerSessionToken } from '../lib/client-owner-session';
+import { getOwnerSessionToken, setOwnerSessionToken, findOwnerSessionTokenForOwnerId } from '../lib/client-owner-session';
 import { calcSSO, estimateMonthlyWithholding, PAY_TYPES, computeDaysOffDeduction, computeOtPay, daysInYearMonth } from '../lib/payroll';
 import { isBluetoothPrintSupported, pairPrinter, openCashDrawer, printReceiptViaBluetooth } from '../lib/escpos-bluetooth';
 
@@ -934,15 +934,27 @@ export default function POSPage() {
   // ── init ──────────────────────────────────────────────────────────────────
   // โหลดสาขา/สินค้า/ผู้ติดต่อ/พนักงาน/ฯลฯ หลังรู้ profile ของร้านแล้ว — ใช้ร่วมกันทั้งเส้นทาง
   // เจ้าของร้าน (ผ่าน /api/shop/data?userId=) และเส้นทางแคชเชียร์ (ผ่าน PIN + /api/pos/cashier-shop-info)
-  async function loadShopBody(profile) {
+  // staffToken (2nd arg) — ใช้เฉพาะเส้นทางแคชเชียร์ (ส่งเข้ามาเป็น local variable ตรงๆ จากคำเรียก
+  // เช่น d.sessionToken/saved.sessionToken ณ จุดที่เรียก ไม่ใช่อ่านจาก cashierSession ใน React
+  // state เพราะ loadShopBody() ถูกเรียกซิงโครนัสทันทีหลัง setCashierSession(...) ก่อน re-render
+  // รอบถัดไป — เหมือนปัญหา timing เดียวกับ owner-session ด้านล่างทุกประการ)
+  async function loadShopBody(profile, staffToken) {
     if (!profile?.id) { setLoading(false); return; }
 
-    const brRes = await fetch(`/api/shop/branches?shopId=${profile.id}`);
+    // เรียกก่อน window.fetch override (ผูกกับ shopId/cashierSession ใน React state) จะติดตั้งเสร็จ
+    // เสมอ (init()/PIN handler เรียก loadShopBody() ซิงโครนัสทันทีหลังรู้ profile ไม่รอ render รอบ
+    // ถัดไป) — แนบ token เองตรงนี้จาก local variable ไม่ใช่ state จึงไม่มีปัญหา timing เหมือน override
+    // — staffToken (แคชเชียร์) มาก่อนเสมอถ้ามี ไม่งั้น fallback เป็น owner-session
+    const authHeaders = staffToken
+      ? { headers: { 'x-staff-session': staffToken } }
+      : (getOwnerSessionToken(profile.id) ? { headers: { 'x-owner-session': getOwnerSessionToken(profile.id) } } : undefined);
+
+    const brRes = await fetch(`/api/shop/branches?shopId=${profile.id}`, authHeaders);
     const brData = await brRes.json();
     const activeBranches = (brData.branches || []).filter(b => b.is_active !== false);
     setPosBranches(activeBranches);
 
-    const cfgRes = await fetch(`/api/pos/setup?shopId=${profile.id}`);
+    const cfgRes = await fetch(`/api/pos/setup?shopId=${profile.id}`, authHeaders);
     const cfg = await cfgRes.json();
     setConfigured(cfg.configured);
     if (cfg.configured) {
@@ -951,7 +963,7 @@ export default function POSPage() {
         fetchContacts(profile.id),
         fetchStaff(profile.id),
         fetchStaffRequests(profile.id),
-        fetchPosConfig(profile.id),
+        fetchPosConfig(profile.id, staffToken),
         fetchOrders(profile.id),
         fetchAdmins(profile.id),
       ]);
@@ -985,7 +997,13 @@ export default function POSPage() {
     async function init() {
       setLoading(true);
       try {
-        const shopRes = await fetch(`/api/shop/data?userId=${userId}`);
+        // ยังไม่รู้ shopId เลยตอนนี้ (มีแค่ userId) — เหมือน dashboard.js's fetchData เป๊ะ: หา token
+        // จาก (1) ownerSession ที่ติดมากับ URL ตรงๆ (deep-link จากบอท/OAuth callback) ก่อน (2) ถ้าไม่มี
+        // ค้นจาก localStorage ด้วย ownerId แทน (login.js pre-store ไว้ก่อน redirect มาที่นี่เสมอ)
+        const initToken = ownerSessionFromQuery || findOwnerSessionTokenForOwnerId(userId);
+        const shopRes = await fetch(`/api/shop/data?userId=${userId}`,
+          initToken ? { headers: { 'x-owner-session': initToken } } : undefined);
+        if (shopRes.status === 401) { router.push('/login?next=pos'); return; }
         const shopData = await shopRes.json();
         const profile = shopData.profile;
         setShopInfo(profile);
@@ -1066,7 +1084,7 @@ export default function POSPage() {
         setCashierSession(saved);
         setShopInfo(d.shop);
         setGoogleConnected(true); // มีลิงก์แคชเชียร์ได้แปลว่าร้านตั้งค่า POS + เชื่อม Google ไว้แล้วเสมอ
-        await loadShopBody(d.shop);
+        await loadShopBody(d.shop, saved.sessionToken);
       } catch {}
       setCashierSessionChecked(true);
       setLoading(false);
@@ -1111,7 +1129,7 @@ export default function POSPage() {
           if (infoData.ok) {
             setShopInfo(infoData.shop);
             setGoogleConnected(true);
-            await loadShopBody(infoData.shop);
+            await loadShopBody(infoData.shop, d.sessionToken);
           }
         } catch (err) { console.error('[pos/cashier-shop-info]', err); }
         setLoading(false);
@@ -1294,10 +1312,16 @@ export default function POSPage() {
     setCloseShiftSaving(false);
   }
 
-  async function fetchPosConfig(sid = shopId) {
+  async function fetchPosConfig(sid = shopId, staffTokenOverride) {
     if (!sid) return;
     try {
-      const r = await fetch(`/api/pos/pos-config?shopId=${sid}`);
+      // แนบ token เองเสมอ (ไม่พึ่ง window.fetch override) เพราะฟังก์ชันนี้ถูกเรียกทั้งตอน init()/PIN
+      // handler (ก่อน override ติดตั้ง — sid/staffTokenOverride มาจาก local variable ตรงๆ) และตอน
+      // หลัง render แล้ว (override ทำงานแล้ว ซ้ำซ้อนกับที่นี่แต่ค่าตรงกันเสมอ ไม่มีผลเสีย)
+      const authHeaders = staffTokenOverride
+        ? { headers: { 'x-staff-session': staffTokenOverride } }
+        : (getOwnerSessionToken(sid) ? { headers: { 'x-owner-session': getOwnerSessionToken(sid) } } : undefined);
+      const r = await fetch(`/api/pos/pos-config?shopId=${sid}`, authHeaders);
       const d = await r.json();
       if (d.ok !== false) {
         setPosConfig(d);
