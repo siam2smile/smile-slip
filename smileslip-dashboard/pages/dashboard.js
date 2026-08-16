@@ -1223,25 +1223,6 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  {/* ─── Delivery Add-on ─── */}
-                  <div className="bg-gradient-to-r from-blue-900 to-blue-700 rounded-2xl p-5 text-white">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <span className="text-3xl">🚚</span>
-                        <div>
-                          <h3 className="font-bold text-sm">ระบบส่งของ (Delivery)</h3>
-                          <p className="text-blue-200 text-xs mt-0.5">บันทึกออเดอร์ · ติดตามสถานะ · ดูประวัติลูกค้า</p>
-                        </div>
-                      </div>
-                      <a
-                        href={`/delivery?userId=${shopInfo?.owner_line_id}`}
-                        className="shrink-0 bg-white text-blue-800 hover:bg-blue-50 font-bold text-xs px-4 py-2.5 rounded-xl transition-colors shadow-md"
-                      >
-                        เปิดระบบ →
-                      </a>
-                    </div>
-                  </div>
-
                   {/* LINE Commands */}
                   {tierKey !== 'normal' && (
                     <div className="bg-blue-800 rounded-2xl p-6 text-white">
