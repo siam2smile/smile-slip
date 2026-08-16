@@ -103,6 +103,12 @@ export default function Dashboard() {
   const [analyticsMonth, setAnalyticsMonth] = useState((new Date().getMonth() + 1).toString().padStart(2, '0'));
   const [analyticsBranch, setAnalyticsBranch] = useState('all'); // 'all' = รวมทุกสาขา
 
+  // 6P Data Matrix (POS strategy insights — customer_rfm/price_tier/peak_hours, Enterprise เท่านั้น)
+  const [strategyData, setStrategyData] = useState(null); // { rfm, priceTier, peakHours }
+  const [strategyLoading, setStrategyLoading] = useState(false);
+  const [strategyAiText, setStrategyAiText] = useState(null);
+  const [strategyAiLoading, setStrategyAiLoading] = useState(false);
+
   // Tax Report
   const [taxReport, setTaxReport] = useState(null);
   const [taxReportLoading, setTaxReportLoading] = useState(false);
@@ -292,7 +298,7 @@ export default function Dashboard() {
     if (activeTab === 'branches' && shopInfo?.id) fetchBranches(shopInfo.id);
     if (activeTab === 'analytics' && shopInfo?.id) {
       fetchAnalytics(shopInfo.id, analyticsYear);
-      if (isUnlimited) fetchMarketing(shopInfo.id);
+      if (isUnlimited) { fetchMarketing(shopInfo.id); fetchStrategyInsights(shopInfo.id); }
     }
   }, [activeTab, shopInfo, isUnlimited]);
 
@@ -421,6 +427,46 @@ export default function Dashboard() {
       setMarketingData(data.error ? null : data);
     } catch { setMarketingData(null); }
     setMarketingLoading(false);
+  };
+
+  // 6P Data Matrix — ดึง 3 report type จาก POS module (pos_sales/pos_contacts/pos_delivery_orders
+  // ไม่ใช่ ledger_transactions ที่แท็บนี้ใช้อยู่แล้วด้านบน) ใช้ branch เดียวกับที่เลือกอยู่ในแท็บนี้
+  // (analyticsBranch — สาขาแชร์ตารางเดียวกันระหว่าง POS/ledger อยู่แล้ว) ล็อก Enterprise ที่ backend
+  // เองด้วย (defense-in-depth) แต่ฝั่งนี้เช็ค isUnlimited ก่อนเรียกเลย กันยิง request เปล่าๆ
+  const fetchStrategyInsights = async (shopId, branch) => {
+    setStrategyLoading(true);
+    setStrategyAiText(null);
+    try {
+      const b = branch !== undefined ? branch : analyticsBranch;
+      const params = new URLSearchParams({ shopId });
+      if (b && b !== 'all') params.set('branch', b);
+      const qs = params.toString();
+      const [rfmRes, priceRes, peakRes] = await Promise.all([
+        fetch(`/api/pos/reports?${qs}&type=customer_rfm`),
+        fetch(`/api/pos/reports?${qs}&type=price_tier`),
+        fetch(`/api/pos/reports?${qs}&type=peak_hours`),
+      ]);
+      const [rfm, priceTier, peakHours] = await Promise.all([rfmRes.json(), priceRes.json(), peakRes.json()]);
+      setStrategyData({
+        rfm: rfm.error ? null : rfm,
+        priceTier: priceTier.error ? null : priceTier,
+        peakHours: peakHours.error ? null : peakHours,
+      });
+    } catch { setStrategyData(null); }
+    setStrategyLoading(false);
+  };
+
+  const fetchStrategyAiSummary = async (shopId, branch) => {
+    setStrategyAiLoading(true);
+    try {
+      const b = branch !== undefined ? branch : analyticsBranch;
+      const params = new URLSearchParams({ shopId });
+      if (b && b !== 'all') params.set('branch', b);
+      const res = await fetch(`/api/pos/ai-summary?${params.toString()}`);
+      const data = await res.json();
+      setStrategyAiText(data.summary || data.fallback || 'ไม่สามารถสร้างสรุปได้ในขณะนี้');
+    } catch { setStrategyAiText('ไม่สามารถสร้างสรุปได้ในขณะนี้'); }
+    setStrategyAiLoading(false);
   };
 
   const fetchTaxReport = async (shopId, year, month, branch = taxReportBranch) => {
@@ -1279,13 +1325,20 @@ export default function Dashboard() {
                     {/* สาขา — ดูแนวโน้มรายสาขา หรือรวมทุกสาขา */}
                     {hasFeature(tierKey, 'advance') && branches.length > 0 && (
                       <select value={analyticsBranch}
-                        onChange={e => { setAnalyticsBranch(e.target.value); fetchAnalytics(shopInfo.id, analyticsYear, analyticsView === 'daily' ? analyticsMonth : undefined, e.target.value); }}
+                        onChange={e => {
+                          setAnalyticsBranch(e.target.value);
+                          fetchAnalytics(shopInfo.id, analyticsYear, analyticsView === 'daily' ? analyticsMonth : undefined, e.target.value);
+                          if (isUnlimited) fetchStrategyInsights(shopInfo.id, e.target.value);
+                        }}
                         className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm font-medium focus:outline-none bg-white">
                         <option value="all">รวมทุกสาขา</option>
                         {branches.map(b => <option key={b.id} value={b.branch_name}>{b.branch_name}</option>)}
                       </select>
                     )}
-                    <button onClick={() => fetchAnalytics(shopInfo.id, analyticsYear, analyticsView === 'daily' ? analyticsMonth : undefined)}
+                    <button onClick={() => {
+                      fetchAnalytics(shopInfo.id, analyticsYear, analyticsView === 'daily' ? analyticsMonth : undefined);
+                      if (isUnlimited) { fetchMarketing(shopInfo.id); fetchStrategyInsights(shopInfo.id); }
+                    }}
                       className="flex items-center gap-1.5 bg-blue-800 text-white px-4 py-1.5 rounded-xl text-xs font-medium hover:bg-blue-700 transition-all">
                       <RefreshCcw size={13}/> โหลดใหม่
                     </button>
@@ -2050,6 +2103,154 @@ export default function Dashboard() {
                               className="ml-auto shrink-0 flex items-center gap-1.5 bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs px-4 py-1.5 rounded-xl transition-all">
                               VIP Support LINE
                             </a>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ════ 6P Data Matrix — วิเคราะห์เชิงกลยุทธ์จากข้อมูล POS จริงของร้าน ════
+                          คนละแหล่งข้อมูลจาก Marketing Intelligence ด้านบน (ที่นั่นใช้ slip_analytics/
+                          sender_profiles แบบ hash ข้ามร้าน) — อันนี้อ่านจาก pos_sales/pos_contacts/
+                          pos_delivery_orders ของร้านตัวเองตรงๆ ผ่าน /api/pos/reports (ล็อก Enterprise
+                          ที่ backend เองด้วยกันเรียกตรง ไม่ผ่านหน้านี้) */}
+                      {!isUnlimited && (
+                        <div className="bg-gradient-to-r from-teal-50 to-cyan-50 border border-teal-200 rounded-2xl p-5 flex items-center justify-between gap-4">
+                          <div>
+                            <p className="font-bold text-teal-700 text-sm">🎯 6P Data Matrix — เฉพาะ Enterprise</p>
+                            <p className="text-teal-600 text-xs mt-0.5">Customer 360/RFM สมาชิกร้าน · ช่วงราคาที่ขายดี · สินค้าขายคู่กัน · ชั่วโมงขายดี · สรุปยอดด้วย AI</p>
+                          </div>
+                          <Link href={`/pricing?userId=${shopInfo?.owner_line_id}`}
+                            className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition-all">
+                            ดู Enterprise
+                          </Link>
+                        </div>
+                      )}
+
+                      {isUnlimited && (
+                        <div className="rounded-2xl overflow-hidden border border-teal-200">
+                          <div className="bg-gradient-to-r from-teal-600 to-cyan-600 px-6 py-4 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">🎯</span>
+                              <div>
+                                <p className="font-black text-white text-sm">6P Data Matrix — วิเคราะห์เชิงกลยุทธ์</p>
+                                <p className="text-teal-100 text-[10px]">ข้อมูลจริงจากระบบ POS ของร้าน{analyticsBranch !== 'all' ? ` · สาขา ${analyticsBranch}` : ' · รวมทุกสาขา'}</p>
+                              </div>
+                            </div>
+                            <span className="text-[10px] bg-white/20 text-white px-3 py-1 rounded-full font-bold uppercase tracking-wider">Enterprise</span>
+                          </div>
+
+                          <div className="bg-white p-5 space-y-5">
+                            {strategyLoading && (
+                              <div className="text-center py-8 text-teal-400 animate-pulse text-sm">กำลังวิเคราะห์ข้อมูล POS...</div>
+                            )}
+
+                            {!strategyLoading && strategyData && (() => {
+                              const rfmSum = strategyData.rfm?.summary;
+                              const ptSum = strategyData.priceTier?.summary;
+                              const peakSum = strategyData.peakHours?.summary;
+                              const hasAny = (rfmSum?.total_scored > 0) || (ptSum?.total_bills > 0) || (peakSum?.total_transactions > 0);
+
+                              if (!hasAny) {
+                                return (
+                                  <div className="text-center py-6">
+                                    <p className="text-3xl mb-2">📦</p>
+                                    <p className="text-slate-600 text-sm font-medium">ยังไม่มีข้อมูลจากระบบ POS พอจะวิเคราะห์</p>
+                                    <p className="text-slate-400 text-xs mt-1">เริ่มขาย/บันทึกยอดผ่านระบบ POS ก่อน แล้วกลับมาดูสรุปตรงนี้ได้เลย</p>
+                                    <a href={`/pos?userId=${shopInfo?.owner_line_id}`} className="inline-block mt-3 text-teal-600 hover:text-teal-700 text-xs font-bold underline">
+                                      🔗 เปิดระบบ POS
+                                    </a>
+                                  </div>
+                                );
+                              }
+
+                              const SEG_META = {
+                                champions: { label: '🏆 ลูกค้าคนสำคัญ', color: 'bg-amber-50 text-amber-700 border-amber-200' },
+                                loyal: { label: '💚 ลูกค้าประจำ', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+                                new: { label: '🆕 ลูกค้าใหม่', color: 'bg-blue-50 text-blue-700 border-blue-200' },
+                                regular: { label: '🙂 ซื้อทั่วไป', color: 'bg-slate-50 text-slate-600 border-slate-200' },
+                                at_risk: { label: '⚠️ เสี่ยงหายไป', color: 'bg-orange-50 text-orange-700 border-orange-200' },
+                                lost: { label: '💤 หายไปแล้ว', color: 'bg-red-50 text-red-600 border-red-200' },
+                              };
+
+                              return (
+                                <>
+                                  {/* Customer 360 / RFM */}
+                                  {rfmSum?.total_scored > 0 && (
+                                    <div>
+                                      <p className="text-slate-700 font-bold text-xs mb-2">👑 Customer 360 — กลุ่มลูกค้าสมาชิกร้าน ({rfmSum.total_scored} คนที่มีประวัติซื้อ)</p>
+                                      <div className="flex flex-wrap gap-2">
+                                        {Object.entries(SEG_META).map(([key, meta]) => (
+                                          <div key={key} className={`text-xs font-bold px-3 py-1.5 rounded-xl border ${meta.color}`}>
+                                            {meta.label}: {rfmSum[key] || 0}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Price Tier */}
+                                  {ptSum?.total_bills > 0 && (
+                                    <div>
+                                      <p className="text-slate-700 font-bold text-xs mb-2">💵 ช่วงราคาบิลที่ขายดี (จาก {ptSum.total_bills} บิล)</p>
+                                      <div className="grid grid-cols-3 gap-2">
+                                        {strategyData.priceTier.tiers.map(t => (
+                                          <div key={t.tier} className="bg-teal-50 rounded-xl p-3 border border-teal-100 text-center">
+                                            <p className="text-[10px] text-teal-500 font-bold">ช่วง{t.label}</p>
+                                            <p className="text-sm font-black text-teal-800 mt-0.5">{t.count} บิล</p>
+                                            <p className="text-[10px] text-teal-400 mt-0.5">เฉลี่ย ฿{(t.avg_bill||0).toLocaleString()}</p>
+                                          </div>
+                                        ))}
+                                      </div>
+                                      {strategyData.priceTier.pairs?.length > 0 && (
+                                        <div className="mt-2">
+                                          <p className="text-[11px] text-slate-500 mb-1">สินค้าที่มักขายคู่กัน:</p>
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {strategyData.priceTier.pairs.slice(0, 4).map((p, i) => (
+                                              <span key={i} className="text-[10px] bg-slate-100 text-slate-600 px-2 py-1 rounded-lg">
+                                                {p.nameA} + {p.nameB} ({p.count} บิล)
+                                              </span>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Peak Hours */}
+                                  {peakSum?.total_transactions > 0 && (
+                                    <div className="bg-teal-50 rounded-xl p-3 border border-teal-100 flex items-center gap-3">
+                                      <span className="text-2xl">⏰</span>
+                                      <div>
+                                        <p className="text-teal-800 font-bold text-xs">ช่วงเวลาขายดีที่สุด: วัน{strategyData.peakHours.peakDayLabel} เวลา {strategyData.peakHours.peakHour}:00 น.</p>
+                                        <p className="text-teal-500 text-[10px] mt-0.5">จากทั้งหมด {peakSum.total_transactions} รายการที่นับ — ใช้จัดกะพนักงานให้พอดีช่วงคนเยอะ</p>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* AI Summary — opt-in เพราะเรียก Gemini */}
+                                  <div className="border-t border-slate-100 pt-4">
+                                    {!strategyAiText && (
+                                      <button onClick={() => fetchStrategyAiSummary(shopInfo.id)} disabled={strategyAiLoading}
+                                        className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white text-xs font-bold px-4 py-2 rounded-xl transition-all">
+                                        {strategyAiLoading ? '⏳ กำลังสรุป...' : '🤖 สรุปให้ฉันฟัง (AI)'}
+                                      </button>
+                                    )}
+                                    {strategyAiText && (
+                                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                                        <p className="text-slate-700 text-xs whitespace-pre-line leading-relaxed">{strategyAiText}</p>
+                                        <button onClick={() => fetchStrategyAiSummary(shopInfo.id)} disabled={strategyAiLoading}
+                                          className="mt-2 text-teal-600 hover:text-teal-700 text-[10px] font-bold underline disabled:opacity-50">
+                                          {strategyAiLoading ? 'กำลังสรุปใหม่...' : '🔄 สรุปใหม่'}
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <a href={`/pos?userId=${shopInfo?.owner_line_id}`} className="block text-center text-teal-600 hover:text-teal-700 text-[11px] font-bold underline pt-1">
+                                    ดูรายละเอียดเต็มที่หน้า POS → แท็บรายงาน
+                                  </a>
+                                </>
+                              );
+                            })()}
                           </div>
                         </div>
                       )}
