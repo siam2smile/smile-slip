@@ -665,6 +665,13 @@ export default async function handler(req, res) {
     // ภาษีซื้อ (input VAT) รวม 2 แหล่ง: ใบรับสินค้า (ซื้อเข้าสต็อค) + รายจ่าย (ค่าใช้จ่ายร้านที่มี VAT)
     // ทั้งคู่ยังไม่มีคอลัมน์สาขา (ไม่ได้ผูกกับสาขาที่ขาย) จึงรวมเป็นยอดเดียวของทั้งร้าน ไม่แยกสาขาในเวอร์ชันนี้
     if (type === 'vat') {
+      if (!(await requirePermission(req, res, shopId, 'perm_view_revenue'))) return;
+      // รายงาน VAT ของ POS — ล็อก Business ขึ้นไป (ผู้ใช้ยืนยัน 2026-08-16, ใช้ feature key
+      // vat_report เดียวกับที่ tax-report.js ของบัญชีหลักเช็คอยู่แล้ว แต่คนละไฟล์คนละ implementation)
+      const { data: vatShopRow } = await supabase.from('shop_profiles').select('subscription_tier').eq('id', shopId).maybeSingle();
+      if (!hasFeature((vatShopRow?.subscription_tier || 'normal').toLowerCase(), 'vat_report')) {
+        return res.status(403).json({ error: upgradeMessage('vat_report'), featureLocked: true });
+      }
       // เดิมอ่านแค่ pos_sales ไม่เคยรวมยอดขายจากออเดอร์จัดส่งเลย (ต่างจาก type=pl/topsellers ที่แก้
       // ไปแล้ว) เพราะ pos_delivery_orders ไม่มีคอลัมน์ vat_subtotal/vat_amount ของตัวเอง — แก้โดย
       // คำนวณ VAT ต่อรายการสดจาก vat_type ของสินค้าแทน (pattern เดียวกับ type=pl/topsellers) แล้ว

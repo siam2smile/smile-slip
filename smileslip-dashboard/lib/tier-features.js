@@ -35,6 +35,9 @@ export function hasFeature(tier, feature) {
   if (feature === 'strategy_analytics') return level >= TIER_LEVEL.enterprise;
   // บันทึกประจำวันของพนักงาน (ปัญหา/คำชม/สต็อกใกล้หมด) — ล็อก Enterprise ตามที่ผู้ใช้ตัดสินใจ
   if (feature === 'daily_staff_log') return level >= TIER_LEVEL.enterprise;
+  // ระบบเงินเดือน — ล็อก Business ขึ้นไป ตามที่ผู้ใช้ยืนยัน (2026-08-16) — กะเงินสด (cash-shifts.js)
+  // ตั้งใจไม่ล็อก คงฟรีทุก tier ตลอดไป (เป็นฟีเจอร์จัดการเงินสดพื้นฐาน ไม่ใช่ตัว upsell)
+  if (feature === 'payroll') return level >= TIER_LEVEL.business;
 
   if (GATED_AT_PRO_ONLY.has(feature)) {
     // Shop Pro (pro) ล็อกเฉพาะ 3 ฟีเจอร์นี้ — ส่วน normal (trial/ร้านเก่า grandfather) และ advance ขึ้นไปผ่านหมด
@@ -56,6 +59,7 @@ export const FEATURE_LABEL = {
   customer_360_rfm: 'Customer 360 / วิเคราะห์กลุ่มลูกค้าสมาชิกร้าน (RFM)',
   strategy_analytics: 'วิเคราะห์เชิงกลยุทธ์ (ช่วงราคา/สินค้าคู่กัน/ชั่วโมงขายดี/สรุปยอด AI)',
   daily_staff_log: 'บันทึกประจำวันของพนักงาน',
+  payroll: 'ระบบเงินเดือน (คำนวณเงินเดือน/ประกันสังคม/ภาษีหัก ณ ที่จ่าย)',
 };
 
 const TIER_LABEL = { normal: 'Starter', pro: 'Shop Pro', advance: 'Advance', business: 'Business', enterprise: 'Enterprise' };

@@ -18,7 +18,7 @@ import { getBranchStockMap } from '../../../lib/pos-stock';
 
 // รายงาน 3 แม่แบบใหม่ (vat30/sales_by_branch/cyclical_inventory) + custom เฉพาะร้าน — Business+ เท่านั้น
 // (รายงานเดิม 8 ประเภทด้านบนยังไม่ล็อก tier ตามที่เป็นมาแต่เดิม ไม่ได้แก้ย้อนหลังในรอบนี้)
-const GATED_TYPES = new Set(['vat30', 'sales_by_branch', 'cyclical_inventory', 'custom']);
+const GATED_TYPES = new Set(['vat', 'vat30', 'sales_by_branch', 'cyclical_inventory', 'custom']);
 
 // โหลด "รายงานกำหนดเองเฉพาะร้าน" ถ้ามีไฟล์ lib/custom-templates/{shopId}.js อยู่จริง — ยังไม่มีลูกค้า
 // รายใดต้องใช้จริงตอนนี้ (2026-07-21) แค่เตรียมโครงสร้างไว้รอ ไม่มีไฟล์ตัวอย่างจริงเพื่อกัน error

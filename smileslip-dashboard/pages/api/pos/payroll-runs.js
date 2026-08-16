@@ -17,6 +17,7 @@ import { dualWrite, insertRow, LEDGER_TYPE } from '../../../lib/supabase-pos';
 import {
   calcSSO, estimateMonthlyWithholding, makePayrollRunNo, payrollRunFromRow,
 } from '../../../lib/payroll';
+import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 
@@ -103,6 +104,12 @@ export default async function handler(req, res) {
 
   if (!blockAllStaffSessions(req, res, shopId)) return;
   if (req.method !== 'GET' && (await blockIfTrialExpired(req, res, shopId))) return;
+
+  // ระบบเงินเดือน — ล็อก Business ขึ้นไป (ผู้ใช้ยืนยัน 2026-08-16)
+  const { data: shopRowForTier } = await supabase.from('shop_profiles').select('subscription_tier').eq('id', shopId).maybeSingle();
+  if (!hasFeature((shopRowForTier?.subscription_tier || 'normal').toLowerCase(), 'payroll')) {
+    return res.status(403).json({ error: upgradeMessage('payroll'), featureLocked: true });
+  }
 
   try {
     if (req.method === 'GET') {
