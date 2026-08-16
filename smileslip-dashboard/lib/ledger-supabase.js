@@ -27,6 +27,21 @@ function bangkokMidnightUTC(year, month, day) {
   return new Date(Date.UTC(year, month - 1, day, -7, 0, 0));
 }
 
+/** ขอบเขต UTC ของ "วันนี้ตามปฏิทินกรุงเทพ" ขวา-เปิด [start, end) — ใช้กับ push สรุปยอดตอนปิดกะ
+ * (ข้อ 93) แทนพึ่ง timezone ของเครื่อง/container ที่รัน (Cloud Run เป็น UTC เสมออยู่แล้ว แต่กันไว้
+ * เผื่อทดสอบบนเครื่อง dev ที่ timezone ไม่ใช่ UTC ตามบทเรียนเดิมของโปรเจกต์นี้) */
+export function bangkokTodayRangeISO(atDate = new Date()) {
+  const bkk = new Date(atDate.getTime() + 7 * 3600 * 1000);
+  const y = bkk.getUTCFullYear(), m = bkk.getUTCMonth() + 1, d = bkk.getUTCDate();
+  return bangkokYearMonthRangeISO_internal(y, m, d);
+}
+
+function bangkokYearMonthRangeISO_internal(y, m, d) {
+  const start = bangkokMidnightUTC(y, m, d);
+  const end = new Date(start.getTime() + 24 * 3600 * 1000);
+  return { startISO: start.toISOString(), endISO: end.toISOString() };
+}
+
 export function bangkokYearMonthRangeISO(year, month) {
   const y = parseInt(year, 10);
   if (month) {

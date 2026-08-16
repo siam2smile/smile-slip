@@ -516,6 +516,21 @@ function bangkokMidnightUTC(year, month, day) {
   return new Date(Date.UTC(year, month - 1, day, -7, 0, 0)).toISOString();
 }
 
+// ข้อ 93: "ตอนนี้" ตามปฏิทิน/นาฬิกากรุงเทพ อ่านผ่าน UTC getters ของ Date ที่เลื่อน +7 ชม.แล้วเสมอ
+// (ไม่ใช้ .getDay()/.getHours() แบบ local เพราะขึ้นกับ timezone ของเครื่อง/container ที่รัน — ปลอดภัย
+// บน Cloud Run เพราะรัน UTC เสมออยู่แล้ว แต่ใช้ pattern นี้เพื่อไม่พึ่งข้อเท็จจริงนั้นโดยตรง ตรงกับ
+// บทเรียนเดิมของโปรเจกต์นี้เรื่อง double-shift — ใช้กับ cron ที่ยิงทุกชั่วโมงแล้วต้องเทียบวัน/เวลา
+// ที่ร้านแต่ละร้านตั้งไว้เองว่า "ตรงกับตอนนี้ไหม")
+function getBangkokNowParts() {
+  const bkk = new Date(Date.now() + 7 * 3600 * 1000);
+  return {
+    dayOfWeek: bkk.getUTCDay(),   // 0=อาทิตย์ ... 6=เสาร์ (ตรงกับ Date.getDay() convention)
+    hour: bkk.getUTCHours(),      // 0-23
+    dayOfMonth: bkk.getUTCDate(), // 1-31
+    isoDate: bkk.toISOString().split('T')[0],
+  };
+}
+
 // 2.8 อ่านสรุปยอดจาก Supabase (ledger_transactions) ระหว่าง [startISO, endISO) กรองตามสาขาถ้าระบุ
 // ใช้ created_at กรอง (เวลาที่บันทึกจริงในระบบ — เทียบเท่า "วันที่บันทึก (recorded_at)" คอลัมน์ I เดิม
 // ของ Sheets เพราะบอทเขียนแบบ real-time เสมอไม่มี backdate ในฝั่งนี้)
@@ -2133,6 +2148,13 @@ app.post('/cron/daily-summary', async (req, res) => {
   // Phase 3 Tier 5 — ตัด gate เชื่อมต่อ Google ออก (readSheetSummary อ่านจาก Supabase อย่างเดียว
   // มาตั้งแต่ Tier D และตอนนี้ persist ไม่ขึ้นกับ Google เชื่อมต่อหรือไม่แล้ว — ไม่ต้อง query
   // shop_google_configs มาเช็คเพื่อกรองร้านอีกต่อไป)
+  //
+  // ข้อ 93: ก่อนหน้านี้ cron นี้ยิงทุกร้านตรงเวลา 18:00 กรุงเทพเสมอ ไม่ว่าร้านจะปิดจริงหรือยัง
+  // ทำให้ร้านที่ยังขายอยู่ (เปิดถึงดึกกว่า 18:00) ได้ยอดที่ยังไม่ครบวันไปโดยดูเหมือนเป็นยอดจบวัน —
+  // แก้โดยข้ามร้านที่ "ใช้กะเงินสดวันนี้" (มีแถว pos_cash_shifts ที่ opened_at อยู่ในวันนี้) ไปเลย
+  // เพราะร้านกลุ่มนี้จะได้รับสรุปยอดจริงตอนปิดกะสุดท้ายของวันแทน (ดู api/pos/cash-shifts.js's
+  // PATCH close handler ในแดชบอร์ด) — ร้านที่ไม่เคยใช้กะเงินสดเลยวันนี้ (ไม่ใช้ฟีเจอร์นี้ หรือลืม
+  // เปิดกะวันนี้) ยังคงได้รับ cron แบบเดิมทุกประการ ไม่กระทบพฤติกรรมเดิมของร้านกลุ่มนั้นเลย
   let sent = 0, skipped = 0, failed = 0;
 
   for (const shop of shops) {
@@ -2141,11 +2163,15 @@ app.post('/cron/daily-summary', async (req, res) => {
     try {
       // อ่านสรุปเฉพาะวันนี้ (Tier D: อ่านจาก Supabase แทน Sheets แล้ว ไม่ต้องแลก access token อีก)
       const [cy, cm, cd] = isoToday.split('-').map(Number);
-      const summary = await readSheetSummary(
-        shop.id,
-        bangkokMidnightUTC(cy, cm, cd),
-        bangkokMidnightUTC(cy, cm, cd + 1)
-      );
+      const todayStartISO = bangkokMidnightUTC(cy, cm, cd);
+      const todayEndISO = bangkokMidnightUTC(cy, cm, cd + 1);
+
+      const { data: shiftToday } = await supabase.from('pos_cash_shifts')
+        .select('shift_no').eq('shop_id', shop.id)
+        .gte('opened_at', todayStartISO).lt('opened_at', todayEndISO).limit(1);
+      if (shiftToday?.length) { skipped++; continue; }
+
+      const summary = await readSheetSummary(shop.id, todayStartISO, todayEndISO);
 
       // ส่งเฉพาะถ้ามีรายการ
       if (summary.countIncome === 0 && summary.countExpense === 0) { skipped++; continue; }
@@ -2170,7 +2196,12 @@ app.post('/cron/daily-summary', async (req, res) => {
 });
 
 // ════ WEEKLY SUMMARY CRON ════
-// เรียกโดย Cloud Scheduler ทุกวันจันทร์ 18:00 กรุงเทพ (11:00 UTC)
+// ข้อ 93: เปลี่ยนจากยิงครั้งเดียว/สัปดาห์เวลาคงที่ (จันทร์ 18:00 กรุงเทพ) เป็นยิงทุกชั่วโมง (Cloud
+// Scheduler schedule ใหม่ "0 * * * *") แล้วเช็คทีละร้านว่า "ตอนนี้ตรงกับวัน+เวลาที่ร้านนั้นตั้งไว้
+// เองไหม" (shop_profiles.notify_weekly_day/notify_weekly_hour ตั้งได้จากหน้าแดชบอร์ด → จัดการสาขา)
+// — ค่าเริ่มต้น (ร้านที่ไม่เคยเข้าไปตั้งเอง) คือจันทร์ 18:00 เป๊ะเหมือนพฤติกรรมเดิมทุกประการ ไม่มี
+// อะไรเปลี่ยนสำหรับร้านที่ไม่ปรับแต่ง — กันส่งซ้ำในสัปดาห์เดียวกันด้วย notify_weekly_last_sent
+// (เทียบกับวันที่ของวันจันทร์สัปดาห์นี้ ถ้าเคยส่งไปแล้วข้าม กันกรณี cron รันซ้ำในชั่วโมงเดียวกัน)
 app.post('/cron/weekly-summary', async (req, res) => {
   const secret = req.headers['x-cron-secret'] || req.query.secret;
   if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
@@ -2178,56 +2209,64 @@ app.post('/cron/weekly-summary', async (req, res) => {
     return res.status(401).json({ error: 'unauthorized' });
   }
 
-  const today = getThaiDateTime();
-  const year = today.year;
+  const { dayOfWeek, hour } = getBangkokNowParts();
+  console.log(`[CRON-WEEKLY] เช็ครอบ dayOfWeek=${dayOfWeek} hour=${hour}`);
 
-  // คำนวณ range สัปดาห์นี้ (จันทร์-อาทิตย์) และสัปดาห์ที่แล้ว
-  const now = new Date();
-  const dayOfWeek = now.getDay(); // 0=อา, 1=จ
-  const diffToMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-  const thisMonday = new Date(now); thisMonday.setDate(now.getDate() - diffToMon); thisMonday.setHours(0,0,0,0);
-  const lastMonday = new Date(thisMonday); lastMonday.setDate(thisMonday.getDate() - 7);
-  const lastSunday = new Date(thisMonday); lastSunday.setDate(thisMonday.getDate() - 1);
-
-  const toIso = (d) => d.toISOString().split('T')[0];
-  const thisWeekDates = new Set();
-  const lastWeekDates = new Set();
-  for (let i = 0; i < 7; i++) {
-    const d1 = new Date(thisMonday); d1.setDate(thisMonday.getDate() + i);
-    thisWeekDates.add(toIso(d1));
-    const d2 = new Date(lastMonday); d2.setDate(lastMonday.getDate() + i);
-    lastWeekDates.add(toIso(d2));
-  }
-
-  const thaiMonths = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-  const fmtDate = (d) => `${d.getDate()} ${thaiMonths[d.getMonth()]}`;
-  const periodLabel = `${fmtDate(thisMonday)} – ${fmtDate(lastSunday)} ${parseInt(year)+543}`;
-
-  console.log(`[CRON-WEEKLY] 📅 เริ่มส่งสรุปประจำสัปดาห์: ${periodLabel}`);
-
-  // ดึงร้าน Pro+ ทั้งหมด
-  const { data: shops, error: shopsErr } = await supabase
+  // ดึงร้าน Pro+ ทั้งหมด (กรองว่าตรงเวลาที่ตั้งไว้ค่อยประมวลผลต่อในลูป) — ถ้ายังไม่ได้รัน SQL เพิ่ม
+  // คอลัมน์ notify_weekly_* จะ error (column does not exist) → fallback อ่านแค่คอลัมน์เดิมแทน แล้ว
+  // ปฏิบัติเหมือนทุกร้านตั้งค่าเป็นค่าเริ่มต้น (จันทร์ 18:00) กันไม่ให้ทุกร้านหยุดได้รับสรุปยอด
+  // รายสัปดาห์ไปเงียบๆ ระหว่างรอรัน SQL (เดิม cron นี้ทำงานได้แน่นอนทุกสัปดาห์มาตลอด ห้าม regress)
+  let shops, shopsErr;
+  ({ data: shops, error: shopsErr } = await supabase
     .from('shop_profiles')
-    .select('id, owner_line_id, shop_name, subscription_tier')
-    .in('subscription_tier', ['pro', 'advance', 'business', 'enterprise', 'super']);
+    .select('id, owner_line_id, shop_name, subscription_tier, notify_weekly_enabled, notify_weekly_day, notify_weekly_hour, notify_weekly_last_sent')
+    .in('subscription_tier', ['pro', 'advance', 'business', 'enterprise', 'super']));
+
+  if (shopsErr) {
+    console.warn('[CRON-WEEKLY] คอลัมน์ notify_weekly_* อาจยังไม่มี (ยังไม่ได้รัน SQL) — fallback ใช้ค่าเริ่มต้นทุกร้าน:', shopsErr.message);
+    const fallback = await supabase.from('shop_profiles')
+      .select('id, owner_line_id, shop_name, subscription_tier')
+      .in('subscription_tier', ['pro', 'advance', 'business', 'enterprise', 'super']);
+    shops = fallback.data;
+    shopsErr = fallback.error;
+  }
 
   if (shopsErr || !shops?.length) {
     console.log('[CRON-WEEKLY] ไม่พบร้าน Pro+ หรือ error:', shopsErr?.message);
     return res.json({ sent: 0, skipped: 0, failed: 0 });
   }
 
-  // Phase 3 Tier 5 — ตัด gate เชื่อมต่อ Google ออกเหมือน daily-summary ด้านบน
+  const thaiMonths = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
   let sent = 0, skipped = 0, failed = 0;
 
   for (const shop of shops) {
     if (!shop.owner_line_id) { skipped++; continue; }
+    if (shop.notify_weekly_enabled === false) { skipped++; continue; }
+    const wDay = shop.notify_weekly_day ?? 1;   // ค่าเริ่มต้น 1=จันทร์ (ตรงกับพฤติกรรมเดิม)
+    const wHour = shop.notify_weekly_hour ?? 18; // ค่าเริ่มต้น 18:00 (ตรงกับพฤติกรรมเดิม)
+    if (wDay !== dayOfWeek || wHour !== hour) { skipped++; continue; }
 
     try {
+      // คำนวณ "วันจันทร์ของสัปดาห์นี้" ตามปฏิทินกรุงเทพจริง (ไม่ใช่ local getter/setter ของ container)
+      const bkk = new Date(Date.now() + 7 * 3600 * 1000);
+      const diffToMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      const thisMondayISO = bangkokMidnightUTC(bkk.getUTCFullYear(), bkk.getUTCMonth() + 1, bkk.getUTCDate() - diffToMon);
+      const thisMonday = new Date(thisMondayISO);
+      const lastMonday = new Date(thisMonday.getTime() - 7 * 86400000);
+      const nextMonday = new Date(thisMonday.getTime() + 7 * 86400000);
+      const lastSunday = new Date(thisMonday.getTime() - 86400000);
+      const thisMondayDateStr = thisMondayISO.split('T')[0];
+
+      // กันส่งซ้ำในสัปดาห์เดียวกัน
+      if (shop.notify_weekly_last_sent === thisMondayDateStr) { skipped++; continue; }
+
+      const fmtDate = (d) => `${d.getUTCDate()} ${thaiMonths[d.getUTCMonth()]}`;
+      const periodLabel = `${fmtDate(thisMonday)} – ${fmtDate(lastSunday)} ${bkk.getUTCFullYear() + 543}`;
+
       // อ่านสรุปสัปดาห์นี้ และสัปดาห์ที่แล้ว (Tier D: อ่านจาก Supabase แทน Sheets แล้ว ไม่ต้องแลก
-      // access token อีก — ใช้ thisMonday/lastMonday/lastSunday แบบ UTC ดิบตามของเดิมเป๊ะ ไม่ผ่าน
-      // bangkokMidnightUTC() เพราะ Date object เหล่านี้ไม่ได้แทนวันปฏิทินกรุงเทพ)
+      // access token อีก)
       const [thisWeek, lastWeek] = await Promise.all([
-        readSheetSummary(shop.id, thisMonday.toISOString(), new Date(thisMonday.getTime() + 7 * 86400000).toISOString()),
+        readSheetSummary(shop.id, thisMonday.toISOString(), nextMonday.toISOString()),
         readSheetSummary(shop.id, lastMonday.toISOString(), thisMonday.toISOString()),
       ]);
 
@@ -2288,7 +2327,14 @@ app.post('/cron/weekly-summary', async (req, res) => {
 
       await pushToOwner(shop.owner_line_id, [flexMsg]);
       sent++;
-      console.log(`[CRON-WEEKLY] ✅ ส่งสรุปให้ ${shop.shop_name}`);
+      console.log(`[CRON-WEEKLY] ✅ ส่งสรุปให้ ${shop.shop_name} (${periodLabel})`);
+      // อัปเดต last_sent แยกต่างหาก ไม่บล็อค/ทำให้นับเป็น failed ถ้าคอลัมน์ยังไม่มี (ยังไม่ได้รัน SQL)
+      // — แค่เสี่ยงส่งซ้ำถ้า cron รันซ้ำในชั่วโมงเดียวกันของสัปดาห์นั้น ไม่ใช่ทำให้ push หลักพัง
+      try {
+        await supabase.from('shop_profiles').update({ notify_weekly_last_sent: thisMondayDateStr }).eq('id', shop.id);
+      } catch (dedupeErr) {
+        console.warn('[CRON-WEEKLY] อัปเดต notify_weekly_last_sent ไม่สำเร็จ (ไม่กระทบการส่ง):', dedupeErr.message);
+      }
     } catch (err) {
       console.error(`[CRON-WEEKLY] ❌ ${shop.shop_name}:`, err.message);
       failed++;
@@ -2296,7 +2342,129 @@ app.post('/cron/weekly-summary', async (req, res) => {
   }
 
   console.log(`[CRON-WEEKLY] เสร็จสิ้น: ส่ง=${sent} ข้าม=${skipped} ล้มเหลว=${failed}`);
-  return res.json({ sent, skipped, failed, period: periodLabel });
+  return res.json({ sent, skipped, failed });
+});
+
+// ════ MONTHLY SUMMARY CRON (ใหม่ — ข้อ 93) ════
+// เดิมไม่มีสรุปยอดรายเดือนเลย มีแค่รายวัน/รายสัปดาห์ — เพิ่มใหม่ทั้งหมด เป็น opt-in (ปิดไว้เป็น
+// ค่าเริ่มต้น shop_profiles.notify_monthly_enabled=false ต้องเข้าไปตั้งเองในหน้าแดชบอร์ด →
+// จัดการสาขา) เพราะเป็นฟีเจอร์ใหม่ ไม่อยากส่งข้อความเพิ่มให้ร้านเดิมที่ไม่ได้ขอ — ใช้กลไก
+// hourly-check เดียวกับ weekly-summary ด้านบนเป๊ะ (notify_monthly_day 1-28 กันปัญหาเดือนสั้น,
+// notify_monthly_hour, notify_monthly_last_sent กันส่งซ้ำเทียบเป็นเดือนปฏิทิน YYYY-MM)
+app.post('/cron/monthly-summary', async (req, res) => {
+  const secret = req.headers['x-cron-secret'] || req.query.secret;
+  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+    console.warn('[CRON-MONTHLY] Unauthorized — secret ไม่ตรง');
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+
+  const { dayOfMonth, hour } = getBangkokNowParts();
+  console.log(`[CRON-MONTHLY] เช็ครอบ dayOfMonth=${dayOfMonth} hour=${hour}`);
+
+  const { data: shops, error: shopsErr } = await supabase
+    .from('shop_profiles')
+    .select('id, owner_line_id, shop_name, subscription_tier, notify_monthly_enabled, notify_monthly_day, notify_monthly_hour, notify_monthly_last_sent')
+    .in('subscription_tier', ['pro', 'advance', 'business', 'enterprise', 'super'])
+    .eq('notify_monthly_enabled', true);
+
+  if (shopsErr || !shops?.length) {
+    console.log('[CRON-MONTHLY] ไม่พบร้านที่เปิดใช้ หรือ error:', shopsErr?.message);
+    return res.json({ sent: 0, skipped: 0, failed: 0 });
+  }
+
+  const thaiMonths = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+  let sent = 0, skipped = 0, failed = 0;
+
+  for (const shop of shops) {
+    if (!shop.owner_line_id) { skipped++; continue; }
+    const mDay = shop.notify_monthly_day ?? 1;
+    const mHour = shop.notify_monthly_hour ?? 18;
+    if (mDay !== dayOfMonth || mHour !== hour) { skipped++; continue; }
+
+    try {
+      const bkk = new Date(Date.now() + 7 * 3600 * 1000);
+      const y = bkk.getUTCFullYear(), m = bkk.getUTCMonth() + 1;
+      const thisMonthYM = `${y}-${String(m).padStart(2, '0')}`;
+      if (shop.notify_monthly_last_sent === thisMonthYM) { skipped++; continue; }
+
+      const thisMonthStart = bangkokMidnightUTC(y, m, 1);
+      const nextMonthStart = m === 12 ? bangkokMidnightUTC(y + 1, 1, 1) : bangkokMidnightUTC(y, m + 1, 1);
+      const lastMonthY = m === 1 ? y - 1 : y, lastMonthM = m === 1 ? 12 : m - 1;
+      const lastMonthStart = bangkokMidnightUTC(lastMonthY, lastMonthM, 1);
+
+      const [thisMonth, lastMonth] = await Promise.all([
+        readSheetSummary(shop.id, thisMonthStart, nextMonthStart),
+        readSheetSummary(shop.id, lastMonthStart, thisMonthStart),
+      ]);
+
+      if (thisMonth.countIncome === 0 && thisMonth.countExpense === 0) { skipped++; continue; }
+
+      const fmt = (n) => `฿${n.toLocaleString('th-TH', { minimumFractionDigits: 0 })}`;
+      const diffIncome = thisMonth.totalIncome - lastMonth.totalIncome;
+      const diffPct = lastMonth.totalIncome > 0 ? Math.round((diffIncome / lastMonth.totalIncome) * 100) : null;
+      const diffText = diffPct !== null
+        ? (diffIncome >= 0 ? `▲ ${diffPct}% จากเดือนที่แล้ว` : `▼ ${Math.abs(diffPct)}% จากเดือนที่แล้ว`)
+        : '';
+      const netColor = thisMonth.net >= 0 ? '#10B981' : '#EF4444';
+      const netText = thisMonth.net >= 0 ? `+${fmt(thisMonth.net)}` : fmt(thisMonth.net);
+      const periodLabel = `${thaiMonths[m - 1]} ${y + 543}`;
+
+      const flexMsg = {
+        type: 'flex',
+        altText: `สรุปยอดเดือนนี้ — ${shop.shop_name}: รายรับ ${fmt(thisMonth.totalIncome)}`,
+        contents: {
+          type: 'bubble', size: 'kilo',
+          header: {
+            type: 'box', layout: 'vertical', backgroundColor: '#312e81', paddingAll: 'md',
+            contents: [
+              { type: 'text', text: `🗓️ สรุปรายเดือน — ${shop.shop_name}`, weight: 'bold', color: '#ffffff', size: 'sm', wrap: true },
+              { type: 'text', text: periodLabel, color: '#a5b4fc', size: 'xs', margin: 'xs' },
+            ],
+          },
+          body: {
+            type: 'box', layout: 'vertical', spacing: 'md', paddingAll: 'lg',
+            contents: [
+              { type: 'box', layout: 'horizontal', contents: [
+                { type: 'text', text: '💚 รายรับ', size: 'sm', color: '#64748b', flex: 2 },
+                { type: 'text', text: fmt(thisMonth.totalIncome), size: 'sm', weight: 'bold', color: '#10B981', align: 'end', flex: 3 },
+              ]},
+              ...(diffText ? [{ type: 'text', text: diffText, size: 'xxs', color: diffIncome >= 0 ? '#10B981' : '#EF4444', align: 'end', margin: 'none' }] : []),
+              { type: 'separator', margin: 'sm' },
+              { type: 'box', layout: 'horizontal', contents: [
+                { type: 'text', text: '❤️ รายจ่าย', size: 'sm', color: '#64748b', flex: 2 },
+                { type: 'text', text: fmt(thisMonth.totalExpense), size: 'sm', weight: 'bold', color: '#EF4444', align: 'end', flex: 3 },
+              ]},
+              { type: 'separator', margin: 'sm' },
+              { type: 'box', layout: 'horizontal', contents: [
+                { type: 'text', text: '📊 กำไร/ขาดทุน', size: 'sm', color: '#64748b', flex: 2 },
+                { type: 'text', text: netText, size: 'sm', weight: 'bold', color: netColor, align: 'end', flex: 3 },
+              ]},
+              { type: 'separator', margin: 'sm' },
+              { type: 'box', layout: 'horizontal', contents: [
+                { type: 'text', text: '🧾 รายการทั้งหมด', size: 'xs', color: '#94a3b8', flex: 2 },
+                { type: 'text', text: `${thisMonth.countIncome + thisMonth.countExpense} รายการ`, size: 'xs', color: '#94a3b8', align: 'end', flex: 3 },
+              ]},
+            ],
+          },
+          footer: {
+            type: 'box', layout: 'vertical', paddingAll: 'md',
+            contents: [{ type: 'button', action: { type: 'uri', label: 'ดูรายละเอียด Dashboard', uri: ownerDeepLink(shop, '/dashboard') }, style: 'primary', color: '#4F46E5', height: 'sm' }],
+          },
+        },
+      };
+
+      await pushToOwner(shop.owner_line_id, [flexMsg]);
+      await supabase.from('shop_profiles').update({ notify_monthly_last_sent: thisMonthYM }).eq('id', shop.id);
+      sent++;
+      console.log(`[CRON-MONTHLY] ✅ ส่งสรุปให้ ${shop.shop_name} (${periodLabel})`);
+    } catch (err) {
+      console.error(`[CRON-MONTHLY] ❌ ${shop.shop_name}:`, err.message);
+      failed++;
+    }
+  }
+
+  console.log(`[CRON-MONTHLY] เสร็จสิ้น: ส่ง=${sent} ข้าม=${skipped} ล้มเหลว=${failed}`);
+  return res.json({ sent, skipped, failed });
 });
 
 // ════ TRIAL DAY-25 NUDGE CRON (30-Day Free Trial Lock Mechanism — เพิ่ม 2026-07-20) ════

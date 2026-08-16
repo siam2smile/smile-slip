@@ -985,6 +985,34 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
       - **สร้าง Cloud Scheduler job `smileslip-purge-deleted-shops` แล้ว (2026-08-16)** — `0 20 * * *` UTC (03:00 กรุงเทพ ทุกวัน) → `POST https://smileslippro.com/api/cron/purge-deleted-shops` พร้อม header `x-cron-secret` (pattern เดียวกับ cron อื่นทุกตัว) — ทดสอบรันด้วยมือแล้ว log ตอบ `purged 0/0 shops` ถูกต้อง (ยังไม่มีร้านไหนเกิน 6 เดือนตอนนี้) — ระบบเก็บข้อมูลร้าน 6 เดือนหลังลบ **มีผลจริงครบวงจรแล้วตอนนี้ทั้ง soft-delete/restore/purge อัตโนมัติ**
     - **แก้ข้อความสรุปเงื่อนไข/ความเป็นส่วนตัวในหน้าสมัครสมาชิก (`register.js`'s inline modal) ที่ล้าสมัย** — เนื้อหาสรุปยังบอกว่า "อ่านสลิปด้วย AI แล้วบันทึกลง Google Drive/Sheets ของร้านคุณเอง" และ "ข้อมูลธุรกรรม...เก็บใน Google Drive/Sheets ของร้านท่านเองโดยตรง" (ยุคก่อน SaaS pivot) ไม่ตรงกับ `/terms`/`/privacy` ฉบับเต็มที่แก้ให้ถูกต้องไปแล้วในข้อ 90 (เป็นคนละก้อนข้อความ ไม่ share กัน — หน้านี้เป็นแค่สรุปย่อก่อนกดยอมรับ) — แก้ให้ตรงกับความจริง (SaaS ครบวงจร, ข้อมูลธุรกรรมอยู่ใน Supabase ไม่ใช่ Google, แยก Controller/Processor role, ชื่อผู้โอนจากสลิปใช้แค่กระทบยอดไม่ใช้การตลาด) + เพิ่มสรุปนโยบายเก็บข้อมูล 6 เดือนจากข้อ 92 — `npx next build` ผ่านทุก route (ไม่ได้ทดสอบผ่านเบราว์เซอร์จริงเพราะเป็น static JSX text ล้วนๆ ไม่มี logic ให้พัง) — deploy production revision จริง `smileslip-dashboard-00344-lzc` — **เจอ pattern เดิมซ้ำระหว่าง deploy (`--source .` ไม่ใช่ image-digest deploy):** traffic หลัง deploy ยังค้างอยู่ที่ revision เก่า (`00343-nqd`) แม้ CLI จะรายงาน "serving 100 percent" ผิดตามเคย — เช็คด้วย `gcloud run revisions list --sort-by=~metadata.creationTimestamp` เจอ revision ใหม่จริง (`00344-lzc`) แล้ว retag `candidate=00344-lzc` เพื่อ health-check ตรงผ่าน candidate URL ก่อน (ยืนยัน `/api/shop/data` คืน 404+JSON ที่ถูกต้อง ไม่ crash) ค่อย `update-traffic --to-revisions=00344-lzc=100` จริง
 
+93. **แจ้งเตือนสรุปยอดรายวันเปลี่ยนเป็น trigger ตอนปิดกะ + เจ้าของร้านตั้งวัน/เวลาแจ้งเตือนรายสัปดาห์/รายเดือนเองได้ + สรุปยอดรายเดือนใหม่ (เดิมไม่มี) + audit ความพร้อม "เปิดตัว/ยิงแอด" (แพ็กเกจ/Stripe/Google connection) — เจอปัญหาใหญ่ที่สุดของรอบนี้คือหน้าแรก (landing page) ยังพูดโกหกเรื่องที่เก็บข้อมูลอยู่ — ยังไม่ได้ deploy โค้ดชุดนี้เลย (แค่ commit+push) รอถามผู้ใช้ก่อน:**
+    - **บั๊กที่ผู้ใช้แจ้ง — แจ้งเตือนรายวันแจ้งก่อนร้านปิดจริง:** `/cron/daily-summary` เดิมยิงตรงเวลาคงที่ 18:00 กรุงเทพทุกวันไม่ว่าร้านจะปิดจริงหรือยัง (บางร้านเปิดขายถึงดึกกว่านั้น) ทำให้ยอดที่แจ้งเป็นแค่ยอดครึ่งวัน ดูเหมือนยอดจบวันทั้งที่ไม่ใช่ — ผู้ใช้ขอให้เปลี่ยนเป็น "ปิดกะแล้วค่อยแจ้งเตือนยอด" (ใช้คำศัพท์ POS เฉพาะ "ปิดกะ" ตรงๆ — ตีความว่าหมายถึงตัวฟีเจอร์กะเงินสด `pos_cash_shifts` จากข้อ 41)
+      - **แก้:** เพิ่ม push ใหม่ตรงใน `api/pos/cash-shifts.js`'s PATCH close handler — ทุกครั้งที่ปิดกะสำเร็จ เช็คว่า "ไม่มีกะอื่นค้างเปิดอยู่แล้ว" (ร้านอาจมีหลายพนักงานเปิดกะพร้อมกันได้ตามข้อ 41 — เช็คว่าไม่เหลือกะไหนเปิดค้างเลยถึงจะถือว่า "ร้านปิดวันนี้แล้ว") ถ้าใช่ → คำนวณสรุปยอดวันนี้ทั้งร้าน (ทุกช่องทาง ไม่ใช่แค่กะนั้น) จาก `ledger_transactions` แล้ว push LINE ให้เจ้าของทันที (`readTodaySummary()`/`buildDailySummaryFlex()`, duplicate logic จากบอทตามธรรมเนียมโปรเจกต์ — คนละ service ไม่แชร์โค้ดกัน) — ปิดกะแรกจากสองกะพร้อมกัน → ไม่ส่ง (ยังมีอีกกะเปิดอยู่), ปิดกะสุดท้าย → ส่งจริง (ทดสอบยืนยันครบทั้ง 2 เคส)
+      - **แก้ `/cron/daily-summary` (บอท)** — ข้ามร้านที่ "มีกะเงินสดเปิดวันนี้" ไปเลย (query `pos_cash_shifts` ที่ `opened_at` อยู่ในวันนี้ ก่อนตัดสินใจส่ง) เพราะร้านกลุ่มนี้จะได้รับสรุปจริงตอนปิดกะสุดท้ายแทนแล้ว — **ร้านที่ไม่เคยใช้กะเงินสดเลย (ไม่มีแถวเลยวันนี้) ยังคงได้รับ cron แบบเดิมทุกประการ ไม่กระทบพฤติกรรมเดิมของร้านกลุ่มนั้น** (ส่วนใหญ่ของร้านที่ยังไม่ใช้ POS cash-shift feature)
+      - **known trade-off ที่ตั้งใจไม่แก้:** ร้านที่ใช้กะเงินสดแต่ลืมปิดกะก่อนเที่ยงคืน จะไม่ได้รับสรุปยอดของวันนั้นเลย (ไม่มี retry — cron วันถัดไปนับเป็นวันใหม่) ยอมรับ trade-off นี้เพราะดีกว่าส่งเลขที่ไม่ครบวันแบบเดิม
+    - **เจ้าของร้านตั้งวัน+เวลาแจ้งเตือนรายสัปดาห์/รายเดือนเองได้ (หน้าแดชบอร์ด → จัดการสาขา ตามที่ผู้ใช้ระบุ) + เพิ่มสรุปรายเดือนใหม่ (เดิมมีแค่รายวัน/รายสัปดาห์ ไม่มีรายเดือนเลย):**
+      - สถาปัตยกรรม: เปลี่ยนจาก cron ยิงครั้งเดียว/สัปดาห์เวลาคงที่ (จันทร์ 18:00 UTC+7, Cloud Scheduler `smileslip-weekly-summary`) เป็นยิง**ทุกชั่วโมง** (schedule ใหม่ `0 * * * *`) แล้วเช็คทีละร้านว่า "ตอนนี้ตรงกับวัน+เวลาที่ร้านนั้นตั้งไว้เองไหม" (คอลัมน์ใหม่ `shop_profiles.notify_weekly_day`/`notify_weekly_hour`) — ค่าเริ่มต้น (ร้านที่ไม่เคยเข้าไปตั้งเอง) คือจันทร์ 18:00 เป๊ะเหมือนพฤติกรรมเดิม ไม่กระทบร้านที่ไม่ปรับแต่ง — กันส่งซ้ำในสัปดาห์เดียวกันด้วย `notify_weekly_last_sent` (เทียบวันที่ของวันจันทร์สัปดาห์นี้)
+      - **`/cron/monthly-summary` ใหม่ทั้งหมด** (Cloud Scheduler ใหม่ที่ยังไม่ได้สร้าง `smileslip-monthly-summary`, hourly เหมือนกัน) — opt-in (`notify_monthly_enabled` default `false`) เพราะเป็นฟีเจอร์ใหม่ ไม่อยากส่งข้อความเพิ่มให้ร้านเดิมที่ไม่ได้ขอ — `notify_monthly_day` จำกัดแค่ 1-28 กันปัญหาเดือนสั้นไม่มีวันนั้น, `notify_monthly_last_sent` เก็บเป็น `"YYYY-MM"` กันส่งซ้ำ
+      - **`getBangkokNowParts()` ใหม่** (บอท) — คำนวณวัน/เวลากรุงเทพผ่าน UTC getters ของ `Date` ที่เลื่อน +7 ชม.เสมอ (ไม่ใช้ `.getDay()`/`.getHours()` local ที่ขึ้นกับ timezone ของ container) — **ทดสอบยืนยัน edge case ตรงข้ามคืน/ข้ามเดือนถูกต้องครบ** (Sun 20:00 UTC → dayOfWeek เลื่อนเป็นจันทร์ถูกต้อง, Aug31 23:00 UTC → dayOfMonth เป็น 1 ก.ย.ถูกต้อง) — จำเป็นเพราะ cron ใหม่ยิงทุกชั่วโมงตลอด 24 ชม. ต่างจาก fixed-time cron เดิมที่บังเอิญไม่เจอปัญหานี้เพราะยิงแค่ครั้งเดียว/วันตรงจังหวะที่ UTC-day ยังตรงกับ Bangkok-day พอดี
+      - **`api/shop/notification-settings.js` ใหม่** (dashboard) — GET (ไม่ต้อง auth, คืนค่าเริ่มต้นเงียบๆ ถ้ายังไม่ได้รัน SQL) / PATCH (`requireOwnerAuth` บังคับ) — UI การ์ดใหม่ในแท็บ "จัดการสาขา" ของ `dashboard.js` (checkbox เปิด/ปิด + dropdown วัน/ชั่วโมง แยกรายสัปดาห์/รายเดือน)
+      - **⚠️ ความเสี่ยง regression ที่แก้แล้วก่อน commit:** ถ้าเปลี่ยนไปใช้ hourly-schedule cron ทันทีโดยยัง SELECT คอลัมน์ใหม่ (`notify_weekly_day` ฯลฯ) ตรงๆ โดยไม่มี fallback จะทำให้ query ทั้งก้อน error (column does not exist) ตราบใดที่ยังไม่ได้รัน SQL → **ทุกร้าน Pro+ จะหยุดได้รับสรุปยอดรายสัปดาห์ไปเงียบๆ ทันทีที่ deploy** (จาก cron ที่เคยทำงานแน่นอนทุกสัปดาห์มาตลอด) — แก้โดยเพิ่ม fallback query (อ่านแค่คอลัมน์เดิมถ้า query แรก error แล้วปฏิบัติเหมือนทุกร้านตั้งค่าเป็นค่าเริ่มต้น) + แยก `notify_weekly_last_sent` update เป็น try/catch ไม่บล็อค — **ต้อง deploy โค้ดกับรัน SQL เกือบพร้อมกัน หรือถ้า deploy โค้ดก่อน SQL ก็ยังไม่พัง (แค่ทำงานเหมือนเดิมทุกประการชั่วคราว)**
+    - **Audit ความพร้อม "เปิดตัว/ยิงแอด" ตามที่ผู้ใช้ถาม — เจอ 1 ปัญหาใหญ่ (landing page), 2 ปัญหาเอกสารเท่านั้น (ไม่กระทบระบบจริง):**
+      1. **🔴 [ปัญหาใหญ่สุด] หน้าแรก (`pages/index.js`) ยังมีคำโฆษณา "ข้อมูลไม่ผ่านเซิร์ฟเวอร์กลาง" / "Google Sheets ของร้านคุณเองทันที" / "ล็อกอยู่ในระบบผู้ให้บริการ vs Google Drive/Sheets ของร้านเอง 100%" ซ้ำอยู่ ~9 จุดทั่วหน้า (hero badge, feature card 2 จุด, workflow step 3, comparison table, Starter card, FAQ 2 ข้อ)** — ยุคก่อน SaaS pivot ที่บอทเขียนข้อมูลเข้า Google Sheets ของร้านตรงๆ ไม่ผ่านเซิร์ฟเวอร์กลางเลย — **ผิดจริงตั้งแต่ Phase 2-3 migration (ข้อ 49-55): บอทเลิกเขียน Google Sheets ไปเขียน `ledger_transactions` (Supabase) อย่างเดียวแล้ว, Phase 2 Tier 143 เลิกสร้าง Sheet ให้ POS ด้วยซ้ำ** — คำโฆษณานี้ขัดแย้งตรงๆ กับ `/privacy` ฉบับเต็มที่เพิ่งแก้ให้ถูกต้องในข้อ 90 (อธิบาย Controller/Processor role + ข้อมูลอยู่ Supabase) — ลูกค้าที่อ่านหน้าแรกแล้วไปอ่าน `/privacy` ต่อจะเจอข้อความขัดกันเองชัดเจน เป็นความเสี่ยงทั้งด้านความน่าเชื่อถือและความถูกต้องของ PDPA consent (สิ่งที่ลูกค้าเข้าใจว่ากำลังยินยอมอาจไม่ตรงกับที่เกิดขึ้นจริง) — **แก้แล้วครบทุกจุด**: เปลี่ยนเป็นคำที่ถูกต้อง+ยังขายได้ (เก็บรักษาตามมาตรฐานความปลอดภัยระดับองค์กร, เป็นแค่ผู้ประมวลผลแทนร้านไม่ใช่เจ้าของข้อมูล ไม่ขาย/เปิดเผยให้บุคคลที่สาม, รูปสลิปยังสำรองเข้า Google Drive ของร้านจริงเหมือนเดิม — ส่วนนี้ไม่ได้เปลี่ยน), แก้ FAQ คำตอบเรื่องยกเลิกให้ตรงกับนโยบาย 6 เดือนใหม่จากข้อ 92, แก้ comparison-table row "ข้อมูลเป็นของใคร" จากเดิมอ้างที่เก็บมาเป็นเรื่อง export/ลบข้อมูลได้ตลอด (claim ที่ยังจริงอยู่และยังขายได้) — verified ผ่านเบราว์เซอร์จริงว่าเรนเดอร์ถูกต้องครบทุกจุด (หน้านี้ไม่ผูก query string เลยทดสอบผ่านเบราว์เซอร์ได้ปกติ) — **`pricing.js` ตรวจแล้วไม่มีปัญหาเดียวกัน (สะอาดอยู่แล้ว)**
+         - **⚠️ พบแต่ไม่ได้แก้ (ตั้งใจ) — ยังไม่ได้ถามผู้ใช้:** testimonial คำพูดของ "คุณนก" มีประโยค "ข้อมูลลง Sheets เอง" ซึ่งไม่ตรงกับปัจจุบันเหมือนกัน — **ไม่แก้เองเพราะผู้ใช้ยืนยันไว้แล้วในข้อ 63 ว่า testimonials เป็นรีวิวจริงจากลูกค้าจริง** การแก้คำพูดที่อ้างอิงว่าเป็นของลูกค้าจริงโดยไม่ถามก่อนเป็นการปลอมแปลงคำพูดคน ต้องให้ผู้ใช้ตัดสินใจเอง/ถามลูกค้าคนนั้นแทน
+      2. **🟡 [เอกสารเท่านั้น ไม่กระทบระบบจริง] CLAUDE.md's "Stripe Price IDs (Production)" table ผิดมาตลอด** — verified ตรงกับ Stripe API จริง (live mode) ว่า ID ที่บันทึกไว้ใน CLAUDE.md สำหรับ Shop Pro/Advance/Enterprise/เติมเครดิต 3 ใน 4 แพ็ก **ไม่มีอยู่จริงใน live mode เลย** (เป็น test-mode ID) — **โค้ดจริง (`pricing.js`, `create-checkout-session.js`) ไม่เคยได้รับผลกระทบเพราะไม่เคยใช้ ID ที่ผิดพวกนี้เลย** เป็นแค่เอกสารอ้างอิงในไฟล์นี้ที่ผิดมาตลอด สาเหตุไม่ทราบแน่ชัด (อาจเป็นค่าตอนร่าง draft ก่อนสลับไป live mode) — แก้ตารางให้ตรงกับความจริงแล้ว + verified webhook endpoint (`checkout.session.completed`/`invoice.payment_succeeded`/`customer.subscription.deleted`) enabled ครบสมบูรณ์บน production จริง — **ระบบชำระเงินพร้อมใช้งานจริง ไม่มีอะไรต้องแก้ในโค้ด**
+      3. **🟡 [เอกสาร/การตลาดเท่านั้น] `pricing.js`'s ตารางเปรียบเทียบฟีเจอร์ (สร้างไว้ในข้อ 35) ไม่เคยอัปเดตตามฟีเจอร์ใหม่ที่เพิ่มทีหลัง** — ขาด payroll (ข้อ 76), White-Label (ข้อ 36), Customer 360/RFM + 6P Data Matrix + บันทึกประจำวันพนักงาน (ข้อ 89/91) ไปเลยทั้งชุด — เพิ่มแถวที่ขาดครบ 7 แถวในตาราง + เพิ่ม bullet สำคัญเข้าการ์ด Business/Enterprise (การ์ดเดิมสั้นเกินไปจนไม่ครอบคลุมฟีเจอร์ที่ผู้ใช้จ่ายเงินอยู่จริง) — ถือโอกาสแก้ `index.js`'s การ์ด Business ให้พูดถึงระบบเงินเดือนด้วย (การ์ดสั้น 4 บรรทัด ไม่ใส่ทุกอย่าง แค่เพิ่มตัวที่สำคัญ) — verified ผ่านเบราว์เซอร์จริง
+    - **ตอบคำถามเรื่อง Google Sheets vs Drive connection (ผู้ใช้สังเกตว่าตอนนี้เชื่อมต่อได้แค่ Drive ไม่มี Sheets แล้ว) — ยืนยันว่าสังเกตถูกต้องในทางปฏิบัติ แม้โค้ดจะยังไม่ได้ตัดการสร้าง Sheet ออกจริงๆ:**
+      - `api/auth/google/callback.js` (ปุ่ม "เชื่อมต่อ Google" ทั่วไปในหน้า Settings — คนละจุดจาก POS's setup ที่เลิกสร้าง Sheet ไปแล้วตั้งแต่ข้อ 54 Tier 143) **ยังคงสร้าง Google Sheet (บัญชีหลัก 15 คอลัมน์) ให้ร้านใหม่ทุกครั้งที่ connect ครั้งแรกอยู่จริง** — แต่ **Sheet ที่สร้างมานี้กลายเป็น 100% ไร้ประโยชน์แล้วตั้งแต่ Phase 2-3 migration**: บอทเลิกเขียนอะไรเข้า Sheets เลยตั้งแต่ Phase 3 Tier 6 (ข้อ 55, เขียน `ledger_transactions` อย่างเดียว), Dashboard เลิกอ่าน Sheets เลยตั้งแต่ข้อ 61 (อ่าน `ledger_transactions` ผ่าน `lib/ledger-supabase.js` อย่างเดียว) — สรุปคือ Sheet ที่สร้างตอนนี้เป็นไฟล์ว่างเปล่าที่ไม่มีอะไรอ่าน/เขียนมันเลยตลอดไป — **สิ่งที่ยังทำงานจริงจากการเชื่อมต่อนี้คือ Google Drive folder** (เก็บรูปสลิป) เท่านั้น — ตรงกับที่ผู้ใช้สังเกตในทางปฏิบัติ 100% แม้โค้ดจะยังไม่ได้ตัดส่วนสร้าง Sheet ออกจริงๆ (เป็น dead functionality ที่ยังไม่ได้ cleanup — ตั้งใจไม่แก้ในรอบนี้เพราะ OAuth scope `spreadsheets` ยังจำเป็นสำหรับโมดูล `/delivery` แบบ standalone เดิม ที่ยังใช้ Sheets ของตัวเองอยู่แยกต่างหาก ผูก token เดียวกัน — ตัดออกไม่ได้ทั้งหมดโดยไม่กระทบโมดูลนั้น)
+      - **ยืนยันแล้วว่ารูปที่ส่งผ่าน LINE ยังคงเก็บเข้า Google Drive เหมือนเดิมทั้ง 3 เส้นทาง (ไม่เปลี่ยนแปลงจาก migration เลย เพราะ migration แตะแค่การเขียน "ข้อมูลตัวเลข/ข้อความ" Sheets เท่านั้น ไม่เคยแตะการอัปโหลดรูป):** บอท (สลิปโอนเงินหลัก + `#รับสินค้า` + `#รายจ่าย` — verified 3 จุดเรียก `uploadToGoogleDrive()`), POS ผ่าน `api/pos/upload-photo.js` (หลักฐานรายจ่าย/รับสินค้า/สลิปยืนยันจัดส่ง — ทุกจุดใช้ `google_folder_id` เดียวกัน), และโมดูลจัดส่งแบบ standalone `/delivery` (`lib/google-delivery.js` ยังใช้ Drive API เหมือนเดิม) — **ทั้งหมดยังคงอยู่ที่ Google Drive ของร้านเองเหมือนเดิมทุกประการ ไม่มีอะไรเปลี่ยน**
+    - **ทดสอบยิงจริงกับข้อมูลทดสอบทิ้งได้ (สร้าง/ลบร้านทดสอบตรงใน Supabase — ไม่แตะ D Gas เลย, ⚠️ ไม่เคยเรียก `/cron/daily-summary`/`/cron/weekly-summary`/`/cron/monthly-summary` ผ่าน HTTP จริงเลยสักครั้ง เพราะเป็น global sweep ที่จะ push LINE จริงให้ทุกร้าน Pro+ ในระบบรวมถึง D Gas ตัวจริง — ทดสอบแทนด้วยการ mirror logic เดียวกันเป๊ะในสคริปต์แยกที่กรองเฉพาะร้านทดสอบ):**
+      - Bangkok time-math: 5 edge case ผ่านหมด (fixed-time equivalence, midnight rollover, month rollover, `bangkokMidnightUTC` round-trip, Monday-of-week calculation)
+      - Daily-summary skip decision: ร้านมีกะเปิดวันนี้ → skip=true ถูกต้อง, ร้านไม่มีกะเลย → skip=false + คำนวณยอดถูกต้อง (2,000 บาท ตรงกับข้อมูลทดสอบ)
+      - `cash-shifts.js`'s shift-close push (ยิงจริงผ่าน dev server, shop-scoped จึงปลอดภัย): ปิดกะเดี่ยว (กะเดียวของร้าน) → `daily_summary_sent:true`, ปิดกะแรกจาก 2 กะพร้อมกัน → `false`, ปิดกะสุดท้าย → `true`
+      - `notification-settings.js`: GET คืนค่าเริ่มต้นถูกต้องก่อนรัน SQL (`columnsReady:false`), PATCH ปฏิเสธไม่มี owner-session (401), ปฏิเสธ token ผิด shopId (403), ยอมรับ token ถูกต้องแต่ error สุภาพเพราะคอลัมน์ยังไม่มี (ตามที่ออกแบบไว้ ไม่ crash)
+      - ลบข้อมูลทดสอบสะอาด 100% หลังทดสอบทุกจุด
+    - **ยังไม่ได้ deploy โค้ดชุดนี้เลย (commit+push แล้วเท่านั้น) — รอถามผู้ใช้ก่อน เพราะแตะทั้งกลไกแจ้งเตือนที่ใช้งานจริงอยู่และหน้าแรกที่จะรับทราฟฟิกโฆษณา**
+    - **ยังไม่ได้สร้าง Cloud Scheduler job ใหม่ 2 อย่าง:** (1) เปลี่ยน schedule ของ `smileslip-weekly-summary` จาก `0 11 * * 1` เป็น `0 * * * *` (2) สร้าง job ใหม่ `smileslip-monthly-summary` ชี้ไป `POST {bot_url}/cron/monthly-summary` แบบ `0 * * * *` เหมือนกัน — รอทำพร้อมกับตอน deploy โค้ด
+
 ## Tech Stack
 
 ### Bot (`smileslip-pro/`)
@@ -1135,18 +1163,25 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
 
 **TIER_LEVEL:** `{ normal:0, pro:1, advance:2, business:3, enterprise:4, super:4 }`
 
-### Stripe Price IDs (Production)
+### Stripe Price IDs (Production — verified live 2026-08-17 ผ่าน Stripe API ตรงๆ ทุกตัว, ตรงกับที่
+`pricing.js` ใช้จริงเป๊ะ — ตารางเดิมก่อนหน้านี้เป็น test-mode ID ที่ไม่มีอยู่จริงใน live mode เลย
+สาเหตุไม่ทราบแน่ชัด อาจเป็นค่าจากตอนร่าง draft ก่อนสลับไป live mode จริงที่ไม่เคยอัปเดตตาม —
+**โค้ดจริงไม่เคยได้รับผลกระทบ** เพราะ `pricing.js`/`create-checkout-session.js` ใช้ ID ที่ถูกต้องอยู่แล้วเสมอ
+เป็นแค่เอกสารอ้างอิงในไฟล์นี้ที่ผิดมาตลอด):
 
 | แพ็กเกจ | รายเดือน | รายปี |
 |--------|---------|------|
-| Shop Pro ฿199 | `price_1TfERr3ZvivzvZ6qPXOhc10t` | `price_1TfERr3ZvivzvZ6qbsLKKPlV` |
-| Advance ฿499 | `price_1TfERs3ZvivzvZ6qw9SB10YE` | `price_1TfERs3ZvivzvZ6qPKQaBSHQ` |
+| Shop Pro ฿199 | `price_1TYKnm3ZvivzvZ6qHQpT6tDf` | `price_1TYKnm3ZvivzvZ6qmXeH3i2a` |
+| Advance ฿499 | `price_1TYKrd3ZvivzvZ6qQ2P0rHIg` | `price_1TYKre3ZvivzvZ6qlqgiu8t5` |
 | Business ฿999 | `price_1Tg4zU3ZvivzvZ6ql61Q0szc` | `price_1Tg4zU3ZvivzvZ6qP2AE2Yz0` |
-| Enterprise ฿2,990 | `price_1TfERs3ZvivzvZ6qrTxPwYKs` | `price_1TfERt3ZvivzvZ6qgpoAJvaU` |
-| เติม 100 แผ่น ฿99 | `price_1TfERt3ZvivzvZ6qfbOMCZnp` | — |
-| เติม 500 แผ่น ฿299 | `price_1TfERu3ZvivzvZ6q96qkkfKx` | — |
-| เติม 1,000 แผ่น ฿499 | `price_1TfERu3ZvivzvZ6qpTZDUhHZ` | — |
+| Enterprise ฿2,990 | `price_1TYKv33ZvivzvZ6qDs5eBbqA` | `price_1TYKv33ZvivzvZ6q9dIPU3ud` |
+| เติม 100 แผ่น ฿99 | `price_1TYLy93ZvivzvZ6qMaWLnlhH` | — |
+| เติม 500 แผ่น ฿299 | `price_1TYLyA3ZvivzvZ6q78LPY9Fh` | — |
+| เติม 1,000 แผ่น ฿499 | `price_1TYLy93ZvivzvZ6qXziQSdMo` | — |
 | เติม 3,000 แผ่น ฿999 | `price_1Tg56f3ZvivzvZ6qX4163cg5` | — |
+
+**Stripe webhook endpoint ยืนยันแล้วว่า enabled และครบทั้ง 3 events ที่ต้องมี** (verified 2026-08-17
+ผ่าน Stripe API): `https://smileslip-dashboard-832247688217.asia-southeast1.run.app/api/webhooks/stripe`
 
 ### Stripe Webhook Events (ต้องครบทั้ง 3)
 - `checkout.session.completed` → อัปเดต tier + บันทึก stripe_customer_id/subscription_id
@@ -1982,6 +2017,24 @@ error "column does not exist" (ยืนยันแล้วว่า syntax pa
 ระบบ login/register/บอทได้ตามปกติหลัง deploy โค้ดที่แก้ในข้อ 92**
 ```sql
 ALTER TABLE shop_profiles ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+```
+
+**เพิ่มคอลัมน์ตั้งวัน/เวลาแจ้งเตือนสรุปยอดรายสัปดาห์/รายเดือน (ข้อ 93 — เพิ่ม 2026-08-17, ยังไม่ได้รัน):**
+ก่อนรัน SQL นี้ `/cron/weekly-summary` ยังทำงานได้ปกติทุกอย่าง (fallback ที่เพิ่มไว้ป้องกัน regression
+แล้ว — ดูรายละเอียดในข้อ 93) แค่ยังใช้เวลาคงที่เดิม (จันทร์ 18:00) ไม่ว่าจะรัน SQL หรือยัง — ส่วน
+`/cron/monthly-summary` (ฟีเจอร์ใหม่) จะยังไม่ส่งอะไรเลยจนกว่าจะรัน SQL นี้ก่อน (ต้องมีคอลัมน์
+`notify_monthly_enabled` ถึงจะมีร้านให้ query เจอ) — หน้าแดชบอร์ด → จัดการสาขา จะบันทึกเวลาที่ตั้งเอง
+ไม่ได้จริงจนกว่าจะรัน SQL นี้เช่นกัน (`api/shop/notification-settings.js` คืน error สุภาพ ไม่ crash)
+```sql
+ALTER TABLE shop_profiles
+  ADD COLUMN IF NOT EXISTS notify_weekly_enabled boolean NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS notify_weekly_day smallint NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS notify_weekly_hour smallint NOT NULL DEFAULT 18,
+  ADD COLUMN IF NOT EXISTS notify_weekly_last_sent date,
+  ADD COLUMN IF NOT EXISTS notify_monthly_enabled boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS notify_monthly_day smallint NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS notify_monthly_hour smallint NOT NULL DEFAULT 18,
+  ADD COLUMN IF NOT EXISTS notify_monthly_last_sent text;
 ```
 
 ### ต้องทำด้วยมือ (ไม่ใช่โค้ด)

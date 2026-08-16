@@ -10,6 +10,10 @@
  *   → คำนวณ "เงินสดที่ควรมี" ใหม่จากข้อมูลจริงเสมอ (เงินสดตั้งต้น + ขายเงินสด − รายจ่ายเงินสด
  *     ที่ผูกกับกะนี้) ไม่เชื่อค่าที่ client ส่งมา — ถ้ายอดไม่ตรง (ส่วนต่าง ≠ 0) ต้องมีหมายเหตุ
  *     เสมอ (ไม่บล็อคการปิดกะ แค่บังคับอธิบาย) + push LINE แจ้งเจ้าของร้านอัตโนมัติถ้ามีส่วนต่าง
+ *   → ข้อ 93: ถ้านี่คือกะสุดท้ายที่เปิดอยู่ของร้าน (ไม่มีกะอื่นค้างเปิดแล้ว) ถือว่า "ร้านปิดวันนี้
+ *     แล้ว" ส่งสรุปยอดรายวัน (รายรับ/รายจ่าย/กำไร-ขาดทุนทั้งวันจาก ledger_transactions) ให้เจ้าของ
+ *     ร้านทันที แทนที่จะรอ cron เวลาคงที่ 18:00 ที่อาจแจ้งก่อนร้านปิดจริง (ดู index.js's
+ *     /cron/daily-summary ที่ตอนนี้ข้ามร้านที่มีการใช้กะเงินสดวันนี้ ให้พึ่งจุดนี้แทน)
  *
  * Phase 2 (write-primary flip, 2026-07-29): อ่าน/เขียนจาก Supabase (pos_cash_shifts/pos_sales/
  * pos_expenses) โดยตรงแล้ว ไม่ผ่าน Google Sheets/Google connection อีกต่อไป
@@ -17,6 +21,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { makeShiftNo, cashShiftFromRow, saleFromRow, expenseFromRow, deliveryOrderFromRow } from '../../../lib/google-pos';
+import { bangkokTodayRangeISO } from '../../../lib/ledger-supabase';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -77,6 +82,63 @@ async function computeExpectedCash(shopId, shift) {
   return {
     expected, cashSalesCount: cashSales.length, cashExpensesCount: cashExpenses.length,
     cashCollectedFromCreditCount: cashCollectedFromCredit.length, totalCashIn, totalCashOut,
+  };
+}
+
+// สรุปยอดวันนี้ทั้งร้าน (ทุกช่องทาง ไม่ใช่แค่กะนี้) จาก ledger_transactions — โครงเดียวกับ
+// readSheetSummary() ของบอทใน index.js (duplicate ตามธรรมเนียมโปรเจกต์ที่ไม่แชร์โค้ดข้าม service)
+async function readTodaySummary(shopId) {
+  const { startISO, endISO } = bangkokTodayRangeISO();
+  const { data, error } = await supabase.from('ledger_transactions').select('type, amount')
+    .eq('shop_id', shopId).gte('created_at', startISO).lt('created_at', endISO);
+  if (error) throw error;
+  let totalIncome = 0, totalExpense = 0, countIncome = 0, countExpense = 0;
+  for (const row of (data || [])) {
+    const amount = parseFloat(row.amount) || 0;
+    if (row.type === 'income') { totalIncome += amount; countIncome++; }
+    else if (row.type === 'expense') { totalExpense += amount; countExpense++; }
+  }
+  return { totalIncome, totalExpense, countIncome, countExpense, net: totalIncome - totalExpense };
+}
+
+function buildDailySummaryFlex(shopName, summary) {
+  const fmt = (n) => `฿${n.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`;
+  const netColor = summary.net >= 0 ? '#10B981' : '#EF4444';
+  const netText = summary.net >= 0 ? `+${fmt(summary.net)}` : fmt(summary.net);
+  const period = new Date().toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'long', year: 'numeric' });
+  return {
+    type: 'flex',
+    altText: `สรุปยอดวันนี้ (ปิดร้านแล้ว) — ${shopName}: รายรับ ${fmt(summary.totalIncome)}`,
+    contents: {
+      type: 'bubble', size: 'kilo',
+      header: {
+        type: 'box', layout: 'vertical', backgroundColor: '#1e293b', paddingAll: 'md',
+        contents: [
+          { type: 'text', text: `📊 สรุปยอดวันนี้ — ${shopName}`, weight: 'bold', color: '#ffffff', size: 'sm', wrap: true },
+          { type: 'text', text: `${period} · 🔒 ปิดกะครบแล้ว`, color: '#94a3b8', size: 'xs', margin: 'xs' },
+        ],
+      },
+      body: {
+        type: 'box', layout: 'vertical', spacing: 'md', paddingAll: 'lg',
+        contents: [
+          { type: 'box', layout: 'horizontal', contents: [
+            { type: 'text', text: '💚 รายรับ', color: '#10B981', size: 'sm', flex: 2, weight: 'bold' },
+            { type: 'text', text: fmt(summary.totalIncome), color: '#10B981', size: 'sm', align: 'end', flex: 3, weight: 'bold' },
+          ]},
+          { type: 'text', text: `${summary.countIncome} รายการ`, color: '#94a3b8', size: 'xs', align: 'end' },
+          { type: 'box', layout: 'horizontal', contents: [
+            { type: 'text', text: '🔴 รายจ่าย', color: '#EF4444', size: 'sm', flex: 2, weight: 'bold' },
+            { type: 'text', text: fmt(summary.totalExpense), color: '#EF4444', size: 'sm', align: 'end', flex: 3, weight: 'bold' },
+          ]},
+          { type: 'text', text: `${summary.countExpense} รายการ`, color: '#94a3b8', size: 'xs', align: 'end' },
+          { type: 'separator' },
+          { type: 'box', layout: 'horizontal', contents: [
+            { type: 'text', text: 'กำไร / ขาดทุน', color: '#1e293b', size: 'md', flex: 2, weight: 'bold' },
+            { type: 'text', text: netText, color: netColor, size: 'md', align: 'end', flex: 3, weight: 'bold' },
+          ]},
+        ],
+      },
+    },
   };
 }
 
@@ -187,7 +249,31 @@ export default async function handler(req, res) {
         }
       }
 
-      return res.json({ ok: true, shift_no, expected_cash: expected, counted_cash: counted, variance, withdrawn_amount: withdrawn, carried_forward: carriedForward, notified_owner: variance !== 0 && !!ownerLineId });
+      // ข้อ 93: ถ้าไม่มีกะอื่นค้างเปิดอยู่แล้ว (นี่คือกะสุดท้ายของวันนี้) ส่งสรุปยอดวันนี้ทั้งร้าน
+      // ให้เจ้าของทันที — ไม่รอ cron 18:00 ที่อาจแจ้งก่อนร้านปิดจริง (ล้มเหลวได้โดยไม่กระทบการปิดกะ)
+      let dailySummarySent = false;
+      try {
+        const { data: otherOpenShifts } = await supabase.from('pos_cash_shifts')
+          .select('shift_no').eq('shop_id', shopId).eq('status', 'เปิดอยู่');
+        if (!otherOpenShifts?.length) {
+          if (!ownerLineId) {
+            const { data: sp } = await supabase.from('shop_profiles').select('owner_line_id, shop_name').eq('id', shopId).maybeSingle();
+            ownerLineId = sp?.owner_line_id || '';
+            shopName = sp?.shop_name || '';
+          }
+          if (ownerLineId) {
+            const todaySummary = await readTodaySummary(shopId);
+            if (todaySummary.countIncome > 0 || todaySummary.countExpense > 0) {
+              await pushLineMessage(ownerLineId, buildDailySummaryFlex(shopName, todaySummary));
+              dailySummarySent = true;
+            }
+          }
+        }
+      } catch (summaryErr) {
+        console.error('[cash-shifts] daily summary push failed (non-fatal):', summaryErr.message);
+      }
+
+      return res.json({ ok: true, shift_no, expected_cash: expected, counted_cash: counted, variance, withdrawn_amount: withdrawn, carried_forward: carriedForward, notified_owner: variance !== 0 && !!ownerLineId, daily_summary_sent: dailySummarySent });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });

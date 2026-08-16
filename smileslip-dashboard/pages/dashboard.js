@@ -7,7 +7,7 @@ import {
   ExternalLink, Edit3, Landmark, Receipt, Wallet,
   PlusCircle, Trash2, Clock, Download, AlertTriangle,
   Menu, ChevronLeft, ChevronRight, BarChart2, Copy, Share2, Users,
-  Shield, UserPlus, UserX, HelpCircle, X, ClipboardList
+  Shield, UserPlus, UserX, HelpCircle, X, ClipboardList, Bell
 } from 'lucide-react';
 import Link from 'next/link';
 import { getOwnerSessionToken, setOwnerSessionToken, findOwnerSessionTokenForOwnerId } from '../lib/client-owner-session';
@@ -66,6 +66,9 @@ export default function Dashboard() {
   const [branchBankForm, setBranchBankForm] = useState({}); // branchId -> { bankName, accountName, accountNumber, accountType }
   const [addingBranchBank, setAddingBranchBank] = useState({}); // branchId -> bool
   const [branchLoading, setBranchLoading] = useState(false);
+  const [notifySettings, setNotifySettings] = useState(null); // ข้อ 93 — วัน/เวลาแจ้งเตือนสรุปยอด
+  const [notifySettingsDraft, setNotifySettingsDraft] = useState(null);
+  const [notifySettingsSaving, setNotifySettingsSaving] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editForm, setEditForm] = useState({ shopName: '', email: '', phone: '', taxId: '', userType: 'individual', address: '', branchName: '' });
@@ -301,7 +304,7 @@ export default function Dashboard() {
   // ─── Tab changes ───
   useEffect(() => {
     if (activeTab === 'accounts' && shopInfo?.id) fetchTransactions(shopInfo.id, ledgerYear, ledgerMonth);
-    if (activeTab === 'branches' && shopInfo?.id) fetchBranches(shopInfo.id);
+    if (activeTab === 'branches' && shopInfo?.id) { fetchBranches(shopInfo.id); fetchNotifySettings(shopInfo.id); }
     if (activeTab === 'stafflog' && shopInfo?.id && isUnlimited) fetchStaffLogs(shopInfo.id);
     if (activeTab === 'analytics' && shopInfo?.id) {
       fetchAnalytics(shopInfo.id, analyticsYear);
@@ -518,6 +521,33 @@ export default function Dashboard() {
     const res = await fetch(`/api/shop/branches?shopId=${shopId}`);
     const data = await res.json();
     setBranches(data.branches || []);
+  };
+
+  const fetchNotifySettings = async (shopId) => {
+    try {
+      const res = await fetch(`/api/shop/notification-settings?shopId=${shopId}`);
+      const data = await res.json();
+      setNotifySettings(data.settings);
+      setNotifySettingsDraft(data.settings);
+    } catch { /* เงียบไว้ — แค่การ์ดตั้งค่าเสริม ไม่ควรทำให้ทั้งหน้าพัง */ }
+  };
+
+  const handleSaveNotifySettings = async () => {
+    if (!notifySettingsDraft) return;
+    setNotifySettingsSaving(true);
+    try {
+      const res = await fetch('/api/shop/notification-settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId: shopInfo.id, ...notifySettingsDraft }),
+      });
+      const data = await res.json();
+      if (data.error) { alert('บันทึกไม่สำเร็จ: ' + data.error); return; }
+      setNotifySettings(data.settings);
+      setNotifySettingsDraft(data.settings);
+      alert('✅ บันทึกเวลาแจ้งเตือนแล้ว');
+    } catch { alert('เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง'); }
+    finally { setNotifySettingsSaving(false); }
   };
 
   const handleCancelSubscription = async () => {
@@ -2911,6 +2941,96 @@ export default function Dashboard() {
                           </div>
                           </div>
                         ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ข้อ 93 — ตั้งวัน/เวลาแจ้งเตือนสรุปยอดรายสัปดาห์/รายเดือนเอง (รายวันเปลี่ยนเป็นแจ้ง
+                      ตอนปิดกะเงินสดสุดท้ายของวันแทนแล้ว ไม่มีเวลาให้ตั้งในนี้) */}
+                  <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-100">
+                      <h3 className="font-bold text-slate-700 text-sm flex items-center gap-2">
+                        <Bell size={15} className="text-indigo-500"/> เวลาแจ้งเตือนสรุปยอด
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-1">
+                        สรุปยอด <strong>รายวัน</strong> จะส่งอัตโนมัติทันทีที่ปิดกะเงินสดสุดท้ายของวัน (ไม่ต้องตั้งเวลา) — ส่วนรายสัปดาห์/รายเดือนตั้งวัน+เวลาได้เอง
+                      </p>
+                    </div>
+                    {!notifySettingsDraft ? (
+                      <div className="py-8 text-center text-slate-300 text-sm animate-pulse">กำลังโหลด...</div>
+                    ) : (
+                      <div className="p-5 space-y-5">
+                        {/* รายสัปดาห์ */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input type="checkbox" checked={notifySettingsDraft.notify_weekly_enabled}
+                                onChange={e => setNotifySettingsDraft(p => ({ ...p, notify_weekly_enabled: e.target.checked }))}
+                                className="w-4 h-4 accent-indigo-600"/>
+                              <span className="text-sm font-bold text-slate-700">📅 สรุปยอดรายสัปดาห์</span>
+                            </label>
+                            {notifySettingsDraft.notify_weekly_enabled && (
+                              <div className="flex items-center gap-2 mt-2 ml-6">
+                                <select value={notifySettingsDraft.notify_weekly_day}
+                                  onChange={e => setNotifySettingsDraft(p => ({ ...p, notify_weekly_day: parseInt(e.target.value, 10) }))}
+                                  className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-medium outline-none focus:border-indigo-400">
+                                  {['วันอาทิตย์','วันจันทร์','วันอังคาร','วันพุธ','วันพฤหัสบดี','วันศุกร์','วันเสาร์'].map((d, i) => (
+                                    <option key={i} value={i}>{d}</option>
+                                  ))}
+                                </select>
+                                <span className="text-xs text-slate-400">เวลา</span>
+                                <select value={notifySettingsDraft.notify_weekly_hour}
+                                  onChange={e => setNotifySettingsDraft(p => ({ ...p, notify_weekly_hour: parseInt(e.target.value, 10) }))}
+                                  className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-medium outline-none focus:border-indigo-400">
+                                  {Array.from({ length: 24 }, (_, h) => (
+                                    <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="border-t border-slate-100"/>
+
+                        {/* รายเดือน */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input type="checkbox" checked={notifySettingsDraft.notify_monthly_enabled}
+                                onChange={e => setNotifySettingsDraft(p => ({ ...p, notify_monthly_enabled: e.target.checked }))}
+                                className="w-4 h-4 accent-indigo-600"/>
+                              <span className="text-sm font-bold text-slate-700">🗓️ สรุปยอดรายเดือน</span>
+                              <span className="text-[10px] bg-indigo-100 text-indigo-600 font-bold px-1.5 py-0.5 rounded-full">ใหม่</span>
+                            </label>
+                            {notifySettingsDraft.notify_monthly_enabled && (
+                              <div className="flex items-center gap-2 mt-2 ml-6">
+                                <span className="text-xs text-slate-400">วันที่</span>
+                                <select value={notifySettingsDraft.notify_monthly_day}
+                                  onChange={e => setNotifySettingsDraft(p => ({ ...p, notify_monthly_day: parseInt(e.target.value, 10) }))}
+                                  className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-medium outline-none focus:border-indigo-400">
+                                  {Array.from({ length: 28 }, (_, i) => i + 1).map(d => (
+                                    <option key={d} value={d}>{d}</option>
+                                  ))}
+                                </select>
+                                <span className="text-xs text-slate-400">เวลา</span>
+                                <select value={notifySettingsDraft.notify_monthly_hour}
+                                  onChange={e => setNotifySettingsDraft(p => ({ ...p, notify_monthly_hour: parseInt(e.target.value, 10) }))}
+                                  className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-medium outline-none focus:border-indigo-400">
+                                  {Array.from({ length: 24 }, (_, h) => (
+                                    <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                            <p className="text-[10px] text-slate-400 mt-1.5 ml-6">เลือกได้เฉพาะวันที่ 1-28 กันเดือนที่มีวันไม่ครบ</p>
+                          </div>
+                        </div>
+
+                        <button onClick={handleSaveNotifySettings} disabled={notifySettingsSaving}
+                          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl font-medium text-sm transition-colors disabled:opacity-50">
+                          {notifySettingsSaving ? 'กำลังบันทึก...' : '💾 บันทึกเวลาแจ้งเตือน'}
+                        </button>
                       </div>
                     )}
                   </div>
