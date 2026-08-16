@@ -1868,7 +1868,7 @@ ALTER TABLE pos_configs ADD COLUMN IF NOT EXISTS receipt_logo_data text;
 - [x] **เพิ่ม Google OAuth redirect URI** สำหรับ admin + **กด "เชื่อมต่อ Google"** — เสร็จแล้ว (admin_settings มี `admin_invoice_sheet_id` แปลว่า connect สำเร็จแล้ว) — verified 2026-06-28
 - [x] **ตั้งค่าอีเมล Gmail** — `EMAIL_USER`, `EMAIL_PASS`, `NEXT_PUBLIC_EMAIL_CONFIGURED` ตั้งค่าใน `.env` แล้ว — verified 2026-06-27
 - [x] **Custom Domain** — `smileslippro.com` ผูกกับ Cloud Run `smileslip-dashboard` แล้ว ใช้งานจริง — verified 2026-06-27
-- [ ] **Testimonials จริง** — ใส่คำรีวิวจากลูกค้ากลุ่มแรกแทน placeholder ใน `pages/index.js` บรรทัด TESTIMONIALS array
+- [x] **Testimonials จริง** — เช็คลิสต์นี้ค้างมาตั้งแต่ 2026-06-13 ไม่เคยอัปเดต — ผู้ใช้ยืนยันแล้วว่าลงข้อมูลจริงในหน้าเซลเพจเองแล้ว (ดูข้อ 63)
 - [x] **Min-instances** บน Cloud Run `smileslip-service` — เดิมตั้ง minScale=1 (2026-06-27) กัน cold start 3-8 วิ — **ผู้ใช้ปลดกลับเป็น 0 แล้ว (2026-08-07)** ตัดสินใจว่า cold start ไม่กี่วินาทีไม่กระทบ ประหยัดค่าใช้จ่ายดีกว่า
 - [x] **Vision API Budget Alert** — ทำแล้ว (2026-06-12)
 - [x] **เพิ่ม `subscription_expires_at`, `stripe_billed_tier`, `stripe_period_end`, `google_bonus_granted` columns** ใน `shop_profiles` — ทำแล้ว 2026-06-27/28
