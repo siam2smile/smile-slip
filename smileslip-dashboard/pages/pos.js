@@ -774,6 +774,24 @@ export default function POSPage() {
   const [payrollHistoryMonth, setPayrollHistoryMonth] = useState('');
   const [showPayslip, setShowPayslip] = useState(null); // payroll run object พร้อมพิมพ์
 
+  // โปรโมชั่น (5 แบบ: ลดราคาต่อชิ้น/ลดเมื่อซื้อครบจำนวน/ซื้อ-แถม/ชุดราคาพิเศษ/ซื้อแล้วแถมของกำนัล)
+  // เจ้าของ/แอดมินจัดการเท่านั้น — แคชเชียร์เห็นโปรที่ active ในแท็บขายผ่าน activePromotions (ดึงแยก)
+  const [promotions, setPromotions] = useState([]);
+  const [promotionsLoading, setPromotionsLoading] = useState(false);
+  const [showPromoForm, setShowPromoForm] = useState(false);
+  const [editingPromoId, setEditingPromoId] = useState(null);
+  const [promoSaving, setPromoSaving] = useState(false);
+  const emptyPromoForm = () => ({
+    name: '', promo_type: 'product_discount', branch: '', valid_from: '', valid_until: '',
+    sku: '', discount_type: 'percent', discount_value: '', min_qty: '2',
+    buySku: '', buyQty: '1', getSku: '', getQty: '1', get_discount_type: 'free', get_discount_value: '',
+    items: [{ sku: '', qty: '1' }, { sku: '', qty: '1' }], bundle_price: '',
+    triggerSku: '', triggerQty: '1', giftSku: '', giftQty: '1',
+  });
+  const [promoForm, setPromoForm] = useState(emptyPromoForm());
+  // โปรที่ active ตอนนี้ (ทุก tab/ทุกโหมดรวมแคชเชียร์ต้องเห็นได้ — ใช้แนะนำในตะกร้าตอนขาย)
+  const [activePromotions, setActivePromotions] = useState([]);
+
   // contacts (ลูกค้า / ผู้จำหน่าย)
   const [contacts, setContacts] = useState([]);
   const [contactsLoading, setContactsLoading] = useState(false);
@@ -2261,6 +2279,16 @@ export default function POSPage() {
     if (tab === 'payroll' && shopId) { fetchPayrollEmployees(); fetchPayrollRuns(); }
   }, [tab, shopId]);
 
+  useEffect(() => {
+    if (tab === 'promotions' && shopId) fetchPromotions();
+  }, [tab, shopId]);
+
+  // โปรที่ active ต้องพร้อมใช้ตั้งแต่เปิดหน้าขาย ไม่ใช่แค่ตอนเข้าแท็บจัดการ (แคชเชียร์ไม่เห็นแท็บ
+  // จัดการเลยด้วยซ้ำ) — โหลดใหม่ทุกครั้งที่สาขาที่เลือกเปลี่ยน (โปรบางอันผูกเฉพาะบางสาขา)
+  useEffect(() => {
+    if (shopId) fetchActivePromotions();
+  }, [shopId, selectedBranch]);
+
   // โอนย้ายสต็อกข้ามสาขา Phase 5 — sync สต็อกเฉพาะสาขาที่กำลังขายทุกครั้งที่เปลี่ยนสาขา/ร้าน หรือ
   // สินค้าเปลี่ยน (ขายไปแล้วต้องอัปเดตตัวเลขทันที ไม่ใช่แค่ตอนสลับสาขา)
   useEffect(() => {
@@ -2340,6 +2368,71 @@ export default function POSPage() {
     } else if (displayProducts.length === 0) {
       showToast(`ไม่พบสินค้าที่ตรงกับ "${q}"`);
     }
+  }
+
+  // โปรโมชั่นที่ใช้ได้กับตะกร้าปัจจุบัน — เช็คเฉพาะสินค้าที่ "อยู่ในตะกร้าแล้วครบเงื่อนไข" เท่านั้น
+  // (ไม่ auto-เพิ่มสินค้าใหม่เข้าตะกร้าเอง กันความซับซ้อน/บั๊กที่ไม่จำเป็น — แคชเชียร์เพิ่มของแถม/
+  // สินค้าชุดเข้าตะกร้าเองตามปกติก่อน แล้วค่อยกด "ใช้โปรนี้" ปรับราคาให้)
+  function getApplicablePromotions() {
+    return activePromotions.map(promo => {
+      const c = promo.config || {};
+      try {
+        if (promo.promo_type === 'product_discount') {
+          const item = cart.find(i => i.sku === c.sku);
+          if (!item) return null;
+          return { promo, label: `ลด${c.discount_type === 'percent' ? `${c.discount_value}%` : `฿${c.discount_value}`}: ${item.name}` };
+        }
+        if (promo.promo_type === 'quantity_discount') {
+          const item = cart.find(i => i.sku === c.sku);
+          if (!item || item.qty < c.min_qty) return null;
+          return { promo, label: `${item.name} ครบ ${c.min_qty} ชิ้น — ลด${c.discount_type === 'percent' ? `${c.discount_value}%` : `฿${c.discount_value}`}` };
+        }
+        if (promo.promo_type === 'buy_x_get_y') {
+          const buyItem = cart.find(i => i.sku === c.buySku);
+          const getItem = cart.find(i => i.sku === c.getSku);
+          if (!buyItem || buyItem.qty < c.buyQty || !getItem || getItem.qty < c.getQty) return null;
+          return { promo, label: `ซื้อ ${buyItem.name} ครบแล้ว — ลด ${getItem.name} ${c.get_discount_type === 'free' ? 'ฟรี' : `${c.get_discount_value}%`}` };
+        }
+        if (promo.promo_type === 'bundle') {
+          const ok = (c.items || []).every(it => { const ci = cart.find(x => x.sku === it.sku); return ci && ci.qty >= it.qty; });
+          if (!ok) return null;
+          return { promo, label: `ครบชุด "${promo.name}" แล้ว — ราคาชุด ฿${c.bundle_price}` };
+        }
+        if (promo.promo_type === 'free_gift') {
+          const trig = cart.find(i => i.sku === c.triggerSku);
+          const gift = cart.find(i => i.sku === c.giftSku);
+          if (!trig || trig.qty < c.triggerQty || !gift || gift.qty < c.giftQty) return null;
+          return { promo, label: `ซื้อ ${trig.name} ครบแล้ว — ${gift.name} ฟรี ${c.giftQty} ชิ้น` };
+        }
+      } catch {}
+      return null;
+    }).filter(Boolean);
+  }
+
+  function applyPromotion(promo) {
+    const c = promo.config || {};
+    if (promo.promo_type === 'product_discount' || promo.promo_type === 'quantity_discount') {
+      const prod = products.find(p => p.sku === c.sku);
+      if (!prod) return;
+      const newPrice = c.discount_type === 'amount' ? Math.max(0, prod.price - c.discount_value) : prod.price * (1 - c.discount_value / 100);
+      updatePrice(c.sku, newPrice.toFixed(2));
+    } else if (promo.promo_type === 'buy_x_get_y') {
+      const getProd = products.find(p => p.sku === c.getSku);
+      if (!getProd) return;
+      const newPrice = c.get_discount_type === 'free' ? 0 : getProd.price * (1 - c.get_discount_value / 100);
+      updatePrice(c.getSku, newPrice.toFixed(2));
+    } else if (promo.promo_type === 'bundle') {
+      const items = c.items || [];
+      const originalTotal = items.reduce((s, it) => { const p = products.find(pp => pp.sku === it.sku); return s + (p?.price || 0) * it.qty; }, 0);
+      const ratio = originalTotal > 0 ? (c.bundle_price / originalTotal) : 1;
+      items.forEach(it => {
+        const p = products.find(pp => pp.sku === it.sku);
+        if (p) updatePrice(it.sku, (p.price * ratio).toFixed(2));
+      });
+    } else if (promo.promo_type === 'free_gift') {
+      updatePrice(c.giftSku, '0');
+    }
+    showToast(`✅ ใช้โปร "${promo.name}" แล้ว`);
   }
 
   function updateQty(sku, qty) {
@@ -3178,6 +3271,116 @@ export default function POSPage() {
   }
 
   // ── เงินเดือน (Phase 2 ของแผนบัญชีเต็มรูปแบบ) ──────────────────────────────
+  async function fetchPromotions() {
+    if (!shopId) return;
+    setPromotionsLoading(true);
+    try {
+      const r = await fetch(`/api/pos/promotions?shopId=${shopId}`);
+      const d = await r.json();
+      setPromotions(d.promotions || []);
+    } catch {}
+    setPromotionsLoading(false);
+  }
+
+  // ดึงโปรที่ active มาไว้ใช้แนะนำตอนขาย — เรียกทุกโหมด (เจ้าของ/แคชเชียร์) ต่างจาก fetchPromotions
+  // (รายการเต็มสำหรับหน้าจัดการ ซึ่งเจ้าของ/แอดมินเท่านั้นเข้าได้)
+  async function fetchActivePromotions() {
+    if (!shopId) return;
+    try {
+      const params = new URLSearchParams({ shopId, activeOnly: '1' });
+      if (selectedBranch?.branch_name) params.set('branch', selectedBranch.branch_name);
+      const r = await fetch(`/api/pos/promotions?${params.toString()}`);
+      const d = await r.json();
+      setActivePromotions(d.promotions || []);
+    } catch {}
+  }
+
+  function buildPromoConfig(form) {
+    if (form.promo_type === 'product_discount') {
+      return { sku: form.sku, discount_type: form.discount_type, discount_value: parseFloat(form.discount_value) || 0 };
+    }
+    if (form.promo_type === 'quantity_discount') {
+      return { sku: form.sku, min_qty: parseInt(form.min_qty) || 2, discount_type: form.discount_type, discount_value: parseFloat(form.discount_value) || 0 };
+    }
+    if (form.promo_type === 'buy_x_get_y') {
+      return {
+        buySku: form.buySku, buyQty: parseInt(form.buyQty) || 1, getSku: form.getSku, getQty: parseInt(form.getQty) || 1,
+        get_discount_type: form.get_discount_type, get_discount_value: parseFloat(form.get_discount_value) || 0,
+      };
+    }
+    if (form.promo_type === 'bundle') {
+      return { items: form.items.filter(it => it.sku).map(it => ({ sku: it.sku, qty: parseInt(it.qty) || 1 })), bundle_price: parseFloat(form.bundle_price) || 0 };
+    }
+    if (form.promo_type === 'free_gift') {
+      return { triggerSku: form.triggerSku, triggerQty: parseInt(form.triggerQty) || 1, giftSku: form.giftSku, giftQty: parseInt(form.giftQty) || 1 };
+    }
+    return {};
+  }
+
+  async function savePromotion() {
+    if (!promoForm.name.trim()) { showToast('กรุณาระบุชื่อโปรโมชั่น'); return; }
+    setPromoSaving(true);
+    try {
+      const body = {
+        shopId, name: promoForm.name.trim(), promo_type: promoForm.promo_type,
+        config: buildPromoConfig(promoForm), branch: promoForm.branch,
+        valid_from: promoForm.valid_from || null, valid_until: promoForm.valid_until || null,
+      };
+      const url = '/api/pos/promotions';
+      const method = editingPromoId ? 'PATCH' : 'POST';
+      if (editingPromoId) body.promo_id = editingPromoId;
+      const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const d = await r.json();
+      if (d.ok !== false && !d.error) {
+        showToast(editingPromoId ? 'แก้ไขโปรโมชั่นแล้ว' : 'สร้างโปรโมชั่นแล้ว');
+        setShowPromoForm(false); setEditingPromoId(null); setPromoForm(emptyPromoForm());
+        fetchPromotions(); fetchActivePromotions();
+      } else {
+        showToast(d.error || 'บันทึกไม่สำเร็จ');
+      }
+    } catch (err) { showToast(err.message); }
+    setPromoSaving(false);
+  }
+
+  async function togglePromoActive(promo) {
+    try {
+      await fetch('/api/pos/promotions', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, promo_id: promo.promo_id, is_active: !promo.is_active }),
+      });
+      fetchPromotions(); fetchActivePromotions();
+    } catch { showToast('เปลี่ยนสถานะไม่สำเร็จ'); }
+  }
+
+  async function deletePromotion(promo) {
+    if (!confirm(`ลบโปรโมชั่น "${promo.name}"?`)) return;
+    try {
+      await fetch('/api/pos/promotions', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, promo_id: promo.promo_id }),
+      });
+      showToast('ลบแล้ว');
+      fetchPromotions(); fetchActivePromotions();
+    } catch { showToast('ลบไม่สำเร็จ'); }
+  }
+
+  function openEditPromo(promo) {
+    const c = promo.config || {};
+    setPromoForm({
+      ...emptyPromoForm(),
+      name: promo.name, promo_type: promo.promo_type, branch: promo.branch || '',
+      valid_from: promo.valid_from || '', valid_until: promo.valid_until || '',
+      sku: c.sku || '', discount_type: c.discount_type || 'percent', discount_value: c.discount_value ?? '', min_qty: c.min_qty ?? '2',
+      buySku: c.buySku || '', buyQty: c.buyQty ?? '1', getSku: c.getSku || '', getQty: c.getQty ?? '1',
+      get_discount_type: c.get_discount_type || 'free', get_discount_value: c.get_discount_value ?? '',
+      items: (c.items && c.items.length ? c.items.map(it => ({ sku: it.sku, qty: String(it.qty) })) : [{ sku: '', qty: '1' }, { sku: '', qty: '1' }]),
+      bundle_price: c.bundle_price ?? '',
+      triggerSku: c.triggerSku || '', triggerQty: c.triggerQty ?? '1', giftSku: c.giftSku || '', giftQty: c.giftQty ?? '1',
+    });
+    setEditingPromoId(promo.promo_id);
+    setShowPromoForm(true);
+  }
+
   async function fetchPayrollEmployees() {
     if (!shopId) return;
     setPayrollEmployeesLoading(true);
@@ -4846,9 +5049,11 @@ export default function POSPage() {
             { key: 'receive',  label: '📥 รับสินค้า' },
             { key: 'expenses', label: '🧾 รายจ่าย' },
             { key: 'report',   label: '📊 รายงาน' },
-            // เงินเดือน/ตั้งค่าร้าน — ข้อมูลอ่อนไหวระดับเจ้าของร้าน/แอดมินเท่านั้น ไม่โชว์ในโหมด
-            // แคชเชียร์เลย (ฝั่ง API เองก็บล็อก session พนักงานทุกคนจาก payroll-*.js/pos-config.js อยู่แล้ว)
+            // เงินเดือน/ตั้งค่าร้าน/โปรโมชั่น — ข้อมูลอ่อนไหวระดับเจ้าของร้าน/แอดมินเท่านั้น ไม่โชว์ใน
+            // โหมดแคชเชียร์เลย (ฝั่ง API เองก็บล็อก session พนักงานทุกคนจาก payroll-*.js/pos-config.js/
+            // promotions.js อยู่แล้ว) — แคชเชียร์เห็นโปรที่ active ผ่านแท็บ "ขาย" ตรงๆ ไม่ต้องเข้าแท็บนี้
             ...(cashierMode ? [] : [{ key: 'payroll', label: '💰 เงินเดือน' }]),
+            ...(cashierMode ? [] : [{ key: 'promotions', label: '🎉 โปรโมชั่น' }]),
             ...(cashierMode ? [] : [{ key: 'settings', label: '⚙️ ตั้งค่า' }]),
           ];
           const isMoreActive = moreTabs.some(t => t.key === tab);
@@ -4896,6 +5101,7 @@ export default function POSPage() {
                   { key: 'expenses', label: '🧾 รายจ่าย' },
                   { key: 'report',   label: '📊 รายงาน' },
                   ...(cashierMode ? [] : [{ key: 'payroll', label: '💰 เงินเดือน' }]),
+                  ...(cashierMode ? [] : [{ key: 'promotions', label: '🎉 โปรโมชั่น' }]),
                   ...(cashierMode ? [] : [{ key: 'settings', label: '⚙️ ตั้งค่า' }]),
                 ].map(t => (
                   <button key={t.key}
@@ -5163,6 +5369,15 @@ export default function POSPage() {
                 </div>
                 {cart.length > 0 && (
                   <div className="p-4 border-t border-gray-800 shrink-0 space-y-3">
+                    {activePromotions.length > 0 && getApplicablePromotions().map(({ promo, label }) => (
+                      <div key={promo.promo_id} className="bg-amber-950/40 border border-amber-700/50 rounded-xl px-3 py-2 flex items-center justify-between gap-2">
+                        <span className="text-amber-300 text-[11px] flex-1">🎉 {label}</span>
+                        <button onClick={() => applyPromotion(promo)}
+                          className="shrink-0 bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-lg transition-colors">
+                          ใช้โปรนี้
+                        </button>
+                      </div>
+                    ))}
                     <div className="flex justify-between text-gray-400 text-xs">
                       <span>รวม {cart.reduce((s, i) => s + i.qty, 0)} รายการ</span>
                       <span className="text-white font-bold text-base">฿{cartSubtotal.toLocaleString()}</span>
@@ -7948,6 +8163,279 @@ export default function POSPage() {
             </div>
           )}
 
+          {/* ══ TAB: โปรโมชั่น ══════════════════════════════════════════════ */}
+          {/* กันไว้อีกชั้นเหมือน payroll/settings — ไม่โชว์ในโหมดแคชเชียร์แม้จะเผลอตั้ง tab นี้ทางอ้อม */}
+          {tab === 'promotions' && !cashierMode && (() => {
+            const PROMO_TYPE_META = {
+              product_discount: { label: '🏷️ ลดราคาต่อชิ้น', desc: 'ลดราคาสินค้าชิ้นหนึ่งเป็นบาท/เปอร์เซ็นต์' },
+              quantity_discount: { label: '📦 ลดเมื่อซื้อครบจำนวน', desc: 'ซื้อสินค้าชิ้นเดียวกันครบ N ชิ้นขึ้นไป ลดราคา' },
+              buy_x_get_y: { label: '🎁 ซื้อ X แถม Y', desc: 'ซื้อสินค้าหนึ่งครบจำนวน แถม/ลดราคาสินค้าอีกชิ้น (จะเป็นตัวเดียวกันหรือคนละตัวก็ได้)' },
+              bundle: { label: '🛍️ ชุดราคาพิเศษ', desc: 'ซื้อสินค้าหลายอย่างพร้อมกันในราคาชุดคงที่' },
+              free_gift: { label: '🎀 ซื้อแล้วแถมของกำนัล', desc: 'ซื้อสินค้าครบจำนวน แถมของกำนัลฟรี' },
+            };
+            const activeProducts = products.filter(p => p.is_active !== false);
+            const ProductSelect = ({ value, onChange, placeholder }) => (
+              <select value={value} onChange={e => onChange(e.target.value)}
+                className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500">
+                <option value="">{placeholder || '— เลือกสินค้า —'}</option>
+                {activeProducts.map(p => <option key={p.sku} value={p.sku}>{p.name} (฿{p.price})</option>)}
+              </select>
+            );
+            return (
+            <div className="h-full overflow-y-auto">
+              <div className="p-4 max-w-2xl mx-auto space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-white font-bold">🎉 โปรโมชั่น</h3>
+                  {!showPromoForm && (
+                    <button onClick={() => { setPromoForm(emptyPromoForm()); setEditingPromoId(null); setShowPromoForm(true); }}
+                      className="text-xs bg-green-700 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg font-medium">
+                      + สร้างโปรโมชั่น
+                    </button>
+                  )}
+                </div>
+
+                {!showPromoForm && (
+                  <>
+                    {promotionsLoading ? (
+                      <div className="text-center text-gray-500 py-12 animate-pulse">กำลังโหลด...</div>
+                    ) : promotions.length === 0 ? (
+                      <div className="text-center text-gray-500 py-12 text-sm">ยังไม่มีโปรโมชั่น</div>
+                    ) : (
+                      <div className="space-y-3">
+                        {promotions.map(promo => (
+                          <div key={promo.promo_id} className={`bg-gray-900 rounded-2xl border p-4 ${promo.is_active ? 'border-green-800' : 'border-gray-800 opacity-60'}`}>
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <p className="text-white font-bold text-sm">{promo.name}</p>
+                                <p className="text-gray-500 text-[11px] mt-0.5">{PROMO_TYPE_META[promo.promo_type]?.label}{promo.branch ? ` · ${promo.branch}` : ' · ทุกสาขา'}</p>
+                              </div>
+                              <button onClick={() => togglePromoActive(promo)}
+                                className={`shrink-0 text-[10px] font-bold px-2.5 py-1 rounded-full ${promo.is_active ? 'bg-green-800 text-green-300' : 'bg-gray-800 text-gray-400'}`}>
+                                {promo.is_active ? '🟢 เปิดใช้งาน' : '⚪ ปิดอยู่'}
+                              </button>
+                            </div>
+
+                            {promo.margin ? (
+                              <div className="mt-2.5 grid grid-cols-3 gap-2 text-center">
+                                <div className="bg-gray-800 rounded-lg p-2">
+                                  <p className="text-[9px] text-gray-500">รายได้/{promo.margin.per}</p>
+                                  <p className="text-xs font-bold text-white">฿{promo.margin.revenue.toLocaleString()}</p>
+                                </div>
+                                <div className="bg-gray-800 rounded-lg p-2">
+                                  <p className="text-[9px] text-gray-500">ต้นทุน</p>
+                                  <p className="text-xs font-bold text-red-400">฿{promo.margin.cost.toLocaleString()}</p>
+                                </div>
+                                <div className={`rounded-lg p-2 ${promo.margin.profit >= 0 ? 'bg-green-950' : 'bg-red-950'}`}>
+                                  <p className="text-[9px] text-gray-500">กำไรคงเหลือ</p>
+                                  <p className={`text-xs font-bold ${promo.margin.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                    ฿{promo.margin.profit.toLocaleString()} ({promo.margin.margin_pct}%)
+                                  </p>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-amber-500 text-[11px] mt-2">⚠️ คำนวณกำไรไม่ได้ (สินค้าที่อ้างอิงอาจถูกลบไปแล้ว)</p>
+                            )}
+                            {promo.margin && promo.margin.profit < 0 && (
+                              <p className="text-red-400 text-[11px] mt-1.5">🔴 โปรนี้ขาดทุนต่อการใช้งาน — พิจารณาปรับส่วนลด/ราคาใหม่</p>
+                            )}
+
+                            <div className="flex gap-2 mt-3">
+                              <button onClick={() => openEditPromo(promo)}
+                                className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-bold py-2 rounded-lg transition-colors">
+                                ✏️ แก้ไข
+                              </button>
+                              <button onClick={() => deletePromotion(promo)}
+                                className="flex-1 bg-red-950 hover:bg-red-900 text-red-300 text-xs font-bold py-2 rounded-lg transition-colors">
+                                🗑️ ลบ
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {showPromoForm && (
+                  <div className="bg-gray-900 rounded-2xl border border-gray-800 p-4 space-y-4">
+                    <div>
+                      <label className="text-gray-400 text-xs font-bold mb-1.5 block">ชื่อโปรโมชั่น</label>
+                      <input value={promoForm.name} onChange={e => setPromoForm(f => ({ ...f, name: e.target.value }))}
+                        placeholder="เช่น ลดราคาปีใหม่, ซื้อ 2 แถม 1"
+                        className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                    </div>
+
+                    <div>
+                      <label className="text-gray-400 text-xs font-bold mb-1.5 block">ประเภทโปรโมชั่น</label>
+                      <div className="grid grid-cols-1 gap-1.5">
+                        {Object.entries(PROMO_TYPE_META).map(([key, meta]) => (
+                          <button key={key} type="button" onClick={() => setPromoForm(f => ({ ...f, promo_type: key }))}
+                            className={`text-left px-3 py-2 rounded-xl border transition-colors ${
+                              promoForm.promo_type === key ? 'bg-green-900/40 border-green-700' : 'bg-gray-800 border-gray-700 hover:bg-gray-750'
+                            }`}>
+                            <p className="text-white text-xs font-bold">{meta.label}</p>
+                            <p className="text-gray-500 text-[10px] mt-0.5">{meta.desc}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* ── ฟิลด์เฉพาะแต่ละประเภท ── */}
+                    {(promoForm.promo_type === 'product_discount' || promoForm.promo_type === 'quantity_discount') && (
+                      <div className="space-y-2.5">
+                        <div>
+                          <label className="text-gray-400 text-xs font-bold mb-1.5 block">สินค้า</label>
+                          <ProductSelect value={promoForm.sku} onChange={v => setPromoForm(f => ({ ...f, sku: v }))} />
+                        </div>
+                        {promoForm.promo_type === 'quantity_discount' && (
+                          <div>
+                            <label className="text-gray-400 text-xs font-bold mb-1.5 block">ซื้อครบกี่ชิ้นขึ้นไปถึงได้ส่วนลด</label>
+                            <input type="number" min="2" value={promoForm.min_qty} onChange={e => setPromoForm(f => ({ ...f, min_qty: e.target.value }))}
+                              className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                          </div>
+                        )}
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => setPromoForm(f => ({ ...f, discount_type: 'percent' }))}
+                            className={`flex-1 text-xs font-bold py-2 rounded-xl ${promoForm.discount_type === 'percent' ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400'}`}>ลด %</button>
+                          <button type="button" onClick={() => setPromoForm(f => ({ ...f, discount_type: 'amount' }))}
+                            className={`flex-1 text-xs font-bold py-2 rounded-xl ${promoForm.discount_type === 'amount' ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400'}`}>ลด ฿</button>
+                        </div>
+                        <input type="number" min="0" value={promoForm.discount_value} onChange={e => setPromoForm(f => ({ ...f, discount_value: e.target.value }))}
+                          placeholder={promoForm.discount_type === 'percent' ? 'เช่น 10 (=10%)' : 'เช่น 20 (=20 บาท)'}
+                          className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                      </div>
+                    )}
+
+                    {promoForm.promo_type === 'buy_x_get_y' && (
+                      <div className="space-y-2.5">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-gray-400 text-xs font-bold mb-1.5 block">ซื้อสินค้า</label>
+                            <ProductSelect value={promoForm.buySku} onChange={v => setPromoForm(f => ({ ...f, buySku: v }))} />
+                          </div>
+                          <div>
+                            <label className="text-gray-400 text-xs font-bold mb-1.5 block">จำนวนที่ต้องซื้อ</label>
+                            <input type="number" min="1" value={promoForm.buyQty} onChange={e => setPromoForm(f => ({ ...f, buyQty: e.target.value }))}
+                              className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-gray-400 text-xs font-bold mb-1.5 block">แถม/ลดสินค้า</label>
+                            <ProductSelect value={promoForm.getSku} onChange={v => setPromoForm(f => ({ ...f, getSku: v }))} />
+                          </div>
+                          <div>
+                            <label className="text-gray-400 text-xs font-bold mb-1.5 block">จำนวนที่แถม/ลด</label>
+                            <input type="number" min="1" value={promoForm.getQty} onChange={e => setPromoForm(f => ({ ...f, getQty: e.target.value }))}
+                              className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => setPromoForm(f => ({ ...f, get_discount_type: 'free' }))}
+                            className={`flex-1 text-xs font-bold py-2 rounded-xl ${promoForm.get_discount_type === 'free' ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400'}`}>แถมฟรี 100%</button>
+                          <button type="button" onClick={() => setPromoForm(f => ({ ...f, get_discount_type: 'percent' }))}
+                            className={`flex-1 text-xs font-bold py-2 rounded-xl ${promoForm.get_discount_type === 'percent' ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400'}`}>ลด % แทน</button>
+                        </div>
+                        {promoForm.get_discount_type === 'percent' && (
+                          <input type="number" min="0" max="100" value={promoForm.get_discount_value} onChange={e => setPromoForm(f => ({ ...f, get_discount_value: e.target.value }))}
+                            placeholder="เช่น 50 (=ลด 50%)"
+                            className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                        )}
+                      </div>
+                    )}
+
+                    {promoForm.promo_type === 'bundle' && (
+                      <div className="space-y-2.5">
+                        <label className="text-gray-400 text-xs font-bold block">สินค้าในชุด</label>
+                        {promoForm.items.map((it, idx) => (
+                          <div key={idx} className="grid grid-cols-[1fr,80px,32px] gap-2 items-center">
+                            <ProductSelect value={it.sku} onChange={v => setPromoForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, sku: v } : x) }))} />
+                            <input type="number" min="1" value={it.qty} onChange={e => setPromoForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, qty: e.target.value } : x) }))}
+                              className="w-full bg-gray-800 text-white text-sm px-2 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                            {promoForm.items.length > 2 && (
+                              <button type="button" onClick={() => setPromoForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))}
+                                className="text-red-400 hover:text-red-300 text-lg leading-none">✕</button>
+                            )}
+                          </div>
+                        ))}
+                        <button type="button" onClick={() => setPromoForm(f => ({ ...f, items: [...f.items, { sku: '', qty: '1' }] }))}
+                          className="text-green-400 hover:text-green-300 text-xs font-bold">+ เพิ่มสินค้าในชุด</button>
+                        <div>
+                          <label className="text-gray-400 text-xs font-bold mb-1.5 block">ราคาชุด (บาท)</label>
+                          <input type="number" min="0" value={promoForm.bundle_price} onChange={e => setPromoForm(f => ({ ...f, bundle_price: e.target.value }))}
+                            className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                        </div>
+                      </div>
+                    )}
+
+                    {promoForm.promo_type === 'free_gift' && (
+                      <div className="space-y-2.5">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-gray-400 text-xs font-bold mb-1.5 block">ต้องซื้อสินค้า</label>
+                            <ProductSelect value={promoForm.triggerSku} onChange={v => setPromoForm(f => ({ ...f, triggerSku: v }))} />
+                          </div>
+                          <div>
+                            <label className="text-gray-400 text-xs font-bold mb-1.5 block">จำนวนที่ต้องซื้อ</label>
+                            <input type="number" min="1" value={promoForm.triggerQty} onChange={e => setPromoForm(f => ({ ...f, triggerQty: e.target.value }))}
+                              className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-gray-400 text-xs font-bold mb-1.5 block">ของกำนัลฟรี</label>
+                            <ProductSelect value={promoForm.giftSku} onChange={v => setPromoForm(f => ({ ...f, giftSku: v }))} />
+                          </div>
+                          <div>
+                            <label className="text-gray-400 text-xs font-bold mb-1.5 block">จำนวนของกำนัล</label>
+                            <input type="number" min="1" value={promoForm.giftQty} onChange={e => setPromoForm(f => ({ ...f, giftQty: e.target.value }))}
+                              className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {posBranches.length > 1 && (
+                      <div>
+                        <label className="text-gray-400 text-xs font-bold mb-1.5 block">สาขา (เว้นว่าง = ทุกสาขา)</label>
+                        <select value={promoForm.branch} onChange={e => setPromoForm(f => ({ ...f, branch: e.target.value }))}
+                          className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500">
+                          <option value="">ทุกสาขา</option>
+                          {posBranches.map(b => <option key={b.id} value={b.branch_name}>{b.branch_name}</option>)}
+                        </select>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-gray-400 text-xs font-bold mb-1.5 block">เริ่มใช้ (ถ้ามี)</label>
+                        <input type="date" value={promoForm.valid_from} onChange={e => setPromoForm(f => ({ ...f, valid_from: e.target.value }))}
+                          className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                      </div>
+                      <div>
+                        <label className="text-gray-400 text-xs font-bold mb-1.5 block">สิ้นสุด (ถ้ามี)</label>
+                        <input type="date" value={promoForm.valid_until} onChange={e => setPromoForm(f => ({ ...f, valid_until: e.target.value }))}
+                          className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 pt-2">
+                      <button onClick={() => { setShowPromoForm(false); setEditingPromoId(null); }}
+                        className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold py-3 rounded-xl transition-colors">
+                        ยกเลิก
+                      </button>
+                      <button onClick={savePromotion} disabled={promoSaving}
+                        className="flex-1 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors">
+                        {promoSaving ? 'กำลังบันทึก...' : editingPromoId ? '💾 บันทึกการแก้ไข' : '💾 สร้างโปรโมชั่น'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            );
+          })()}
+
           {/* ══ TAB: เงินเดือน ══════════════════════════════════════════════ */}
           {/* กันไว้อีกชั้นเหมือน settings — ไม่โชว์ในโหมดแคชเชียร์แม้จะเผลอตั้ง tab นี้ทางอ้อม */}
           {tab === 'payroll' && !cashierMode && (
@@ -8892,6 +9380,15 @@ export default function POSPage() {
               ))}
             </div>
             <div className="p-4 border-t border-gray-800 shrink-0 space-y-3">
+              {activePromotions.length > 0 && getApplicablePromotions().map(({ promo, label }) => (
+                <div key={promo.promo_id} className="bg-amber-950/40 border border-amber-700/50 rounded-xl px-3 py-2 flex items-center justify-between gap-2">
+                  <span className="text-amber-300 text-xs flex-1">🎉 {label}</span>
+                  <button onClick={() => applyPromotion(promo)}
+                    className="shrink-0 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors">
+                    ใช้โปรนี้
+                  </button>
+                </div>
+              ))}
               <div className="flex justify-between items-center">
                 <span className="text-gray-400 text-sm">รวมทั้งหมด</span>
                 <span className="text-white font-bold text-xl">฿{cartSubtotal.toLocaleString()}</span>
