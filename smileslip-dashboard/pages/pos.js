@@ -674,6 +674,10 @@ export default function POSPage() {
   const [reportBranch, setReportBranch] = useState('');
   const [reportStatusFilter, setReportStatusFilter] = useState('ทั้งหมด');
   const [reportTaxYear, setReportTaxYear] = useState(new Date().getFullYear());
+  // AI Executive Summary (งานกลยุทธ์ "6P Data Matrix" ข้อ 89 Phase 5) — สรุปผลประกอบการด้วย Gemini
+  const [aiSummaryText, setAiSummaryText] = useState('');
+  const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
+  const [aiSummaryError, setAiSummaryError] = useState('');
   const [expandedCredit, setExpandedCredit] = useState(null);
   const [creditPayChoice, setCreditPayChoice] = useState(null); // {billNo, source, custName, amount} — ให้เลือกเงินสด/โอนก่อนบันทึกรับชำระ
   const [expandedCyclicalCust, setExpandedCyclicalCust] = useState(null);
@@ -4338,6 +4342,27 @@ export default function POSPage() {
     setReportLoading(false);
   }
 
+  // AI Executive Summary (งานกลยุทธ์ "6P Data Matrix" ข้อ 89 Phase 5) — ใช้ตัวกรองวันที่/สาขาเดียวกับ
+  // ที่กำลังเลือกอยู่ในแท็บรายงาน ไม่มี date picker แยกของตัวเอง
+  async function fetchAiSummary() {
+    if (!shopId) return;
+    setAiSummaryLoading(true);
+    setAiSummaryText('');
+    setAiSummaryError('');
+    try {
+      const params = new URLSearchParams({ shopId });
+      if (reportDateFrom) params.set('dateFrom', reportDateFrom);
+      if (reportDateTo) params.set('dateTo', reportDateTo);
+      if (reportBranch) params.set('branch', reportBranch);
+      const r = await fetch(`/api/pos/ai-summary?${params}`);
+      const d = await r.json();
+      if (d.error) setAiSummaryError(d.error);
+      else if (d.summary) setAiSummaryText(d.summary);
+      else setAiSummaryError(d.fallback || 'ไม่สามารถสร้างสรุปได้ในขณะนี้');
+    } catch (e) { setAiSummaryError('ไม่สามารถสร้างสรุปได้ในขณะนี้'); }
+    setAiSummaryLoading(false);
+  }
+
   async function updateProcurementAlertStatus(id, status) {
     try {
       const r = await fetch('/api/pos/procurement-alerts', {
@@ -6868,11 +6893,30 @@ export default function POSPage() {
                         {b.label}
                       </button>
                     ))}
+                    <button onClick={fetchAiSummary} disabled={aiSummaryLoading}
+                      className="ml-auto text-xs bg-purple-800 hover:bg-purple-700 disabled:opacity-50 text-purple-200 px-3 py-1.5 rounded-lg border border-purple-700 transition-colors flex items-center gap-1">
+                      {aiSummaryLoading ? '⏳ กำลังสรุป...' : '🤖 สรุปให้ฉันฟัง'}
+                    </button>
                     <button onClick={() => setShowExportModal(true)}
-                      className="ml-auto text-xs bg-blue-800 hover:bg-blue-700 text-blue-200 px-3 py-1.5 rounded-lg border border-blue-700 transition-colors flex items-center gap-1">
+                      className="text-xs bg-blue-800 hover:bg-blue-700 text-blue-200 px-3 py-1.5 rounded-lg border border-blue-700 transition-colors flex items-center gap-1">
                       📤 Export Excel
                     </button>
                   </div>
+                  {(aiSummaryText || aiSummaryError) && (
+                    <div className="bg-purple-950/30 border border-purple-800/40 rounded-xl p-4">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="text-purple-300 text-xs font-bold flex items-center gap-1.5">🤖 สรุปโดย AI</div>
+                        <button onClick={() => { setAiSummaryText(''); setAiSummaryError(''); }}
+                          className="text-gray-500 hover:text-gray-300 text-xs">✕</button>
+                      </div>
+                      {aiSummaryText ? (
+                        <div className="text-gray-200 text-sm whitespace-pre-line leading-relaxed">{aiSummaryText}</div>
+                      ) : (
+                        <div className="text-gray-500 text-sm">{aiSummaryError}</div>
+                      )}
+                      <div className="text-gray-600 text-[10px] mt-2">สรุปจากตัวเลขในระบบเท่านั้น อาจคลาดเคลื่อนได้ — ใช้ประกอบการตัดสินใจ ไม่ใช่คำแนะนำทางการเงินที่รับประกันผล</div>
+                    </div>
+                  )}
                 </div>
 
                 {/* ── ประเภทรายงาน ── */}
