@@ -1507,7 +1507,7 @@ gcloud builds list --region asia-southeast1 --limit=5
 
 ### ต้องทำในโค้ด
 - [x] **Sheets column K/P/Q/R header patch** — ไม่ต้องทำมือแล้ว `getOrCreateYearSheet()` auto-patch header ที่ขาดให้ทุกครั้งที่บันทึกรายการใหม่ — แก้ไข 2026-06-28
-- [ ] **สร้าง shop_category_rules table** ใน Supabase (SQL: `CREATE TABLE shop_category_rules (id uuid DEFAULT gen_random_uuid() PRIMARY KEY, shop_id uuid REFERENCES shop_profiles(id) ON DELETE CASCADE, keyword text NOT NULL, category text NOT NULL, created_at timestamptz DEFAULT now(), UNIQUE(shop_id, keyword));`)
+- [x] **สร้าง shop_category_rules table** ใน Supabase — ✅ รันแล้ว 2026-08-16 verified ผ่าน insert/delete round-trip จริงบน production (ตารางมีข้อมูลจริงอยู่แล้ว 1 แถวตอนตรวจ — `learnKeyword()` ของบอทเริ่มบันทึกได้แล้ว)
 - [x] **บังคับ branch limit ตาม tier จริง** — แก้แล้ว `/api/shop/branches` POST เช็คจำนวนสาขาปัจจุบันเทียบ `MAX_BRANCHES` ตาม tier ก่อน insert แล้ว — 2026-07-15 (commit `e01c927`)
 - [x] **Stripe webhook idempotency** — แก้แล้ว insert `event.id` ลง `stripe_processed_events` ก่อนประมวลผล ข้ามถ้าซ้ำ — 2026-07-15 (commit `e01c927`, **ต้องรัน SQL สร้างตารางก่อนถึงจะกันซ้ำได้จริง** ดูหัวข้อ Supabase SQL ด้านบน)
 - [x] **ลบโค้ดที่ไม่ใช้แล้ว: `StampSVG`** — ลบแล้ว — 2026-07-15 (commit `e01c927`)
@@ -1714,7 +1714,7 @@ CREATE TABLE IF NOT EXISTS trial_used_line_ids (
 );
 ```
 
-**เพิ่มคอลัมน์ phone ใน shop_branches + branch_id ใน shop_bank_accounts (เบอร์โทร/บัญชีธนาคารแยกต่อสาขา — เพิ่ม 2026-08-09, ยังไม่ได้รัน):**
+**เพิ่มคอลัมน์ phone ใน shop_branches + branch_id ใน shop_bank_accounts (เบอร์โทร/บัญชีธนาคารแยกต่อสาขา — เพิ่ม 2026-08-09, ✅ รันแล้ว 2026-08-16 — verified บน production จริง: PATCH `shop_branches.phone` round-trip ถูกต้อง (เขียน→อ่าน→revert กลับ null), POST `shop_bank_accounts` พร้อม `branch_id` ผูกกับสาขาจริงสำเร็จ + GET filter `?branchId=` คืนเฉพาะบัญชีของสาขานั้นถูกต้อง — ลบข้อมูลทดสอบสะอาดหลังทดสอบ ไม่กระทบ 3 บัญชีจริงที่มีอยู่):**
 ก่อนรัน SQL นี้ ทุกอย่างยังทำงานปกติทุกประการ (ทดสอบแล้วจริง) — `api/shop/branches.js`
 เขียน `phone` แบบ best-effort แยกจาก insert/update หลักเสมอ (เหมือน `address`), `api/shop/bank-accounts.js`
 ลอง insert พร้อม `branch_id` ก่อนแล้ว fallback เป็น insert แบบเดิมถ้า error — ถ้าคอลัมน์เหล่านี้ยังไม่มี
@@ -1725,8 +1725,10 @@ ALTER TABLE shop_bank_accounts ADD COLUMN IF NOT EXISTS branch_id uuid REFERENCE
 ```
 
 **เพิ่มคอลัมน์ scb_biller_ref1 ใน pos_configs (Reference 1 — ฟิลด์บังคับตามสเปก ธปท. สำหรับ QR
-Bill Payment/Tag 30 ที่ขาดไปตั้งแต่สร้างฟีเจอร์ Biller ID — เพิ่ม 2026-08-09, **ยังไม่ได้รัน — บล็อก
-การสแกนจ่ายผ่าน Biller ID อยู่จริงตอนนี้ (เร่งด่วน มีลูกค้าจริงกำลังรอใช้งาน)** ดูรายละเอียดเต็มในข้อ 79):**
+Bill Payment/Tag 30 ที่ขาดไปตั้งแต่สร้างฟีเจอร์ Biller ID — เพิ่ม 2026-08-09, **✅ รันแล้ว 2026-08-16 —
+ผู้ใช้กรอก Biller ID + Reference 1 จริงในหน้าตั้งค่าแล้วด้วย verified บน production จริงว่า
+`GET /api/pos/pos-config` คืนค่าทั้งสองฟิลด์ถูกต้อง และ `GET /api/pos/promptpay-qr` สร้าง QR สำเร็จ
+(`method:'billpayment'`) — QR Bill Payment ใช้งานได้จริงแล้วตอนนี้ (ปลดบล็อกแล้ว)** ดูรายละเอียดเต็มในข้อ 79):**
 ก่อนรัน SQL นี้ ระบบยังทำงานปกติทุกอย่าง (ทดสอบแล้วจริง) — `api/pos/pos-config.js` แยกเขียน
 `scb_biller_ref1` เป็น query ต่างหากเสมอ (เหมือน `receipt_paper_size`/`vat_registered`) ถ้าคอลัมน์ยังไม่มี
 จะแค่บันทึกไม่ได้จริง ไม่ error/ไม่พังการตั้งค่าอื่น — **แต่ QR แบบ Bill Payment จะสแกนจ่ายไม่ได้จนกว่าจะรัน
