@@ -18,6 +18,9 @@
  *   price_tier → ช่วงราคาบิลที่ลูกค้าจ่ายบ่อย (terciles ต่ำ/กลาง/สูง แบบ quantile ไม่ hardcode
  *                ช่วงบาท) + สินค้าที่ขายดีคู่กันในบิลเดียวกัน (งานกลยุทธ์ "6P Data Matrix" ข้อ 89
  *                Phase 2/3) — ทุก tier ใช้ได้ ไม่ล็อกพิเศษ
+ *   peak_hours → ชั่วโมง/วันที่ขายดีของร้านตัวเอง (ไม่ anonymize ต่างจาก shop/heatmap.js's
+ *                Enterprise cross-shop Heatmap) ใช้จัดกะพนักงาน (งานกลยุทธ์ "6P Data Matrix"
+ *                ข้อ 89 Phase 4) — ทุก tier ใช้ได้ ไม่ล็อกพิเศษ
  *
  * Tier E (2026-07-25): รายการที่เป็น transaction log ล้วนๆ (ขาย/ยืม/รับสินค้า/รายจ่าย/ออเดอร์จัดส่ง)
  * อ่านจาก Supabase (pos_sales/pos_loans/pos_receives/pos_expenses/pos_delivery_orders) แทน Sheets แล้ว
@@ -85,6 +88,27 @@ function parseThaiBEDate(str) {
     if (!d || !m || !by) return null;
     const year = by > 2400 ? by - 543 : by;
     return new Date(year, m - 1, d);
+  } catch { return null; }
+}
+
+// เหมือน parseThaiBEDate() แต่เก็บเวลาไว้ด้วย (parseThaiBEDate ตัดทิ้งเพราะใช้กรอง dateFrom/dateTo
+// อย่างเดียว) — Peak Hours (type=peak_hours, ข้อ 89 Phase 4) ต้องการชั่วโมง/นาทีจริงถึงจะทำ
+// distribution ได้ — สร้าง Date ด้วย local constructor ล้วน (new Date(y,m,d,h,mi,s)) ไม่มีการแปลง
+// timezone เลยสักจุด จึงไม่มีความเสี่ยง double-shift แบบ getThaiDateTime() ของบอท — อ่าน
+// .getHours()/.getDay() กลับมาตรงกับที่ parse เข้าไปเป๊ะเสมอ (round-trip ผ่านแค่ local component ล้วน)
+function parseThaiBEDateTime(str) {
+  if (!str) return null;
+  try {
+    const parts = str.trim().split(/[, ]+/);
+    const [d, m, by] = parts[0].split('/').map(Number);
+    if (!d || !m || !by) return null;
+    const year = by > 2400 ? by - 543 : by;
+    let hour = 0, min = 0, sec = 0;
+    if (parts[1]) {
+      const t = parts[1].split(':').map(Number);
+      hour = t[0] || 0; min = t[1] || 0; sec = t[2] || 0;
+    }
+    return new Date(year, m - 1, d, hour, min, sec);
   } catch { return null; }
 }
 
@@ -883,6 +907,60 @@ export default async function handler(req, res) {
           champions: seg('champions'), loyal: seg('loyal'), new: seg('new'),
           regular: seg('regular'), at_risk: seg('at_risk'), lost: seg('lost'), dormant: seg('dormant'),
         },
+      });
+    }
+
+    // ── Peak Hours (ชั่วโมง/วันขายดีของร้านตัวเอง) — งานกลยุทธ์ "6P Data Matrix" ข้อ 89 Phase 4 ──
+    // ต่างจาก shop/heatmap.js's Enterprise Heatmap (ข้ามร้าน, ข้อมูล hash/anonymized, อ่านจาก
+    // slip_analytics) — อันนี้เจาะจงร้านตัวเองแบบไม่ anonymize (ไม่มีประเด็น PDPA เพราะเป็นเวลา
+    // ธุรกรรมของร้านเอง ไม่ใช่ข้อมูลระบุตัวตนลูกค้า) ใช้ประกอบจัดกะพนักงาน — ทุก tier ใช้ได้ ไม่ล็อก
+    // ตัด Geo/Regional Heatmap ออกจากสโคปนี้ตั้งแต่วางแผน (pos_contacts ไม่มีฟิลด์ province/district)
+    if (type === 'peak_hours') {
+      if (!(await requirePermission(req, res, shopId, 'perm_view_revenue'))) return;
+
+      const [posSales, deliveryOrders] = await Promise.all([
+        fetchSales(shopId), fetchDeliveryOrders(shopId),
+      ]);
+      // สนใจ "ความถี่ธุรกรรม" (ไว้จัดกะพนักงาน) ไม่ใช่รายได้จริง — นับทุกบิล/ออเดอร์ที่ไม่ถูกยกเลิก
+      // (รวมค้างจ่าย/รอจัดส่งด้วย เพราะเป็นช่วงเวลาที่ลูกค้า/พนักงานมีปฏิสัมพันธ์กันจริง ต่างจาก
+      // price_tier/customer_rfm ที่สนใจแค่รายได้จริงเท่านั้น)
+      let events = [
+        ...posSales.filter(s => s.status !== 'ยกเลิก').map(s => ({ created_at: s.created_at, total: s.total, branch: s.branch })),
+        ...deliveryOrders.filter(o => o.status !== 'ยกเลิก').map(o => ({ created_at: o.created_at, total: o.total, branch: '' })),
+      ];
+      if (branch) events = events.filter(e => e.branch === branch || (!e.branch && branch === branchName));
+      events = events.filter(e => inRange(e.created_at, from, to));
+
+      const grid = Array.from({ length: 7 }, () => Array(24).fill(0)); // grid[dayOfWeek 0-6][hour 0-23]
+      const hourCounts = Array(24).fill(0);
+      const dayCounts = Array(7).fill(0);
+      const hourRevenue = Array(24).fill(0);
+      let matched = 0;
+      for (const e of events) {
+        const dt = parseThaiBEDateTime(e.created_at);
+        if (!dt) continue;
+        const h = dt.getHours();
+        const d = dt.getDay();
+        grid[d][h]++;
+        hourCounts[h]++;
+        dayCounts[d]++;
+        hourRevenue[h] += e.total;
+        matched++;
+      }
+
+      let peakHour = 0, peakDay = 0;
+      hourCounts.forEach((v, i) => { if (v > hourCounts[peakHour]) peakHour = i; });
+      dayCounts.forEach((v, i) => { if (v > dayCounts[peakDay]) peakDay = i; });
+
+      const DAY_LABEL = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+
+      return res.json({
+        type: 'peak_hours',
+        grid, hourCounts, dayCounts,
+        hourRevenue: hourRevenue.map(v => Math.round(v * 100) / 100),
+        peakHour, peakDay, peakDayLabel: DAY_LABEL[peakDay],
+        dayLabels: DAY_LABEL,
+        summary: { total_transactions: matched },
       });
     }
 

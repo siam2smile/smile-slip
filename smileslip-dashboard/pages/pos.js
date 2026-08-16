@@ -6889,6 +6889,7 @@ export default function POSPage() {
                     { key: 'expenses',   label: '💸 รายจ่าย' },
                     { key: 'annual_tax', label: '📑 ภาษีปลายปี' },
                     { key: 'price_tier', label: '💵 ช่วงราคา/สินค้าคู่กัน' },
+                    { key: 'peak_hours', label: '⏰ ช่วงเวลาขายดี' },
                     // Enterprise เท่านั้น — ข้อมูลสมาชิกร้านจริง (ชื่อ/เบอร์โทร จาก pos_contacts)
                     // ไม่ใช่ sender_name จากสลิป (งานกลยุทธ์ "6P Data Matrix" ข้อ 89)
                     { key: 'customer_rfm', label: '👑 ลูกค้า VIP' },
@@ -7416,6 +7417,76 @@ export default function POSPage() {
                           </table>
                         </div>
                       </div>
+                    </div>
+                  );
+                })()}
+
+                {!reportLoading && reportData?.type === 'peak_hours' && (() => {
+                  const DAY_TH = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
+                  const grid = reportData.grid || [];
+                  const maxCell = Math.max(...grid.flat(), 1);
+                  const intensityBg = (v) => {
+                    const pct = v / maxCell;
+                    if (pct === 0) return 'bg-gray-800';
+                    if (pct < 0.2) return 'bg-amber-950';
+                    if (pct < 0.4) return 'bg-amber-800';
+                    if (pct < 0.6) return 'bg-amber-700';
+                    if (pct < 0.8) return 'bg-amber-600';
+                    return 'bg-amber-500';
+                  };
+                  const peakHour = reportData.peakHour ?? 0;
+                  const peakDay = reportData.peakDay ?? 0;
+                  const total = reportData.summary?.total_transactions || 0;
+                  return (
+                    <div className="space-y-4">
+                      <div className="bg-purple-950/40 border border-purple-800/50 rounded-xl px-4 py-2.5 text-purple-300 text-xs">
+                        ⏰ ช่วงเวลาที่ลูกค้ามาซื้อ/สั่งของบ่อยที่สุด (นับทุกบิล/ออเดอร์ที่ไม่ถูกยกเลิก) — ใช้จัดกะพนักงานให้ตรงกับช่วงที่ร้านคึกคักจริง
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-amber-950/40 border border-amber-800/40 rounded-xl p-4">
+                          <div className="text-amber-500 text-xs">ชั่วโมงขายดีที่สุด</div>
+                          <div className="text-2xl font-bold text-amber-300 mt-1">{peakHour}:00 น.</div>
+                          <div className="text-amber-600 text-xs mt-1">{(reportData.hourCounts?.[peakHour] || 0).toLocaleString()} รายการ</div>
+                        </div>
+                        <div className="bg-amber-950/40 border border-amber-800/40 rounded-xl p-4">
+                          <div className="text-amber-500 text-xs">วันขายดีที่สุด</div>
+                          <div className="text-2xl font-bold text-amber-300 mt-1">วัน{reportData.peakDayLabel}</div>
+                          <div className="text-amber-600 text-xs mt-1">{(reportData.dayCounts?.[peakDay] || 0).toLocaleString()} รายการ</div>
+                        </div>
+                      </div>
+
+                      {total === 0 ? (
+                        <div className="text-center text-gray-500 py-12">ยังไม่มีข้อมูลธุรกรรมในช่วงที่เลือก</div>
+                      ) : (
+                        <div className="bg-gray-900 rounded-xl p-4 overflow-x-auto">
+                          <div className="min-w-max">
+                            <div className="flex ml-8 mb-1 gap-px">
+                              {Array.from({ length: 24 }, (_, h) => (
+                                <div key={h} className={`w-5 text-center text-[8px] font-medium ${h === peakHour ? 'text-amber-400 font-black' : 'text-gray-600'}`}>{h}</div>
+                              ))}
+                            </div>
+                            {grid.map((row, d) => (
+                              <div key={d} className="flex items-center gap-px mb-px">
+                                <div className={`w-7 text-[9px] font-bold shrink-0 text-right pr-1 ${d === peakDay ? 'text-amber-400' : 'text-gray-500'}`}>{DAY_TH[d]}</div>
+                                {row.map((v, h) => (
+                                  <div key={h} title={`วัน${(reportData.dayLabels || [])[d] || ''} ${h}:00 — ${v} รายการ`}
+                                    className={`w-5 h-5 rounded-sm ${intensityBg(v)} transition-colors cursor-default`} />
+                                ))}
+                              </div>
+                            ))}
+                            <div className="flex items-center gap-2 mt-3 ml-8">
+                              <span className="text-[9px] text-gray-500">น้อย</span>
+                              {['bg-gray-800', 'bg-amber-950', 'bg-amber-800', 'bg-amber-700', 'bg-amber-600', 'bg-amber-500'].map((c, i) => (
+                                <div key={i} className={`w-4 h-3 rounded-sm ${c} border border-gray-700`} />
+                              ))}
+                              <span className="text-[9px] text-gray-500">มาก</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="text-gray-500 text-xs text-center">รวม {total.toLocaleString()} รายการในช่วงที่เลือก</div>
                     </div>
                   );
                 })()}
