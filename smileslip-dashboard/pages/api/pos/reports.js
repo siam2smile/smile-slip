@@ -775,7 +775,12 @@ export default async function handler(req, res) {
         const bucket = byCustomer[s.customer_id];
         bucket.total_spent += s.total;
         bucket.purchase_count += 1;
-        const t = new Date(s.created_at).getTime();
+        // s.created_at เป็นสตริงวันที่ไทย (D/M/BE H:MM:SS เช่น "8/8/2569 18:13:42") ไม่ใช่ ISO
+        // timestamp — เจอบั๊กจริงตอนทดสอบ: new Date(s.created_at) เดิมพัง "543 ปี" แบบเดียวกับที่
+        // เจอซ้ำหลายรอบทั่วโปรเจกต์ (JS แปลง "2569" เป็นปี ค.ศ. ตรงๆ ไม่ลบ 543 ก่อน) ต้องใช้
+        // parseThaiBEDate() ของไฟล์นี้เอง (ที่ sales/pl/vat ทุก type ใช้อยู่แล้ว) แทนเสมอ
+        const parsed = parseThaiBEDate(s.created_at);
+        const t = parsed ? parsed.getTime() : NaN;
         if (!isNaN(t) && (!bucket.last_purchase_at || t > bucket.last_purchase_at)) bucket.last_purchase_at = t;
       }
 
