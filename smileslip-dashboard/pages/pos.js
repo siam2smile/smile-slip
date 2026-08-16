@@ -1388,7 +1388,7 @@ export default function POSPage() {
     } catch {}
   }
 
-  async function fetchSales(sid = shopId, date = reportDate) {
+  async function fetchSales(sid = shopId, date = '') {
     if (!sid) return;
     setSalesLoading(true);
     let url = `/api/pos/sales?shopId=${sid}`;
