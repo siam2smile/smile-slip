@@ -15,6 +15,9 @@
  *                shop_profiles.user_type ดูคำเตือนเรื่องความแม่นยำใน lib/tax-estimate.js
  *   customer_rfm → Customer 360/RFM ของสมาชิกร้าน (pos_contacts เท่านั้น — ไม่ใช่ sender_name
  *                จากสลิป, งานกลยุทธ์ "6P Data Matrix" ข้อ 89) — Enterprise เท่านั้น
+ *   price_tier → ช่วงราคาบิลที่ลูกค้าจ่ายบ่อย (terciles ต่ำ/กลาง/สูง แบบ quantile ไม่ hardcode
+ *                ช่วงบาท) + สินค้าที่ขายดีคู่กันในบิลเดียวกัน (งานกลยุทธ์ "6P Data Matrix" ข้อ 89
+ *                Phase 2/3) — ทุก tier ใช้ได้ ไม่ล็อกพิเศษ
  *
  * Tier E (2026-07-25): รายการที่เป็น transaction log ล้วนๆ (ขาย/ยืม/รับสินค้า/รายจ่าย/ออเดอร์จัดส่ง)
  * อ่านจาก Supabase (pos_sales/pos_loans/pos_receives/pos_expenses/pos_delivery_orders) แทน Sheets แล้ว
@@ -311,7 +314,7 @@ export default async function handler(req, res) {
     // เรียกจากหน้าพนักงาน (pos-staff.js/แคชเชียร์ แนบ x-staff-session มาด้วย) — ต้องมีสิทธิ์ที่
     // เกี่ยวข้องถึงจะดูได้ (ตรวจผ่าน session ที่เซ็นชื่อ ไม่ใช่ staffId เปล่าๆ ใน query ที่ปลอมได้
     // แบบเดิม) — เจ้าของร้าน/แอดมิน (pos.js เรียกตรง ไม่มี session) ไม่ถูกกระทบเลย
-    if (type === 'sales' || type === 'topsellers') {
+    if (type === 'sales' || type === 'topsellers' || type === 'price_tier') {
       if (!(await requirePermission(req, res, shopId, 'perm_view_revenue'))) return;
     }
     if (type === 'pl') {
@@ -743,6 +746,64 @@ export default async function handler(req, res) {
           subtotal: expenses.reduce((a, e) => a + e.subtotal, 0),
           vat: expenses.reduce((a, e) => a + e.vat_amount, 0),
         },
+      });
+    }
+
+    // ── Price Tier + สินค้าขายดีคู่กัน — งานกลยุทธ์ "6P Data Matrix" ข้อ 89 Phase 2/3 ──────
+    // "ราคายอดโอน" ในเอกสารเสนอ = ยอดรวมต่อบิลที่ลูกค้าจ่ายจริง (gross รวม VAT) ไม่ใช่ราคาต่อ
+    // ชิ้นสินค้า/ฐานก่อน VAT แบบ pl/topsellers — เพราะโจทย์คือ "ลูกค้ายอมจ่ายช่วงราคาไหนบ่อยสุด"
+    // (พฤติกรรมการจ่ายเงินจริง ไม่ใช่กำไร) จึงใช้ s.total ดิบตรงๆ
+    if (type === 'price_tier') {
+      const [posSales, deliveryOrders, products] = await Promise.all([
+        fetchSales(shopId), fetchDeliveryOrders(shopId), fetchProducts(shopId),
+      ]);
+      const deliverySales = deliveryOrders.filter(o => o.status === 'ส่งแล้ว').map(deliveryOrderToSaleShape);
+      let bills = [...posSales, ...deliverySales]
+        .filter(s => s.bill_no && s.status !== 'ยกเลิก' && s.status !== 'ค้างชำระ');
+      if (branch) bills = bills.filter(s => s.branch === branch || (!s.branch && branch === branchName));
+      bills = bills.filter(s => inRange(s.created_at, from, to));
+
+      // terciles แบบ quantile (แบ่งตามลำดับ ไม่ใช่ช่วงบาทตายตัว) — ร้านแต่ละแบบราคาต่างกันมาก
+      // (ร้านแก๊ส ฿30-3000 vs ร้านอื่น) hardcode ช่วงบาทจะใช้ไม่ได้ข้ามประเภทร้าน
+      const sorted = [...bills].sort((a, b) => a.total - b.total);
+      const n = sorted.length;
+      const lowEnd = Math.floor(n / 3);
+      const midEnd = Math.floor((2 * n) / 3);
+      const tierGroups = { low: sorted.slice(0, lowEnd), mid: sorted.slice(lowEnd, midEnd), high: sorted.slice(midEnd, n) };
+      const tierLabel = { low: 'ต่ำ', mid: 'กลาง', high: 'สูง' };
+      const tiers = Object.entries(tierGroups).map(([key, group]) => {
+        const totalRevenue = group.reduce((a, b) => a + b.total, 0);
+        return {
+          tier: key, label: tierLabel[key], count: group.length,
+          total_revenue: Math.round(totalRevenue * 100) / 100,
+          avg_bill: group.length ? Math.round((totalRevenue / group.length) * 100) / 100 : 0,
+          min: group.length ? group[0].total : 0, max: group.length ? group[group.length - 1].total : 0,
+        };
+      });
+
+      // สินค้าขายดีคู่กัน — นับคู่ SKU ที่ปรากฏร่วมกันในบิลเดียวกัน (market-basket แบบง่าย)
+      const nameMap = {};
+      products.forEach(p => { nameMap[p.sku] = p.name; });
+      const pairCounts = {};
+      for (const bill of bills) {
+        const skus = [...new Set((bill.items || []).map(i => i.sku).filter(Boolean))];
+        for (let i = 0; i < skus.length; i++) {
+          for (let j = i + 1; j < skus.length; j++) {
+            const key = [skus[i], skus[j]].sort().join('|');
+            pairCounts[key] = (pairCounts[key] || 0) + 1;
+          }
+        }
+      }
+      const pairs = Object.entries(pairCounts)
+        .sort((a, b) => b[1] - a[1]).slice(0, 15)
+        .map(([key, count]) => {
+          const [skuA, skuB] = key.split('|');
+          return { skuA, nameA: nameMap[skuA] || skuA, skuB, nameB: nameMap[skuB] || skuB, count };
+        });
+
+      return res.json({
+        type: 'price_tier', tiers, pairs,
+        summary: { total_bills: n, total_revenue: Math.round(sorted.reduce((a, b) => a + b.total, 0) * 100) / 100 },
       });
     }
 

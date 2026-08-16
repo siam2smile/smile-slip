@@ -6888,6 +6888,7 @@ export default function POSPage() {
                     { key: 'vat',        label: '🧾 ภาษี VAT' },
                     { key: 'expenses',   label: '💸 รายจ่าย' },
                     { key: 'annual_tax', label: '📑 ภาษีปลายปี' },
+                    { key: 'price_tier', label: '💵 ช่วงราคา/สินค้าคู่กัน' },
                     // Enterprise เท่านั้น — ข้อมูลสมาชิกร้านจริง (ชื่อ/เบอร์โทร จาก pos_contacts)
                     // ไม่ใช่ sender_name จากสลิป (งานกลยุทธ์ "6P Data Matrix" ข้อ 89)
                     { key: 'customer_rfm', label: '👑 ลูกค้า VIP' },
@@ -7367,6 +7368,53 @@ export default function POSPage() {
                         อ้างอิงจาก {s.total_revenue > 0 || reportData.expenseCount > 0 || reportData.payrollCount > 0
                           ? `ยอดขาย/รายจ่าย/เงินเดือนที่บันทึกในระบบปี ${reportData.year}`
                           : `ยังไม่มีข้อมูลบันทึกไว้ในปี ${reportData.year}`}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {!reportLoading && reportData?.type === 'price_tier' && (() => {
+                  const TIER_COLOR = { low: 'text-gray-300', mid: 'text-blue-400', high: 'text-amber-400' };
+                  return (
+                    <div className="space-y-4">
+                      <div className="bg-purple-950/40 border border-purple-800/50 rounded-xl px-4 py-2.5 text-purple-300 text-xs">
+                        💵 แบ่งบิลเป็น 3 กลุ่มเท่าๆ กันตามยอดที่ลูกค้าจ่ายจริง (ต่ำ/กลาง/สูง) — ดูว่าช่วงราคาไหนขายบ่อยสุด/ทำเงินสุด
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {(reportData.tiers || []).map(t => (
+                          <div key={t.tier} className="bg-gray-800 rounded-xl p-4">
+                            <div className={`text-sm font-bold mb-2 ${TIER_COLOR[t.tier]}`}>ช่วง{t.label} (฿{t.min.toLocaleString()} – ฿{t.max.toLocaleString()})</div>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              <div><div className="text-gray-500">จำนวนบิล</div><div className="text-white font-medium">{t.count.toLocaleString()}</div></div>
+                              <div><div className="text-gray-500">ยอดรวม</div><div className="text-green-400 font-medium">฿{t.total_revenue.toLocaleString()}</div></div>
+                              <div className="col-span-2"><div className="text-gray-500">เฉลี่ยต่อบิล</div><div className="text-white font-medium">฿{t.avg_bill.toLocaleString()}</div></div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="bg-gray-900 rounded-xl overflow-hidden">
+                        <div className="px-3 py-2 border-b border-gray-800 text-gray-400 text-xs font-medium">🔗 สินค้าที่ลูกค้าซื้อคู่กันบ่อยที่สุด</div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead><tr className="border-b border-gray-800">
+                              <th className="text-left text-gray-400 px-3 py-2">คู่สินค้า</th>
+                              <th className="text-right text-gray-400 px-3 py-2">จำนวนบิลที่ซื้อคู่กัน</th>
+                            </tr></thead>
+                            <tbody>
+                              {(reportData.pairs || []).map((p, i) => (
+                                <tr key={i} className="border-b border-gray-800/50">
+                                  <td className="px-3 py-2 text-white">{p.nameA} <span className="text-gray-600">×</span> {p.nameB}</td>
+                                  <td className="px-3 py-2 text-right text-blue-400 font-medium">{p.count.toLocaleString()} บิล</td>
+                                </tr>
+                              ))}
+                              {(reportData.pairs || []).length === 0 && (
+                                <tr><td colSpan={2} className="text-center text-gray-500 py-8">ยังไม่มีบิลที่ซื้อสินค้าหลายชิ้นพร้อมกัน</td></tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     </div>
                   );
