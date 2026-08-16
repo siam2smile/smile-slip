@@ -8340,18 +8340,21 @@ export default function POSPage() {
               "เพิ่มพนักงาน" จากที่อื่นในหน้านี้ (ปุ่มลัดไม่ได้เช็ค cashierMode) ไม่ใช่แค่ซ่อนปุ่มแท็บเฉยๆ */}
           {tab === 'settings' && !cashierMode && (
             <div className="h-full overflow-y-auto">
-              <div className="p-4 max-w-xl mx-auto space-y-6">
-                {/* หมวดหมู่การตั้งค่า — เลื่อนดูทีละหมวดแทนการเลื่อนหน้ายาวเดียว */}
-                <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+              <div className="p-4 max-w-5xl mx-auto md:flex md:gap-6 md:items-start">
+                {/* หมวดหมู่การตั้งค่า — แถบด้านข้างบนจอกว้าง (แท็บเล็ต/คอม), ปุ่มเลื่อนแนวนอนบนจอมือถือ
+                    (จอแคบมีแถบด้านข้างถาวรจะกินพื้นที่มากเกินไป — ใช้ responsive แทนเปลี่ยนทั้งระบบ) */}
+                <div className="flex gap-2 overflow-x-auto pb-3 -mx-1 px-1 md:flex-col md:overflow-visible md:gap-1.5 md:w-52 md:shrink-0 md:sticky md:top-4 md:px-0 md:mx-0 md:pb-0">
                   {SETTINGS_CATEGORIES.map(c => (
                     <button key={c.key} type="button" onClick={() => setSettingsCategory(c.key)}
-                      className={`shrink-0 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${
+                      className={`shrink-0 md:w-full text-center md:text-left px-4 py-2 md:py-2.5 rounded-full md:rounded-xl text-xs font-bold whitespace-nowrap transition-colors ${
                         settingsCategory === c.key ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700'
                       }`}>
                       {c.label}
                     </button>
                   ))}
                 </div>
+
+                <div className="space-y-6 min-w-0 md:flex-1">
 
                 {settingsCategory === 'links' && (<>
                 {/* Staff PIN — เปลี่ยนเป็น PIN รายบุคคลแล้ว ตั้ง/รีเซ็ตได้ที่แท็บ "พนักงาน" ด้านล่าง */}
@@ -8817,6 +8820,7 @@ export default function POSPage() {
                 >
                   {settingsSaving ? 'กำลังบันทึก...' : '💾 บันทึกตั้งค่า'}
                 </button>
+                </div>
               </div>
             </div>
           )}
