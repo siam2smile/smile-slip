@@ -778,6 +778,13 @@ export default async function handler(req, res) {
     // ชิ้นสินค้า/ฐานก่อน VAT แบบ pl/topsellers — เพราะโจทย์คือ "ลูกค้ายอมจ่ายช่วงราคาไหนบ่อยสุด"
     // (พฤติกรรมการจ่ายเงินจริง ไม่ใช่กำไร) จึงใช้ s.total ดิบตรงๆ
     if (type === 'price_tier') {
+      if (!(await requirePermission(req, res, shopId, 'perm_view_revenue'))) return;
+      const { data: strategyShopRow } = await supabase.from('shop_profiles')
+        .select('subscription_tier').eq('id', shopId).maybeSingle();
+      if (!hasFeature((strategyShopRow?.subscription_tier || 'normal').toLowerCase(), 'strategy_analytics')) {
+        return res.status(403).json({ error: upgradeMessage('strategy_analytics'), featureLocked: true });
+      }
+
       const [posSales, deliveryOrders, products] = await Promise.all([
         fetchSales(shopId), fetchDeliveryOrders(shopId), fetchProducts(shopId),
       ]);
@@ -913,10 +920,16 @@ export default async function handler(req, res) {
     // ── Peak Hours (ชั่วโมง/วันขายดีของร้านตัวเอง) — งานกลยุทธ์ "6P Data Matrix" ข้อ 89 Phase 4 ──
     // ต่างจาก shop/heatmap.js's Enterprise Heatmap (ข้ามร้าน, ข้อมูล hash/anonymized, อ่านจาก
     // slip_analytics) — อันนี้เจาะจงร้านตัวเองแบบไม่ anonymize (ไม่มีประเด็น PDPA เพราะเป็นเวลา
-    // ธุรกรรมของร้านเอง ไม่ใช่ข้อมูลระบุตัวตนลูกค้า) ใช้ประกอบจัดกะพนักงาน — ทุก tier ใช้ได้ ไม่ล็อก
+    // ธุรกรรมของร้านเอง ไม่ใช่ข้อมูลระบุตัวตนลูกค้า) ใช้ประกอบจัดกะพนักงาน — ล็อก Enterprise
+    // เหมือนส่วนอื่นของ "6P Data Matrix" ตามที่ผู้ใช้ตัดสินใจ (2026-08-16, เดิมไม่ล็อก)
     // ตัด Geo/Regional Heatmap ออกจากสโคปนี้ตั้งแต่วางแผน (pos_contacts ไม่มีฟิลด์ province/district)
     if (type === 'peak_hours') {
       if (!(await requirePermission(req, res, shopId, 'perm_view_revenue'))) return;
+      const { data: strategyShopRow2 } = await supabase.from('shop_profiles')
+        .select('subscription_tier').eq('id', shopId).maybeSingle();
+      if (!hasFeature((strategyShopRow2?.subscription_tier || 'normal').toLowerCase(), 'strategy_analytics')) {
+        return res.status(403).json({ error: upgradeMessage('strategy_analytics'), featureLocked: true });
+      }
 
       const [posSales, deliveryOrders] = await Promise.all([
         fetchSales(shopId), fetchDeliveryOrders(shopId),

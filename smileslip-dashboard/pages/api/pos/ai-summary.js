@@ -18,10 +18,16 @@
  * Fail-safe เสมอทุกจุด — ถ้าไม่มีข้อมูลพอ/Gemini ล่ม/ไม่ได้ตั้ง GEMINI_API_KEY จะคืน 200 พร้อม
  * {summary:null, fallback:'...'} เสมอ ไม่ throw/500 ทำให้หน้ารายงานพัง (เป็นแค่ปุ่มเสริม ไม่ใช่ core flow)
  */
+import { createClient } from '@supabase/supabase-js';
 import { requirePermission } from '../../../lib/pos-auth';
+import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
+);
 
 async function fetchInternalReport(baseUrl, shopId, type, params, forwardHeaders) {
   try {
@@ -44,6 +50,12 @@ export default async function handler(req, res) {
   // gate ด้วยสิทธิ์ที่ครอบคลุมที่สุด (perm_view_pl) เพราะสรุปนี้รวมกำไร-ขาดทุนไว้ด้วยเสมอ — เจ้าของ
   // ร้าน/แอดมิน (ไม่มี staff-session เลย) ไม่ถูกกระทบ ผ่านเสมอเหมือนทุก report type อื่น
   if (!(await requirePermission(req, res, shopId, 'perm_view_pl'))) return;
+
+  // สรุปยอด AI เป็นส่วนหนึ่งของ "6P Data Matrix" — ล็อก Enterprise เหมือนส่วนอื่นทั้งชุด
+  const { data: shopRow } = await supabase.from('shop_profiles').select('subscription_tier').eq('id', shopId).maybeSingle();
+  if (!hasFeature((shopRow?.subscription_tier || 'normal').toLowerCase(), 'strategy_analytics')) {
+    return res.status(403).json({ error: upgradeMessage('strategy_analytics'), featureLocked: true });
+  }
 
   const forwardHeaders = {};
   const ownerToken = req.headers['x-owner-session'] || req.query?.ownerSession;

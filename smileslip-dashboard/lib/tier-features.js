@@ -29,6 +29,10 @@ export function hasFeature(tier, feature) {
   // จากสลิป) ล็อก Enterprise เท่านั้นตามที่ผู้ใช้ยืนยัน (เทียบเท่าระดับเดียวกับ Marketing
   // Intelligence เดิมที่ใช้ข้อมูล hash — งานกลยุทธ์ "6P Data Matrix" ข้อ 89)
   if (feature === 'customer_360_rfm') return level >= TIER_LEVEL.enterprise;
+  // ส่วนที่เหลือของงานกลยุทธ์ "6P Data Matrix" เดียวกัน (ช่วงราคา/สินค้าคู่กัน, ชั่วโมงขายดี,
+  // สรุปยอด AI) — ผู้ใช้ตัดสินใจ (2026-08-16) ให้ล็อก Enterprise ทั้งชุดเพื่อสร้างความแตกต่างจาก
+  // แพ็กเกจอื่นชัดเจน (แยกคีย์จาก customer_360_rfm เผื่ออนาคตอยากแยก gate กัน)
+  if (feature === 'strategy_analytics') return level >= TIER_LEVEL.enterprise;
 
   if (GATED_AT_PRO_ONLY.has(feature)) {
     // Shop Pro (pro) ล็อกเฉพาะ 3 ฟีเจอร์นี้ — ส่วน normal (trial/ร้านเก่า grandfather) และ advance ขึ้นไปผ่านหมด
@@ -48,6 +52,7 @@ export const FEATURE_LABEL = {
   market_price_index: 'ดัชนีราคากลาง + ตรวจทุจริตจัดซื้อ',
   white_label: 'White-Label (ลบชื่อ Smile Slip Pro ออกจากใบเสร็จ/ใบกำกับภาษี/รายงาน)',
   customer_360_rfm: 'Customer 360 / วิเคราะห์กลุ่มลูกค้าสมาชิกร้าน (RFM)',
+  strategy_analytics: 'วิเคราะห์เชิงกลยุทธ์ (ช่วงราคา/สินค้าคู่กัน/ชั่วโมงขายดี/สรุปยอด AI)',
 };
 
 const TIER_LABEL = { normal: 'Starter', pro: 'Shop Pro', advance: 'Advance', business: 'Business', enterprise: 'Enterprise' };
