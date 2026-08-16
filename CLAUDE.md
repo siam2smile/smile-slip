@@ -898,7 +898,7 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
     - **Deploy production แล้ว (2026-08-15)** — 2 deploy แยก: revert `shop/data.js` (revision จริง `smileslip-dashboard-00328-dp6`), แก้ `analytics-pdf.js` (revision จริง `smileslip-dashboard-00329-p99`) — ข้อความ deploy โชว์ revision เดิมผิดทั้ง 2 รอบตามเคย เช็คด้วย `gcloud run revisions list --sort-by=~metadata.creationTimestamp` แล้ว pin traffic เอง — verified บน production จริงทั้งคู่
     - **ยังไม่ได้ทำ (ตามมาจากบั๊ก 1):** signed deep-link token ให้ `transaction/edit.js` (บอทต้องเซ็น token แนบลิงก์ "แก้ไขข้อมูล" เอง — งานฝั่งบอท ต้อง deploy `smileslip-service` แยก) ก่อนถึงจะปิด `shop/data.js`'s `enforce:true` ได้อีกครั้งอย่างปลอดภัยเต็มรูปแบบ — ตอนนี้ endpoint นี้เหลือแค่การป้องกัน "token ผิด shopId ต้องบล็อก" ยังไม่ได้บล็อก "ไม่มี token เลย"
 
-89. **งานกลยุทธ์ "6P Data Matrix + SPICE Framework" (จากไฟล์ `new future.txt`) — Phase 1 (Customer 360/RFM) + Phase 2-3 (Price Tier + Product Cross-Analysis) เสร็จสมบูรณ์ deploy production แล้ว — Phase 4 (Peak Hours) + Phase 5 (AI Executive Summary) ยังไม่ได้เริ่ม:**
+89. **งานกลยุทธ์ "6P Data Matrix + SPICE Framework" (จากไฟล์ `new future.txt`) — ครบทั้ง 5 เฟส (Customer 360/RFM, Price Tier, Product Cross-Analysis, Peak Hours, AI Executive Summary) เสร็จสมบูรณ์ deploy production แล้วทั้งหมด:**
     - **บริบท:** ต่อจากที่ข้อ 88 ทิ้งไว้ว่า "ยังไม่ได้เริ่มเขียนโค้ดส่วนไหนเลย รอ scope เพิ่มเติม" — ผู้ใช้ตอบคำถามยืนยันสโคปผ่าน AskUserQuestion 2 ข้อ: (1) Customer 360/RFM ต้องดึงจาก `pos_contacts` เท่านั้น (สมาชิกร้านที่สมัครยินยอมให้ข้อมูลกับร้านตรงๆ — คนละเรื่องจาก `sender_name` ที่มาจากสลิปโอนเงินของบุคคลภายนอกที่ไม่เคยยินยอมอะไรเลย) ไม่ผสมกับ `sender_name`/hash-based data (2) ล็อกฟีเจอร์นี้ที่ Enterprise เท่านั้น (เทียบเท่าระดับเดียวกับ Marketing Intelligence เดิมที่ใช้ข้อมูล hash) — วางแผนแบบ Plan Mode ก่อนเริ่ม แบ่ง 5 เฟส ผู้ใช้อนุมัติแผนเต็มแล้วสั่ง "ทำ Phase 2 ต่อเลย" หลัง Phase 1 เสร็จ (Phase 2-3 รวมอยู่ใน UI เดียวกันตามแผนเดิม)
     - **Phase 1 — Customer 360 / RFM (สมาชิกร้าน, Enterprise เท่านั้น):** เพิ่ม `type=customer_rfm` ใน `reports.js` — join `pos_contacts` (เฉพาะ `contact_type` เป็นลูกค้า/ทั้งคู่) กับสรุปยอดจาก `pos_sales`+`pos_delivery_orders` (group by `customer_id`, กรองบิลที่ยกเลิก/ค้างชำระออก) → คำนวณ `last_purchase_at`/`purchase_count`/`total_spent` จริง (ไม่ bucket เหมือน `heatmap.js` เดิมเพราะข้อมูลไม่ต้อง anonymize) → R-score/F-score (threshold เดียวกับ `heatmap.js` เดิม เพื่อศัพท์สอดคล้องกันทั้งระบบ) → 7 segment (champions/loyal/new/regular/at_risk/lost/dormant) — เพิ่ม `hasFeature(tier,'customer_360_rfm')` ใน `lib/tier-features.js` (Enterprise เท่านั้น) + `minTierFor()`/`TIER_LABEL` helper ใหม่ (แก้ผลข้างเคียงที่ `upgradeMessage()` เดิม hardcode "Advance ขึ้นไป" ทุกฟีเจอร์เหมือนกันหมด ทั้งที่บางฟีเจอร์ล็อกที่ Enterprise — ข้อความเดิมบอกผิด tier มาตลอดสำหรับ `market_price_index`/`white_label` ด้วย ไม่ใช่แค่ฟีเจอร์ใหม่นี้)
     - **Phase 2-3 — Price Tier Analytics + Product Cross-Analysis (ทุก tier ใช้ได้ ไม่ล็อก):** เพิ่ม `type=price_tier` ใน `reports.js` — แบ่งบิล (รวม `pos_sales`+ออเดอร์จัดส่งที่ "ส่งแล้ว") เป็น 3 กลุ่มเท่าๆ กันตามยอดจริง (tercile แบบ quantile-based ไม่ hardcode ช่วงบาทตายตัว เพราะร้านแต่ละประเภทราคาต่างกันมาก เช่น ร้านแก๊ส ฿30-8,700) — คู่กับ market-basket แบบง่าย (นับคู่ SKU ที่ปรากฏร่วมกันในบิลเดียวกัน, top 15 คู่ที่ขายด้วยกันบ่อยสุด)
@@ -951,6 +951,20 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
       - **Deploy production แล้ว (2026-08-16)** — revision จริง `smileslip-dashboard-00336-w7b` (deploy รอบนี้ผ่านสำเร็จโดยไม่เจอ `429` เหมือนหลายรอบก่อนหน้า) — เช็คด้วย `gcloud run revisions list --sort-by=~metadata.creationTimestamp` แล้ว pin traffic เอง ตรวจ env vars ไม่มีเครื่องหมายคำพูดหลงเหลือก่อน route แล้วยิง `/api/shop/data` ยืนยัน 200 ก่อน pin traffic — **verified บน production จริงทั้งสองหน้า** เปิด `/terms`/`/privacy` จริงอ่านเนื้อหาครบถ้วนตรงกับที่แก้
     - **ยังไม่ได้ทำ (flag ไว้เป็นงานต่อ, ไม่กระทบผู้ใช้จริงตอนนี้):** `transaction/edit.js`'s signed deep-link token จากบอท (ข้อ 88's known gap) — ผู้ใช้ขอให้ทำต่อในเซสชันเดียวกันนี้ แต่ priority ให้ SQL verification + terms/privacy ก่อน ยังไม่ได้เริ่มเขียนโค้ดส่วนนี้เลย
 
+91. **ชุดฟีเจอร์ 8 ข้อจากไฟล์แผนใหญ่ที่ผู้ใช้ขอให้สรุปก่อนแล้วค่อยเริ่มทำทีละข้อจากง่ายไปยาก ("เริ่มทำได้ ทีละข้อที่ง่ายก่อน") — ทำครบทุกข้อที่อนุมัติแล้ว deploy production ทีละก้อนตามลำดับ:**
+    - **ลบการ์ด Delivery เก่าออกจากหน้าแรกแดชบอร์ด** (`dashboard.js`) — ผู้ใช้ยืนยัน "ยืนยันลบได้เลย"
+    - **หน้าตั้งค่า POS เปลี่ยนเป็น sidebar บนจอกว้าง** (`pos.js`) — จอแท็บเล็ต/คอม (`md:` ขึ้นไป) แสดงหมวดหมู่การตั้งค่าเป็นแถบด้านข้างถาวร (sticky) แทนปุ่มเลื่อนแนวนอนอย่างเดียว จอมือถือยังคงปุ่มเลื่อนแนวนอนเดิม — responsive purely ด้วย Tailwind class ไม่แตะ logic เดิมของแต่ละหมวดหมู่เลย — **Deploy รวมกับข้อถัดไป (revision `smileslip-dashboard-00337-wqv`)**
+    - **สแกนบาร์โค้ดในหน้าขาย (USB + Bluetooth)** — ตัดสินใจใช้ pattern keyboard-wedge (เครื่องสแกนแทบทุกรุ่น ทั้ง USB และ Bluetooth โหมด HID จับคู่ผ่านตั้งค่า Bluetooth ของเครื่องเหมือนคีย์บอร์ดไร้สาย แล้ว "พิมพ์" รหัสตามด้วย Enter เข้าช่องที่มี focus) แทน Web Bluetooth GATT API (ซึ่งเหมาะกับ printer/cash-drawer มากกว่า ไม่ใช่มาตรฐานของเครื่องสแกนบาร์โค้ดทั่วไป) — เพิ่ม `onKeyDown` ให้ช่องค้นหาสินค้าเดิมในแท็บขาย: กด Enter แล้วเจอสินค้าตรงเป๊ะ (บาร์โค้ด/SKU/รหัสสินค้า) หรือกรองเหลือรายการเดียว → เพิ่มลงตะกร้าอัตโนมัติ + เคลียร์ช่องพร้อมสแกนตัวถัดไปทันที
+    - **เปิดให้ลูกค้ากรอกคูปองส่วนลดเองตอนสมัครแพ็กเกจ** (`create-checkout-session.js`) — ตรวจโค้ดก่อนแก้พบว่า **ระบบโปรโมชั่นที่ร้าน/บริษัทตั้งเอง (merchant-triggered auto-discount) มีอยู่แล้วสมบูรณ์** (`admin_settings.active_promotion` → สร้าง Stripe coupon อัตโนมัติผ่าน `api/admin/promotion.js` → auto-apply ทั้งตอน checkout ใหม่และตอน upgrade subscription — มี UI เต็มที่ `admin.js` แท็บ "โปรโมชั่น" อยู่แล้ว ไม่ต้องสร้างใหม่) — สิ่งที่ขาดจริงมีแค่ครึ่งเดียว: เพิ่ม `allow_promotion_codes:true` เมื่อไม่มีโปรที่ร้านตั้งเอง active อยู่ (Stripe ไม่ให้ใช้คู่กับ `discounts` ที่ auto-apply พร้อมกันในคำขอเดียว) — ทดสอบสร้าง Checkout Session จริงทั้ง 2 branch ผ่าน Stripe live API (สร้างแล้ว expire ทันที ไม่มีการชำระเงินจริง) ยืนยันไม่มี error ทั้งคู่ — **Deploy รวมกับข้อ barcode (revision `smileslip-dashboard-00338-sn9`)**
+    - **ล็อกงานกลยุทธ์ "6P Data Matrix" (price_tier/peak_hours/ai-summary) ไว้ที่ Enterprise** — เดิม `customer_rfm` ล็อกไว้แล้วตั้งแต่ข้อ 89 แต่ 3 ส่วนที่เหลือ (Phase 2-5) ไม่ได้ล็อก — ผู้ใช้ตัดสินใจให้ทั้งชุดเป็น Enterprise-only เพื่อสร้างความแตกต่างชัดเจนจากแพ็กเกจอื่น — เพิ่ม feature key ใหม่ `strategy_analytics` ใน `lib/tier-features.js` (แยกจาก `customer_360_rfm` เผื่ออนาคตอยากแยก gate กัน) — ถือโอกาสเพิ่ม `requirePermission` ให้ `price_tier` ที่ขาดไปด้วย (จุดเดียวใน 4 endpoint ที่ไม่มี staff-permission gate เลยตั้งแต่สร้าง) — ทดสอบสลับ tier ร้าน D Gas ชั่วคราว (business↔enterprise) ยืนยัน 403/200 ถูกต้องครบทั้ง 3 endpoint + regression `customer_rfm`/`sales` ไม่ถูกกระทบ
+    - **เพิ่มการ์ดสรุป "6P Data Matrix" ในแท็บ "กราฟวิเคราะห์" ของแดชบอร์ดหลัก** (`dashboard.js`) — ผู้ใช้ระบุชัดเจนว่าต้องอยู่ในแท็บนี้ (ไม่ใช่แค่หน้า POS) พร้อม breakdown ต่อสาขา — ใช้ตัวกรองสาขาเดียวกับกราฟวิเคราะห์เดิม (`analyticsBranch`, ตาราง `shop_branches` ใช้ร่วมกันระหว่าง ledger/POS อยู่แล้ว) เรียก `/api/pos/reports`+`/api/pos/ai-summary` แบบเดียวกับที่ `pos.js` ใช้ — สรุป Customer 360 (segment chips), Price Tier (การ์ด 3 กลุ่ม + สินค้าคู่กัน), Peak Hours (จุดขายดีที่สุด), ปุ่ม AI summary opt-in (เรียก Gemini เมื่อกดเท่านั้น) — ล็อก Enterprise (`isUnlimited`, gate เดียวกับ Marketing Intelligence เดิม) มีทั้ง empty-state (ยังไม่มีข้อมูล POS พอ) และ error-safe (สินค้าที่อ้างอิงถูกลบไปแล้ว) — **ระหว่างค้นหาคำตอบให้คำถามผู้ใช้ "กราฟวิเคราะห์ยังดึงจาก Google Sheets อยู่ไหม" — ตรวจสอบยืนยันว่าไม่ใช่แล้ว (`shop/analytics.js` ใช้ `fetchLedgerRows`/Supabase มาตั้งแต่ข้อ 75) ไม่ต้องแก้อะไรเพิ่ม** — ทดสอบยิงจริงกับ dev server + production ทั้งคู่ ยืนยันตัวเลขตรงกับ API เป๊ะ — **Deploy รวมกับข้อ tier-lock ด้านบน (revision `smileslip-dashboard-00339-mhn`)**
+    - **บันทึกประจำวันของพนักงาน (Daily Staff Log) — Enterprise เท่านั้น** — ตาราง `pos_staff_logs` ใหม่ + API `pages/api/pos/staff-logs.js` (GET เจ้าของ/แอดมินเท่านั้น, POST พนักงานผ่าน staff-session — **staff_id/staff_name ดึงจาก session ที่เซ็นชื่อไว้เสมอ ไม่เชื่อค่าจาก client** ต่างจาก `cash-shifts.js` เดิมที่ยังพึ่งค่าที่ client ส่งมา, DELETE เจ้าของ/แอดมิน soft-delete) — ฟิลด์: ปัญหา+ระดับความเร่งด่วน (ปกติ/ควรระวัง/ด่วน), คำชมจากลูกค้า, สต็อกใกล้หมด (free-text ไม่ใช่ multi-select ผูก SKU กันซับซ้อนเกินจำเป็น), แนบรูป (reuse `upload-photo.js`) — **auto-pull ยอดขายของกะเงินสดที่เปิดอยู่ตอนนี้ของพนักงานคนนั้น** (query `pos_cash_shifts`+`pos_sales` ตรงๆ, best-effort ไม่บล็อคการบันทึกถ้าหาไม่เจอ) — เมนูใหม่ "📝 บันทึกประจำวัน" ใน `pos-staff.js` (ทุกคนใช้ได้ ไม่ผูกสิทธิ์ granular เหมือน cash-shift) + แท็บใหม่ "บันทึกพนักงาน" ใน `dashboard.js` (กรองสาขา/ระดับความเร่งด่วน) — เพิ่ม `enterpriseOnly` flag generalization ใน nav-lock logic ของ dashboard.js (เดิม hardcode แค่ `proOnly`) — **ต้องรัน SQL สร้างตาราง `pos_staff_logs` ก่อนถึงจะใช้งานได้จริง (ยังไม่ได้รัน)** — ทดสอบ auth/tier gating ผ่าน API จริงครบ (table-missing error สุภาพ ไม่ crash) — **Deploy แล้ว (revision `smileslip-dashboard-00340-6ns`)**
+    - **ระบบโปรโมชั่น/ส่วนลดสำหรับ POS พร้อมคำนวณกำไรคงเหลือ** — ผู้ใช้ขอเพิ่มการคำนวณกำไรระหว่างทาง ("จะได้รู้ว่าจัดเซตหรือโปรจะเหลือกำไรกี่บาท") — ตาราง `pos_promotions` ใหม่ + API `pages/api/pos/promotions.js` รองรับ 5 ประเภท (`config` เป็น JSONB ต่างชนิดกันตามประเภท): ลดราคาต่อชิ้น, ลดเมื่อซื้อครบจำนวน, ซื้อ X แถม Y (ตัวเดียวกันหรือคนละตัวก็ได้), ชุดราคาพิเศษ (bundle), ซื้อแล้วแถมของกำนัลฟรี — ทุกโปรคำนวณ `{revenue, cost, profit, margin_pct}` "ต่อการใช้ 1 ครั้ง" จากราคา/ต้นทุนสินค้า**ปัจจุบัน**เสมอ (ไม่ใช่ ณ ตอนสร้างโปร) เตือนสีแดงถ้าโปรนั้นขาดทุนจริง (`profit<0`) — **ตัดสินใจสถาปัตยกรรมสำคัญ: ไม่แตะ `sales.js`/checkout เลยแม้แต่บรรทัดเดียว** — เป็นแค่เครื่องมือคำนวณ/แนะนำ ฝั่ง `pos.js` ที่จับคู่ตะกร้าปัจจุบันกับโปรที่ active (`getApplicablePromotions()`, เช็คเฉพาะสินค้าที่อยู่ในตะกร้าแล้วครบเงื่อนไข ไม่ auto-เพิ่มสินค้าใหม่เข้าตะกร้าเอง) แล้วปรับราคาผ่าน `updatePrice()` ที่มีอยู่แล้ว (bundle ใช้วิธีกระจายส่วนลดตามสัดส่วนราคาปกติของแต่ละชิ้น รักษาสัดส่วนราคาสัมพัทธ์) — checkout จึงยังทำงานเหมือนเดิมทุกประการ ความเสี่ยงต่อ core flow ต่ำสุด — จัดการที่แท็บใหม่ "🎉 โปรโมชั่น" (เจ้าของ/แอดมินเท่านั้น, `blockAllStaffSessions`) แคชเชียร์เห็นแค่แบนเนอร์แนะนำในตะกร้าตอนขาย (GET เปิดให้ทุกคนเห็นโปรที่ active) — **verified สูตรคำนวณกำไรทั้ง 5 แบบด้วยข้อมูลสินค้าจริงของร้าน D Gas ถูกต้องครบ 100%** (รวมเคส free_gift ที่ควรขาดทุน −310 บาทและระบบเตือนถูกต้อง) ทดสอบ auth/validation ผ่าน API จริง — **ต้องรัน SQL สร้างตาราง `pos_promotions` ก่อนถึงจะใช้งานได้จริง (ยังไม่ได้รัน)** — **Deploy แล้ว (revision `smileslip-dashboard-00341-f8q`)**
+    - **แพ็คเสริมซื้อสาขาเพิ่ม (เกิน cap ของ Enterprise 20 สาขา) — เก็บไว้เป็นแนวคิดใน CLAUDE.md เท่านั้นตามที่ผู้ใช้ขอ ไม่ได้เขียนโค้ด:** ผู้ใช้เสนอคง cap 20 สาขาไว้เหมือนเดิมแล้วขายแพ็คเสริมแยกต่างหากสำหรับร้านที่ต้องการมากกว่านั้น (กันต้นทุนจัดเก็บข้อมูลบานปลาย + กันคนยืม POS ไปใช้ข้ามธุรกิจที่ไม่เกี่ยวข้องกัน) — เห็นด้วยกับแนวคิดแต่แนะนำรอจนกว่าจะมีลูกค้าจริงมากกว่า 1-2 รายที่ต้องการเกิน 20 สาขาจริงๆ ก่อนค่อยสร้างระบบซื้อแบบ self-service เต็มรูปแบบ (ต้องมี Stripe price ใหม่ + คอลัมน์เก็บจำนวนแพ็คที่ซื้อ + เปลี่ยน limit-check เป็น dynamic) — ตอนนี้มีลูกค้าจริงรายเดียว (D Gas, 2 สาขา) ห่างไกล 20 มาก ระหว่างนี้ถ้ามีคนขอเกิน 20 สาขาจริง แนะนำจัดการแบบ manual ผ่านหน้าแอดมิน (ปรับ limit เฉพาะราย + คุยราคาเอง) ไปก่อน
+    - **2 ประเด็นที่ยังรอการตัดสินใจจากผู้ใช้ (เสนอคำแนะนำไปแล้ว ยังไม่ได้ทำ/ยังไม่ implement เพราะเป็นการตัดสินใจเชิงนโยบายที่กระทบ terms.js/privacy.js ซึ่งเพิ่งแก้ให้ถูกต้องไปในข้อ 90):**
+      1. **tier-gating ของ payroll/cash-shift/รายงาน VAT POS** — คำแนะนำที่เสนอไป (ยังไม่ยืนยันชัดเจนจากผู้ใช้): กะเงินสดคงฟรีทุก tier ตลอดไป (เป็นฟีเจอร์จัดการเงินสดพื้นฐาน), ระบบเงินเดือนล็อก Business+ , รายงาน VAT ของ POS ล็อก Business+ (สอดคล้องกับที่ `tax-report.js`/`vat_report` feature เดิมล็อกไว้อยู่แล้วที่ Business), Excel export พื้นฐานคงฟรีทุกที่
+      2. **นโยบายเก็บข้อมูล 6 เดือนหลังลบบัญชี** — ผู้ใช้กังวลเรื่องคนสมัคร→ลบ→สมัครใหม่เพื่อขอทดลองฟรี 30 วันซ้ำไม่จำกัดรอบ เสนอให้เก็บข้อมูล 6 เดือนหลังลบแล้วค่อย hard-delete จริง — **ชี้แจงแล้วว่าช่องโหว่นี้ปิดอยู่แล้วจริงด้วยกลไกอื่น** (ตาราง `trial_used_line_ids` จากข้อ 44 Phase 2 ผูกกับ `line_user_id` ตรงๆ อยู่รอดข้ามการลบร้านเสมอโดยเจตนา ไม่ต้องเก็บข้อมูลทั้งร้านไว้ 6 เดือนก็ป้องกันได้) — เสนอทางเลือกแทน: หน้าลบบัญชีให้เลือกได้ 2 แบบ (ลบถาวรทันทีเหมือนเดิม vs "ปิดชั่วคราว" เก็บไว้ N วันแล้ว auto-restore ได้ถ้ากลับมา) แทนบังคับ 6 เดือนทุกกรณี — **ยังไม่ได้รับคำตอบจากผู้ใช้ว่าจะเลือกแบบไหน — ห้ามแก้ `lib/shop-deletion.js`/`terms.js`/`privacy.js`'s Section 4 (เพิ่งแก้ให้ตรงกับ hard-delete จริงไปในข้อ 90) จนกว่าจะได้คำตอบชัดเจน เพราะเป็นการเปลี่ยนคำมั่นสัญญาด้าน data retention ที่เพิ่งประกาศไปหมาดๆ**
+
 ## Tech Stack
 
 ### Bot (`smileslip-pro/`)
@@ -982,7 +996,7 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
 | Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00229-stk` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00335-qpg` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00341-f8q` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
@@ -1890,6 +1904,52 @@ ALTER TABLE pos_configs
 แค่ไม่มีโลโก้จนกว่าจะรัน SQL แล้วอัปโหลดใหม่อีกครั้ง
 ```sql
 ALTER TABLE pos_configs ADD COLUMN IF NOT EXISTS receipt_logo_data text;
+```
+
+**สร้างตาราง pos_staff_logs (บันทึกประจำวันของพนักงาน — ข้อ 91, เพิ่ม 2026-08-16, ยังไม่ได้รัน):**
+ต้องรันก่อนถึงจะใช้แท็บ "📝 บันทึกประจำวัน" (pos-staff.js) และ "บันทึกพนักงาน" (dashboard.js) ได้จริง
+— ตอนนี้ endpoint จะ error สุภาพ (500 "Could not find the table") ไม่ crash ทั้งระบบ (ทดสอบแล้วจริง
+ก่อนรัน SQL — auth/tier gating ทำงานถูกต้องอยู่แล้วเพราะเช็คก่อนแตะตาราง)
+```sql
+CREATE TABLE IF NOT EXISTS pos_staff_logs (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  shop_id           uuid NOT NULL REFERENCES shop_profiles(id) ON DELETE CASCADE,
+  staff_id          text,
+  staff_name        text NOT NULL,
+  branch_name       text,
+  problem_text      text,
+  urgency           text NOT NULL DEFAULT 'normal', -- 'normal' | 'warning' | 'urgent'
+  praise_text       text,
+  low_stock_note    text,
+  photo_url         text,
+  shift_no          text,
+  shift_sales_total numeric,
+  shift_sales_count integer,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  deleted_at        timestamptz
+);
+CREATE INDEX IF NOT EXISTS idx_pos_staff_logs_shop ON pos_staff_logs (shop_id, created_at DESC) WHERE deleted_at IS NULL;
+```
+
+**สร้างตาราง pos_promotions (ระบบโปรโมชั่น/ส่วนลด POS — ข้อ 91, เพิ่ม 2026-08-16, ยังไม่ได้รัน):**
+ต้องรันก่อนถึงจะใช้แท็บ "🎉 โปรโมชั่น" ได้จริง — ตอนนี้ endpoint จะ error สุภาพเหมือนกัน (ทดสอบแล้วจริง
+ก่อนรัน SQL — auth gating + input validation ทำงานถูกต้องอยู่แล้วเพราะเช็คก่อนแตะตาราง)
+```sql
+CREATE TABLE IF NOT EXISTS pos_promotions (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  shop_id     uuid NOT NULL REFERENCES shop_profiles(id) ON DELETE CASCADE,
+  promo_no    text NOT NULL,
+  name        text NOT NULL,
+  promo_type  text NOT NULL, -- 'product_discount' | 'quantity_discount' | 'buy_x_get_y' | 'bundle' | 'free_gift'
+  is_active   boolean NOT NULL DEFAULT true,
+  config      jsonb NOT NULL DEFAULT '{}'::jsonb,
+  branch_name text, -- ว่าง = ทุกสาขา
+  valid_from  date,
+  valid_until date,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  deleted_at  timestamptz,
+  UNIQUE (shop_id, promo_no)
+);
 ```
 
 ### ต้องทำด้วยมือ (ไม่ใช่โค้ด)
