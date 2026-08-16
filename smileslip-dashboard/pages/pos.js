@@ -6888,6 +6888,9 @@ export default function POSPage() {
                     { key: 'vat',        label: '🧾 ภาษี VAT' },
                     { key: 'expenses',   label: '💸 รายจ่าย' },
                     { key: 'annual_tax', label: '📑 ภาษีปลายปี' },
+                    // Enterprise เท่านั้น — ข้อมูลสมาชิกร้านจริง (ชื่อ/เบอร์โทร จาก pos_contacts)
+                    // ไม่ใช่ sender_name จากสลิป (งานกลยุทธ์ "6P Data Matrix" ข้อ 89)
+                    { key: 'customer_rfm', label: '👑 ลูกค้า VIP' },
                     // ซ่อนแท็บนี้จนกว่าทนายจะยืนยันเรื่อง anti-trust/price-signaling (ดู CLAUDE.md ข้อ 30)
                     // — ข้อมูลเบื้องหลังยังสะสมอยู่ปกติ แค่ไม่โชว์ให้ร้านเห็นจนกว่า MARKET_PRICE_FEATURE_LIVE เป็น true
                     ...(MARKET_PRICE_FEATURE_LIVE ? [{ key: 'fraud', label: '🚩 ราคาผิดปกติ' }] : []),
@@ -7364,6 +7367,74 @@ export default function POSPage() {
                         อ้างอิงจาก {s.total_revenue > 0 || reportData.expenseCount > 0 || reportData.payrollCount > 0
                           ? `ยอดขาย/รายจ่าย/เงินเดือนที่บันทึกในระบบปี ${reportData.year}`
                           : `ยังไม่มีข้อมูลบันทึกไว้ในปี ${reportData.year}`}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {!reportLoading && reportData?.type === 'customer_rfm' && (() => {
+                  const s = reportData.summary || {};
+                  const SEGMENT_META = {
+                    champions: { label: '🏆 ลูกค้าคนสำคัญ', color: 'text-amber-400', badge: 'bg-amber-950/50 text-amber-300 border-amber-800/50' },
+                    loyal:     { label: '💚 ลูกค้าประจำ',   color: 'text-green-400', badge: 'bg-green-950/50 text-green-300 border-green-800/50' },
+                    new:       { label: '🆕 ลูกค้าใหม่',    color: 'text-blue-400',  badge: 'bg-blue-950/50 text-blue-300 border-blue-800/50' },
+                    regular:   { label: '🙂 ลูกค้าทั่วไป',  color: 'text-gray-300',  badge: 'bg-gray-800 text-gray-300 border-gray-700' },
+                    at_risk:   { label: '⚠️ เสี่ยงหายไป',   color: 'text-orange-400', badge: 'bg-orange-950/50 text-orange-300 border-orange-800/50' },
+                    lost:      { label: '💤 หายไปแล้ว',     color: 'text-red-400',   badge: 'bg-red-950/50 text-red-300 border-red-800/50' },
+                    dormant:   { label: '😴 นานๆ มาที',    color: 'text-gray-500',  badge: 'bg-gray-800 text-gray-500 border-gray-700' },
+                  };
+                  return (
+                    <div className="space-y-4">
+                      <div className="bg-purple-950/40 border border-purple-800/50 rounded-xl px-4 py-2.5 text-purple-300 text-xs">
+                        👑 Customer 360 — วิเคราะห์กลุ่มลูกค้าสมาชิกร้าน (จากผู้ติดต่อที่มีประวัติซื้อจริง {s.total_scored || 0} จาก {s.total_contacts || 0} คน)
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        {Object.entries(SEGMENT_META).map(([key, m]) => (
+                          <div key={key} className="bg-gray-800 rounded-xl p-3 text-center">
+                            <div className={`text-lg font-bold ${m.color}`}>{(s[key] || 0).toLocaleString()}</div>
+                            <div className="text-gray-400 text-xs mt-1">{m.label}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="bg-gray-900 rounded-xl overflow-hidden">
+                        <div className="px-3 py-2 border-b border-gray-800 text-gray-400 text-xs font-medium">
+                          รายชื่อลูกค้าเรียงตามยอดซื้อสะสม
+                        </div>
+                        <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+                          <table className="w-full text-xs">
+                            <thead className="sticky top-0 bg-gray-900"><tr className="border-b border-gray-800">
+                              <th className="text-left text-gray-400 px-3 py-2">ลูกค้า</th>
+                              <th className="text-left text-gray-400 px-3 py-2">กลุ่ม</th>
+                              <th className="text-right text-gray-400 px-3 py-2">ยอดซื้อสะสม</th>
+                              <th className="text-right text-gray-400 px-3 py-2">จำนวนครั้ง</th>
+                              <th className="text-right text-gray-400 px-3 py-2">ซื้อล่าสุด</th>
+                            </tr></thead>
+                            <tbody>
+                              {(reportData.customers || []).map(c => {
+                                const m = SEGMENT_META[c.segment] || SEGMENT_META.regular;
+                                return (
+                                  <tr key={c.contact_id} className="border-b border-gray-800/50">
+                                    <td className="px-3 py-2">
+                                      <div className="text-white font-medium">{c.name || '(ไม่มีชื่อ)'}</div>
+                                      <div className="text-gray-500">{c.phone}</div>
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <span className={`inline-block px-2 py-0.5 rounded-full border text-[11px] ${m.badge}`}>{m.label}</span>
+                                    </td>
+                                    <td className="px-3 py-2 text-right text-green-400 font-medium">฿{c.total_spent.toLocaleString(undefined,{minimumFractionDigits:2})}</td>
+                                    <td className="px-3 py-2 text-right text-gray-300">{c.purchase_count} ครั้ง{c.purchase_count >= 2 ? ` (ซื้อซ้ำครั้งที่ ${c.purchase_count})` : ''}</td>
+                                    <td className="px-3 py-2 text-right text-gray-400">{c.days_since_purchase === 0 ? 'วันนี้' : `${c.days_since_purchase} วันก่อน`}</td>
+                                  </tr>
+                                );
+                              })}
+                              {(reportData.customers || []).length === 0 && (
+                                <tr><td colSpan={5} className="text-center text-gray-500 py-8">ยังไม่มีลูกค้าที่มีประวัติซื้อ</td></tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     </div>
                   );

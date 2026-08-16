@@ -25,6 +25,10 @@ export function hasFeature(tier, feature) {
   if (feature === 'excel_report_templates') return level >= TIER_LEVEL.business;
   if (feature === 'market_price_index') return level >= TIER_LEVEL.enterprise;
   if (feature === 'white_label') return level >= TIER_LEVEL.enterprise;
+  // Customer 360/RFM (ข้อมูลสมาชิกร้านจริง — ชื่อ/เบอร์โทร จาก pos_contacts ไม่ใช่ sender_name
+  // จากสลิป) ล็อก Enterprise เท่านั้นตามที่ผู้ใช้ยืนยัน (เทียบเท่าระดับเดียวกับ Marketing
+  // Intelligence เดิมที่ใช้ข้อมูล hash — งานกลยุทธ์ "6P Data Matrix" ข้อ 89)
+  if (feature === 'customer_360_rfm') return level >= TIER_LEVEL.enterprise;
 
   if (GATED_AT_PRO_ONLY.has(feature)) {
     // Shop Pro (pro) ล็อกเฉพาะ 3 ฟีเจอร์นี้ — ส่วน normal (trial/ร้านเก่า grandfather) และ advance ขึ้นไปผ่านหมด
@@ -43,9 +47,23 @@ export const FEATURE_LABEL = {
   excel_report_templates: 'รายงาน Excel สำเร็จรูป (ภ.พ.30/สรุปยอดขาย/คลังสินค้าหมุนเวียน)',
   market_price_index: 'ดัชนีราคากลาง + ตรวจทุจริตจัดซื้อ',
   white_label: 'White-Label (ลบชื่อ Smile Slip Pro ออกจากใบเสร็จ/ใบกำกับภาษี/รายงาน)',
+  customer_360_rfm: 'Customer 360 / วิเคราะห์กลุ่มลูกค้าสมาชิกร้าน (RFM)',
 };
+
+const TIER_LABEL = { normal: 'Starter', pro: 'Shop Pro', advance: 'Advance', business: 'Business', enterprise: 'Enterprise' };
+// หาแพ็กเกจต่ำสุดที่ปลดล็อกฟีเจอร์นี้ได้ (สแกนจาก tier ต่ำไปสูง) — เดิม hardcode ข้อความ
+// "ต้องใช้แพ็กเกจ Advance ขึ้นไป" ทุกฟีเจอร์เหมือนกันหมด ทั้งที่บาง feature (เช่น
+// market_price_index/white_label/customer_360_rfm) ล็อกไว้ที่ Enterprise ไม่ใช่ Advance —
+// ข้อความเดิมจะบอกผิด tier สำหรับกรณีเหล่านั้น แก้ให้คำนวณจริงแทน
+function minTierFor(feature) {
+  for (const t of ['pro', 'advance', 'business', 'enterprise']) {
+    if (hasFeature(t, feature)) return t;
+  }
+  return 'enterprise';
+}
 
 export function upgradeMessage(feature) {
   const label = FEATURE_LABEL[feature] || 'ฟีเจอร์นี้';
-  return `${label} ต้องใช้แพ็กเกจ Advance ขึ้นไป — อัปเกรดแพ็กเกจเพื่อใช้งานต่อได้ที่หน้าราคา`;
+  const tierLabel = TIER_LABEL[minTierFor(feature)] || 'Advance';
+  return `${label} ต้องใช้แพ็กเกจ ${tierLabel} ขึ้นไป — อัปเกรดแพ็กเกจเพื่อใช้งานต่อได้ที่หน้าราคา`;
 }

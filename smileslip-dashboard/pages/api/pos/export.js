@@ -219,17 +219,30 @@ async function fetchTaxInvoices(supabase, shopId) {
   if (error) throw error;
   return (data || []).map(taxInvoiceFromRow).filter(v => v.invoice_no);
 }
+// เจอบั๊กจริงระหว่างงานกลยุทธ์ข้อ 89: PostgREST คืนสูงสุด 1,000 แถวเสมอถ้าไม่ระบุ .range() เอง —
+// ไม่ error ให้เห็นเลย แค่ตัดข้อมูลทิ้งเงียบๆ (บั๊กแบบเดียวกับที่เจอใน contacts.js มาก่อนแล้วในข้อ
+// 85 — ไฟล์นี้ duplicate ฟังก์ชันเดียวกันแยกต่างหาก ไม่เคยถูกแก้ไปด้วยตอนนั้น) — D Gas มีผู้ติดต่อ
+// จริง 2,181 คน (>1,000) กระทบทั้งชีต "ผู้ติดต่อ"/"แค็ตตาล็อกสินค้า" และเลขภาษีคู่ค้าใน vat30
+async function fetchAllPaginated(supabase, table, filterFn) {
+  const PAGE = 1000;
+  let all = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await filterFn(supabase.from(table).select('*'))
+      .order('created_at', { ascending: true }).order('id', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    all = all.concat(data || []);
+    if (!data || data.length < PAGE) break;
+  }
+  return all;
+}
 async function fetchProducts(supabase, shopId) {
-  const { data, error } = await supabase.from('pos_products').select('*')
-    .eq('shop_id', shopId).is('deleted_at', null);
-  if (error) throw error;
-  return (data || []).map(productFromRow).filter(p => p.sku);
+  const data = await fetchAllPaginated(supabase, 'pos_products', q => q.eq('shop_id', shopId).is('deleted_at', null));
+  return data.map(productFromRow).filter(p => p.sku);
 }
 async function fetchContacts(supabase, shopId) {
-  const { data, error } = await supabase.from('pos_contacts').select('*')
-    .eq('shop_id', shopId).is('deleted_at', null);
-  if (error) throw error;
-  return (data || []).map(contactFromRow).filter(c => c.contact_id);
+  const data = await fetchAllPaginated(supabase, 'pos_contacts', q => q.eq('shop_id', shopId).is('deleted_at', null));
+  return data.map(contactFromRow).filter(c => c.contact_id);
 }
 
 export default async function handler(req, res) {

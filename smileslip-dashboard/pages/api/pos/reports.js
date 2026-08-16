@@ -13,6 +13,8 @@
  *   expenses   → รายจ่ายที่ไม่เกี่ยวกับสต็อคสินค้า (ค่าเช่า/ค่าน้ำไฟ ฯลฯ) — รายการ + สรุปยอดรวม/VAT
  *   annual_tax → ประมาณการณ์ภาษีเงินได้ปลายปี (Phase 3, &year=YYYY) — นิติบุคคล/บุคคลธรรมดา ตาม
  *                shop_profiles.user_type ดูคำเตือนเรื่องความแม่นยำใน lib/tax-estimate.js
+ *   customer_rfm → Customer 360/RFM ของสมาชิกร้าน (pos_contacts เท่านั้น — ไม่ใช่ sender_name
+ *                จากสลิป, งานกลยุทธ์ "6P Data Matrix" ข้อ 89) — Enterprise เท่านั้น
  *
  * Tier E (2026-07-25): รายการที่เป็น transaction log ล้วนๆ (ขาย/ยืม/รับสินค้า/รายจ่าย/ออเดอร์จัดส่ง)
  * อ่านจาก Supabase (pos_sales/pos_loans/pos_receives/pos_expenses/pos_delivery_orders) แทน Sheets แล้ว
@@ -28,6 +30,7 @@ import { requirePermission } from '../../../lib/pos-auth';
 import { productFromRow, contactFromRow } from '../../../lib/google-pos';
 import { getBranchStockMap } from '../../../lib/pos-stock';
 import { estimateAnnualTax } from '../../../lib/tax-estimate';
+import { hasFeature, upgradeMessage } from '../../../lib/tier-features';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -208,17 +211,32 @@ async function fetchReceives(shopId) {
   if (error) throw error;
   return (data || []).map(receiveFromRow).filter(r => r.receive_no);
 }
+// เจอบั๊กจริงระหว่างทดสอบ customer_rfm (ข้อ 89): PostgREST คืนสูงสุด 1,000 แถวเสมอถ้าไม่ระบุ
+// .range() เอง — ไม่ error ให้เห็นเลย แค่ตัดข้อมูลทิ้งเงียบๆ (บั๊กแบบเดียวกับที่เจอใน
+// pages/api/pos/contacts.js มาก่อนแล้วในข้อ 85 แค่คนละไฟล์ — ฟังก์ชันนี้ duplicate กันตาม
+// ธรรมเนียมโปรเจกต์ ไม่ได้ share code เลยไม่เคยถูกแก้ไปด้วยตอนนั้น) — D Gas มีผู้ติดต่อจริง
+// 2,181 คน (>1,000) ทำให้ fetchContacts() เดิมเห็นแค่ 1,000 คนแรกมาตลอด กระทบทุก report type
+// ในไฟล์นี้ที่เรียกฟังก์ชันนี้ (credit/cyclical/customer_rfm) ไม่ใช่แค่ customer_rfm ที่เพิ่งเพิ่ม
+async function fetchAllPaginated(table, filterFn) {
+  const PAGE = 1000;
+  let all = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await filterFn(supabase.from(table).select('*'))
+      .order('created_at', { ascending: true }).order('id', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    all = all.concat(data || []);
+    if (!data || data.length < PAGE) break;
+  }
+  return all;
+}
 async function fetchProducts(shopId) {
-  const { data, error } = await supabase.from('pos_products').select('*')
-    .eq('shop_id', shopId).is('deleted_at', null);
-  if (error) throw error;
-  return (data || []).map(productFromRow).filter(p => p.sku);
+  const data = await fetchAllPaginated('pos_products', q => q.eq('shop_id', shopId).is('deleted_at', null));
+  return data.map(productFromRow).filter(p => p.sku);
 }
 async function fetchContacts(shopId) {
-  const { data, error } = await supabase.from('pos_contacts').select('*')
-    .eq('shop_id', shopId).is('deleted_at', null);
-  if (error) throw error;
-  return (data || []).map(contactFromRow).filter(c => c.contact_id);
+  const data = await fetchAllPaginated('pos_contacts', q => q.eq('shop_id', shopId).is('deleted_at', null));
+  return data.map(contactFromRow).filter(c => c.contact_id);
 }
 
 // คำนวณกำไรขาดทุนของช่วงเวลาที่กำหนด — ใช้ร่วมกันทั้ง type=pl (รายเดือน/ตามช่วงที่เลือก) และ
@@ -724,6 +742,80 @@ export default async function handler(req, res) {
           total: expenses.reduce((a, e) => a + e.total, 0),
           subtotal: expenses.reduce((a, e) => a + e.subtotal, 0),
           vat: expenses.reduce((a, e) => a + e.vat_amount, 0),
+        },
+      });
+    }
+
+    // ── Customer 360 / RFM (สมาชิกร้าน) — งานกลยุทธ์ "6P Data Matrix" ข้อ 89 ──────────────
+    // ใช้ pos_contacts เท่านั้น (ลูกค้าที่สมัครเป็นสมาชิกร้านโดยตรง ให้เบอร์โทรด้วยความยินยอม
+    // เพื่อร้านนำไปทำการตลาดของร้านเอง) — ไม่ใช่ sender_name จากสลิปโอนเงินที่เป็นบุคคลภายนอก
+    // ไม่เคยยินยอมอะไรเลย (คนละเรื่องกับ Marketing Intelligence เดิมใน shop/heatmap.js ที่ใช้
+    // sender_profiles/hash โดยเจตนา — ไฟล์นี้ไม่แตะ/ไม่ผสมข้อมูลจากตารางนั้นเลย)
+    if (type === 'customer_rfm') {
+      if (!(await requirePermission(req, res, shopId, 'perm_view_revenue'))) return;
+
+      const { data: shopRow } = await supabase.from('shop_profiles')
+        .select('subscription_tier').eq('id', shopId).maybeSingle();
+      const tier = (shopRow?.subscription_tier || 'normal').toLowerCase();
+      if (!hasFeature(tier, 'customer_360_rfm')) {
+        return res.status(403).json({ error: upgradeMessage('customer_360_rfm'), featureLocked: true });
+      }
+
+      const [contacts, posSales, deliveryOrders] = await Promise.all([
+        fetchContacts(shopId), fetchSales(shopId), fetchDeliveryOrders(shopId),
+      ]);
+      const deliverySales = deliveryOrders.filter(o => o.status === 'ส่งแล้ว').map(deliveryOrderToSaleShape);
+      // นับเฉพาะบิลที่จ่ายจริงแล้ว (ไม่นับที่ยกเลิก/ยังค้างชำระ — สอดคล้องกับที่ type=vat/topsellers ใช้)
+      const paidSales = [...posSales, ...deliverySales]
+        .filter(s => s.customer_id && s.status !== 'ยกเลิก' && s.status !== 'ค้างชำระ');
+
+      const byCustomer = {};
+      for (const s of paidSales) {
+        if (!byCustomer[s.customer_id]) byCustomer[s.customer_id] = { total_spent: 0, purchase_count: 0, last_purchase_at: null };
+        const bucket = byCustomer[s.customer_id];
+        bucket.total_spent += s.total;
+        bucket.purchase_count += 1;
+        const t = new Date(s.created_at).getTime();
+        if (!isNaN(t) && (!bucket.last_purchase_at || t > bucket.last_purchase_at)) bucket.last_purchase_at = t;
+      }
+
+      const now = Date.now();
+      const eligibleContacts = contacts.filter(c => c.contact_type === 'ลูกค้า' || c.contact_type === 'ทั้งคู่');
+      const scored = eligibleContacts
+        .filter(c => byCustomer[c.contact_id]) // เฉพาะที่มีประวัติซื้อจริงอย่างน้อย 1 ครั้ง
+        .map(c => {
+          const b = byCustomer[c.contact_id];
+          const daysSince = Math.floor((now - b.last_purchase_at) / 86400000);
+          const tx = b.purchase_count;
+          // R/F threshold เดียวกับ shop/heatmap.js's RFM เป๊ะ (ความสอดคล้องของศัพท์ทั้งระบบ) —
+          // M เป็นยอดเงินจริง (total_spent) ไม่ bucket เพราะข้อมูลนี้ไม่ได้ anonymized
+          const R = daysSince <= 7 ? 5 : daysSince <= 30 ? 4 : daysSince <= 60 ? 3 : daysSince <= 90 ? 2 : 1;
+          const F = tx >= 20 ? 5 : tx >= 10 ? 4 : tx >= 5 ? 3 : tx >= 2 ? 2 : 1;
+          let segment;
+          if (R >= 4 && F >= 4)       segment = 'champions';
+          else if (R >= 4 && F >= 2)  segment = 'loyal';
+          else if (R >= 4 && F === 1) segment = 'new';
+          else if (R >= 3 && F >= 1)  segment = 'regular';
+          else if (R <= 2 && F >= 3)  segment = 'at_risk';
+          else if (R === 1)           segment = 'lost';
+          else                         segment = 'dormant';
+          return {
+            contact_id: c.contact_id, name: c.name, phone: c.phone,
+            total_spent: Math.round(b.total_spent * 100) / 100, purchase_count: tx,
+            days_since_purchase: daysSince, segment, R, F,
+          };
+        })
+        .sort((a, b) => b.total_spent - a.total_spent);
+
+      const seg = (name) => scored.filter(s => s.segment === name).length;
+      return res.json({
+        type: 'customer_rfm',
+        customers: scored,
+        summary: {
+          total_scored: scored.length,
+          total_contacts: eligibleContacts.length,
+          champions: seg('champions'), loyal: seg('loyal'), new: seg('new'),
+          regular: seg('regular'), at_risk: seg('at_risk'), lost: seg('lost'), dormant: seg('dormant'),
         },
       });
     }
