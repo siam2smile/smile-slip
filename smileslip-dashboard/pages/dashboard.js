@@ -7,7 +7,7 @@ import {
   ExternalLink, Edit3, Landmark, Receipt, Wallet,
   PlusCircle, Trash2, Clock, Download, AlertTriangle,
   Menu, ChevronLeft, ChevronRight, BarChart2, Copy, Share2, Users,
-  Shield, UserPlus, UserX, HelpCircle, X
+  Shield, UserPlus, UserX, HelpCircle, X, ClipboardList
 } from 'lucide-react';
 import Link from 'next/link';
 import { getOwnerSessionToken, setOwnerSessionToken, findOwnerSessionTokenForOwnerId } from '../lib/client-owner-session';
@@ -108,6 +108,12 @@ export default function Dashboard() {
   const [strategyLoading, setStrategyLoading] = useState(false);
   const [strategyAiText, setStrategyAiText] = useState(null);
   const [strategyAiLoading, setStrategyAiLoading] = useState(false);
+
+  // บันทึกประจำวันของพนักงาน (Enterprise เท่านั้น)
+  const [staffLogs, setStaffLogs] = useState([]);
+  const [staffLogsLoading, setStaffLogsLoading] = useState(false);
+  const [staffLogBranchFilter, setStaffLogBranchFilter] = useState('all');
+  const [staffLogUrgencyFilter, setStaffLogUrgencyFilter] = useState('all');
 
   // Tax Report
   const [taxReport, setTaxReport] = useState(null);
@@ -296,6 +302,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (activeTab === 'accounts' && shopInfo?.id) fetchTransactions(shopInfo.id, ledgerYear, ledgerMonth);
     if (activeTab === 'branches' && shopInfo?.id) fetchBranches(shopInfo.id);
+    if (activeTab === 'stafflog' && shopInfo?.id && isUnlimited) fetchStaffLogs(shopInfo.id);
     if (activeTab === 'analytics' && shopInfo?.id) {
       fetchAnalytics(shopInfo.id, analyticsYear);
       if (isUnlimited) { fetchMarketing(shopInfo.id); fetchStrategyInsights(shopInfo.id); }
@@ -467,6 +474,31 @@ export default function Dashboard() {
       setStrategyAiText(data.summary || data.fallback || 'ไม่สามารถสร้างสรุปได้ในขณะนี้');
     } catch { setStrategyAiText('ไม่สามารถสร้างสรุปได้ในขณะนี้'); }
     setStrategyAiLoading(false);
+  };
+
+  const fetchStaffLogs = async (shopId, branch) => {
+    setStaffLogsLoading(true);
+    try {
+      const b = branch !== undefined ? branch : staffLogBranchFilter;
+      const params = new URLSearchParams({ shopId });
+      if (b && b !== 'all') params.set('branch', b);
+      const res = await fetch(`/api/pos/staff-logs?${params.toString()}`);
+      const data = await res.json();
+      setStaffLogs(data.error ? [] : (data.logs || []));
+    } catch { setStaffLogs([]); }
+    setStaffLogsLoading(false);
+  };
+
+  const handleDeleteStaffLog = async (logId) => {
+    if (!confirm('ลบบันทึกนี้?')) return;
+    try {
+      await fetch('/api/pos/staff-logs', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId: shopInfo.id, log_id: logId }),
+      });
+      setStaffLogs(prev => prev.filter(l => l.log_id !== logId));
+    } catch { alert('ลบไม่สำเร็จ'); }
   };
 
   const fetchTaxReport = async (shopId, year, month, branch = taxReportBranch) => {
@@ -724,6 +756,7 @@ export default function Dashboard() {
     { id: 'analytics', label: 'กราฟวิเคราะห์',   icon: <BarChart2 size={18}/>, proOnly: true },
     { id: 'accounts',  label: 'บัญชี',            icon: <Landmark size={18}/> },
     { id: 'branches',  label: 'จัดการสาขา',      icon: <GitBranch size={18}/>, adminReadOnly: true },
+    { id: 'stafflog',  label: 'บันทึกพนักงาน',    icon: <ClipboardList size={18}/>, enterpriseOnly: true },
     { id: 'help',      label: 'ช่วยเหลือ',        icon: <HelpCircle size={18}/> },
     ...(!isAdminMode ? [{ id: 'settings', label: 'ตั้งค่า', icon: <Settings size={18}/> }] : []),
   ];
@@ -781,7 +814,10 @@ export default function Dashboard() {
             <p className="text-[9px] text-blue-400/70 uppercase tracking-wider px-2 mt-2 mb-1">เมนูหลัก</p>
           )}
           {navItems.map(item => {
-            const locked = item.proOnly && !hasFeature(tierKey, 'pro');
+            const proLocked = item.proOnly && !hasFeature(tierKey, 'pro');
+            const entLocked = item.enterpriseOnly && !isUnlimited;
+            const locked = proLocked || entLocked;
+            const lockLabel = entLocked ? 'Enterprise' : 'Pro';
             return (
               <button key={item.id}
                 onClick={() => {
@@ -797,12 +833,12 @@ export default function Dashboard() {
                 {!sidebarCollapsed && (
                   <span className="text-sm font-medium whitespace-nowrap flex items-center gap-1">
                     {item.label}
-                    {locked && <span className="text-[8px] bg-amber-400/80 text-amber-900 px-1 rounded">Pro</span>}
+                    {locked && <span className="text-[8px] bg-amber-400/80 text-amber-900 px-1 rounded">{lockLabel}</span>}
                   </span>
                 )}
                 {sidebarCollapsed && (
                   <span className="absolute left-full ml-2 px-2.5 py-1.5 bg-blue-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 shadow-xl border border-blue-700">
-                    {item.label} {locked ? '(Pro+)' : ''}
+                    {item.label} {locked ? `(${lockLabel}+)` : ''}
                   </span>
                 )}
               </button>
@@ -2878,6 +2914,101 @@ export default function Dashboard() {
                       </div>
                     )}
                   </div>
+                </div>
+              )}
+
+              {/* ════ STAFF LOG TAB — บันทึกประจำวันของพนักงาน (Enterprise เท่านั้น) ════ */}
+              {activeTab === 'stafflog' && (
+                <div className="max-w-4xl space-y-5">
+                  <h2 className="text-lg font-black text-slate-800 flex items-center gap-2"><ClipboardList size={20}/> บันทึกพนักงาน</h2>
+
+                  {!isUnlimited ? (
+                    <div className="bg-gradient-to-r from-teal-50 to-cyan-50 border border-teal-200 rounded-2xl p-10 text-center">
+                      <p className="text-3xl mb-3">📝</p>
+                      <p className="font-bold text-teal-700 text-lg mb-2">บันทึกพนักงาน — เฉพาะ Enterprise</p>
+                      <p className="text-teal-600 text-sm mb-5">พนักงานแจ้งปัญหา/คำชมจากลูกค้า/สต็อกใกล้หมด พร้อมยอดขายกะที่ดึงอัตโนมัติ ผ่านหน้าแอปพนักงาน</p>
+                      <Link href={`/pricing?userId=${shopInfo?.owner_line_id}`}
+                        className="inline-block bg-teal-600 hover:bg-teal-700 text-white font-bold px-6 py-3 rounded-xl transition-all">
+                        ดู Enterprise
+                      </Link>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-slate-500 text-xs -mt-2">พนักงานส่งบันทึกจากหน้าแอปพนักงาน (pos-staff) — เมนู "📝 บันทึกประจำวัน"</p>
+
+                      <div className="bg-white rounded-2xl border border-slate-200 p-3 flex flex-wrap items-center gap-3">
+                        {branches.length > 0 && (
+                          <select value={staffLogBranchFilter}
+                            onChange={e => { setStaffLogBranchFilter(e.target.value); fetchStaffLogs(shopInfo.id, e.target.value); }}
+                            className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm font-medium focus:outline-none bg-white">
+                            <option value="all">ทุกสาขา</option>
+                            {branches.map(b => <option key={b.id} value={b.branch_name}>{b.branch_name}</option>)}
+                          </select>
+                        )}
+                        <select value={staffLogUrgencyFilter} onChange={e => setStaffLogUrgencyFilter(e.target.value)}
+                          className="border border-slate-200 rounded-xl px-3 py-1.5 text-sm font-medium focus:outline-none bg-white">
+                          <option value="all">ทุกระดับความเร่งด่วน</option>
+                          <option value="urgent">🔴 ด่วนเท่านั้น</option>
+                          <option value="warning">🟡 ควรระวังเท่านั้น</option>
+                          <option value="normal">🟢 ปกติเท่านั้น</option>
+                        </select>
+                        <button onClick={() => fetchStaffLogs(shopInfo.id)}
+                          className="flex items-center gap-1.5 bg-blue-800 text-white px-4 py-1.5 rounded-xl text-xs font-medium hover:bg-blue-700 transition-all">
+                          <RefreshCcw size={13}/> โหลดใหม่
+                        </button>
+                      </div>
+
+                      {staffLogsLoading ? (
+                        <div className="text-center py-16 text-slate-400 animate-pulse">กำลังโหลด...</div>
+                      ) : staffLogs.filter(l => staffLogUrgencyFilter === 'all' || l.urgency === staffLogUrgencyFilter).length === 0 ? (
+                        <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center text-slate-400 text-sm">ยังไม่มีบันทึกจากพนักงาน</div>
+                      ) : (
+                        <div className="space-y-3">
+                          {staffLogs.filter(l => staffLogUrgencyFilter === 'all' || l.urgency === staffLogUrgencyFilter).map(log => {
+                            const URGENCY_META = {
+                              urgent: { label: '🔴 ด่วน', color: 'bg-red-50 border-red-200' },
+                              warning: { label: '🟡 ควรระวัง', color: 'bg-amber-50 border-amber-200' },
+                              normal: { label: '🟢 ปกติ', color: 'bg-white border-slate-200' },
+                            };
+                            const meta = URGENCY_META[log.urgency] || URGENCY_META.normal;
+                            return (
+                              <div key={log.log_id} className={`rounded-2xl border p-4 ${meta.color}`}>
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <p className="text-sm font-bold text-slate-700">{log.staff_name}{log.branch ? ` · ${log.branch}` : ''}</p>
+                                    <p className="text-[11px] text-slate-400">{new Date(log.created_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}</p>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <span className="text-[10px] font-bold px-2 py-1 rounded-lg bg-white/60">{meta.label}</span>
+                                    <button onClick={() => handleDeleteStaffLog(log.log_id)} className="text-slate-300 hover:text-red-500">
+                                      <Trash2 size={14}/>
+                                    </button>
+                                  </div>
+                                </div>
+                                {log.problem_text && (
+                                  <p className="text-sm text-slate-700 mt-2"><span className="font-bold">⚠️ ปัญหา:</span> {log.problem_text}</p>
+                                )}
+                                {log.praise_text && (
+                                  <p className="text-sm text-slate-700 mt-2"><span className="font-bold">💚 คำชม:</span> {log.praise_text}</p>
+                                )}
+                                {log.low_stock_note && (
+                                  <p className="text-sm text-slate-700 mt-2"><span className="font-bold">📦 สต็อกใกล้หมด:</span> {log.low_stock_note}</p>
+                                )}
+                                {log.photo_url && (
+                                  <a href={log.photo_url} target="_blank" rel="noopener noreferrer" className="inline-block mt-2 text-blue-600 hover:text-blue-700 text-xs underline">
+                                    🖼️ ดูรูปที่แนบ
+                                  </a>
+                                )}
+                                {log.shift_sales_total !== null && log.shift_sales_total !== undefined && (
+                                  <p className="text-[11px] text-slate-400 mt-2">ยอดขายกะนี้ (auto-pull): ฿{Number(log.shift_sales_total).toLocaleString(undefined,{minimumFractionDigits:2})} ({log.shift_sales_count || 0} บิล)</p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
 

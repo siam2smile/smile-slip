@@ -187,6 +187,17 @@ export default function PosStaffPage() {
   const [manageStockList, setManageStockList] = useState([]);
   const [manageStockSaving, setManageStockSaving] = useState('');
 
+  // ── บันทึกประจำวัน (ปัญหา/คำชม/สต็อกใกล้หมด) — Enterprise เท่านั้น (backend เช็คซ้ำอยู่แล้ว) ──
+  const [dailyLogProblem, setDailyLogProblem] = useState('');
+  const [dailyLogUrgency, setDailyLogUrgency] = useState('normal'); // 'normal' | 'warning' | 'urgent'
+  const [dailyLogPraise, setDailyLogPraise] = useState('');
+  const [dailyLogLowStock, setDailyLogLowStock] = useState('');
+  const [dailyLogPhotoUrl, setDailyLogPhotoUrl] = useState('');
+  const [dailyLogPhotoUploading, setDailyLogPhotoUploading] = useState(false);
+  const [dailyLogSubmitting, setDailyLogSubmitting] = useState(false);
+  const [dailyLogResult, setDailyLogResult] = useState(null); // ผลลัพธ์หลังบันทึกสำเร็จ (โชว์ยอดขายกะที่ auto-pull มา)
+  const dailyLogPhotoRef = useRef(null);
+
   // ── ตั้งรหัส PIN ครั้งแรก (มาจากลิงก์ที่ส่งทาง LINE หลังได้รับอนุมัติ/แอดมินเพิ่ม) ──────
   const [newPin, setNewPin] = useState('');
   const [newPinConfirm, setNewPinConfirm] = useState('');
@@ -704,6 +715,60 @@ export default function PosStaffPage() {
     setCollectSubmitting(false);
   }
 
+  async function handleDailyLogPhoto(e) {
+    const file = e.target.files?.[0];
+    if (!file || !shopId) return;
+    setDailyLogPhotoUploading(true);
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const r = await apiFetch('/api/pos/upload-photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, imageBase64: base64, mimeType: file.type, folderLabel: 'staff_log' }),
+      });
+      const d = await r.json();
+      if (d.ok) setDailyLogPhotoUrl(d.url || '');
+      else alert('อัปโหลดรูปไม่สำเร็จ: ' + (d.error || ''));
+    } catch (err) { alert(err.message); }
+    setDailyLogPhotoUploading(false);
+    if (dailyLogPhotoRef.current) dailyLogPhotoRef.current.value = '';
+  }
+
+  async function submitDailyLog() {
+    if (dailyLogSubmitting) return;
+    if (!dailyLogProblem.trim() && !dailyLogPraise.trim() && !dailyLogLowStock.trim()) {
+      alert('กรุณากรอกอย่างน้อย 1 ช่อง (ปัญหา/คำชม/สต็อกใกล้หมด)');
+      return;
+    }
+    setDailyLogSubmitting(true);
+    try {
+      const r = await apiFetch('/api/pos/staff-logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopId, problem_text: dailyLogProblem.trim(), urgency: dailyLogUrgency,
+          praise_text: dailyLogPraise.trim(), low_stock_note: dailyLogLowStock.trim(),
+          photo_url: dailyLogPhotoUrl, branch: staffBranch || '',
+        }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        setDailyLogResult(d.log);
+        setDailyLogProblem(''); setDailyLogUrgency('normal'); setDailyLogPraise('');
+        setDailyLogLowStock(''); setDailyLogPhotoUrl('');
+        showToast('✅ บันทึกประจำวันสำเร็จแล้ว');
+      } else {
+        alert(d.error || 'เกิดข้อผิดพลาด');
+      }
+    } catch (err) { alert(err.message); }
+    setDailyLogSubmitting(false);
+  }
+
   async function loadDeliverQr() {
     if (!selectedOrder || !shopId) return;
     setDeliverQrLoading(true);
@@ -1117,6 +1182,13 @@ export default function PosStaffPage() {
                 </div>
                 <span className="bg-orange-900 text-orange-300 text-xs px-2.5 py-1 rounded-full font-bold">{collectionTasks.length}</span>
               </button>
+              <button onClick={() => { setDailyLogResult(null); setStep('dailylog'); }}
+                className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-5 text-left hover:bg-gray-800 transition-colors flex items-center justify-between">
+                <div>
+                  <div className="text-white font-bold">📝 บันทึกประจำวัน</div>
+                  <div className="text-gray-500 text-xs mt-0.5">แจ้งปัญหา/คำชมจากลูกค้า/สต็อกใกล้หมด</div>
+                </div>
+              </button>
               {(staffPerms.perm_view_revenue || staffPerms.perm_view_pl || staffPerms.perm_manage_stock || staffPerms.perm_export_vat) && (
                 <button onClick={() => { setManageView(''); setStep('manage'); }}
                   className="w-full bg-gray-900 border border-blue-900 rounded-2xl p-5 text-left hover:bg-gray-800 transition-colors flex items-center justify-between">
@@ -1125,6 +1197,81 @@ export default function PosStaffPage() {
                     <div className="text-gray-500 text-xs mt-0.5">สิทธิ์พิเศษที่แอดมินเปิดให้คุณ</div>
                   </div>
                 </button>
+              )}
+            </div>
+          )}
+
+          {/* ══ บันทึกประจำวัน ══════════════════════════════════════════════ */}
+          {step === 'dailylog' && (
+            <div>
+              <button onClick={() => setStep('menu')} className="text-gray-400 hover:text-white text-sm mb-4 flex items-center gap-1">← เมนู</button>
+
+              {dailyLogResult ? (
+                <div className="space-y-4">
+                  <div className="bg-green-900/30 border border-green-800 rounded-2xl p-5 text-center">
+                    <div className="text-3xl mb-2">✅</div>
+                    <div className="text-white font-bold">บันทึกสำเร็จแล้ว</div>
+                    {dailyLogResult.shift_sales_total !== null && dailyLogResult.shift_sales_total !== undefined && (
+                      <div className="text-gray-400 text-xs mt-2">
+                        ยอดขายกะนี้ (auto-pull): ฿{Number(dailyLogResult.shift_sales_total).toLocaleString(undefined,{minimumFractionDigits:2})} ({dailyLogResult.shift_sales_count || 0} บิล)
+                      </div>
+                    )}
+                  </div>
+                  <button onClick={() => setDailyLogResult(null)}
+                    className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-xl transition-colors">
+                    ＋ บันทึกเพิ่มอีก
+                  </button>
+                  <button onClick={() => setStep('menu')}
+                    className="w-full bg-gray-900 border border-gray-800 text-gray-300 font-bold py-3 rounded-xl transition-colors">
+                    กลับเมนู
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-gray-400 text-xs font-bold mb-1.5 block">⚠️ ปัญหาที่พบวันนี้ (ถ้ามี)</label>
+                    <textarea value={dailyLogProblem} onChange={e => setDailyLogProblem(e.target.value)} rows={3}
+                      placeholder="เช่น ลูกค้าต่อว่าเรื่องส่งช้า, เครื่องพิมพ์ใบเสร็จเสีย..."
+                      className="w-full bg-gray-900 border border-gray-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-green-500" />
+                    <div className="flex gap-2 mt-2">
+                      {[['normal','🟢 ปกติ'],['warning','🟡 ควรระวัง'],['urgent','🔴 ด่วน']].map(([v,l]) => (
+                        <button key={v} type="button" onClick={() => setDailyLogUrgency(v)}
+                          className={`flex-1 text-xs font-bold py-2 rounded-xl transition-colors ${dailyLogUrgency === v ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-400 border border-gray-700'}`}>
+                          {l}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-gray-400 text-xs font-bold mb-1.5 block">💚 คำชมจากลูกค้า (ถ้ามี)</label>
+                    <textarea value={dailyLogPraise} onChange={e => setDailyLogPraise(e.target.value)} rows={2}
+                      placeholder="เช่น ลูกค้าชมว่าส่งไว บริการดี..."
+                      className="w-full bg-gray-900 border border-gray-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-green-500" />
+                  </div>
+
+                  <div>
+                    <label className="text-gray-400 text-xs font-bold mb-1.5 block">📦 สินค้าที่เห็นว่าใกล้หมด (ถ้ามี)</label>
+                    <textarea value={dailyLogLowStock} onChange={e => setDailyLogLowStock(e.target.value)} rows={2}
+                      placeholder="เช่น น้ำแก๊ส 15 กก. เหลือน้อยมาก..."
+                      className="w-full bg-gray-900 border border-gray-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-green-500" />
+                  </div>
+
+                  <div>
+                    <label className="text-gray-400 text-xs font-bold mb-1.5 block">📷 แนบรูป (ถ้ามี)</label>
+                    <input ref={dailyLogPhotoRef} type="file" accept="image/*" capture="environment"
+                      onChange={handleDailyLogPhoto} className="hidden" id="dailylog-photo-input" />
+                    <label htmlFor="dailylog-photo-input"
+                      className="w-full flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl py-3 text-gray-300 text-sm font-bold cursor-pointer transition-colors">
+                      {dailyLogPhotoUploading ? '⏳ กำลังอัปโหลด...' : dailyLogPhotoUrl ? '✅ แนบรูปแล้ว (แตะเพื่อเปลี่ยน)' : '📷 ถ่าย/เลือกรูป'}
+                    </label>
+                  </div>
+
+                  <button onClick={submitDailyLog} disabled={dailyLogSubmitting}
+                    className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors">
+                    {dailyLogSubmitting ? 'กำลังบันทึก...' : '💾 บันทึก'}
+                  </button>
+                </div>
               )}
             </div>
           )}
