@@ -29,7 +29,7 @@ export default function TermsOfService() {
             <h1 className="text-2xl md:text-3xl font-black text-slate-950 mb-3 tracking-tight">
               เงื่อนไขและข้อตกลงการใช้บริการ (Terms of Service)
             </h1>
-            <p className="text-sm text-slate-400">มีผลบังคับใช้ ณ วันที่ 29 มิถุนายน 2569 | เวอร์ชัน 1.2.0</p>
+            <p className="text-sm text-slate-400">มีผลบังคับใช้ ณ วันที่ 16 สิงหาคม 2569 | เวอร์ชัน 2.0.0</p>
           </div>
 
           {/* ข้อมูลผู้ให้บริการ */}
@@ -55,9 +55,14 @@ export default function TermsOfService() {
               <div className="space-y-2">
                 <h2 className="text-lg font-bold text-slate-900 tracking-tight">ขอบเขตการให้บริการ</h2>
                 <p className="text-slate-600 leading-relaxed text-sm md:text-base">
-                  ผู้ให้บริการจัดเตรียมระบบแชทบอท AI และหน้าจอแดชบอร์ดเพื่ออำนวยความสะดวกในการอ่าน ดึงข้อมูล
-                  และตรวจสอบสลิปโอนเงินธนาคารผ่าน LINE บันทึกข้อมูลลง Google Sheets และ Google Drive
-                  โดยระบบไม่ได้ทำหน้าที่เป็นสถาบันการเงินหรือผู้ให้บริการกระเป๋าเงินอิเล็กทรอนิกส์
+                  ผู้ให้บริการจัดเตรียมแพลตฟอร์มซอฟต์แวร์บริหารจัดการร้านค้า/ธุรกิจแบบครบวงจร ประกอบด้วย
+                  (1) ระบบแชทบอท AI สำหรับอ่าน ดึงข้อมูล และตรวจสอบสลิปโอนเงิน/บิลรายจ่ายผ่าน LINE
+                  (2) ระบบขายหน้าร้าน (POS) จัดการสต็อกสินค้า และจัดส่งสินค้า
+                  (3) ระบบบัญชี รายงานภาษี และเงินเดือนพนักงาน และ
+                  (4) หน้าจอแดชบอร์ดสำหรับบริหารจัดการข้อมูลทั้งหมดข้างต้น
+                  โดยระบบไม่ได้ทำหน้าที่เป็นสถาบันการเงิน ผู้ให้บริการกระเป๋าเงินอิเล็กทรอนิกส์ หรือที่ปรึกษาบัญชี/ภาษีที่มีใบอนุญาตแต่อย่างใด
+                  รายงานภาษี/ประมาณการณ์ที่ระบบคำนวณให้เป็นเครื่องมือช่วยวางแผนเบื้องต้นเท่านั้น
+                  ท่านควรตรวจสอบกับนักบัญชี/ผู้เชี่ยวชาญด้านภาษีก่อนยื่นเอกสารจริงเสมอ
                 </p>
               </div>
             </section>
@@ -203,7 +208,7 @@ export default function TermsOfService() {
             <span className="text-slate-300">·</span>
             <a href="/privacy" className="hover:text-blue-600 transition-colors px-2 py-1">นโยบายความเป็นส่วนตัว (PDPA)</a>
             <span className="text-slate-300">·</span>
-            <a href="mailto:support@smileslip.pro" className="hover:text-blue-600 transition-colors px-2 py-1">ติดต่อเรา</a>
+            <a href="mailto:smileslip.official@gmail.com" className="hover:text-blue-600 transition-colors px-2 py-1">ติดต่อเรา</a>
           </div>
           <p className="text-xs text-slate-300 whitespace-nowrap">© {new Date().getFullYear()} Siam Global Network Enterprise</p>
         </div>
