@@ -126,9 +126,13 @@ export default async function handler(req, res) {
       sessionConfig.customer = stripeCustomerId;
     }
 
-    // แนบโปรโมชั่นถ้ามี active
+    // แนบโปรโมชั่นถ้ามี active (auto-apply) — Stripe ไม่ยอมให้ใช้คู่กับ allow_promotion_codes
+    // ในคำขอเดียวกัน (เลือกได้แค่อย่างใดอย่างหนึ่ง) ถ้าไม่มีโปรที่ร้านตั้งเอง active อยู่ ให้ลูกค้า
+    // กรอกคูปองเองได้แทน (ช่องกรอกโค้ดมีอยู่แล้วในหน้า Stripe Checkout เอง ไม่ต้องสร้าง UI เพิ่ม)
     if (activeCouponId) {
       sessionConfig.discounts = [{ coupon: activeCouponId }];
+    } else {
+      sessionConfig.allow_promotion_codes = true;
     }
 
     const session = await stripe.checkout.sessions.create(sessionConfig);

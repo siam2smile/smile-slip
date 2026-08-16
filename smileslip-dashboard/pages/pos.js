@@ -560,6 +560,8 @@ export default function POSPage() {
   const [borrowedQty, setBorrowedQty] = useState({}); // { sku: จำนวนที่ยืม (ไม่คืนของเก่า) }
   const [selectedCat, setSelectedCat] = useState('ทั้งหมด');
   const [search, setSearch] = useState('');
+  const searchInputRef = useRef(null); // สำหรับสแกนบาร์โค้ด — เครื่องสแกน USB/Bluetooth (โหมด HID)
+  // "พิมพ์" ตัวเลขเร็วๆ ตามด้วย Enter เข้าช่องที่มี focus อยู่เหมือนคีย์บอร์ดจริง ไม่ต้องมี API พิเศษ
 
   // checkout
   const [showCheckout, setShowCheckout] = useState(false);
@@ -2312,6 +2314,32 @@ export default function POSPage() {
       }
       return [...prev, { sku: prod.sku, name: prod.name, price: prod.price, qty: 1, unit: prod.unit }];
     });
+  }
+
+  // สแกนบาร์โค้ดเข้าช่องค้นหา (USB หรือ Bluetooth scanner โหมด HID — จับคู่ผ่านตั้งค่า Bluetooth ของ
+  // เครื่องได้เลยเหมือนคีย์บอร์ดไร้สาย ไม่ต้องตั้งค่าอะไรในแอปนี้) — เครื่องสแกนแทบทุกรุ่นส่ง Enter
+  // ต่อท้ายรหัสเสมอ ถ้าเจอสินค้าตรงเป๊ะ (บาร์โค้ด/SKU/รหัสสินค้า) หรือกรองแล้วเหลือรายการเดียว
+  // ให้เพิ่มลงตะกร้าอัตโนมัติแล้วเคลียร์ช่องพร้อมสแกนตัวถัดไปทันที — ถ้ากำลังพิมพ์ค้นหาชื่อสินค้าเอง
+  // (มีหลายรายการที่ตรงกัน) จะไม่ auto-add ให้เลือกเองตามปกติ
+  function handleScanEnter(e) {
+    if (e.key !== 'Enter') return;
+    const q = search.trim();
+    if (!q) return;
+    const qLower = q.toLowerCase();
+    const exact = displayProducts.find(x =>
+      (x.barcode && x.barcode.toLowerCase() === qLower) ||
+      x.sku.toLowerCase() === qLower ||
+      (x.product_code && x.product_code.toLowerCase() === qLower)
+    );
+    const target = exact || (displayProducts.length === 1 ? displayProducts[0] : null);
+    if (target) {
+      addToCart(target);
+      showToast(`➕ ${target.name}`);
+      setSearch('');
+      searchInputRef.current?.focus();
+    } else if (displayProducts.length === 0) {
+      showToast(`ไม่พบสินค้าที่ตรงกับ "${q}"`);
+    }
   }
 
   function updateQty(sku, qty) {
@@ -5026,11 +5054,16 @@ export default function POSPage() {
 
                 <div className="p-3 bg-gray-900 space-y-2 shrink-0">
                   <input
+                    ref={searchInputRef}
                     value={search}
                     onChange={e => setSearch(e.target.value)}
-                    placeholder="🔍 ค้นหาสินค้า..."
+                    onKeyDown={handleScanEnter}
+                    placeholder="🔍 ค้นหาสินค้า หรือสแกนบาร์โค้ด..."
                     className="w-full bg-gray-800 text-white text-sm px-4 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
                   />
+                  <p className="text-gray-600 text-[11px] px-0.5">
+                    📷 วางเคอร์เซอร์ในช่องนี้แล้วสแกนได้เลย — รองรับเครื่องสแกน USB และ Bluetooth (จับคู่ผ่านตั้งค่า Bluetooth ของเครื่องเหมือนคีย์บอร์ด)
+                  </p>
                   <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
                     {categories.map(cat => (
                       <button key={cat} onClick={() => setSelectedCat(cat)}
