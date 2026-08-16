@@ -1,5 +1,12 @@
+import { createClient } from '@supabase/supabase-js';
 import { getRolesForLineId } from '../../../lib/identity';
 import { issueOwnerSession } from '../../../lib/owner-session';
+import { RETENTION_MONTHS } from '../../../lib/shop-deletion';
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
+);
 
 /**
  * รองรับหลายบทบาทพร้อมกัน (เจ้าของร้านตัวเอง + แอดมินร้านอื่น) — คืน roles เป็น array เสมอ
@@ -22,7 +29,28 @@ export default async function handler(req, res) {
   if (!userId) return res.status(400).json({ error: 'Missing userId' });
 
   const roles = await getRolesForLineId(userId);
-  if (!roles.length) return res.status(200).json({ exists: false, roles: [] });
+
+  // ไม่มีบทบาทที่ active เลย — เช็คต่อว่ามีร้านที่เจ้าของ LINE ID นี้เคย "ลบ" ไว้ (soft-delete, ข้อ 91)
+  // แล้วยังอยู่ในช่วงเก็บข้อมูล (RETENTION_MONTHS เดือน) อยู่ไหม เพื่อให้ register.js เสนอกู้คืนได้
+  // (แยก query ต่างหากจาก getRolesForLineId() โดยเจตนา เพราะที่นั่นต้องกรอง deleted_at ออกเสมอ
+  // สำหรับ login ปกติ — จุดนี้จุดเดียวที่ต้องมองเห็นร้านที่ลบไปแล้ว)
+  if (!roles.length) {
+    let deletedShop = null;
+    try {
+      const cutoffIso = new Date(Date.now() - RETENTION_MONTHS * 30 * 24 * 3600 * 1000).toISOString();
+      const { data } = await supabase
+        .from('shop_profiles')
+        .select('id, shop_name, deleted_at')
+        .eq('owner_line_id', userId)
+        .not('deleted_at', 'is', null)
+        .gt('deleted_at', cutoffIso)
+        .order('deleted_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (data) deletedShop = { shopId: data.id, shopName: data.shop_name, deletedAt: data.deleted_at };
+    } catch (e) { console.error('[check-user] deletedShop lookup failed:', e.message); }
+    return res.status(200).json({ exists: false, roles: [], deletedShop });
+  }
 
   const rolesWithSession = roles.map(r => ({
     ...r,

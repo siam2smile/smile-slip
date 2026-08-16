@@ -63,15 +63,79 @@ export const CHILD_TABLES_BY_SHOP_ID = [
   'ledger_transactions',
 ];
 
+// เดือนที่เก็บข้อมูลไว้หลังกด "ลบร้าน" ก่อนจะถูกล้างถาวรจริงโดย cron (ผู้ใช้ยืนยัน 2026-08-16)
+export const RETENTION_MONTHS = 6;
+
 /**
- * ลบร้านแบบถาวร (hard delete) พร้อมล้างข้อมูลลูกทุกตารางที่ผูก shop_id + ยกเลิก Stripe
- * subscription ที่ยัง active อยู่ก่อนเสมอ (กันลูกค้าโดนเก็บเงินต่อทั้งที่ร้านหายไปแล้ว) +
- * บันทึกไว้ก่อนลบว่าไลไอดีนี้เคยใช้สิทธิ์ทดลองฟรีไปแล้ว (กันสมัครใหม่ขอ trial ซ้ำ)
+ * "ลบร้าน" ที่ผู้ใช้เห็น (ปุ่มในหน้าเว็บ) — ตั้งแต่ 2026-08-16 เป็น soft-delete เสมอ ไม่ใช่ลบถาวร
+ * ทันทีอีกต่อไป — ยกเลิก Stripe subscription ทันที + บันทึก trial_used_line_ids เหมือนเดิม แต่
+ * "ไม่แตะข้อมูลลูกเลยสักตาราง" แค่ตั้ง deleted_at บน shop_profiles เอง (เหตุผล: ยกเลิก subscription
+ * รายเดือนมีปุ่มแยกอยู่แล้ว — "ลบร้าน" ควรมีไว้สำหรับกรณีอยากเลิกใช้จริงๆ ซึ่งควรมีช่วงกันพลาด)
+ * ร้านจะ "หายไป" ทันทีจากมุมมองผู้ใช้ (login/POS/บอทหยุดรู้จักร้านนี้ — ดู getRolesForLineId()/
+ * findShopBySource() ที่กรอง deleted_at ออก) แต่ข้อมูลจริงยังอยู่ครบจนกว่า cron
+ * (api/cron/purge-deleted-shops.js) จะไล่ล้างถาวรหลังผ่านไป RETENTION_MONTHS เดือน
  *
- * ใช้ร่วมกันทั้งฝั่งลูกค้า (self-service ใน register.js ผ่าน /api/shop/delete-shop — auth
- * ด้วย owner-session + ต้องพิมพ์ชื่อร้านยืนยัน) และฝั่งแอดมินบริษัท (ปุ่ม "ลบร้านนี้" ใน /admin
- * ผ่าน /api/admin/update-shop — auth ด้วย ADMIN_PASSWORD/company_admins) — auth ของแต่ละทาง
- * ยังคงแยกกันตามเดิม เช็คก่อนเรียกฟังก์ชันนี้เสมอ ฟังก์ชันนี้รับผิดชอบแค่ "ลบข้อมูลให้ครบ" อย่างเดียว
+ * @returns {{notFound:true}|{alreadyDeleted:true}|{success:true, shopName:string, ownerLineId:string, stripeCancelWarning:string|null}}
+ */
+export async function softDeleteShop(shopId) {
+  const { data: shop, error: fetchErr } = await supabase
+    .from('shop_profiles')
+    .select('id, shop_name, owner_line_id, trial_started_at, stripe_subscription_id, deleted_at')
+    .eq('id', shopId)
+    .maybeSingle();
+
+  if (fetchErr) throw fetchErr;
+  if (!shop) return { notFound: true };
+  if (shop.deleted_at) return { alreadyDeleted: true };
+
+  let stripeCancelWarning = null;
+  if (shop.stripe_subscription_id && stripe) {
+    try {
+      await stripe.subscriptions.cancel(shop.stripe_subscription_id);
+    } catch (stripeErr) {
+      console.error('[softDeleteShop] Stripe cancel failed:', stripeErr.message);
+      stripeCancelWarning = `ยกเลิก Stripe subscription ไม่สำเร็จ (${stripeErr.message}) — กรุณาตรวจสอบและยกเลิกด้วยมือใน Stripe Dashboard`;
+    }
+  }
+
+  if (shop.trial_started_at && shop.owner_line_id) {
+    const { error: trialErr } = await supabase
+      .from('trial_used_line_ids')
+      .upsert({ line_user_id: shop.owner_line_id }, { onConflict: 'line_user_id', ignoreDuplicates: true });
+    if (trialErr) console.error('[softDeleteShop] trial_used_line_ids upsert failed:', trialErr.message);
+  }
+
+  const { error: updateErr } = await supabase.from('shop_profiles')
+    .update({ deleted_at: new Date().toISOString() }).eq('id', shopId);
+  if (updateErr) throw updateErr;
+
+  return { success: true, shopName: shop.shop_name, ownerLineId: shop.owner_line_id, stripeCancelWarning };
+}
+
+/**
+ * กู้คืนร้านที่ถูก soft-delete กลับมาใช้งานได้ทันที (เจ้าของ LINE ID เดิมสมัครใหม่ภายใน
+ * RETENTION_MONTHS แล้วเลือก "ใช้ข้อมูลเดิม") — ไม่มีอะไรต้องกู้คืนนอกจาก deleted_at เพราะ
+ * ข้อมูลลูกไม่เคยถูกแตะเลยตั้งแต่ softDeleteShop() — ไม่คืน Stripe subscription ให้อัตโนมัติ
+ * (ต้องสมัครแพ็กเกจใหม่เองถ้าต้องการ, tier จะกลับเป็น normal/trial-expired ตามที่ค้างไว้ตอนลบ)
+ */
+export async function restoreShopFromRetention(shopId) {
+  const { data: shop, error: fetchErr } = await supabase
+    .from('shop_profiles').select('id, deleted_at').eq('id', shopId).maybeSingle();
+  if (fetchErr) throw fetchErr;
+  if (!shop || !shop.deleted_at) return { notFound: true };
+  const { error } = await supabase.from('shop_profiles').update({ deleted_at: null }).eq('id', shopId);
+  if (error) throw error;
+  return { success: true };
+}
+
+/**
+ * ลบร้านแบบถาวร (hard delete) พร้อมล้างข้อมูลลูกทุกตารางที่ผูก shop_id — ใช้ 2 ที่เท่านั้น: (1)
+ * cron รายวัน (api/cron/purge-deleted-shops.js) ไล่ล้างร้านที่ soft-delete ไว้เกิน RETENTION_MONTHS
+ * เดือนแล้ว (2) หน้า register.js's "เริ่มระบบใหม่หมด" — เจ้าของร้านเดิมเลือกทิ้งข้อมูลเก่าที่ soft-delete
+ * ไว้ทันทีโดยไม่ต้องรอครบ 6 เดือน — ไม่ใช้กับปุ่ม "ลบร้าน" ที่ผู้ใช้กดเองอีกต่อไป (เปลี่ยนเป็น
+ * softDeleteShop() ด้านบนแล้ว ดูเหตุผลที่นั่น) ทั้งสองจุดเรียกฟังก์ชันนี้ "หลัง" ยกเลิก Stripe/บันทึก
+ * trial_used_line_ids ไปแล้วครั้งเดียวตอน soft-delete ก่อนหน้านี้ (ไม่ต้องทำซ้ำ เพราะ shop.stripe_subscription_id
+ * ถูกยกเลิกไปแล้วตั้งแต่ตอนนั้น และ trial_used_line_ids upsert แบบ ignoreDuplicates ก็ปลอดภัยถ้าเรียกซ้ำ)
  *
  * @returns {{notFound:true}|{success:true, shopName:string, ownerLineId:string, stripeCancelWarning:string|null}}
  */

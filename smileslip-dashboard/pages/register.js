@@ -42,6 +42,13 @@ export default function Register() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState('');
 
+  // ── ร้านเดิมที่เคย "ลบ" ไว้ (soft-delete, 6-month retention ข้อ 91) — เจ้าของ LINE ID เดิมสมัคร
+  // ใหม่ภายในช่วงเก็บข้อมูล เสนอให้เลือกกู้คืนหรือเริ่มระบบใหม่หมด ก่อนเข้าฟอร์มสมัครปกติ ──
+  const [deletedShopInfo, setDeletedShopInfo] = useState(null); // { shopId, shopName, deletedAt }
+  const [restoreLoading, setRestoreLoading] = useState(false);
+  const [restoreError, setRestoreError] = useState('');
+  const [startFreshLoading, setStartFreshLoading] = useState(false);
+
   const { userId, name, ref: referralCode } = router.query;
   const ownerRole = existingRoles.find(r => r.role === 'owner') || null;
 
@@ -58,6 +65,8 @@ export default function Register() {
         const data = await res.json();
         if (data.exists && data.roles?.length) {
           setExistingRoles(data.roles);
+        } else if (data.deletedShop) {
+          setDeletedShopInfo(data.deletedShop); // เคยลบไว้ ยังอยู่ในช่วงเก็บข้อมูล → เสนอกู้คืนก่อน
         } else {
           setDecision('form'); // ยังไม่มีบัญชีเลย → ข้ามหน้าตัดสินใจ ไปกรอกฟอร์มปกติทันที
         }
@@ -101,6 +110,37 @@ export default function Register() {
     setDeleteLoading(false);
   };
 
+  const handleRestoreShop = async () => {
+    if (!deletedShopInfo) return;
+    setRestoreError('');
+    setRestoreLoading(true);
+    try {
+      const res = await axios.post('/api/shop/restore-shop', { shopId: deletedShopInfo.shopId, lineUserId: userId });
+      if (res.data.success) {
+        setOwnerSessionToken(res.data.shopId, res.data.ownerSession);
+        router.push(`/dashboard?userId=${userId}`);
+        return; // ไม่ set loading เป็น false — กำลัง navigate ออกไปแล้ว
+      }
+    } catch (err) {
+      setRestoreError(err.response?.data?.error || 'กู้คืนร้านไม่สำเร็จ กรุณาลองใหม่');
+    }
+    setRestoreLoading(false);
+  };
+
+  const handleStartFresh = async () => {
+    if (!deletedShopInfo) return;
+    if (!confirm(`ยืนยันทิ้งข้อมูลเดิมของร้าน "${deletedShopInfo.shopName}" ถาวร แล้วเริ่มสมัครใหม่ทั้งหมด?\n\nกู้คืนไม่ได้อีกต่อไปหลังจากนี้`)) return;
+    setStartFreshLoading(true);
+    try {
+      await axios.delete('/api/shop/purge-deleted-shop', { data: { shopId: deletedShopInfo.shopId, lineUserId: userId } });
+      setDeletedShopInfo(null);
+      setDecision('form'); // ล้างข้อมูลเก่าเรียบร้อย → เข้าฟอร์มสมัครใหม่ปกติ
+    } catch (err) {
+      alert(err.response?.data?.error || 'ล้างข้อมูลเดิมไม่สำเร็จ กรุณาลองใหม่');
+    }
+    setStartFreshLoading(false);
+  };
+
   // Districts filtered by selected province
   const availableDistricts = formData.province ? (DISTRICTS[formData.province] || []) : [];
 
@@ -142,6 +182,48 @@ export default function Register() {
       <p className="animate-pulse font-bold tracking-widest text-sm">กำลังโหลด...</p>
     </div>
   );
+
+  // ── หน้าตัดสินใจ: พบร้านเดิมที่เคยลบไว้ ยังอยู่ในช่วงเก็บข้อมูล 6 เดือน ──
+  if (userId && deletedShopInfo && decision === null) {
+    const deletedDateLabel = new Date(deletedShopInfo.deletedAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-950 via-blue-900 to-blue-800 flex items-center justify-center p-6">
+        <Head><title>พบข้อมูลร้านเดิม | Smile Slip Pro</title></Head>
+        <div className="max-w-md w-full bg-white rounded-3xl p-8 shadow-2xl">
+          <div className="text-center mb-6">
+            <div className="text-4xl mb-3">🗄️</div>
+            <h2 className="text-lg font-black text-slate-900 mb-1">พบข้อมูลร้าน "{deletedShopInfo.shopName}"</h2>
+            <p className="text-slate-400 text-xs leading-relaxed">
+              ร้านนี้เคยถูกลบไปเมื่อ {deletedDateLabel} — ข้อมูลยังเก็บไว้ให้อยู่ (สินค้า/ผู้ติดต่อ/ประวัติการขาย ฯลฯ)
+              เลือกได้ว่าจะใช้ข้อมูลเดิมต่อ หรือเริ่มระบบใหม่ทั้งหมด
+            </p>
+          </div>
+
+          <div className="space-y-2.5">
+            <button onClick={handleRestoreShop} disabled={restoreLoading || startFreshLoading}
+              className="w-full flex items-center justify-center gap-2 py-3.5 bg-blue-900 hover:bg-blue-700 text-white rounded-xl font-black text-sm transition-all shadow-lg disabled:opacity-40">
+              {restoreLoading ? 'กำลังกู้คืน...' : '✅ ใช้ข้อมูลเดิม'}
+            </button>
+            <button onClick={handleStartFresh} disabled={restoreLoading || startFreshLoading}
+              className="w-full flex items-center justify-center gap-2 py-3.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl font-black text-sm transition-all border-2 border-red-200 disabled:opacity-40">
+              {startFreshLoading ? 'กำลังล้างข้อมูล...' : '🆕 เริ่มระบบใหม่หมด (ทิ้งข้อมูลเดิมถาวร)'}
+            </button>
+          </div>
+
+          {restoreError && (
+            <div className="bg-red-50 border border-red-200 text-red-600 text-xs font-bold px-4 py-3 rounded-xl mt-3">
+              {restoreError}
+            </div>
+          )}
+
+          <p className="text-[10px] text-slate-400 text-center leading-relaxed px-2 mt-4">
+            * แพ็กเกจ/การสมัครสมาชิกเดิมถูกยกเลิกไปแล้วตอนลบร้าน ถ้ากู้คืนแล้วต้องการใช้แพ็กเกจเสียเงินต่อ
+            ต้องสมัครใหม่ที่หน้าราคาอีกครั้ง
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // ── หน้าตัดสินใจ: ไลไอดีนี้ผูกกับบัญชีอยู่แล้ว ──
   if (userId && existingRoles.length > 0 && decision === null) {

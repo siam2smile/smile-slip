@@ -203,20 +203,25 @@ function isSuper(shop) { return isUnlimited(shop); }
 
 // ค้นหาร้านค้าจาก sourceId — รองรับทั้ง shop_profiles และ shop_branches
 async function findShopBySource(sourceId) {
+  // ร้านที่ถูก "ลบ" (soft-delete, 6-month retention ข้อ 91) ต้องไม่ถูกมองว่ามีอยู่จริงจากบอทเลย —
+  // กรอง deleted_at ออกทั้ง 2 จุดค้นหา (เจ้าของ+ทุกสาขา) กันบอทยังตอบสนอง/ตัดเครดิตให้ร้านที่เจ้าของ
+  // กดลบไปแล้ว แม้ข้อมูลจริงจะยังอยู่ในฐานข้อมูลจนกว่า cron จะล้างถาวรใน 6 เดือนก็ตาม
   // 1. ค้นหาจาก shop_profiles โดยตรง (กลุ่มหลัก หรือ DM เจ้าของ)
   const { data: shop } = await supabase
     .from('shop_profiles')
     .select('*')
     .or(`line_group_id.eq.${sourceId},owner_line_id.eq.${sourceId}`)
+    .is('deleted_at', null)
     .maybeSingle();
   if (shop) return { shop, branchName: shop.shop_name, branchId: null, isOwnerChat: !!shop.owner_line_id && shop.owner_line_id === sourceId };
 
   // 2. ค้นหาจาก shop_branches (สาขาต่างๆ)
   const { data: branch } = await supabase
     .from('shop_branches')
-    .select('*, shop_profiles(*)')
+    .select('*, shop_profiles!inner(*)')
     .eq('line_group_id', sourceId)
     .eq('is_active', true)
+    .is('shop_profiles.deleted_at', null)
     .maybeSingle();
   if (branch?.shop_profiles) {
     return { shop: branch.shop_profiles, branchName: branch.branch_name, branchId: branch.id, isOwnerChat: false };

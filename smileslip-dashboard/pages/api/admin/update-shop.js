@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { deleteShopCompletely } from '../../../lib/shop-deletion';
+import { softDeleteShop } from '../../../lib/shop-deletion';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -117,13 +117,13 @@ export default async function handler(req, res) {
     }
 
     // ── ลบร้านค้า ──
-    // ใช้ deleteShopCompletely() ตัวเดียวกับที่ /api/shop/delete-shop.js (ฝั่งลูกค้าลบร้านตัวเอง)
-    // ใช้อยู่แล้ว — เดิมไฟล์นี้มี logic ลบแยกของตัวเอง ลบแค่ 5 ตาราง ไม่ยกเลิก Stripe subscription
-    // เลย (ลูกค้าที่ยังมี subscription active จะโดนเก็บเงินต่อไปเรื่อยๆ ทั้งที่ร้านถูกแอดมินลบไปแล้ว)
-    // และไม่เคยอัปเดตตามหลังระบบ POS ถูกสร้างขึ้น (ข้อมูล POS ทั้งหมดของร้านจะค้างอยู่ในระบบตลอดไป)
+    // ใช้ softDeleteShop() ตัวเดียวกับที่ /api/shop/delete-shop.js (ฝั่งลูกค้าลบร้านตัวเอง) ใช้อยู่
+    // แล้ว — ตั้งแต่ 2026-08-16 เป็น soft-delete (เก็บข้อมูลไว้ 6 เดือนก่อนล้างถาวรจริงโดย cron)
+    // เหมือนกันทั้งสองทาง เพื่อให้ตรงกับนโยบายที่ประกาศไว้ใน privacy.js เสมอ ไม่ว่าใครเป็นคนกดลบ
     if (action === 'delete_shop') {
-      const result = await deleteShopCompletely(shopId);
+      const result = await softDeleteShop(shopId);
       if (result.notFound) return res.status(404).json({ error: 'ไม่พบร้านค้านี้' });
+      if (result.alreadyDeleted) return res.status(400).json({ error: 'ร้านนี้ถูกลบไปแล้ว' });
       return res.status(200).json({ success: true, stripeCancelWarning: result.stripeCancelWarning });
     }
 

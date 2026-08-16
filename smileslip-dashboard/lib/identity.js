@@ -19,10 +19,14 @@ export async function getRolesForLineId(lineUserId) {
   if (!lineUserId) return roles;
 
   // 1. เป็นเจ้าของร้านไหนบ้าง (ปกติมีแค่ 1 แถว แต่ทนทานถ้าเจอ 2+ จากข้อมูลเก่าที่อาจซ้ำ)
+  // กรอง deleted_at ออก — ร้านที่ถูก soft-delete (ข้อ "6-month retention", 2026-08-16) ต้อง
+  // มองไม่เห็นเลยจากมุมมอง login/register ปกติ (การตรวจหาร้านที่ soft-delete ไว้เพื่อเสนอกู้คืน
+  // เป็นคนละ query แยกต่างหากใน check-user.js ไม่ปนกับฟังก์ชันนี้)
   const { data: ownedShops, error: ownerErr } = await supabase
     .from('shop_profiles')
     .select('id, shop_name, owner_line_id')
-    .eq('owner_line_id', lineUserId);
+    .eq('owner_line_id', lineUserId)
+    .is('deleted_at', null);
 
   if (ownerErr) {
     console.error('[identity] getRolesForLineId owner query error:', ownerErr.message);
@@ -36,7 +40,7 @@ export async function getRolesForLineId(lineUserId) {
   //    (unique constraint คือ (shop_id, line_user_id) ไม่ใช่ line_user_id เดี่ยวๆ)
   const { data: adminRows, error: adminErr } = await supabase
     .from('shop_admins')
-    .select('shop_id, shop_profiles!inner(owner_line_id, shop_name)')
+    .select('shop_id, shop_profiles!inner(owner_line_id, shop_name, deleted_at)')
     .eq('line_user_id', lineUserId)
     .eq('status', 'approved');
 
@@ -44,6 +48,7 @@ export async function getRolesForLineId(lineUserId) {
     console.error('[identity] getRolesForLineId admin query error:', adminErr.message);
   } else {
     for (const row of (adminRows || [])) {
+      if (row.shop_profiles.deleted_at) continue; // ร้านนี้ถูก soft-delete ไปแล้ว ไม่นับเป็นบทบาทที่ใช้งานได้
       roles.push({
         shopId: row.shop_id,
         shopName: row.shop_profiles.shop_name,

@@ -1,15 +1,19 @@
 import { requireOwnerAuth } from '../../../lib/owner-auth';
-import { deleteShopCompletely } from '../../../lib/shop-deletion';
+import { softDeleteShop, RETENTION_MONTHS } from '../../../lib/shop-deletion';
 import { createClient } from '@supabase/supabase-js';
 
 /**
  * DELETE /api/shop/delete-shop { shopId, lineUserId, confirmShopName }
  *
- * ลบร้านแบบถาวร (hard delete) — ใช้ตอนเจ้าของร้านเลือก "ลบร้านเดิมแล้วสมัครใหม่" ในหน้า register.js
- * เจตนาของผู้ใช้ชัดเจนว่าต้องเป็นการลบจริง ไม่ใช่ soft-delete เพราะต้องปิดช่องโหว่ลบแล้วสมัครใหม่
- * เพื่อขอสิทธิ์ทดลองฟรี 30 วันซ้ำไม่จำกัดรอบ
+ * ลบร้าน — ตั้งแต่ 2026-08-16 เป็น soft-delete (เก็บข้อมูลไว้ RETENTION_MONTHS เดือนก่อนล้างถาวร
+ * จริงโดย cron) ไม่ใช่ลบถาวรทันทีอีกต่อไป — ผู้ใช้ตัดสินใจว่าการยกเลิกสมัครสมาชิกรายเดือนมีปุ่ม
+ * แยกอยู่แล้ว (api/shop/subscription.js) ปุ่มนี้ควรมีไว้สำหรับ "อยากเลิกใช้จริงๆ" ซึ่งควรมีช่วงกัน
+ * พลาด/เปลี่ยนใจ ไม่ใช่ลบถาวรทันที — สิทธิ์ทดลองฟรี 30 วันยังถูกบันทึกกันซ้ำเหมือนเดิม (softDeleteShop
+ * บันทึก trial_used_line_ids ทันทีตอนกดลบ ไม่ต้องรอครบ 6 เดือน) การลบแบบเดิม (hard delete ทันที)
+ * ยังใช้ได้ผ่าน deleteShopCompletely() แต่ตอนนี้เหลือแค่ cron + flow "เริ่มระบบใหม่หมด" ใน
+ * register.js เท่านั้นที่เรียก (ดู lib/shop-deletion.js)
  *
- * ความปลอดภัยเฉพาะทางนี้ (การลบข้อมูลจริง + ยกเลิก Stripe + กันสิทธิ์ trial ซ้ำ อยู่รวมกันใน
+ * ความปลอดภัยเฉพาะทางนี้ (soft-delete + ยกเลิก Stripe + กันสิทธิ์ trial ซ้ำ อยู่รวมกันใน
  * lib/shop-deletion.js ใช้ร่วมกับปุ่ม "ลบร้านนี้" ของแอดมินบริษัทใน /api/admin/update-shop แล้ว):
  * - ต้องเป็นเจ้าของร้านจริงเท่านั้น (แอดมินร้านลบร้านที่ตัวเองแค่ดูแลอยู่ไม่ได้)
  * - ต้องพิมพ์ชื่อร้านให้ตรงเป๊ะก่อนเสมอ (กันกดพลาด/สคริปต์ยิงมั่ว)
@@ -54,9 +58,10 @@ export default async function handler(req, res) {
   }
 
   try {
-    const result = await deleteShopCompletely(shopId);
+    const result = await softDeleteShop(shopId);
     if (result.notFound) return res.status(404).json({ error: 'ไม่พบร้านค้านี้' });
-    return res.status(200).json({ success: true, stripeCancelWarning: result.stripeCancelWarning });
+    if (result.alreadyDeleted) return res.status(400).json({ error: 'ร้านนี้ถูกลบไปแล้ว' });
+    return res.status(200).json({ success: true, stripeCancelWarning: result.stripeCancelWarning, retentionMonths: RETENTION_MONTHS });
   } catch (err) {
     console.error('[delete-shop] fatal error:', err.message);
     return res.status(500).json({ error: `ลบร้านไม่สำเร็จ: ${err.message}` });
