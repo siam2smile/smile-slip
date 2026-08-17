@@ -7,10 +7,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { CheckCircle2, AlertTriangle, ArrowLeft, Receipt, Save, FileText, Download, Printer, X } from 'lucide-react';
+import { getOwnerSessionToken, setOwnerSessionToken, findOwnerSessionTokenForOwnerId } from '../../lib/client-owner-session';
 
 export default function EditTransaction() {
   const router = useRouter();
-  const { userId, ref, year } = router.query;
+  const { userId, ref, year, ownerSession } = router.query;
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -47,8 +48,17 @@ export default function EditTransaction() {
 
   const loadTransaction = async () => {
     try {
-      // 1. หา shopId จาก LINE userId
-      const shopRes = await fetch(`/api/shop/data?userId=${encodeURIComponent(userId)}`);
+      // 1. หา shopId จาก LINE userId — token มาจาก (ก) ?ownerSession= ที่บอทเซ็นแนบมากับลิงก์
+      // "แก้ไขข้อมูล" เสมอ (lib/owner-session-sign.js's ownerDeepLink ฝั่งบอท) หรือ (ข) localStorage
+      // ถ้าเคย login ผ่าน /login บนเครื่องนี้มาก่อนแล้ว (เช่น กดลิงก์จากหน้า Ledger ในเว็บเอง)
+      const initialToken = ownerSession || findOwnerSessionTokenForOwnerId(userId);
+      const shopRes = await fetch(`/api/shop/data?userId=${encodeURIComponent(userId)}`,
+        initialToken ? { headers: { 'x-owner-session': initialToken } } : undefined);
+      if (shopRes.status === 401) {
+        setError('ลิงก์หมดอายุหรือไม่ถูกต้อง — กรุณากดปุ่ม "แก้ไขข้อมูล" ใหม่จากข้อความล่าสุดใน LINE');
+        setLoading(false);
+        return;
+      }
       const shopData = await shopRes.json();
       if (!shopData?.profile?.id) {
         setError('ไม่พบร้านค้า กรุณาเข้าสู่ระบบผ่าน LINE ก่อน');
@@ -61,10 +71,16 @@ export default function EditTransaction() {
       setShopName(shopData.profile.shop_name || '');
       setShopAddress(shopData.profile.address || '');
 
-      // 2. ดึงธุรกรรมจาก Google Sheets ด้วย ref (column K)
+      // เก็บ token ไว้ผูกกับ shopId จริงตัวแรกที่รู้ (localStorage key ผูกกับ shopId ไม่ใช่ userId)
+      // กันต้องพึ่ง query string ทุกครั้งที่เปิดหน้านี้ใหม่บนเครื่องเดียวกัน
+      if (ownerSession) setOwnerSessionToken(sid, ownerSession);
+      const sessionToken = initialToken || getOwnerSessionToken(sid);
+
+      // 2. ดึงธุรกรรมจาก ledger_transactions ด้วย ref (slip_hash)
       const targetYear = year || new Date().getFullYear().toString();
       const txRes = await fetch(
-        `/api/sheets/update-transaction?shopId=${sid}&year=${targetYear}&ref=${encodeURIComponent(ref)}`
+        `/api/sheets/update-transaction?shopId=${sid}&year=${targetYear}&ref=${encodeURIComponent(ref)}`,
+        sessionToken ? { headers: { 'x-owner-session': sessionToken } } : undefined
       );
       const txData = await txRes.json();
       if (txData.error) {
@@ -101,9 +117,10 @@ export default function EditTransaction() {
     if (!form.amount || isNaN(parseFloat(form.amount))) return alert('กรุณากรอกจำนวนเงินให้ถูกต้องค่ะ');
     setSaving(true);
     try {
+      const sessionToken = getOwnerSessionToken(shopId);
       const res = await fetch('/api/sheets/update-transaction', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(sessionToken ? { 'x-owner-session': sessionToken } : {}) },
         body: JSON.stringify({ shopId, year: txYear, ref, ...form, learnKeyword }),
       });
       const data = await res.json();
@@ -136,9 +153,10 @@ export default function EditTransaction() {
   const handleVoucherSave = async () => {
     setVoucherStep('saving');
     try {
+      const sessionToken = getOwnerSessionToken(shopId);
       const res = await fetch('/api/voucher/save', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(sessionToken ? { 'x-owner-session': sessionToken } : {}) },
         body: JSON.stringify({
           shopId, type: form.type, amount: form.amount, date: form.date, time: form.time,
           sender: form.sender, receiver: form.receiver, note: form.note,

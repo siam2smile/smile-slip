@@ -7,6 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 import PDFDocument from 'pdfkit';
 import path from 'path';
 import axios from 'axios';
+import { requireOwnerAuth } from '../../../lib/owner-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -177,6 +178,7 @@ export default async function handler(req, res) {
 
   const { shopId, type, amount, date, time, sender, receiver, note, category, branch } = req.body;
   if (!shopId) return res.status(400).json({ error: 'shopId required' });
+  if (!requireOwnerAuth(req, res, shopId, { enforce: true })) return;
 
   const [{ data: shop }, { data: gc }] = await Promise.all([
     supabase.from('shop_profiles').select('shop_name, address, google_folder_id').eq('id', shopId).single(),

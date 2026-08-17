@@ -21,17 +21,12 @@ export default async function handler(req, res) {
   if (error) return res.status(500).json({ error: error.message });
   if (!profile) return res.status(404).json({ error: 'ไม่พบข้อมูลร้านค้า' });
 
-  // ⚠️ 2026-08-15: เคยลอง enforce:true (ข้อ 87) แล้วต้อง revert กลับ — dashboard.js/pos.js
-  // ถูกแก้ให้แนบ token ถูกต้องแล้วก็จริง แต่พบว่ามีอีก 3 หน้าที่เรียก endpoint นี้ตรงๆ โดยไม่เคย
-  // มีกลไก owner-session เลย: delivery.js/pricing.js (แก้ได้ง่าย เพิ่ม token lookup) และ
-  // transaction/edit.js (แก้ไม่ได้ง่ายๆ — เข้าถึงผ่าน deep-link จากปุ่ม "แก้ไขข้อมูล" ในบอท LINE
-  // โดยตรง ไม่เคยผ่าน /login เลย ไม่มี token ใน localStorage แน่นอน ต้องให้บอทเซ็น token แนบมากับ
-  // ลิงก์เองก่อน — ยังไม่ได้ทำ เป็นงานคนละ service ต้อง deploy บอทด้วย) จึง revert เป็น
-  // enforce:false ไว้ก่อนกันหน้าเหล่านี้พังจริงใน production — ยังคงเช็คว่า "มี" token ที่ shopId
-  // ไม่ตรงกันต้องบล็อกเสมอ (ปิดช่องโหว่ปลอม shopId ข้ามร้านตอนมี token อยู่แล้ว) แค่ยังไม่บังคับ
-  // ต้องมี token เท่านั้น — ต้องทำ signed deep-link ให้ transaction/edit.js ก่อนถึงจะ enforce:true
-  // ได้อีกครั้งอย่างปลอดภัยจริง
-  if (!requireOwnerAuth(req, res, profile.id, { enforce: false })) return;
+  // 2026-08-17: enforce:true เต็มรูปแบบแล้ว — caller ทั้ง 5 หน้าที่เรียก endpoint นี้ (dashboard.js,
+  // pos.js, delivery.js, pricing.js) แนบ token ถูกต้องอยู่แล้ว ส่วน transaction/edit.js ที่เคย
+  // เป็นตัวติดขัด (เข้าถึงผ่าน deep-link จากปุ่ม "แก้ไขข้อมูล" ในบอท LINE โดยตรง) ตอนนี้อ่าน
+  // ?ownerSession= ที่บอทเซ็นแนบมากับลิงก์นี้อยู่แล้วเสมอ (lib/owner-session-sign.js's
+  // ownerDeepLink() ฝั่งบอท — มีอยู่ก่อนแล้วตั้งแต่ข้อ 63 แค่หน้านี้ไม่เคยอ่านมันมาก่อน)
+  if (!requireOwnerAuth(req, res, profile.id, { enforce: true })) return;
 
   const [creditRow, gConfig, banks] = await Promise.all([
     supabase.from('shop_credits').select('balance_credits').eq('shop_id', profile.id).maybeSingle(),

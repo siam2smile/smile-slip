@@ -13,6 +13,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
+import { requireOwnerAuth } from '../../../lib/owner-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -175,6 +176,7 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const { shopId, ref } = req.query;
     if (!shopId || !ref) return res.status(400).json({ error: 'ข้อมูลไม่ครบ (shopId, ref)' });
+    if (!requireOwnerAuth(req, res, shopId, { enforce: true })) return;
 
     try {
       const { data: row, error } = await supabase
@@ -204,6 +206,7 @@ export default async function handler(req, res) {
     const amountNum = parseFloat(amount);
     if (isNaN(amountNum) || amountNum < 0) return res.status(400).json({ error: 'จำนวนเงินไม่ถูกต้อง' });
     const taxAmountNum = taxAmount !== undefined && taxAmount !== '' ? (parseFloat(taxAmount) || 0) : null;
+    if (!requireOwnerAuth(req, res, shopId, { enforce: true })) return;
 
     try {
       const { data: oldRow, error: findErr } = await supabase
