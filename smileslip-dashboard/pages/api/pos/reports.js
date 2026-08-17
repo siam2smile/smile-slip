@@ -21,6 +21,9 @@
  *   peak_hours → ชั่วโมง/วันที่ขายดีของร้านตัวเอง (ไม่ anonymize ต่างจาก shop/heatmap.js's
  *                Enterprise cross-shop Heatmap) ใช้จัดกะพนักงาน (งานกลยุทธ์ "6P Data Matrix"
  *                ข้อ 89 Phase 4) — ทุก tier ใช้ได้ ไม่ล็อกพิเศษ
+ *   product_peak_hours → เหมือน peak_hours แต่แยกต่อ SKU (ข้อ 94) — กรอง &category= เพื่อเทียบ
+ *                สินค้าตระกูลเดียวกัน (เช่นสี/ไซส์ต่างกันของสินค้าเดียวกัน ที่แนะนำให้ลงเป็นคนละ
+ *                SKU ใช้ category ร่วมกัน) — Enterprise เท่านั้น เหมือนส่วนอื่นของ 6P Data Matrix
  *
  * Tier E (2026-07-25): รายการที่เป็น transaction log ล้วนๆ (ขาย/ยืม/รับสินค้า/รายจ่าย/ออเดอร์จัดส่ง)
  * อ่านจาก Supabase (pos_sales/pos_loans/pos_receives/pos_expenses/pos_delivery_orders) แทน Sheets แล้ว
@@ -981,6 +984,71 @@ export default async function handler(req, res) {
         peakHour, peakDay, peakDayLabel: DAY_LABEL[peakDay],
         dayLabels: DAY_LABEL,
         summary: { total_transactions: matched },
+      });
+    }
+
+    // ── ขายดีตามช่วงเวลาแยกต่อสินค้า/คุณลักษณะ (ข้อ 94) — งานกลยุทธ์ "6P Data Matrix" ต่อยอด ──
+    // ระบบไม่มีฟิลด์ "สี/ไซส์/แบบ" แยกในตัวสินค้า (ตามที่แนะนำผู้ใช้ไปแล้ว: ให้ลงแต่ละสี/แบบเป็นคนละ
+    // SKU ใช้ category เดียวกันเป็นตัวจัดกลุ่ม "สินค้าตระกูลเดียวกัน") — รายงานนี้จึงคือ peak_hours
+    // (ข้างบน) แต่แยกต่อ SKU แทนที่จะรวมทั้งร้าน กรองด้วย ?category= เพื่อเทียบเฉพาะตระกูลเดียวกัน
+    // เช่น "เสื้อยืด" ทุกสี — นับเป็น "จำนวนชิ้นที่ขาย" ต่อชั่วโมง/วัน (ไม่ใช่จำนวนบิล เพราะสนใจ
+    // ปริมาณขายจริงต่อสินค้า) — ล็อก Enterprise เหมือน peak_hours/price_tier/customer_rfm
+    if (type === 'product_peak_hours') {
+      if (!(await requirePermission(req, res, shopId, 'perm_view_revenue'))) return;
+      const { data: strategyShopRow3 } = await supabase.from('shop_profiles')
+        .select('subscription_tier').eq('id', shopId).maybeSingle();
+      if (!hasFeature((strategyShopRow3?.subscription_tier || 'normal').toLowerCase(), 'strategy_analytics')) {
+        return res.status(403).json({ error: upgradeMessage('strategy_analytics'), featureLocked: true });
+      }
+
+      const [posSales, deliveryOrders, products] = await Promise.all([
+        fetchSales(shopId), fetchDeliveryOrders(shopId), fetchProducts(shopId),
+      ]);
+      const deliverySales = deliveryOrders.filter(o => o.status === 'ส่งแล้ว').map(deliveryOrderToSaleShape);
+      let sales = [...posSales, ...deliverySales].filter(s => s.bill_no && s.status !== 'ยกเลิก');
+      if (branch) sales = sales.filter(s => s.branch === branch || (!s.branch && branch === branchName));
+      sales = sales.filter(s => inRange(s.created_at, from, to));
+
+      const catMap = {};
+      products.forEach(p => { catMap[p.sku] = p.category || 'ไม่ระบุหมวด'; });
+      const categories = [...new Set(products.map(p => p.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'th'));
+
+      const tally = {}; // sku → { sku, name, category, hourCounts, dayCounts, total_qty, total_revenue }
+      for (const sale of sales) {
+        const dt = parseThaiBEDateTime(sale.created_at);
+        if (!dt) continue;
+        const h = dt.getHours(), d = dt.getDay();
+        for (const item of sale.items || []) {
+          if (req.query.category && catMap[item.sku] !== req.query.category) continue;
+          if (!tally[item.sku]) {
+            tally[item.sku] = {
+              sku: item.sku, name: item.name, category: catMap[item.sku] || 'ไม่ระบุหมวด',
+              hourCounts: Array(24).fill(0), dayCounts: Array(7).fill(0),
+              total_qty: 0, total_revenue: 0,
+            };
+          }
+          const t = tally[item.sku];
+          t.hourCounts[h] += item.qty;
+          t.dayCounts[d] += item.qty;
+          t.total_qty += item.qty;
+          t.total_revenue += item.price * item.qty;
+        }
+      }
+
+      const DAY_LABEL2 = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+      const productList = Object.values(tally).map(t => {
+        let peakHour = 0, peakDay = 0;
+        t.hourCounts.forEach((v, i) => { if (v > t.hourCounts[peakHour]) peakHour = i; });
+        t.dayCounts.forEach((v, i) => { if (v > t.dayCounts[peakDay]) peakDay = i; });
+        return { ...t, peakHour, peakDay, peakDayLabel: DAY_LABEL2[peakDay] };
+      }).sort((a, b) => b.total_qty - a.total_qty).slice(0, req.query.category ? 100 : 15);
+
+      return res.json({
+        type: 'product_peak_hours',
+        category: req.query.category || null,
+        categories,
+        products: productList,
+        dayLabels: DAY_LABEL2,
       });
     }
 

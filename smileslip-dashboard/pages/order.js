@@ -46,7 +46,9 @@ export default function CustomerOrderPage() {
         const prodRes = await fetch(`/api/pos/products?shopId=${shopId}${matched ? `&branch=${encodeURIComponent(matched)}` : ''}`);
         const prodData = await prodRes.json();
         // ไม่ให้สั่งสินค้าประเภท "หมุนเวียน" ผ่านหน้านี้ (ต้องคุยเรื่องแลก/ยืมของเก่ากับร้านโดยตรง)
-        setProducts((prodData.products || []).filter(p => p.type !== 'หมุนเวียน'));
+        // + กรองเฉพาะสินค้าที่ร้านติ๊กให้แสดงในเมนูออนไลน์ (ข้อ 94 — ค่าเริ่มต้น true เสมอ ตรงกับ
+        // พฤติกรรมเดิมที่ดึงสินค้าทุกตัวมาแสดง จนกว่าร้านจะเข้าไปติ๊กซ่อนเองในหน้า POS)
+        setProducts((prodData.products || []).filter(p => p.type !== 'หมุนเวียน' && p.online_order_visible !== false));
       } catch {}
       setLoading(false);
     }

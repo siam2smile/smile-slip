@@ -173,6 +173,22 @@ export default async function handler(req, res) {
     }
 
     // ── PATCH (แก้ไข / อัปเดตสต็อค / actions หมุนเวียน) ─────────────────
+    if (req.method === 'PATCH' && Array.isArray(req.body.bulkOnlineVisibility)) {
+      // ข้อ 94 — ติ๊กเลือกหลายสินค้าพร้อมกันว่าจะแสดง/ซ่อนในหน้าสั่งซื้อออนไลน์ (order.js) แล้วยืนยันทีเดียว
+      // (แทนที่จะต้องเปิดฟอร์มแก้ไขทีละตัว) — เจ้าของร้าน/แอดมินเท่านั้น (เหมือน PATCH เดี่ยวด้านล่าง)
+      if (!(await requirePermission(req, res, shopId, 'perm_manage_stock'))) return;
+
+      const items = req.body.bulkOnlineVisibility.filter(x => x?.sku);
+      let updated = 0;
+      for (const item of items) {
+        const { error } = await supabase.from('pos_products')
+          .update({ online_order_visible: !!item.online_order_visible })
+          .eq('shop_id', shopId).eq('sku', item.sku).is('deleted_at', null);
+        if (!error) updated++;
+      }
+      return res.json({ ok: true, updated, requested: items.length });
+    }
+
     if (req.method === 'PATCH') {
       // เรียกจากหน้าพนักงาน (pos-staff.js/แคชเชียร์ แนบ x-staff-session มาด้วย) — ต้องมีสิทธิ์
       // "จัดการสต็อก" ถึงจะแก้ได้ (ตรวจสอบผ่าน session ที่เซ็นชื่อ ไม่ใช่ staffId เปล่าๆ ที่ปลอมได้
@@ -240,6 +256,7 @@ export default async function handler(req, res) {
       if (updates.is_active     !== undefined) supaUpdates.is_active = !!updates.is_active;
       if (updates.empty_ceiling !== undefined) supaUpdates.empty_ceiling = updates.empty_ceiling;
       if (updates.branches      !== undefined) supaUpdates.branches = Array.isArray(updates.branches) ? updates.branches.join(',') : '';
+      if (updates.online_order_visible !== undefined) supaUpdates.online_order_visible = !!updates.online_order_visible;
 
       const { error } = await supabase.from('pos_products').update(supaUpdates)
         .eq('shop_id', shopId).eq('sku', sku);

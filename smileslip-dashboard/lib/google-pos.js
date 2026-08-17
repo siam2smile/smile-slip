@@ -304,6 +304,9 @@ export function productFromRow(r) {
     vat_type: r.vat_type || 'ไม่มี VAT', is_active: r.is_active !== false,
     empty_ceiling: Number(r.empty_ceiling) || 0,
     branches: (r.branches || '').split(',').map(s => s.trim()).filter(Boolean),
+    // เมนูสั่งซื้อออนไลน์ (ข้อ 94) — ค่าเริ่มต้น true เสมอ (ทั้งก่อน/หลังรัน SQL) ให้ตรงกับ
+    // พฤติกรรมเดิมที่ order.js เคยดึงสินค้าทุกตัวมาแสดงไม่มีข้อยกเว้น — ต้องติ๊กออกเองถึงจะซ่อน
+    online_order_visible: r.online_order_visible !== false,
   };
 }
 

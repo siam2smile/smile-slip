@@ -676,6 +676,7 @@ export default function POSPage() {
   const [reportBranch, setReportBranch] = useState('');
   const [reportStatusFilter, setReportStatusFilter] = useState('ทั้งหมด');
   const [reportTaxYear, setReportTaxYear] = useState(new Date().getFullYear());
+  const [productPeakCategory, setProductPeakCategory] = useState(''); // ข้อ 94 — กรองหมวดหมู่สำหรับ product_peak_hours
   // AI Executive Summary (งานกลยุทธ์ "6P Data Matrix" ข้อ 89 Phase 5) — สรุปผลประกอบการด้วย Gemini
   const [aiSummaryText, setAiSummaryText] = useState('');
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
@@ -918,6 +919,12 @@ export default function POSPage() {
   const [cyclicalProd, setCyclicalProd] = useState(null);
   const [cyclicalQty, setCyclicalQty] = useState('');
   const [cyclicalSaving, setCyclicalSaving] = useState(false);
+
+  // ── ข้อ 94: ติ๊กเลือกสินค้าที่จะแสดง/ซ่อนในเมนูสั่งซื้อออนไลน์ (order.js) แบบยกชุด ──
+  const [onlineMenuMode, setOnlineMenuMode] = useState(false);
+  const [onlineVisibilityDraft, setOnlineVisibilityDraft] = useState({}); // { sku: boolean } เฉพาะตัวที่เปลี่ยน
+  const [showOnlineMenuConfirm, setShowOnlineMenuConfirm] = useState(false);
+  const [savingOnlineMenu, setSavingOnlineMenu] = useState(false);
 
   // ── โอนย้ายสต็อกข้ามสาขา (Phase 2) ──
   const [showTransferModal, setShowTransferModal] = useState(false);
@@ -2956,6 +2963,46 @@ export default function POSPage() {
     setCyclicalSaving(false);
   }
 
+  // ── ข้อ 94: ติ๊กเลือกสินค้าแสดง/ซ่อนในเมนูออนไลน์แบบยกชุด ──
+  function toggleOnlineVisibility(prod) {
+    const currentVal = prod.online_order_visible !== false; // ค่าจริงตอนนี้ (ก่อนแก้)
+    const draftVal = onlineVisibilityDraft[prod.sku] !== undefined ? onlineVisibilityDraft[prod.sku] : currentVal;
+    const nextVal = !draftVal;
+    setOnlineVisibilityDraft(prev => {
+      const next = { ...prev };
+      if (nextVal === currentVal) delete next[prod.sku]; // กลับไปค่าเดิม = ไม่นับเป็นการเปลี่ยนแปลง
+      else next[prod.sku] = nextVal;
+      return next;
+    });
+  }
+
+  function cancelOnlineMenuMode() {
+    setOnlineMenuMode(false);
+    setOnlineVisibilityDraft({});
+    setShowOnlineMenuConfirm(false);
+  }
+
+  async function confirmOnlineMenuChanges() {
+    const items = Object.entries(onlineVisibilityDraft).map(([sku, online_order_visible]) => ({ sku, online_order_visible }));
+    if (!items.length) return;
+    setSavingOnlineMenu(true);
+    try {
+      const r = await fetch('/api/pos/products', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, bulkOnlineVisibility: items }),
+      });
+      const d = await r.json();
+      if (d.error) { alert('บันทึกไม่สำเร็จ: ' + d.error); setSavingOnlineMenu(false); return; }
+      setProducts(prev => prev.map(p =>
+        onlineVisibilityDraft[p.sku] !== undefined ? { ...p, online_order_visible: onlineVisibilityDraft[p.sku] } : p
+      ));
+      showToast(`✅ อัปเดตเมนูออนไลน์แล้ว ${d.updated} รายการ`);
+      cancelOnlineMenuMode();
+    } catch (err) { alert('เกิดข้อผิดพลาด: ' + err.message); }
+    setSavingOnlineMenu(false);
+  }
+
   // ── โอนย้ายสต็อกข้ามสาขา (Phase 2) ──
   async function openTransferModal(prod) {
     setTransferProd(prod);
@@ -4565,6 +4612,9 @@ export default function POSPage() {
       const params = new URLSearchParams({ shopId, type, dateFrom, dateTo });
       if (branch) params.set('branch', branch);
       if (statusF && statusF !== 'ทั้งหมด') params.set('status', statusF);
+      // ข้อ 94 — เทียบขายดีตามช่วงเวลาแยกต่อสินค้า/คุณลักษณะ (แต่ละสี/ไซส์เป็นคนละ SKU ใน category
+      // เดียวกัน) ต้องแนบตัวกรองหมวดหมู่ที่เลือกไว้ (ถ้ามี) ไปด้วย
+      if (type === 'product_peak_hours' && productPeakCategory) params.set('category', productPeakCategory);
       const r = await fetch(`/api/pos/reports?${params}`);
       const d = await r.json();
       if (d.error) showToast('❌ ' + d.error);
@@ -5420,7 +5470,11 @@ export default function POSPage() {
               <div className="p-4 max-w-4xl mx-auto">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-white font-bold">สินค้าทั้งหมด ({products.length})</h2>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap justify-end">
+                    <button onClick={() => onlineMenuMode ? cancelOnlineMenuMode() : setOnlineMenuMode(true)}
+                      className={`text-sm px-3 py-2 rounded-xl transition-colors ${onlineMenuMode ? 'bg-sky-700 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}`}>
+                      🌐 เมนูออนไลน์
+                    </button>
                     <button onClick={() => setShowProdImportModal(true)}
                       className="bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm px-3 py-2 rounded-xl transition-colors">
                       📥 นำเข้า
@@ -5430,6 +5484,22 @@ export default function POSPage() {
                     </button>
                   </div>
                 </div>
+
+                {onlineMenuMode && (
+                  <div className="bg-sky-950/50 border border-sky-800 rounded-xl p-3 mb-4 flex items-center justify-between gap-3 flex-wrap">
+                    <p className="text-sky-200 text-xs">
+                      🌐 ติ๊กเลือกสินค้าที่จะแสดง/ซ่อนในหน้าสั่งซื้อออนไลน์
+                      {Object.keys(onlineVisibilityDraft).length > 0 && <span className="font-bold"> — เปลี่ยน {Object.keys(onlineVisibilityDraft).length} รายการ</span>}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button onClick={cancelOnlineMenuMode} className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1.5 rounded-lg transition-colors">ยกเลิก</button>
+                      <button onClick={() => setShowOnlineMenuConfirm(true)} disabled={!Object.keys(onlineVisibilityDraft).length}
+                        className="text-xs bg-sky-600 hover:bg-sky-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold px-3 py-1.5 rounded-lg transition-colors">
+                        ตรวจสอบและยืนยัน
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex gap-2 overflow-x-auto pb-2 mb-4 scrollbar-hide">
                   {categories.map(cat => (
@@ -5460,6 +5530,16 @@ export default function POSPage() {
                   <div className="space-y-2">
                     {displayProducts.map(prod => (
                       <div key={prod.sku} className={`rounded-xl p-4 flex items-center gap-4 ${prod.is_active === false ? 'bg-gray-900 border border-gray-800 opacity-70' : 'bg-gray-800'}`}>
+                        {onlineMenuMode && (
+                          prod.type === 'หมุนเวียน' ? (
+                            <span title="สินค้าหมุนเวียนไม่แสดงในเมนูออนไลน์เสมอ" className="shrink-0 text-gray-600 text-lg">🚫</span>
+                          ) : (
+                            <input type="checkbox"
+                              checked={onlineVisibilityDraft[prod.sku] !== undefined ? onlineVisibilityDraft[prod.sku] : prod.online_order_visible !== false}
+                              onChange={() => toggleOnlineVisibility(prod)}
+                              className="shrink-0 w-5 h-5 accent-sky-500"/>
+                          )
+                        )}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-white font-medium text-sm">{prod.name}</span>
@@ -7182,6 +7262,7 @@ export default function POSPage() {
                     { key: 'annual_tax', label: '📑 ภาษีปลายปี' },
                     { key: 'price_tier', label: '💵 ช่วงราคา/สินค้าคู่กัน' },
                     { key: 'peak_hours', label: '⏰ ช่วงเวลาขายดี' },
+                    { key: 'product_peak_hours', label: '🎨 ขายดีตามเวลาแยกคุณลักษณะ' },
                     // Enterprise เท่านั้น — ข้อมูลสมาชิกร้านจริง (ชื่อ/เบอร์โทร จาก pos_contacts)
                     // ไม่ใช่ sender_name จากสลิป (งานกลยุทธ์ "6P Data Matrix" ข้อ 89)
                     { key: 'customer_rfm', label: '👑 ลูกค้า VIP' },
@@ -7779,6 +7860,67 @@ export default function POSPage() {
                       )}
 
                       <div className="text-gray-500 text-xs text-center">รวม {total.toLocaleString()} รายการในช่วงที่เลือก</div>
+                    </div>
+                  );
+                })()}
+
+                {!reportLoading && reportData?.type === 'product_peak_hours' && (() => {
+                  const list = reportData.products || [];
+                  const cats = reportData.categories || [];
+                  const maxQty = Math.max(...list.map(p => p.total_qty), 1);
+                  return (
+                    <div className="space-y-4">
+                      <div className="bg-purple-950/40 border border-purple-800/50 rounded-xl px-4 py-2.5 text-purple-300 text-xs">
+                        🎨 เทียบว่าสินค้าแต่ละแบบ/สี/ไซส์ (คนละ SKU ในหมวดหมู่เดียวกัน) ขายดีกว่ากันแค่ไหน และขายดีช่วงเวลาไหน
+                      </div>
+
+                      {cats.length > 0 && (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-gray-500 text-xs">กรองหมวดหมู่:</span>
+                          <button onClick={() => { setProductPeakCategory(''); fetchReport('product_peak_hours', reportDateFrom, reportDateTo); }}
+                            className={`text-xs px-3 py-1.5 rounded-full transition-colors ${!productPeakCategory ? 'bg-purple-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
+                            ทั้งหมด (top 15)
+                          </button>
+                          {cats.map(c => (
+                            <button key={c} onClick={() => { setProductPeakCategory(c); fetchReport('product_peak_hours', reportDateFrom, reportDateTo); }}
+                              className={`text-xs px-3 py-1.5 rounded-full transition-colors ${productPeakCategory === c ? 'bg-purple-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
+                              {c}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {list.length === 0 ? (
+                        <div className="text-center text-gray-500 py-12">ยังไม่มีข้อมูลขายในช่วงที่เลือก</div>
+                      ) : (
+                        <div className="space-y-2">
+                          {list.map(p => (
+                            <div key={p.sku} className="bg-gray-800 rounded-xl p-3">
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <div>
+                                  <span className="text-white text-sm font-medium">{p.name}</span>
+                                  <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full ml-2">{p.category}</span>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-amber-300 text-sm font-bold">{p.total_qty.toLocaleString()} ชิ้น</div>
+                                  <div className="text-gray-500 text-[10px]">฿{p.total_revenue.toLocaleString()}</div>
+                                </div>
+                              </div>
+                              <div className="text-gray-500 text-[10px] mt-1">
+                                ⏰ ขายดีสุด {p.peakHour}:00 น. · 📅 วัน{p.peakDayLabel}
+                              </div>
+                              {/* mini sparkline 24 ชม. — เทียบง่ายๆ ว่าช่วงไหนของวันขายดี */}
+                              <div className="flex items-end gap-px mt-2 h-6">
+                                {p.hourCounts.map((v, h) => (
+                                  <div key={h} title={`${h}:00 — ${v} ชิ้น`}
+                                    className={`flex-1 rounded-sm ${h === p.peakHour ? 'bg-amber-400' : 'bg-gray-700'}`}
+                                    style={{ height: `${Math.max(8, (v / maxQty) * 100)}%` }} />
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
@@ -11167,6 +11309,67 @@ export default function POSPage() {
                 <p className="text-gray-600 text-[11px] text-center mt-2">ลบแบบ soft-delete — กู้คืนได้ทีหลังถ้าจำเป็น</p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ══ ข้อ 94: ยืนยันการเปลี่ยนแปลงเมนูสั่งซื้อออนไลน์ ═══════════ */}
+      {showOnlineMenuConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/75 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-gray-900 rounded-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
+            <div className="p-4 border-b border-gray-800 flex items-center justify-between sticky top-0 bg-gray-900 z-10">
+              <h3 className="text-white font-bold text-base">🌐 ยืนยันการเปลี่ยนเมนูออนไลน์</h3>
+              <button onClick={() => setShowOnlineMenuConfirm(false)} disabled={savingOnlineMenu}
+                className="text-gray-500 hover:text-white text-xl w-8 h-8 flex items-center justify-center disabled:opacity-30">✕</button>
+            </div>
+            <div className="p-4 space-y-4">
+              {(() => {
+                const willShow = [], willHide = [];
+                for (const [sku, visible] of Object.entries(onlineVisibilityDraft)) {
+                  const p = products.find(x => x.sku === sku);
+                  if (!p) continue;
+                  (visible ? willShow : willHide).push(p);
+                }
+                return (
+                  <>
+                    {willShow.length > 0 && (
+                      <div>
+                        <p className="text-emerald-400 text-xs font-bold mb-2">✅ จะแสดงในเมนูออนไลน์ ({willShow.length})</p>
+                        <div className="space-y-1">
+                          {willShow.map(p => (
+                            <div key={p.sku} className="text-sm text-gray-200 bg-gray-800 rounded-lg px-3 py-2 flex justify-between">
+                              <span>{p.name}</span><span className="text-gray-500">฿{p.price.toLocaleString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {willHide.length > 0 && (
+                      <div>
+                        <p className="text-red-400 text-xs font-bold mb-2">🚫 จะซ่อนจากเมนูออนไลน์ ({willHide.length})</p>
+                        <div className="space-y-1">
+                          {willHide.map(p => (
+                            <div key={p.sku} className="text-sm text-gray-200 bg-gray-800 rounded-lg px-3 py-2 flex justify-between">
+                              <span>{p.name}</span><span className="text-gray-500">฿{p.price.toLocaleString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+            <div className="p-4 border-t border-gray-800 flex gap-2 sticky bottom-0 bg-gray-900">
+              <button onClick={() => setShowOnlineMenuConfirm(false)} disabled={savingOnlineMenu}
+                className="flex-1 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm font-medium py-2.5 rounded-xl transition-colors disabled:opacity-50">
+                กลับไปแก้ไข
+              </button>
+              <button onClick={confirmOnlineMenuChanges} disabled={savingOnlineMenu}
+                className="flex-1 bg-sky-600 hover:bg-sky-500 text-white text-sm font-bold py-2.5 rounded-xl transition-colors disabled:opacity-50">
+                {savingOnlineMenu ? 'กำลังบันทึก...' : '✅ ยืนยันการเปลี่ยนแปลง'}
+              </button>
+            </div>
           </div>
         </div>
       )}

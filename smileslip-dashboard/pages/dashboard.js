@@ -451,16 +451,18 @@ export default function Dashboard() {
       const params = new URLSearchParams({ shopId });
       if (b && b !== 'all') params.set('branch', b);
       const qs = params.toString();
-      const [rfmRes, priceRes, peakRes] = await Promise.all([
+      const [rfmRes, priceRes, peakRes, productPeakRes] = await Promise.all([
         fetch(`/api/pos/reports?${qs}&type=customer_rfm`),
         fetch(`/api/pos/reports?${qs}&type=price_tier`),
         fetch(`/api/pos/reports?${qs}&type=peak_hours`),
+        fetch(`/api/pos/reports?${qs}&type=product_peak_hours`), // ข้อ 94
       ]);
-      const [rfm, priceTier, peakHours] = await Promise.all([rfmRes.json(), priceRes.json(), peakRes.json()]);
+      const [rfm, priceTier, peakHours, productPeak] = await Promise.all([rfmRes.json(), priceRes.json(), peakRes.json(), productPeakRes.json()]);
       setStrategyData({
         rfm: rfm.error ? null : rfm,
         priceTier: priceTier.error ? null : priceTier,
         peakHours: peakHours.error ? null : peakHours,
+        productPeak: productPeak.error ? null : productPeak,
       });
     } catch { setStrategyData(null); }
     setStrategyLoading(false);
@@ -2182,7 +2184,7 @@ export default function Dashboard() {
                         <div className="bg-gradient-to-r from-teal-50 to-cyan-50 border border-teal-200 rounded-2xl p-5 flex items-center justify-between gap-4">
                           <div>
                             <p className="font-bold text-teal-700 text-sm">🎯 6P Data Matrix — เฉพาะ Enterprise</p>
-                            <p className="text-teal-600 text-xs mt-0.5">Customer 360/RFM สมาชิกร้าน · ช่วงราคาที่ขายดี · สินค้าขายคู่กัน · ชั่วโมงขายดี · สรุปยอดด้วย AI</p>
+                            <p className="text-teal-600 text-xs mt-0.5">Customer 360/RFM สมาชิกร้าน · ช่วงราคาที่ขายดี · สินค้าขายคู่กัน · ชั่วโมงขายดี · ขายดีตามเวลาแยกคุณลักษณะ · สรุปยอดด้วย AI</p>
                           </div>
                           <Link href={`/pricing?userId=${shopInfo?.owner_line_id}`}
                             className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition-all">
@@ -2213,7 +2215,8 @@ export default function Dashboard() {
                               const rfmSum = strategyData.rfm?.summary;
                               const ptSum = strategyData.priceTier?.summary;
                               const peakSum = strategyData.peakHours?.summary;
-                              const hasAny = (rfmSum?.total_scored > 0) || (ptSum?.total_bills > 0) || (peakSum?.total_transactions > 0);
+                              const productPeakList = strategyData.productPeak?.products || [];
+                              const hasAny = (rfmSum?.total_scored > 0) || (ptSum?.total_bills > 0) || (peakSum?.total_transactions > 0) || productPeakList.length > 0;
 
                               if (!hasAny) {
                                 return (
@@ -2288,6 +2291,28 @@ export default function Dashboard() {
                                       <div>
                                         <p className="text-teal-800 font-bold text-xs">ช่วงเวลาขายดีที่สุด: วัน{strategyData.peakHours.peakDayLabel} เวลา {strategyData.peakHours.peakHour}:00 น.</p>
                                         <p className="text-teal-500 text-[10px] mt-0.5">จากทั้งหมด {peakSum.total_transactions} รายการที่นับ — ใช้จัดกะพนักงานให้พอดีช่วงคนเยอะ</p>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* ขายดีตามช่วงเวลาแยกต่อสินค้า/คุณลักษณะ (ข้อ 94) — ย่อแค่ top 3 สินค้าในสรุปนี้
+                                      (เทียบเต็มพร้อมกรองหมวดหมู่ที่หน้า POS แทน) */}
+                                  {productPeakList.length > 0 && (
+                                    <div>
+                                      <p className="text-slate-700 font-bold text-xs mb-2">🎨 ขายดีตามช่วงเวลาแยกคุณลักษณะ (สี/ไซส์/แบบ)</p>
+                                      <div className="space-y-1.5">
+                                        {productPeakList.slice(0, 3).map(p => (
+                                          <div key={p.sku} className="bg-teal-50 rounded-xl p-2.5 border border-teal-100 flex items-center justify-between gap-2">
+                                            <div>
+                                              <span className="text-teal-800 text-xs font-bold">{p.name}</span>
+                                              <span className="text-teal-500 text-[10px] ml-1.5">({p.category})</span>
+                                            </div>
+                                            <div className="text-right shrink-0">
+                                              <p className="text-teal-700 text-xs font-bold">{p.total_qty.toLocaleString()} ชิ้น</p>
+                                              <p className="text-teal-400 text-[10px]">ขายดีสุด {p.peakHour}:00 น. วัน{p.peakDayLabel}</p>
+                                            </div>
+                                          </div>
+                                        ))}
                                       </div>
                                     </div>
                                   )}
