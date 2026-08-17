@@ -1030,6 +1030,7 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
       - **`dashboard.js` UI:** เพิ่ม fetch คู่ขนานที่ 4 (`type=product_peak_hours`) เข้า `fetchStrategyInsights()` เดิม (เดิมมี 3: `customer_rfm`/`price_tier`/`peak_hours`) — เพิ่มการ์ดสรุป top 3 สินค้าใน block "6P Data Matrix" เดิมที่มีอยู่แล้วในแท็บ "กราฟวิเคราะห์" (ข้อ 91) — อัปเดต `hasAny` check ให้รวม `productPeakList.length > 0` ด้วย กันการ์ดว่างเปล่าตอนมีแค่รายงานนี้ที่มีข้อมูล
       - **ทดสอบยิงจริงกับข้อมูลจริงของร้าน "D Gas":** ไม่กรอง category → คืน 4 หมวดหมู่, SKU อันดับ 1 "เนื้อก๊าซ 15 กก." (total_qty:35, total_revenue:฿17,400 — ตรงเป๊ะกับตัวเลข topsellers เดิมที่เคย verified ไว้แล้วในข้อ 27/89) → กรอง `category=แก๊ส LPG` คืนตรง 4 รายการขนาดถังต่างกันตามจริง → ทดสอบ tier-lock: สลับร้าน D Gas เป็น `business` ชั่วคราว → ปฏิเสธด้วยข้อความ upgrade มาตรฐาน `strategy_analytics` ถูกต้อง → คืนค่ากลับเป็น `enterprise` เดิม
     - **ยังไม่ได้ทดสอบผ่านเบราว์เซอร์จริง** — ลองด้วยเทคนิค owner-session-token-in-URL (ที่เคยรายงานว่าใช้ได้ในข้อ 80) กับทั้ง `/pos` และ `/dashboard` ซ้ำอีกครั้งในรอบนี้ **แต่กลับไม่ทำงาน** (`router.query` ยังคงเป็น `{}` ไม่ hydrate จาก URL แม้รอ แม้ `window.location.search` จะถูกต้อง) — สรุปว่าเทคนิคนี้ไม่เสถียร/ใช้ไม่ได้เสมอไปในเครื่องมือทดสอบของเซสชันนี้ ไม่ใช่บั๊กแอป — ตรวจสอบผ่าน `npx next build` (ผ่านทุก route) + ทดสอบ backend/API โดยตรงอย่างละเอียดแทนตามธรรมเนียมโปรเจกต์เมื่อเจอข้อจำกัดนี้ — แนะนำให้ผู้ใช้ลองเปิดเองผ่านเบราว์เซอร์จริงเพื่อยืนยันหน้าตา UI ทั้งสองฟีเจอร์
+    - **Deploy production แล้ว (2026-08-17)** — revision จริง `smileslip-dashboard-00346-857` (ข้อความ deploy โชว์ revision เดิม `00345-4bg` ผิดอีกตามเคย เช็คด้วย `gcloud run revisions list --sort-by=~metadata.creationTimestamp` เจอ revision ใหม่จริง แล้ว retag `candidate` → health-check ผ่าน candidate URL ก่อน (`/api/shop/data` คืน 404+JSON ถูกต้อง) ค่อย cutover จริง) — **verified บน production จริงว่า `product_peak_hours` คืนตัวเลขตรงกับที่ verified ไว้ก่อน deploy เป๊ะ** (top SKU "เนื้อก๊าซ 15 กก." total_qty:35/total_revenue:฿17,400, กรอง category คืน 4 รายการถูกต้อง, tier ยัง `enterprise` ผ่าน 200 ปกติ) และ bulk-visibility PATCH endpoint ทำงานถูกต้อง (401 ถ้าไม่มี owner-session, 200 ถ้ามี token ถูกต้อง — ยิงด้วย SKU ปลอมที่ไม่มีจริงกันแตะข้อมูลจริงโดยไม่ตั้งใจ) — **ยังรอผู้ใช้รัน SQL คอลัมน์ `online_order_visible`** ก่อนถึงจะบันทึกการติ๊กเลือกสินค้าได้จริง (ตอนนี้ติ๊ก/ยืนยันได้ปกติแต่ยังไม่ persist เพราะคอลัมน์ยังไม่มี — fail-safe ทำงานถูกต้องยืนยันแล้ว)
 
 ## Tech Stack
 
@@ -1062,7 +1063,7 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
 | Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00318-474` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00345-4bg` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00346-857` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
