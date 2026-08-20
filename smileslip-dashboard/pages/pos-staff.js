@@ -93,24 +93,24 @@ function MapPickerModal({ initCoords, onConfirm, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-3">
-      <div className="bg-gray-900 rounded-2xl w-full max-w-lg border border-gray-700 shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: '92vh' }}>
-        <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between shrink-0">
+      <div className="bg-white rounded-2xl w-full max-w-lg border border-gray-200 shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: '92vh' }}>
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between shrink-0">
           <div>
-            <h3 className="text-white font-bold text-sm">📍 เลือกตำแหน่งบนแผนที่</h3>
-            <p className="text-gray-500 text-xs mt-0.5">แตะบนแผนที่เพื่อวางหมุด</p>
+            <h3 className="text-gray-900 font-bold text-sm">📍 เลือกตำแหน่งบนแผนที่</h3>
+            <p className="text-gray-400 text-xs mt-0.5">แตะบนแผนที่เพื่อวางหมุด</p>
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-white text-xl w-8 h-8 flex items-center justify-center">✕</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-900 text-xl w-8 h-8 flex items-center justify-center">✕</button>
         </div>
 
         <div className="relative" style={{ height: '360px', flexShrink: 0 }}>
           <div ref={mapDivRef} style={{ height: '100%', width: '100%' }} />
           {loadState === 'loading' && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-900 text-gray-400 text-sm animate-pulse">
+            <div className="absolute inset-0 flex items-center justify-center bg-white text-gray-500 text-sm animate-pulse">
               กำลังโหลดแผนที่...
             </div>
           )}
           {loadState === 'error' && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-900 text-red-400 text-sm text-center px-4">
+            <div className="absolute inset-0 flex items-center justify-center bg-white text-red-600 text-sm text-center px-4">
               โหลดแผนที่ไม่ได้<br/>ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต
             </div>
           )}
@@ -118,18 +118,18 @@ function MapPickerModal({ initCoords, onConfirm, onClose }) {
 
         <div className="p-3 space-y-2 shrink-0">
           {pickedCoords ? (
-            <div className="bg-gray-800 rounded-xl px-3 py-2 text-xs text-green-400 flex items-center gap-2">
+            <div className="bg-white rounded-xl px-3 py-2 text-xs text-green-600 flex items-center gap-2">
               <span>✅</span>
               <span className="flex-1">วางหมุดที่ {pickedCoords.lat}, {pickedCoords.lng}</span>
             </div>
           ) : (
-            <div className="bg-gray-800/50 rounded-xl px-3 py-2 text-xs text-gray-500 text-center">
+            <div className="bg-white/50 rounded-xl px-3 py-2 text-xs text-gray-400 text-center">
               ยังไม่ได้วางหมุด — แตะบนแผนที่เพื่อเลือกตำแหน่ง
             </div>
           )}
           <div className="flex gap-2">
             <button onClick={useCurrentGps} disabled={gpsLoading}
-              className="flex-1 bg-gray-700 hover:bg-blue-800 disabled:opacity-50 text-gray-300 hover:text-white text-xs py-2.5 rounded-xl transition-colors flex items-center justify-center gap-1.5 border border-gray-600">
+              className="flex-1 bg-gray-100 hover:bg-blue-100 disabled:opacity-50 text-gray-700 hover:text-gray-900 text-xs py-2.5 rounded-xl transition-colors flex items-center justify-center gap-1.5 border border-gray-300">
               {gpsLoading
                 ? <><span className="animate-spin inline-block">⏳</span> กำลังดึง GPS...</>
                 : <><span>🎯</span> ตำแหน่งปัจจุบัน</>}
@@ -963,8 +963,8 @@ export default function PosStaffPage() {
   // ── render ────────────────────────────────────────────────────────────────
   if (!shopId) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
-        <div className="text-gray-400 text-sm text-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="text-gray-500 text-sm text-center">
           <div className="text-4xl mb-3">🔒</div>
           ไม่พบข้อมูลร้าน<br />
           <span className="text-xs">เปิดลิงก์จากหน้า POS → ตั้งค่า</span>
@@ -989,13 +989,13 @@ export default function PosStaffPage() {
         onError={resolveAuthFallback}
       />
 
-      <div className="min-h-screen bg-gray-950 text-white flex flex-col max-w-sm mx-auto">
+      <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col max-w-sm mx-auto">
         {/* Header */}
-        <header className="bg-gray-900 border-b border-gray-800 px-5 py-4 flex items-center justify-between shrink-0">
+        <header className="bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between shrink-0">
           <div>
-            <div className="text-white font-bold text-sm">🛒 Staff POS</div>
+            <div className="text-gray-900 font-bold text-sm">🛒 Staff POS</div>
             {shopName && (
-              <div className="text-gray-400 text-xs">
+              <div className="text-gray-500 text-xs">
                 {shopName}{staffBranch ? ` · ${staffBranch}` : ''}
               </div>
             )}
@@ -1010,7 +1010,7 @@ export default function PosStaffPage() {
               // LIFF รู้ตัวตนแล้ว → กลับไปหน้าใส่ PIN ตรง, fallback ด้วยรายชื่อ → กลับไปเลือกชื่อใหม่
               if (liffLineId) { setStep('pin'); } else { setSelectedPicker(null); setStep('name'); }
             }}
-              className="text-gray-400 hover:text-white text-xs border border-gray-700 px-3 py-1.5 rounded-lg">
+              className="text-gray-500 hover:text-gray-900 text-xs border border-gray-200 px-3 py-1.5 rounded-lg">
               ออกจากระบบ
             </button>
           )}
@@ -1022,7 +1022,7 @@ export default function PosStaffPage() {
           {step === 'loading' && (
             <div className="flex flex-col items-center pt-16">
               <div className="text-4xl mb-4 animate-pulse">😊</div>
-              <div className="text-gray-400 text-sm">กำลังโหลด...</div>
+              <div className="text-gray-500 text-sm">กำลังโหลด...</div>
             </div>
           )}
 
@@ -1030,27 +1030,27 @@ export default function PosStaffPage() {
           {step === 'name' && (
             <div className="flex flex-col items-center pt-8">
               <div className="text-4xl mb-4">👤</div>
-              <h2 className="text-white font-bold text-xl mb-2">คุณคือใคร?</h2>
-              <p className="text-gray-400 text-sm mb-6">แตะชื่อของคุณเพื่อเข้าสู่ระบบ</p>
+              <h2 className="text-gray-900 font-bold text-xl mb-2">คุณคือใคร?</h2>
+              <p className="text-gray-500 text-sm mb-6">แตะชื่อของคุณเพื่อเข้าสู่ระบบ</p>
 
               <div className="w-full max-w-xs space-y-2">
                 {pickerLoading ? (
-                  <div className="text-center text-gray-500 text-sm py-8 animate-pulse">กำลังโหลดรายชื่อ...</div>
+                  <div className="text-center text-gray-400 text-sm py-8 animate-pulse">กำลังโหลดรายชื่อ...</div>
                 ) : pickerList.length === 0 ? (
-                  <div className="text-center text-gray-500 text-sm py-8">
+                  <div className="text-center text-gray-400 text-sm py-8">
                     ยังไม่มีพนักงานที่ตั้ง PIN ไว้ — ให้เจ้าของร้าน/แอดมินส่งลิงก์ตั้ง PIN ให้ก่อน
                   </div>
                 ) : (
                   pickerList.map(s => (
                     <button key={s.staff_id}
                       onClick={() => { setSelectedPicker(s); setPin(''); setPinError(''); setStep('pin'); }}
-                      className="w-full flex items-center gap-3 bg-gray-900 hover:bg-gray-800 border border-gray-700 rounded-2xl px-4 py-3.5 text-left transition-colors">
-                      <span className="w-10 h-10 rounded-full bg-green-900 text-green-300 flex items-center justify-center font-bold text-lg shrink-0">
+                      className="w-full flex items-center gap-3 bg-white hover:bg-white border border-gray-200 rounded-2xl px-4 py-3.5 text-left transition-colors">
+                      <span className="w-10 h-10 rounded-full bg-green-50 text-green-700 flex items-center justify-center font-bold text-lg shrink-0">
                         {s.name.trim().charAt(0)}
                       </span>
                       <div className="min-w-0">
-                        <div className="text-white font-medium truncate">{s.name}</div>
-                        {s.branch_name && <div className="text-gray-500 text-xs truncate">{s.branch_name}</div>}
+                        <div className="text-gray-900 font-medium truncate">{s.name}</div>
+                        {s.branch_name && <div className="text-gray-400 text-xs truncate">{s.branch_name}</div>}
                       </div>
                     </button>
                   ))
@@ -1063,22 +1063,22 @@ export default function PosStaffPage() {
           {step === 'pin' && (
             <div className="flex flex-col items-center pt-8">
               <div className="text-4xl mb-4">🔐</div>
-              <h2 className="text-white font-bold text-xl mb-2">
+              <h2 className="text-gray-900 font-bold text-xl mb-2">
                 {selectedPicker ? `สวัสดีคุณ ${selectedPicker.name}` : 'ใส่ PIN พนักงาน'}
               </h2>
-              <p className="text-gray-400 text-sm mb-8">กรอก PIN 4 หลักเพื่อเข้าระบบ</p>
+              <p className="text-gray-500 text-sm mb-8">กรอก PIN 4 หลักเพื่อเข้าระบบ</p>
 
               {/* PIN dots */}
               <div className="flex gap-4 mb-6">
                 {[0,1,2,3].map(i => (
                   <div key={i} className={`w-4 h-4 rounded-full border-2 transition-colors ${
-                    i < pin.length ? 'bg-green-500 border-green-500' : 'border-gray-600'
+                    i < pin.length ? 'bg-green-500 border-green-500' : 'border-gray-300'
                   }`} />
                 ))}
               </div>
 
               {pinError && (
-                <div className="text-red-400 text-sm mb-4">{pinError}</div>
+                <div className="text-red-600 text-sm mb-4">{pinError}</div>
               )}
 
               {/* Numpad */}
@@ -1093,8 +1093,8 @@ export default function PosStaffPage() {
                     disabled={pinLoading || k === ''}
                     className={`h-16 rounded-2xl text-xl font-bold transition-colors ${
                       k === '' ? 'invisible' :
-                      k === '⌫' ? 'bg-gray-800 hover:bg-gray-700 text-gray-300' :
-                      'bg-gray-800 hover:bg-gray-700 active:bg-gray-600 text-white'
+                      k === '⌫' ? 'bg-white hover:bg-gray-100 text-gray-700' :
+                      'bg-white hover:bg-gray-100 active:bg-gray-200 text-gray-900'
                     }`}
                   >
                     {k}
@@ -1112,7 +1112,7 @@ export default function PosStaffPage() {
 
               {!liffLineId && selectedPicker && (
                 <button onClick={() => { setSelectedPicker(null); setPin(''); setPinError(''); setStep('name'); }}
-                  className="mt-3 w-full max-w-xs text-gray-500 hover:text-gray-300 text-sm py-1 transition-colors">
+                  className="mt-3 w-full max-w-xs text-gray-400 hover:text-gray-700 text-sm py-1 transition-colors">
                   ← ไม่ใช่ฉัน เลือกชื่อใหม่
                 </button>
               )}
@@ -1123,24 +1123,24 @@ export default function PosStaffPage() {
           {step === 'setpin' && (
             <div className="flex flex-col items-center pt-8">
               <div className="text-4xl mb-4">🔐</div>
-              <h2 className="text-white font-bold text-xl mb-2">ตั้งรหัส PIN ของคุณ</h2>
-              <p className="text-gray-400 text-sm mb-8 text-center px-4">ตั้ง PIN 4 หลักส่วนตัว ใช้เข้าหน้าพนักงานครั้งต่อไปได้เลย</p>
+              <h2 className="text-gray-900 font-bold text-xl mb-2">ตั้งรหัส PIN ของคุณ</h2>
+              <p className="text-gray-500 text-sm mb-8 text-center px-4">ตั้ง PIN 4 หลักส่วนตัว ใช้เข้าหน้าพนักงานครั้งต่อไปได้เลย</p>
 
               <div className="w-full max-w-xs space-y-4">
                 <div>
-                  <label className="text-gray-400 text-xs block mb-1.5">PIN ใหม่ (4 หลัก)</label>
+                  <label className="text-gray-500 text-xs block mb-1.5">PIN ใหม่ (4 หลัก)</label>
                   <input type="password" inputMode="numeric" maxLength={4} value={newPin}
                     onChange={e => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                    className="w-full bg-gray-800 text-white text-center text-2xl tracking-widest px-4 py-3 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                    className="w-full bg-white text-gray-900 text-center text-2xl tracking-widest px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                 </div>
                 <div>
-                  <label className="text-gray-400 text-xs block mb-1.5">ยืนยัน PIN อีกครั้ง</label>
+                  <label className="text-gray-500 text-xs block mb-1.5">ยืนยัน PIN อีกครั้ง</label>
                   <input type="password" inputMode="numeric" maxLength={4} value={newPinConfirm}
                     onChange={e => setNewPinConfirm(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                    className="w-full bg-gray-800 text-white text-center text-2xl tracking-widest px-4 py-3 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                    className="w-full bg-white text-gray-900 text-center text-2xl tracking-widest px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                 </div>
 
-                {newPinError && <div className="text-red-400 text-sm text-center">{newPinError}</div>}
+                {newPinError && <div className="text-red-600 text-sm text-center">{newPinError}</div>}
 
                 <button onClick={submitSetPin} disabled={setPinSaving || newPin.length !== 4 || newPinConfirm.length !== 4}
                   className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-4 rounded-2xl text-lg transition-colors">
@@ -1154,47 +1154,47 @@ export default function PosStaffPage() {
           {step === 'menu' && (
             <div className="space-y-3">
               {staffName && (
-                <div className="mb-2 text-gray-400 text-sm">
-                  👋 สวัสดีคุณ <span className="text-white font-medium">{staffName}</span>
+                <div className="mb-2 text-gray-500 text-sm">
+                  👋 สวัสดีคุณ <span className="text-gray-900 font-medium">{staffName}</span>
                 </div>
               )}
               <button onClick={() => setStep('bills')}
-                className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-5 text-left hover:bg-gray-800 transition-colors flex items-center justify-between">
+                className="w-full bg-white border border-gray-100 rounded-2xl p-5 text-left hover:bg-white transition-colors flex items-center justify-between">
                 <div>
-                  <div className="text-white font-bold">📷 บิลรอยืนยันการโอน</div>
-                  <div className="text-gray-500 text-xs mt-0.5">ยืนยันสลิปการชำระเงินหน้าร้าน</div>
+                  <div className="text-gray-900 font-bold">📷 บิลรอยืนยันการโอน</div>
+                  <div className="text-gray-400 text-xs mt-0.5">ยืนยันสลิปการชำระเงินหน้าร้าน</div>
                 </div>
-                <span className="bg-yellow-900 text-yellow-300 text-xs px-2.5 py-1 rounded-full font-bold">{bills.length}</span>
+                <span className="bg-yellow-50 text-yellow-700 text-xs px-2.5 py-1 rounded-full font-bold">{bills.length}</span>
               </button>
               <button onClick={() => setStep('deliveries')}
-                className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-5 text-left hover:bg-gray-800 transition-colors flex items-center justify-between">
+                className="w-full bg-white border border-gray-100 rounded-2xl p-5 text-left hover:bg-white transition-colors flex items-center justify-between">
                 <div>
-                  <div className="text-white font-bold">🚚 งานจัดส่ง</div>
-                  <div className="text-gray-500 text-xs mt-0.5">ยืนยันจัดส่งสำเร็จ + รับเงิน</div>
+                  <div className="text-gray-900 font-bold">🚚 งานจัดส่ง</div>
+                  <div className="text-gray-400 text-xs mt-0.5">ยืนยันจัดส่งสำเร็จ + รับเงิน</div>
                 </div>
-                <span className="bg-orange-900 text-orange-300 text-xs px-2.5 py-1 rounded-full font-bold">{orders.length}</span>
+                <span className="bg-orange-50 text-orange-700 text-xs px-2.5 py-1 rounded-full font-bold">{orders.length}</span>
               </button>
               <button onClick={() => setStep('collections')}
-                className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-5 text-left hover:bg-gray-800 transition-colors flex items-center justify-between">
+                className="w-full bg-white border border-gray-100 rounded-2xl p-5 text-left hover:bg-white transition-colors flex items-center justify-between">
                 <div>
-                  <div className="text-white font-bold">🧾 งานเก็บเงิน/ของ</div>
-                  <div className="text-gray-500 text-xs mt-0.5">ไปเก็บเงินเชื่อค้าง หรือของที่ลูกค้ายืมค้างอยู่</div>
+                  <div className="text-gray-900 font-bold">🧾 งานเก็บเงิน/ของ</div>
+                  <div className="text-gray-400 text-xs mt-0.5">ไปเก็บเงินเชื่อค้าง หรือของที่ลูกค้ายืมค้างอยู่</div>
                 </div>
-                <span className="bg-orange-900 text-orange-300 text-xs px-2.5 py-1 rounded-full font-bold">{collectionTasks.length}</span>
+                <span className="bg-orange-50 text-orange-700 text-xs px-2.5 py-1 rounded-full font-bold">{collectionTasks.length}</span>
               </button>
               <button onClick={() => { setDailyLogResult(null); setStep('dailylog'); }}
-                className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-5 text-left hover:bg-gray-800 transition-colors flex items-center justify-between">
+                className="w-full bg-white border border-gray-100 rounded-2xl p-5 text-left hover:bg-white transition-colors flex items-center justify-between">
                 <div>
-                  <div className="text-white font-bold">📝 บันทึกประจำวัน</div>
-                  <div className="text-gray-500 text-xs mt-0.5">แจ้งปัญหา/คำชมจากลูกค้า/สต็อกใกล้หมด</div>
+                  <div className="text-gray-900 font-bold">📝 บันทึกประจำวัน</div>
+                  <div className="text-gray-400 text-xs mt-0.5">แจ้งปัญหา/คำชมจากลูกค้า/สต็อกใกล้หมด</div>
                 </div>
               </button>
               {(staffPerms.perm_view_revenue || staffPerms.perm_view_pl || staffPerms.perm_manage_stock || staffPerms.perm_export_vat) && (
                 <button onClick={() => { setManageView(''); setStep('manage'); }}
-                  className="w-full bg-gray-900 border border-blue-900 rounded-2xl p-5 text-left hover:bg-gray-800 transition-colors flex items-center justify-between">
+                  className="w-full bg-white border border-blue-200 rounded-2xl p-5 text-left hover:bg-white transition-colors flex items-center justify-between">
                   <div>
-                    <div className="text-white font-bold">📊 จัดการร้าน</div>
-                    <div className="text-gray-500 text-xs mt-0.5">สิทธิ์พิเศษที่แอดมินเปิดให้คุณ</div>
+                    <div className="text-gray-900 font-bold">📊 จัดการร้าน</div>
+                    <div className="text-gray-400 text-xs mt-0.5">สิทธิ์พิเศษที่แอดมินเปิดให้คุณ</div>
                   </div>
                 </button>
               )}
@@ -1204,39 +1204,39 @@ export default function PosStaffPage() {
           {/* ══ บันทึกประจำวัน ══════════════════════════════════════════════ */}
           {step === 'dailylog' && (
             <div>
-              <button onClick={() => setStep('menu')} className="text-gray-400 hover:text-white text-sm mb-4 flex items-center gap-1">← เมนู</button>
+              <button onClick={() => setStep('menu')} className="text-gray-500 hover:text-gray-900 text-sm mb-4 flex items-center gap-1">← เมนู</button>
 
               {dailyLogResult ? (
                 <div className="space-y-4">
-                  <div className="bg-green-900/30 border border-green-800 rounded-2xl p-5 text-center">
+                  <div className="bg-green-50/30 border border-green-200 rounded-2xl p-5 text-center">
                     <div className="text-3xl mb-2">✅</div>
-                    <div className="text-white font-bold">บันทึกสำเร็จแล้ว</div>
+                    <div className="text-gray-900 font-bold">บันทึกสำเร็จแล้ว</div>
                     {dailyLogResult.shift_sales_total !== null && dailyLogResult.shift_sales_total !== undefined && (
-                      <div className="text-gray-400 text-xs mt-2">
+                      <div className="text-gray-500 text-xs mt-2">
                         ยอดขายกะนี้ (auto-pull): ฿{Number(dailyLogResult.shift_sales_total).toLocaleString(undefined,{minimumFractionDigits:2})} ({dailyLogResult.shift_sales_count || 0} บิล)
                       </div>
                     )}
                   </div>
                   <button onClick={() => setDailyLogResult(null)}
-                    className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-3 rounded-xl transition-colors">
+                    className="w-full bg-white hover:bg-gray-100 text-gray-900 font-bold py-3 rounded-xl transition-colors">
                     ＋ บันทึกเพิ่มอีก
                   </button>
                   <button onClick={() => setStep('menu')}
-                    className="w-full bg-gray-900 border border-gray-800 text-gray-300 font-bold py-3 rounded-xl transition-colors">
+                    className="w-full bg-white border border-gray-100 text-gray-700 font-bold py-3 rounded-xl transition-colors">
                     กลับเมนู
                   </button>
                 </div>
               ) : (
                 <div className="space-y-4">
                   <div>
-                    <label className="text-gray-400 text-xs font-bold mb-1.5 block">⚠️ ปัญหาที่พบวันนี้ (ถ้ามี)</label>
+                    <label className="text-gray-500 text-xs font-bold mb-1.5 block">⚠️ ปัญหาที่พบวันนี้ (ถ้ามี)</label>
                     <textarea value={dailyLogProblem} onChange={e => setDailyLogProblem(e.target.value)} rows={3}
                       placeholder="เช่น ลูกค้าต่อว่าเรื่องส่งช้า, เครื่องพิมพ์ใบเสร็จเสีย..."
-                      className="w-full bg-gray-900 border border-gray-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-green-500" />
+                      className="w-full bg-white border border-gray-100 rounded-xl px-3 py-2.5 text-gray-900 text-sm focus:outline-none focus:border-green-500" />
                     <div className="flex gap-2 mt-2">
                       {[['normal','🟢 ปกติ'],['warning','🟡 ควรระวัง'],['urgent','🔴 ด่วน']].map(([v,l]) => (
                         <button key={v} type="button" onClick={() => setDailyLogUrgency(v)}
-                          className={`flex-1 text-xs font-bold py-2 rounded-xl transition-colors ${dailyLogUrgency === v ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-400 border border-gray-700'}`}>
+                          className={`flex-1 text-xs font-bold py-2 rounded-xl transition-colors ${dailyLogUrgency === v ? 'bg-green-600 text-white' : 'bg-white text-gray-500 border border-gray-200'}`}>
                           {l}
                         </button>
                       ))}
@@ -1244,25 +1244,25 @@ export default function PosStaffPage() {
                   </div>
 
                   <div>
-                    <label className="text-gray-400 text-xs font-bold mb-1.5 block">💚 คำชมจากลูกค้า (ถ้ามี)</label>
+                    <label className="text-gray-500 text-xs font-bold mb-1.5 block">💚 คำชมจากลูกค้า (ถ้ามี)</label>
                     <textarea value={dailyLogPraise} onChange={e => setDailyLogPraise(e.target.value)} rows={2}
                       placeholder="เช่น ลูกค้าชมว่าส่งไว บริการดี..."
-                      className="w-full bg-gray-900 border border-gray-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-green-500" />
+                      className="w-full bg-white border border-gray-100 rounded-xl px-3 py-2.5 text-gray-900 text-sm focus:outline-none focus:border-green-500" />
                   </div>
 
                   <div>
-                    <label className="text-gray-400 text-xs font-bold mb-1.5 block">📦 สินค้าที่เห็นว่าใกล้หมด (ถ้ามี)</label>
+                    <label className="text-gray-500 text-xs font-bold mb-1.5 block">📦 สินค้าที่เห็นว่าใกล้หมด (ถ้ามี)</label>
                     <textarea value={dailyLogLowStock} onChange={e => setDailyLogLowStock(e.target.value)} rows={2}
                       placeholder="เช่น น้ำแก๊ส 15 กก. เหลือน้อยมาก..."
-                      className="w-full bg-gray-900 border border-gray-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-green-500" />
+                      className="w-full bg-white border border-gray-100 rounded-xl px-3 py-2.5 text-gray-900 text-sm focus:outline-none focus:border-green-500" />
                   </div>
 
                   <div>
-                    <label className="text-gray-400 text-xs font-bold mb-1.5 block">📷 แนบรูป (ถ้ามี)</label>
+                    <label className="text-gray-500 text-xs font-bold mb-1.5 block">📷 แนบรูป (ถ้ามี)</label>
                     <input ref={dailyLogPhotoRef} type="file" accept="image/*" capture="environment"
                       onChange={handleDailyLogPhoto} className="hidden" id="dailylog-photo-input" />
                     <label htmlFor="dailylog-photo-input"
-                      className="w-full flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl py-3 text-gray-300 text-sm font-bold cursor-pointer transition-colors">
+                      className="w-full flex items-center justify-center gap-2 bg-white hover:bg-gray-100 border border-gray-200 rounded-xl py-3 text-gray-700 text-sm font-bold cursor-pointer transition-colors">
                       {dailyLogPhotoUploading ? '⏳ กำลังอัปโหลด...' : dailyLogPhotoUrl ? '✅ แนบรูปแล้ว (แตะเพื่อเปลี่ยน)' : '📷 ถ่าย/เลือกรูป'}
                     </label>
                   </div>
@@ -1280,7 +1280,7 @@ export default function PosStaffPage() {
           {step === 'manage' && (
             <div>
               <button onClick={() => { if (manageView) { setManageView(''); } else { setStep('menu'); } }}
-                className="text-gray-400 hover:text-white text-sm mb-4 flex items-center gap-1">
+                className="text-gray-500 hover:text-gray-900 text-sm mb-4 flex items-center gap-1">
                 ← {manageView ? 'จัดการร้าน' : 'เมนู'}
               </button>
 
@@ -1288,26 +1288,26 @@ export default function PosStaffPage() {
                 <div className="space-y-3">
                   {staffPerms.perm_view_revenue && (
                     <button onClick={() => openManage('revenue')}
-                      className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-5 text-left hover:bg-gray-800 transition-colors">
-                      <div className="text-white font-bold">📊 ดูยอดขายรวม</div>
+                      className="w-full bg-white border border-gray-100 rounded-2xl p-5 text-left hover:bg-white transition-colors">
+                      <div className="text-gray-900 font-bold">📊 ดูยอดขายรวม</div>
                     </button>
                   )}
                   {staffPerms.perm_view_pl && (
                     <button onClick={() => openManage('pl')}
-                      className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-5 text-left hover:bg-gray-800 transition-colors">
-                      <div className="text-white font-bold">💰 ดูกำไรขาดทุน</div>
+                      className="w-full bg-white border border-gray-100 rounded-2xl p-5 text-left hover:bg-white transition-colors">
+                      <div className="text-gray-900 font-bold">💰 ดูกำไรขาดทุน</div>
                     </button>
                   )}
                   {staffPerms.perm_manage_stock && (
                     <button onClick={() => openManage('stock')}
-                      className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-5 text-left hover:bg-gray-800 transition-colors">
-                      <div className="text-white font-bold">📦 จัดการสต็อกสินค้า</div>
+                      className="w-full bg-white border border-gray-100 rounded-2xl p-5 text-left hover:bg-white transition-colors">
+                      <div className="text-gray-900 font-bold">📦 จัดการสต็อกสินค้า</div>
                     </button>
                   )}
                   {staffPerms.perm_export_vat && (
                     <button onClick={exportManageVat}
-                      className="w-full bg-gray-900 border border-gray-800 rounded-2xl p-5 text-left hover:bg-gray-800 transition-colors">
-                      <div className="text-white font-bold">🧾 Export รายงาน VAT (Excel)</div>
+                      className="w-full bg-white border border-gray-100 rounded-2xl p-5 text-left hover:bg-white transition-colors">
+                      <div className="text-gray-900 font-bold">🧾 Export รายงาน VAT (Excel)</div>
                     </button>
                   )}
                 </div>
@@ -1315,28 +1315,28 @@ export default function PosStaffPage() {
 
               {manageView === 'revenue' && (
                 manageLoading ? (
-                  <div className="text-center text-gray-400 py-12">กำลังโหลด...</div>
+                  <div className="text-center text-gray-500 py-12">กำลังโหลด...</div>
                 ) : manageSalesReport?.error ? (
-                  <div className="text-center text-red-400 py-12 text-sm">{manageSalesReport.error}</div>
+                  <div className="text-center text-red-600 py-12 text-sm">{manageSalesReport.error}</div>
                 ) : manageSalesReport ? (
                   <div className="space-y-3">
-                    <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
-                      <div className="text-gray-400 text-xs mb-1">ยอดขายรวม (ชำระแล้ว)</div>
-                      <div className="text-green-400 text-2xl font-bold">฿{Number(manageSalesReport.summary?.total_income || 0).toLocaleString(undefined,{minimumFractionDigits:2})}</div>
-                      <div className="text-gray-500 text-xs mt-2">จำนวนบิล: {manageSalesReport.summary?.count || 0}</div>
+                    <div className="bg-white rounded-2xl p-4 border border-gray-100">
+                      <div className="text-gray-500 text-xs mb-1">ยอดขายรวม (ชำระแล้ว)</div>
+                      <div className="text-green-600 text-2xl font-bold">฿{Number(manageSalesReport.summary?.total_income || 0).toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+                      <div className="text-gray-400 text-xs mt-2">จำนวนบิล: {manageSalesReport.summary?.count || 0}</div>
                     </div>
                     <div className="grid grid-cols-3 gap-2 text-center">
-                      <div className="bg-gray-900 rounded-xl p-3 border border-gray-800">
-                        <div className="text-gray-500 text-[10px]">เงินสด</div>
-                        <div className="text-white text-sm font-bold">฿{Number(manageSalesReport.summary?.cash || 0).toLocaleString()}</div>
+                      <div className="bg-white rounded-xl p-3 border border-gray-100">
+                        <div className="text-gray-400 text-[10px]">เงินสด</div>
+                        <div className="text-gray-900 text-sm font-bold">฿{Number(manageSalesReport.summary?.cash || 0).toLocaleString()}</div>
                       </div>
-                      <div className="bg-gray-900 rounded-xl p-3 border border-gray-800">
-                        <div className="text-gray-500 text-[10px]">โอน</div>
-                        <div className="text-white text-sm font-bold">฿{Number(manageSalesReport.summary?.transfer || 0).toLocaleString()}</div>
+                      <div className="bg-white rounded-xl p-3 border border-gray-100">
+                        <div className="text-gray-400 text-[10px]">โอน</div>
+                        <div className="text-gray-900 text-sm font-bold">฿{Number(manageSalesReport.summary?.transfer || 0).toLocaleString()}</div>
                       </div>
-                      <div className="bg-gray-900 rounded-xl p-3 border border-gray-800">
-                        <div className="text-gray-500 text-[10px]">เชื่อ</div>
-                        <div className="text-white text-sm font-bold">฿{Number(manageSalesReport.summary?.credit || 0).toLocaleString()}</div>
+                      <div className="bg-white rounded-xl p-3 border border-gray-100">
+                        <div className="text-gray-400 text-[10px]">เชื่อ</div>
+                        <div className="text-gray-900 text-sm font-bold">฿{Number(manageSalesReport.summary?.credit || 0).toLocaleString()}</div>
                       </div>
                     </div>
                   </div>
@@ -1345,26 +1345,26 @@ export default function PosStaffPage() {
 
               {manageView === 'pl' && (
                 manageLoading ? (
-                  <div className="text-center text-gray-400 py-12">กำลังโหลด...</div>
+                  <div className="text-center text-gray-500 py-12">กำลังโหลด...</div>
                 ) : managePlReport?.error ? (
-                  <div className="text-center text-red-400 py-12 text-sm">{managePlReport.error}</div>
+                  <div className="text-center text-red-600 py-12 text-sm">{managePlReport.error}</div>
                 ) : managePlReport ? (
                   <div className="space-y-3">
-                    <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
-                      <div className="text-gray-400 text-xs mb-1">รายรับรวม</div>
-                      <div className="text-green-400 text-xl font-bold">฿{Number(managePlReport.summary?.total_revenue || 0).toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+                    <div className="bg-white rounded-2xl p-4 border border-gray-100">
+                      <div className="text-gray-500 text-xs mb-1">รายรับรวม</div>
+                      <div className="text-green-600 text-xl font-bold">฿{Number(managePlReport.summary?.total_revenue || 0).toLocaleString(undefined,{minimumFractionDigits:2})}</div>
                     </div>
-                    <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
-                      <div className="text-gray-400 text-xs mb-1">ต้นทุนสินค้าขาย</div>
-                      <div className="text-red-400 text-xl font-bold">฿{Number(managePlReport.summary?.total_cost || 0).toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+                    <div className="bg-white rounded-2xl p-4 border border-gray-100">
+                      <div className="text-gray-500 text-xs mb-1">ต้นทุนสินค้าขาย</div>
+                      <div className="text-red-600 text-xl font-bold">฿{Number(managePlReport.summary?.total_cost || 0).toLocaleString(undefined,{minimumFractionDigits:2})}</div>
                     </div>
-                    <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
-                      <div className="text-gray-400 text-xs mb-1">ค่าใช้จ่ายร้าน</div>
-                      <div className="text-red-400 text-xl font-bold">฿{Number(managePlReport.summary?.total_expenses || 0).toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+                    <div className="bg-white rounded-2xl p-4 border border-gray-100">
+                      <div className="text-gray-500 text-xs mb-1">ค่าใช้จ่ายร้าน</div>
+                      <div className="text-red-600 text-xl font-bold">฿{Number(managePlReport.summary?.total_expenses || 0).toLocaleString(undefined,{minimumFractionDigits:2})}</div>
                     </div>
-                    <div className="bg-gray-900 rounded-2xl p-4 border border-blue-800">
-                      <div className="text-gray-400 text-xs mb-1">กำไรสุทธิ</div>
-                      <div className="text-blue-400 text-2xl font-bold">฿{Number(managePlReport.summary?.net_profit || 0).toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+                    <div className="bg-white rounded-2xl p-4 border border-blue-200">
+                      <div className="text-gray-500 text-xs mb-1">กำไรสุทธิ</div>
+                      <div className="text-blue-600 text-2xl font-bold">฿{Number(managePlReport.summary?.net_profit || 0).toLocaleString(undefined,{minimumFractionDigits:2})}</div>
                     </div>
                   </div>
                 ) : null
@@ -1372,22 +1372,22 @@ export default function PosStaffPage() {
 
               {manageView === 'stock' && (
                 manageLoading ? (
-                  <div className="text-center text-gray-400 py-12">กำลังโหลด...</div>
+                  <div className="text-center text-gray-500 py-12">กำลังโหลด...</div>
                 ) : (
                   <div className="space-y-2">
-                    <div className="text-blue-400 text-xs mb-1">
+                    <div className="text-blue-600 text-xs mb-1">
                       📍 แสดง/แก้ไขสต็อกที่สาขา: {staffBranch || 'ไม่ระบุสาขา'}
                     </div>
                     {manageStockList.map(p => (
-                      <div key={p.sku} className="bg-gray-900 rounded-xl p-3 border border-gray-800 flex items-center gap-3">
+                      <div key={p.sku} className="bg-white rounded-xl p-3 border border-gray-100 flex items-center gap-3">
                         <div className="flex-1 min-w-0">
-                          <div className="text-white text-sm font-medium truncate">{p.name}</div>
-                          <div className="text-gray-500 text-xs">{p.sku} · {p.unit}</div>
+                          <div className="text-gray-900 text-sm font-medium truncate">{p.name}</div>
+                          <div className="text-gray-400 text-xs">{p.sku} · {p.unit}</div>
                         </div>
                         <input type="number" defaultValue={p.stock}
                           onBlur={e => { if (e.target.value !== String(p.stock)) saveManageStock(p.sku, e.target.value); }}
                           disabled={manageStockSaving === p.sku}
-                          className="w-20 bg-gray-800 text-white text-sm px-2 py-1.5 rounded-lg border border-gray-700 text-right focus:outline-none focus:border-green-500" />
+                          className="w-20 bg-white text-gray-900 text-sm px-2 py-1.5 rounded-lg border border-gray-200 text-right focus:outline-none focus:border-green-500" />
                       </div>
                     ))}
                   </div>
@@ -1399,44 +1399,44 @@ export default function PosStaffPage() {
           {/* ══ Pending bills ══════════════════════════════════════════════ */}
           {step === 'bills' && (
             <div>
-              <button onClick={() => setStep('menu')} className="text-gray-400 hover:text-white text-sm mb-4 flex items-center gap-1">← เมนู</button>
+              <button onClick={() => setStep('menu')} className="text-gray-500 hover:text-gray-900 text-sm mb-4 flex items-center gap-1">← เมนู</button>
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-white font-bold text-lg">บิลรอยืนยัน</h2>
+                <h2 className="text-gray-900 font-bold text-lg">บิลรอยืนยัน</h2>
                 <button onClick={fetchBills} disabled={billsLoading}
-                  className="text-green-400 text-xs border border-green-800 px-3 py-1.5 rounded-lg hover:bg-green-900/30 transition-colors">
+                  className="text-green-600 text-xs border border-green-200 px-3 py-1.5 rounded-lg hover:bg-green-50/30 transition-colors">
                   {billsLoading ? '...' : '🔄 รีเฟรช'}
                 </button>
               </div>
 
               {billsLoading ? (
-                <div className="text-center text-gray-400 py-12">กำลังโหลด...</div>
+                <div className="text-center text-gray-500 py-12">กำลังโหลด...</div>
               ) : bills.length === 0 ? (
                 <div className="text-center py-16">
                   <div className="text-5xl mb-4">✅</div>
-                  <div className="text-gray-300 font-medium">ไม่มีบิลรอยืนยัน</div>
-                  <div className="text-gray-500 text-sm mt-1">บิลโอนทั้งหมดยืนยันแล้ว</div>
+                  <div className="text-gray-700 font-medium">ไม่มีบิลรอยืนยัน</div>
+                  <div className="text-gray-400 text-sm mt-1">บิลโอนทั้งหมดยืนยันแล้ว</div>
                 </div>
               ) : (
                 <div className="space-y-3">
                   {bills.map(bill => (
-                    <div key={bill.bill_no} className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+                    <div key={bill.bill_no} className="bg-white rounded-2xl p-4 border border-gray-100">
                       <div className="flex items-start justify-between mb-3">
                         <div>
-                          <div className="text-white font-bold text-lg">฿{bill.total.toLocaleString()}</div>
-                          <div className="text-gray-500 text-xs font-mono mt-0.5">{bill.bill_no}</div>
+                          <div className="text-gray-900 font-bold text-lg">฿{bill.total.toLocaleString()}</div>
+                          <div className="text-gray-400 text-xs font-mono mt-0.5">{bill.bill_no}</div>
                         </div>
-                        <span className="bg-yellow-900 text-yellow-300 text-xs px-2 py-1 rounded-full shrink-0">รอยืนยัน</span>
+                        <span className="bg-yellow-50 text-yellow-700 text-xs px-2 py-1 rounded-full shrink-0">รอยืนยัน</span>
                       </div>
 
                       {bill.notes && (
-                        <div className="text-gray-400 text-xs mb-2 truncate">📝 {bill.notes}</div>
+                        <div className="text-gray-500 text-xs mb-2 truncate">📝 {bill.notes}</div>
                       )}
 
                       <div className="space-y-0.5 mb-3">
                         {Array.isArray(bill.items) && bill.items.map((item, j) => (
                           <div key={j} className="flex justify-between text-xs">
-                            <span className="text-gray-400">{item.name} ×{item.qty}</span>
-                            <span className="text-gray-300">฿{(item.price * item.qty).toLocaleString()}</span>
+                            <span className="text-gray-500">{item.name} ×{item.qty}</span>
+                            <span className="text-gray-700">฿{(item.price * item.qty).toLocaleString()}</span>
                           </div>
                         ))}
                       </div>
@@ -1457,33 +1457,33 @@ export default function PosStaffPage() {
           {/* ══ Confirm payment ════════════════════════════════════════════ */}
           {step === 'confirm' && selectedBill && (
             <div>
-              <button onClick={() => setStep('bills')} className="text-gray-400 hover:text-white text-sm mb-5 flex items-center gap-1">
+              <button onClick={() => setStep('bills')} className="text-gray-500 hover:text-gray-900 text-sm mb-5 flex items-center gap-1">
                 ← กลับ
               </button>
 
-              <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800 mb-5">
-                <div className="text-gray-400 text-xs mb-1">บิล {selectedBill.bill_no}</div>
-                <div className="text-white font-bold text-2xl mb-3">฿{selectedBill.total.toLocaleString()}</div>
+              <div className="bg-white rounded-2xl p-4 border border-gray-100 mb-5">
+                <div className="text-gray-500 text-xs mb-1">บิล {selectedBill.bill_no}</div>
+                <div className="text-gray-900 font-bold text-2xl mb-3">฿{selectedBill.total.toLocaleString()}</div>
                 {Array.isArray(selectedBill.items) && selectedBill.items.map((item, j) => (
-                  <div key={j} className="flex justify-between text-xs text-gray-400">
+                  <div key={j} className="flex justify-between text-xs text-gray-500">
                     <span>{item.name} ×{item.qty}</span>
                     <span>฿{(item.price * item.qty).toLocaleString()}</span>
                   </div>
                 ))}
               </div>
 
-              <h3 className="text-white font-bold mb-3">📷 แนบสลิปการโอน</h3>
+              <h3 className="text-gray-900 font-bold mb-3">📷 แนบสลิปการโอน</h3>
 
               {slipUrl ? (
-                <div className="bg-green-900/30 border border-green-800 rounded-2xl p-4 flex items-center gap-3 mb-4">
-                  <div className="text-green-400 text-2xl shrink-0">✅</div>
+                <div className="bg-green-50/30 border border-green-200 rounded-2xl p-4 flex items-center gap-3 mb-4">
+                  <div className="text-green-600 text-2xl shrink-0">✅</div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-green-300 text-sm font-bold">อัปโหลดสลิปแล้ว</div>
-                    {slipSender && <div className="text-green-200 text-xs mt-0.5">ผู้โอน: {slipSender}</div>}
-                    {slipRefNo && <div className="text-gray-500 text-xs">อ้างอิง: {slipRefNo}</div>}
+                    <div className="text-green-700 text-sm font-bold">อัปโหลดสลิปแล้ว</div>
+                    {slipSender && <div className="text-green-800 text-xs mt-0.5">ผู้โอน: {slipSender}</div>}
+                    {slipRefNo && <div className="text-gray-400 text-xs">อ้างอิง: {slipRefNo}</div>}
                   </div>
                   <button onClick={() => { setSlipUrl(''); setSlipSender(''); setSlipRefNo(''); }}
-                    className="text-gray-500 hover:text-gray-300 shrink-0">✕</button>
+                    className="text-gray-400 hover:text-gray-700 shrink-0">✕</button>
                 </div>
               ) : (
                 <div className="mb-4">
@@ -1491,7 +1491,7 @@ export default function PosStaffPage() {
                     type="button"
                     onClick={() => slipRef.current?.click()}
                     disabled={slipUploading}
-                    className="w-full bg-gray-800 hover:bg-gray-700 border-2 border-dashed border-gray-600 text-gray-300 font-medium py-6 rounded-2xl transition-colors flex flex-col items-center gap-2 disabled:opacity-60"
+                    className="w-full bg-white hover:bg-gray-100 border-2 border-dashed border-gray-300 text-gray-700 font-medium py-6 rounded-2xl transition-colors flex flex-col items-center gap-2 disabled:opacity-60"
                   >
                     {slipUploading ? (
                       <><span className="text-3xl animate-spin">⏳</span><span className="text-sm">กำลังอ่านสลิป...</span></>
@@ -1501,7 +1501,7 @@ export default function PosStaffPage() {
                   </button>
                   <input ref={slipRef} type="file" accept="image/*" capture="environment"
                     className="hidden" onChange={handleSlipCapture} />
-                  <p className="text-gray-600 text-xs text-center mt-2">
+                  <p className="text-gray-400 text-xs text-center mt-2">
                     หรือยืนยันโดยไม่แนบสลิป (ถ้าได้รับเงินแล้ว)
                   </p>
                 </div>
@@ -1520,51 +1520,51 @@ export default function PosStaffPage() {
           {/* ══ รายการงานจัดส่ง ══════════════════════════════════════════════ */}
           {step === 'deliveries' && (
             <div>
-              <button onClick={() => setStep('menu')} className="text-gray-400 hover:text-white text-sm mb-4 flex items-center gap-1">← เมนู</button>
+              <button onClick={() => setStep('menu')} className="text-gray-500 hover:text-gray-900 text-sm mb-4 flex items-center gap-1">← เมนู</button>
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-white font-bold text-lg">งานจัดส่ง</h2>
+                <h2 className="text-gray-900 font-bold text-lg">งานจัดส่ง</h2>
                 <button onClick={fetchOrders} disabled={ordersLoading}
-                  className="text-green-400 text-xs border border-green-800 px-3 py-1.5 rounded-lg hover:bg-green-900/30 transition-colors">
+                  className="text-green-600 text-xs border border-green-200 px-3 py-1.5 rounded-lg hover:bg-green-50/30 transition-colors">
                   {ordersLoading ? '...' : '🔄 รีเฟรช'}
                 </button>
               </div>
 
               {ordersLoading ? (
-                <div className="text-center text-gray-400 py-12">กำลังโหลด...</div>
+                <div className="text-center text-gray-500 py-12">กำลังโหลด...</div>
               ) : orders.length === 0 ? (
                 <div className="text-center py-16">
                   <div className="text-5xl mb-4">✅</div>
-                  <div className="text-gray-300 font-medium">ไม่มีงานจัดส่งค้าง</div>
+                  <div className="text-gray-700 font-medium">ไม่มีงานจัดส่งค้าง</div>
                 </div>
               ) : (
                 <div className="space-y-3">
                   {orders.map(order => (
-                    <div key={order.order_no} className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+                    <div key={order.order_no} className="bg-white rounded-2xl p-4 border border-gray-100">
                       <div className="flex items-start justify-between mb-2">
                         <div>
-                          <div className="text-white font-bold">{order.customer_name}</div>
+                          <div className="text-gray-900 font-bold">{order.customer_name}</div>
                           {order.phone && (
                             <a href={`tel:${order.phone.replace(/[^\d+]/g, '')}`} onClick={e => e.stopPropagation()}
-                              className="text-blue-400 hover:text-blue-300 text-xs underline decoration-dotted underline-offset-2 inline-block">
+                              className="text-blue-600 hover:text-blue-700 text-xs underline decoration-dotted underline-offset-2 inline-block">
                               📞 {order.phone}
                             </a>
                           )}
                         </div>
-                        <span className="bg-orange-900 text-orange-300 text-xs px-2 py-1 rounded-full shrink-0">{order.status}</span>
+                        <span className="bg-orange-50 text-orange-700 text-xs px-2 py-1 rounded-full shrink-0">{order.status}</span>
                       </div>
-                      {order.address && <div className="text-gray-500 text-xs mb-2 truncate">📍 {order.address}</div>}
+                      {order.address && <div className="text-gray-400 text-xs mb-2 truncate">📍 {order.address}</div>}
                       <div className="space-y-0.5 mb-3">
                         {Array.isArray(order.items) && order.items.map((item, j) => (
                           <div key={j} className="flex justify-between text-xs">
-                            <span className="text-gray-400">{item.name} ×{item.qty}</span>
-                            <span className="text-gray-300">฿{(item.price * item.qty).toLocaleString()}</span>
+                            <span className="text-gray-500">{item.name} ×{item.qty}</span>
+                            <span className="text-gray-700">฿{(item.price * item.qty).toLocaleString()}</span>
                           </div>
                         ))}
                       </div>
                       <div className="flex gap-2">
                         {order.maps_link && (
                           <a href={order.maps_link} target="_blank" rel="noreferrer"
-                            className="flex-1 text-center bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-medium py-2.5 rounded-xl transition-colors">
+                            className="flex-1 text-center bg-white hover:bg-gray-100 text-gray-800 text-sm font-medium py-2.5 rounded-xl transition-colors">
                             🗺️ แผนที่
                           </a>
                         )}
@@ -1583,16 +1583,16 @@ export default function PosStaffPage() {
           {/* ══ ยืนยันจัดส่งสำเร็จ ══════════════════════════════════════════════ */}
           {step === 'deliver-confirm' && selectedOrder && deliverDone && (
             <div>
-              <div className="bg-green-900/20 border border-green-800 rounded-2xl p-6 text-center mb-5">
+              <div className="bg-green-50/20 border border-green-200 rounded-2xl p-6 text-center mb-5">
                 <div className="text-4xl mb-2">✅</div>
-                <div className="text-white font-bold text-lg">ยืนยันจัดส่งสำเร็จแล้ว</div>
-                <div className="text-gray-400 text-sm mt-1">{deliverDone.order.customer_name}</div>
-                <div className="text-green-400 font-black text-2xl mt-3">฿{deliverDone.finalTotal.toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+                <div className="text-gray-900 font-bold text-lg">ยืนยันจัดส่งสำเร็จแล้ว</div>
+                <div className="text-gray-500 text-sm mt-1">{deliverDone.order.customer_name}</div>
+                <div className="text-green-600 font-black text-2xl mt-3">฿{deliverDone.finalTotal.toLocaleString(undefined,{minimumFractionDigits:2})}</div>
                 {deliverDone.discountAmount > 0 && (
-                  <div className="text-gray-500 text-xs mt-1">(ลดแล้ว ฿{deliverDone.discountAmount.toLocaleString(undefined,{minimumFractionDigits:2})})</div>
+                  <div className="text-gray-400 text-xs mt-1">(ลดแล้ว ฿{deliverDone.discountAmount.toLocaleString(undefined,{minimumFractionDigits:2})})</div>
                 )}
                 {deliverDone.payMethod === 'ค้างจ่าย' && deliverDone.remainingDebt > 0 && (
-                  <div className="text-amber-400 text-sm font-bold mt-2">📒 ค้างชำระ ฿{deliverDone.remainingDebt.toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+                  <div className="text-amber-600 text-sm font-bold mt-2">📒 ค้างชำระ ฿{deliverDone.remainingDebt.toLocaleString(undefined,{minimumFractionDigits:2})}</div>
                 )}
               </div>
               <button onClick={() => printDeliveryReceipt(deliverDone)}
@@ -1600,7 +1600,7 @@ export default function PosStaffPage() {
                 🖨️ พิมพ์ใบเสร็จ
               </button>
               <button onClick={() => { setDeliverDone(null); setSelectedOrder(null); setStep('deliveries'); }}
-                className="w-full bg-gray-800 hover:bg-gray-700 text-gray-200 font-bold py-3.5 rounded-2xl transition-colors">
+                className="w-full bg-white hover:bg-gray-100 text-gray-800 font-bold py-3.5 rounded-2xl transition-colors">
                 เสร็จสิ้น
               </button>
             </div>
@@ -1608,50 +1608,50 @@ export default function PosStaffPage() {
 
           {step === 'deliver-confirm' && selectedOrder && !deliverDone && (
             <div>
-              <button onClick={() => setStep('deliveries')} className="text-gray-400 hover:text-white text-sm mb-5 flex items-center gap-1">
+              <button onClick={() => setStep('deliveries')} className="text-gray-500 hover:text-gray-900 text-sm mb-5 flex items-center gap-1">
                 ← กลับ
               </button>
 
-              <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800 mb-5">
-                <div className="text-white font-bold text-lg">{selectedOrder.customer_name}</div>
+              <div className="bg-white rounded-2xl p-4 border border-gray-100 mb-5">
+                <div className="text-gray-900 font-bold text-lg">{selectedOrder.customer_name}</div>
                 {selectedOrder.phone && (
                   <a href={`tel:${selectedOrder.phone.replace(/[^\d+]/g, '')}`}
-                    className="text-blue-400 hover:text-blue-300 text-xs mt-0.5 underline decoration-dotted underline-offset-2 inline-block">
+                    className="text-blue-600 hover:text-blue-700 text-xs mt-0.5 underline decoration-dotted underline-offset-2 inline-block">
                     📞 {selectedOrder.phone}
                   </a>
                 )}
                 {!editingDeliveryAddress ? (
                   <>
-                    {selectedOrder.address && <div className="text-gray-500 text-xs mt-1">📍 {selectedOrder.address}</div>}
+                    {selectedOrder.address && <div className="text-gray-400 text-xs mt-1">📍 {selectedOrder.address}</div>}
                     <div className="flex gap-2 mt-2">
                       {selectedOrder.maps_link && (
                         <a href={selectedOrder.maps_link} target="_blank" rel="noreferrer"
-                          className="inline-block bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-medium px-3 py-2 rounded-xl transition-colors">
+                          className="inline-block bg-white hover:bg-gray-100 text-gray-800 text-xs font-medium px-3 py-2 rounded-xl transition-colors">
                           🗺️ เปิดแผนที่
                         </a>
                       )}
                       <button type="button" onClick={openEditDeliveryAddress}
-                        className="inline-block bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-medium px-3 py-2 rounded-xl transition-colors">
+                        className="inline-block bg-white hover:bg-gray-100 text-gray-800 text-xs font-medium px-3 py-2 rounded-xl transition-colors">
                         ✏️ แก้ที่อยู่/หมุด
                       </button>
                     </div>
                   </>
                 ) : (
-                  <div className="mt-2 bg-gray-800 border border-blue-700/50 rounded-xl p-3 space-y-2">
-                    <div className="text-blue-400 text-xs font-bold">
+                  <div className="mt-2 bg-white border border-blue-300/50 rounded-xl p-3 space-y-2">
+                    <div className="text-blue-600 text-xs font-bold">
                       ✏️ แก้ที่อยู่/ปักหมุดใหม่ — ลูกค้ามีหลายที่ (บ้าน/ร้าน) หรือหมุดเดิมผิดจุด แก้ได้เลย
                     </div>
                     <textarea value={editAddressText} onChange={e => setEditAddressText(e.target.value)}
                       placeholder="ที่อยู่จัดส่ง" rows={2}
-                      className="w-full bg-gray-900 text-white text-sm px-3 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-blue-500 resize-none" />
+                      className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-blue-500 resize-none" />
                     <div className="flex items-center gap-2">
                       <button type="button" onClick={() => setShowStaffMapPicker(true)}
-                        className={`flex-1 text-xs font-medium py-2 rounded-lg transition-colors ${editMapsLink ? 'bg-green-900/40 text-green-300 border border-green-700/50' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+                        className={`flex-1 text-xs font-medium py-2 rounded-lg transition-colors ${editMapsLink ? 'bg-green-50/40 text-green-700 border border-green-300/50' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
                         {editMapsLink ? '✅ ปักหมุดแล้ว — แก้ไข' : '🗺️ ปักหมุดตำแหน่ง'}
                       </button>
                       {editMapsLink && (
                         <button type="button" onClick={() => setEditMapsLink('')}
-                          className="text-gray-500 hover:text-red-400 text-xs px-2">ลบหมุด</button>
+                          className="text-gray-400 hover:text-red-600 text-xs px-2">ลบหมุด</button>
                       )}
                     </div>
                     <div className="flex gap-2">
@@ -1660,32 +1660,32 @@ export default function PosStaffPage() {
                         {savingDeliveryAddress ? 'กำลังบันทึก...' : '💾 บันทึก'}
                       </button>
                       <button type="button" onClick={() => setEditingDeliveryAddress(false)}
-                        className="px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs font-bold py-2.5 rounded-lg transition-colors">
+                        className="px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-2.5 rounded-lg transition-colors">
                         ยกเลิก
                       </button>
                     </div>
                   </div>
                 )}
-                <div className="border-t border-gray-800 mt-3 pt-3 space-y-0.5">
+                <div className="border-t border-gray-100 mt-3 pt-3 space-y-0.5">
                   {Array.isArray(selectedOrder.items) && selectedOrder.items.map((item, j) => (
-                    <div key={j} className="flex justify-between text-xs text-gray-400">
+                    <div key={j} className="flex justify-between text-xs text-gray-500">
                       <span>{item.name} ×{item.qty}</span>
                       <span>฿{(item.price * item.qty).toLocaleString()}</span>
                     </div>
                   ))}
                 </div>
-                <div className="flex justify-between text-xs text-gray-500 mt-2 pt-2 border-t border-gray-800">
+                <div className="flex justify-between text-xs text-gray-400 mt-2 pt-2 border-t border-gray-100">
                   <span>ยอดก่อนส่วนลด</span>
                   <span>฿{deliverOrderTotal.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
                 </div>
               </div>
 
               {/* ส่วนลดรวมทั้งบิล — แก้ราคาต่อชิ้นไม่ได้ แต่ลดยอดรวมได้ */}
-              <h3 className="text-white font-bold mb-2">🏷️ ส่วนลด (ถ้ามี)</h3>
+              <h3 className="text-gray-900 font-bold mb-2">🏷️ ส่วนลด (ถ้ามี)</h3>
               <div className="flex gap-2 mb-2">
                 {[['amount', '฿ จำนวนเงิน'], ['percent', '% เปอร์เซ็นต์']].map(([v, label]) => (
                   <button key={v} onClick={() => { setDeliverDiscountType(v); setDeliverQr(''); }}
-                    className={`flex-1 py-2 rounded-xl text-xs font-bold transition-colors ${deliverDiscountType === v ? 'bg-blue-700 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
+                    className={`flex-1 py-2 rounded-xl text-xs font-bold transition-colors ${deliverDiscountType === v ? 'bg-blue-700 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'}`}>
                     {label}
                   </button>
                 ))}
@@ -1693,27 +1693,27 @@ export default function PosStaffPage() {
               <input type="number" min="0" value={deliverDiscountValue}
                 onChange={e => { setDeliverDiscountValue(e.target.value); setDeliverQr(''); }}
                 placeholder={deliverDiscountType === 'percent' ? '0-100' : '0.00'}
-                className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-blue-500 mb-4" />
+                className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-blue-500 mb-4" />
 
-              <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800 mb-5">
+              <div className="bg-white rounded-2xl p-4 border border-gray-100 mb-5">
                 {deliverDiscountAmount > 0 && (
-                  <div className="flex justify-between text-xs text-orange-400 mb-1">
+                  <div className="flex justify-between text-xs text-orange-600 mb-1">
                     <span>ส่วนลด</span>
                     <span>-฿{deliverDiscountAmount.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
                   </div>
                 )}
                 <div className="flex justify-between font-bold">
-                  <span className="text-gray-300 text-sm">ยอดที่ต้องเก็บจริง</span>
-                  <span className="text-white text-lg">฿{deliverFinalTotal.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                  <span className="text-gray-700 text-sm">ยอดที่ต้องเก็บจริง</span>
+                  <span className="text-gray-900 text-lg">฿{deliverFinalTotal.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
                 </div>
               </div>
 
               {/* วิธีชำระเงินจริง */}
-              <h3 className="text-white font-bold mb-2">💳 รับเงินแบบไหน</h3>
+              <h3 className="text-gray-900 font-bold mb-2">💳 รับเงินแบบไหน</h3>
               <div className="grid grid-cols-3 gap-2 mb-4">
                 {['เก็บปลายทาง', 'โอนแล้ว', 'ค้างจ่าย'].map(m => (
                   <button key={m} onClick={() => { setDeliverPayMethod(m); setDeliverQr(''); }}
-                    className={`py-2.5 rounded-xl text-xs font-bold transition-colors ${deliverPayMethod === m ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
+                    className={`py-2.5 rounded-xl text-xs font-bold transition-colors ${deliverPayMethod === m ? 'bg-orange-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'}`}>
                     {m === 'เก็บปลายทาง' ? '💵 เงินสด' : m === 'โอนแล้ว' ? '📱 โอน' : '📒 ค้างจ่าย'}
                   </button>
                 ))}
@@ -1729,22 +1729,22 @@ export default function PosStaffPage() {
                     </div>
                   ) : (
                     <button onClick={loadDeliverQr} disabled={deliverQrLoading}
-                      className="w-full bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-bold py-3 rounded-xl transition-colors disabled:opacity-50">
+                      className="w-full bg-white hover:bg-gray-100 text-gray-800 text-sm font-bold py-3 rounded-xl transition-colors disabled:opacity-50">
                       {deliverQrLoading ? 'กำลังสร้าง QR...' : '📱 แสดง QR ให้ลูกค้าสแกน'}
                     </button>
                   )}
 
-                  <h4 className="text-white font-bold mt-4 mb-2 text-sm">📷 แนบสลิปการโอน</h4>
+                  <h4 className="text-gray-900 font-bold mt-4 mb-2 text-sm">📷 แนบสลิปการโอน</h4>
                   {deliverSlipUrl ? (
-                    <div className="bg-green-900/30 border border-green-800 rounded-2xl p-4 flex items-center gap-3">
-                      <div className="text-green-400 text-2xl shrink-0">✅</div>
-                      <div className="flex-1 text-green-300 text-sm font-bold">อัปโหลดสลิปแล้ว</div>
-                      <button onClick={() => setDeliverSlipUrl('')} className="text-gray-500 hover:text-gray-300 shrink-0">✕</button>
+                    <div className="bg-green-50/30 border border-green-200 rounded-2xl p-4 flex items-center gap-3">
+                      <div className="text-green-600 text-2xl shrink-0">✅</div>
+                      <div className="flex-1 text-green-700 text-sm font-bold">อัปโหลดสลิปแล้ว</div>
+                      <button onClick={() => setDeliverSlipUrl('')} className="text-gray-400 hover:text-gray-700 shrink-0">✕</button>
                     </div>
                   ) : (
                     <div>
                       <button type="button" onClick={() => deliverSlipRef.current?.click()} disabled={deliverSlipUploading}
-                        className="w-full bg-gray-800 hover:bg-gray-700 border-2 border-dashed border-gray-600 text-gray-300 font-medium py-5 rounded-2xl transition-colors flex flex-col items-center gap-2 disabled:opacity-60">
+                        className="w-full bg-white hover:bg-gray-100 border-2 border-dashed border-gray-300 text-gray-700 font-medium py-5 rounded-2xl transition-colors flex flex-col items-center gap-2 disabled:opacity-60">
                         {deliverSlipUploading ? (
                           <><span className="text-2xl animate-spin">⏳</span><span className="text-sm">กำลังอ่านสลิป...</span></>
                         ) : (
@@ -1761,13 +1761,13 @@ export default function PosStaffPage() {
               {/* ค้างจ่าย — เลือกได้ว่าลูกค้าจ่ายมาบางส่วนก่อนไหม ส่วนที่เหลือถึงจะเข้ายอดค้างชำระจริง */}
               {deliverPayMethod === 'ค้างจ่าย' && (
                 <div className="mb-4">
-                  <h3 className="text-white font-bold mb-2 text-sm">💰 จ่ายมาก่อนบางส่วนไหม?</h3>
-                  <label className="block text-gray-400 text-xs mb-1.5">จ่ายแล้วตอนนี้ (บาท) — เว้นว่างถ้าไม่ได้จ่ายเลย</label>
+                  <h3 className="text-gray-900 font-bold mb-2 text-sm">💰 จ่ายมาก่อนบางส่วนไหม?</h3>
+                  <label className="block text-gray-500 text-xs mb-1.5">จ่ายแล้วตอนนี้ (บาท) — เว้นว่างถ้าไม่ได้จ่ายเลย</label>
                   <input type="number" min="0" max={deliverFinalTotal} value={deliverPartialPaid}
                     onChange={e => setDeliverPartialPaid(e.target.value)}
                     placeholder="0"
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-orange-500" />
-                  <div className="text-amber-400 text-xs mt-1.5">
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-orange-500" />
+                  <div className="text-amber-600 text-xs mt-1.5">
                     ค้างชำระ ฿{Math.max(0, deliverFinalTotal - (parseFloat(deliverPartialPaid) || 0)).toLocaleString(undefined,{minimumFractionDigits:2})}
                   </div>
                 </div>
@@ -1776,29 +1776,29 @@ export default function PosStaffPage() {
               {/* สินค้าหมุนเวียน — ค่าเริ่มต้นถือว่าลูกค้านำของเก่ามาแลกครบทุกชิ้น กดปุ่ม "ยืม" เฉพาะรายการที่ลูกค้าไม่ได้เอาของเก่ามาคืน */}
               {cyclicalItemsInOrder.length > 0 && (
                 <div className="mb-4">
-                  <h3 className="text-white font-bold mb-2 text-sm">🔄 สินค้าหมุนเวียน — ค่าเริ่มต้นคือลูกค้านำของเก่ามาแลกครบ</h3>
+                  <h3 className="text-gray-900 font-bold mb-2 text-sm">🔄 สินค้าหมุนเวียน — ค่าเริ่มต้นคือลูกค้านำของเก่ามาแลกครบ</h3>
                   <div className="space-y-2">
                     {cyclicalItemsInOrder.map(item => {
                       const unit = item.unit || 'ชิ้น';
                       const isBorrowing = !!borrowingSku[item.sku];
                       return (
-                        <div key={item.sku} className="bg-gray-900 rounded-xl p-3 border border-gray-800">
+                        <div key={item.sku} className="bg-white rounded-xl p-3 border border-gray-100">
                           <div className="flex items-center justify-between gap-3">
-                            <div className="text-gray-300 text-sm flex-1">{item.name} <span className="text-gray-600">×{item.qty}</span></div>
+                            <div className="text-gray-700 text-sm flex-1">{item.name} <span className="text-gray-400">×{item.qty}</span></div>
                             <button type="button"
                               onClick={() => setBorrowingSku(s => ({ ...s, [item.sku]: !s[item.sku] }))}
-                              className={`text-xs px-3 py-1.5 rounded-lg shrink-0 transition-colors ${isBorrowing ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                              className={`text-xs px-3 py-1.5 rounded-lg shrink-0 transition-colors ${isBorrowing ? 'bg-orange-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}`}>
                               {isBorrowing ? '🤝 ยืม' : 'แลกครบ'}
                             </button>
                           </div>
                           {isBorrowing && (
-                            <div className="flex items-center justify-end gap-2 mt-2 text-xs text-gray-400">
+                            <div className="flex items-center justify-end gap-2 mt-2 text-xs text-gray-500">
                               <span>จำนวนที่ยืม (ไม่เอา{unit}เก่ามาแลก)</span>
                               <input type="number" min="0" max={item.qty}
                                 value={borrowedQty[item.sku] || ''}
                                 onChange={e => setBorrowedQty(q => ({ ...q, [item.sku]: e.target.value }))}
                                 placeholder="0"
-                                className="w-16 bg-gray-800 text-white text-sm text-center px-2 py-1.5 rounded-lg border border-orange-700/50 focus:outline-none focus:border-orange-500" />
+                                className="w-16 bg-white text-gray-900 text-sm text-center px-2 py-1.5 rounded-lg border border-orange-300/50 focus:outline-none focus:border-orange-500" />
                             </div>
                           )}
                         </div>
@@ -1821,49 +1821,49 @@ export default function PosStaffPage() {
           {/* ══ รายการงานเก็บเงิน/ของ ══════════════════════════════════════════ */}
           {step === 'collections' && (
             <div>
-              <button onClick={() => setStep('menu')} className="text-gray-400 hover:text-white text-sm mb-4 flex items-center gap-1">← เมนู</button>
+              <button onClick={() => setStep('menu')} className="text-gray-500 hover:text-gray-900 text-sm mb-4 flex items-center gap-1">← เมนู</button>
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-white font-bold text-lg">งานเก็บเงิน/ของ</h2>
+                <h2 className="text-gray-900 font-bold text-lg">งานเก็บเงิน/ของ</h2>
                 <button onClick={fetchCollectionTasks} disabled={collectionTasksLoading}
-                  className="text-green-400 text-xs border border-green-800 px-3 py-1.5 rounded-lg hover:bg-green-900/30 transition-colors">
+                  className="text-green-600 text-xs border border-green-200 px-3 py-1.5 rounded-lg hover:bg-green-50/30 transition-colors">
                   {collectionTasksLoading ? '...' : '🔄 รีเฟรช'}
                 </button>
               </div>
 
               {collectionTasksLoading ? (
-                <div className="text-center text-gray-400 py-12">กำลังโหลด...</div>
+                <div className="text-center text-gray-500 py-12">กำลังโหลด...</div>
               ) : collectionTasks.length === 0 ? (
                 <div className="text-center py-16">
                   <div className="text-5xl mb-4">✅</div>
-                  <div className="text-gray-300 font-medium">ไม่มีงานเก็บเงิน/ของค้าง</div>
+                  <div className="text-gray-700 font-medium">ไม่มีงานเก็บเงิน/ของค้าง</div>
                 </div>
               ) : (
                 <div className="space-y-3">
                   {collectionTasks.map(task => (
-                    <div key={task.collection_no} className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+                    <div key={task.collection_no} className="bg-white rounded-2xl p-4 border border-gray-100">
                       <div className="flex items-start justify-between mb-2">
                         <div>
-                          <div className="text-white font-bold">{task.customer_name}</div>
+                          <div className="text-gray-900 font-bold">{task.customer_name}</div>
                           {task.phone && (
                             <a href={`tel:${task.phone.replace(/[^\d+]/g, '')}`} onClick={e => e.stopPropagation()}
-                              className="text-blue-400 hover:text-blue-300 text-xs underline decoration-dotted underline-offset-2 inline-block">
+                              className="text-blue-600 hover:text-blue-700 text-xs underline decoration-dotted underline-offset-2 inline-block">
                               📞 {task.phone}
                             </a>
                           )}
                         </div>
-                        <span className="bg-orange-900 text-orange-300 text-xs px-2 py-1 rounded-full shrink-0">{task.task_type}</span>
+                        <span className="bg-orange-50 text-orange-700 text-xs px-2 py-1 rounded-full shrink-0">{task.task_type}</span>
                       </div>
                       {task.debt_amount > 0 && (
-                        <div className="text-orange-400 text-sm font-bold mb-1">💳 เงินเชื่อค้าง ฿{task.debt_amount.toLocaleString()}</div>
+                        <div className="text-orange-600 text-sm font-bold mb-1">💳 เงินเชื่อค้าง ฿{task.debt_amount.toLocaleString()}</div>
                       )}
                       {Array.isArray(task.items) && task.items.length > 0 && (
                         <div className="space-y-0.5 mb-2">
                           {task.items.map((item, j) => (
-                            <div key={j} className="text-xs text-gray-400">🔄 {item.name} ×{item.qty}</div>
+                            <div key={j} className="text-xs text-gray-500">🔄 {item.name} ×{item.qty}</div>
                           ))}
                         </div>
                       )}
-                      {task.notes && <div className="text-gray-500 text-xs mb-2 truncate">📝 {task.notes}</div>}
+                      {task.notes && <div className="text-gray-400 text-xs mb-2 truncate">📝 {task.notes}</div>}
                       <button onClick={() => openCollectConfirm(task)}
                         className="w-full bg-orange-600 hover:bg-orange-500 text-white text-sm font-bold py-2.5 rounded-xl transition-colors">
                         🧾 บันทึกผลการเก็บ
@@ -1878,40 +1878,40 @@ export default function PosStaffPage() {
           {/* ══ บันทึกผลการเก็บเงิน/ของ ══════════════════════════════════════════ */}
           {step === 'collect-confirm' && selectedCollection && (
             <div>
-              <button onClick={() => setStep('collections')} className="text-gray-400 hover:text-white text-sm mb-5 flex items-center gap-1">
+              <button onClick={() => setStep('collections')} className="text-gray-500 hover:text-gray-900 text-sm mb-5 flex items-center gap-1">
                 ← กลับ
               </button>
 
-              <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800 mb-5">
-                <div className="text-white font-bold text-lg">{selectedCollection.customer_name}</div>
+              <div className="bg-white rounded-2xl p-4 border border-gray-100 mb-5">
+                <div className="text-gray-900 font-bold text-lg">{selectedCollection.customer_name}</div>
                 {selectedCollection.phone && (
                   <a href={`tel:${selectedCollection.phone.replace(/[^\d+]/g, '')}`}
-                    className="text-blue-400 hover:text-blue-300 text-xs mt-0.5 underline decoration-dotted underline-offset-2 inline-block">
+                    className="text-blue-600 hover:text-blue-700 text-xs mt-0.5 underline decoration-dotted underline-offset-2 inline-block">
                     📞 {selectedCollection.phone}
                   </a>
                 )}
-                {selectedCollection.notes && <div className="text-gray-500 text-xs mt-1">📝 {selectedCollection.notes}</div>}
+                {selectedCollection.notes && <div className="text-gray-400 text-xs mt-1">📝 {selectedCollection.notes}</div>}
               </div>
 
               {selectedCollection.debt_amount > 0 && (
                 <div className="mb-4">
-                  <label className="text-white font-bold mb-2 block text-sm">💳 ยอดที่เก็บได้จริง (บาท)</label>
-                  <div className="text-gray-500 text-xs mb-1.5">ยอดที่ต้องเก็บ ฿{selectedCollection.debt_amount.toLocaleString()} — ค่าเริ่มต้นคือเก็บได้ครบ แก้ได้ถ้าเก็บได้บางส่วน</div>
+                  <label className="text-gray-900 font-bold mb-2 block text-sm">💳 ยอดที่เก็บได้จริง (บาท)</label>
+                  <div className="text-gray-400 text-xs mb-1.5">ยอดที่ต้องเก็บ ฿{selectedCollection.debt_amount.toLocaleString()} — ค่าเริ่มต้นคือเก็บได้ครบ แก้ได้ถ้าเก็บได้บางส่วน</div>
                   <input type="number" min="0" value={collectedAmount}
                     onChange={e => setCollectedAmount(e.target.value)}
-                    className="w-full bg-gray-800 text-white text-lg font-bold px-4 py-3 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                    className="w-full bg-white text-gray-900 text-lg font-bold px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
 
-                  <h4 className="text-white font-bold mt-4 mb-2 text-sm">📷 แนบสลิปการโอน (ถ้ารับโอน)</h4>
+                  <h4 className="text-gray-900 font-bold mt-4 mb-2 text-sm">📷 แนบสลิปการโอน (ถ้ารับโอน)</h4>
                   {collectSlipUrl ? (
-                    <div className="bg-green-900/30 border border-green-800 rounded-2xl p-4 flex items-center gap-3">
-                      <div className="text-green-400 text-2xl shrink-0">✅</div>
-                      <div className="flex-1 text-green-300 text-sm font-bold">อัปโหลดสลิปแล้ว</div>
-                      <button onClick={() => setCollectSlipUrl('')} className="text-gray-500 hover:text-gray-300 shrink-0">✕</button>
+                    <div className="bg-green-50/30 border border-green-200 rounded-2xl p-4 flex items-center gap-3">
+                      <div className="text-green-600 text-2xl shrink-0">✅</div>
+                      <div className="flex-1 text-green-700 text-sm font-bold">อัปโหลดสลิปแล้ว</div>
+                      <button onClick={() => setCollectSlipUrl('')} className="text-gray-400 hover:text-gray-700 shrink-0">✕</button>
                     </div>
                   ) : (
                     <div>
                       <button type="button" onClick={() => collectSlipRef.current?.click()} disabled={collectSlipUploading}
-                        className="w-full bg-gray-800 hover:bg-gray-700 border-2 border-dashed border-gray-600 text-gray-300 font-medium py-4 rounded-2xl transition-colors flex flex-col items-center gap-2 disabled:opacity-60">
+                        className="w-full bg-white hover:bg-gray-100 border-2 border-dashed border-gray-300 text-gray-700 font-medium py-4 rounded-2xl transition-colors flex flex-col items-center gap-2 disabled:opacity-60">
                         {collectSlipUploading ? (
                           <><span className="text-2xl animate-spin">⏳</span><span className="text-sm">กำลังอ่านสลิป...</span></>
                         ) : (
@@ -1927,15 +1927,15 @@ export default function PosStaffPage() {
 
               {Array.isArray(selectedCollection.items) && selectedCollection.items.length > 0 && (
                 <div className="mb-4">
-                  <h3 className="text-white font-bold mb-2 text-sm">🔄 สินค้าที่เก็บคืนได้จริง — ค่าเริ่มต้นคือเก็บได้ครบ</h3>
+                  <h3 className="text-gray-900 font-bold mb-2 text-sm">🔄 สินค้าที่เก็บคืนได้จริง — ค่าเริ่มต้นคือเก็บได้ครบ</h3>
                   <div className="space-y-2">
                     {selectedCollection.items.map(item => (
-                      <div key={item.sku} className="bg-gray-900 rounded-xl p-3 border border-gray-800 flex items-center justify-between gap-3">
-                        <div className="text-gray-300 text-sm flex-1">{item.name} <span className="text-gray-600">(ต้องเก็บ {item.qty})</span></div>
+                      <div key={item.sku} className="bg-white rounded-xl p-3 border border-gray-100 flex items-center justify-between gap-3">
+                        <div className="text-gray-700 text-sm flex-1">{item.name} <span className="text-gray-400">(ต้องเก็บ {item.qty})</span></div>
                         <input type="number" min="0" max={item.qty}
                           value={collectedItemsQty[item.sku] ?? ''}
                           onChange={e => setCollectedItemsQty(q => ({ ...q, [item.sku]: e.target.value }))}
-                          className="w-16 bg-gray-800 text-white text-sm text-center px-2 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500" />
+                          className="w-16 bg-white text-gray-900 text-sm text-center px-2 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-green-500" />
                       </div>
                     ))}
                   </div>
@@ -1943,15 +1943,15 @@ export default function PosStaffPage() {
               )}
 
               <div className="mb-4">
-                <label className="text-gray-400 text-xs block mb-1.5">หมายเหตุ (ใส่เหตุผลถ้าเก็บไม่ได้)</label>
+                <label className="text-gray-500 text-xs block mb-1.5">หมายเหตุ (ใส่เหตุผลถ้าเก็บไม่ได้)</label>
                 <input value={collectFailNote} onChange={e => setCollectFailNote(e.target.value)}
                   placeholder="เช่น ลูกค้าไม่อยู่ นัดใหม่พรุ่งนี้"
-                  className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                  className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <button onClick={() => submitCollectionResult(false)} disabled={collectSubmitting}
-                  className="bg-gray-800 hover:bg-red-900/60 border border-gray-700 disabled:opacity-50 text-gray-300 hover:text-red-300 font-bold py-4 rounded-2xl transition-colors">
+                  className="bg-white hover:bg-red-50/60 border border-gray-200 disabled:opacity-50 text-gray-700 hover:text-red-700 font-bold py-4 rounded-2xl transition-colors">
                   ❌ เก็บไม่ได้
                 </button>
                 <button onClick={() => submitCollectionResult(true)} disabled={collectSubmitting}

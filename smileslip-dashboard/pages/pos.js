@@ -401,26 +401,26 @@ function MapPickerModal({ initCoords, onConfirm, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-3">
-      <div className="bg-gray-900 rounded-2xl w-full max-w-lg border border-gray-700 shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: '92vh' }}>
+      <div className="bg-white rounded-2xl w-full max-w-lg border border-gray-200 shadow-2xl overflow-hidden flex flex-col" style={{ maxHeight: '92vh' }}>
         {/* header */}
-        <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between shrink-0">
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between shrink-0">
           <div>
-            <h3 className="text-white font-bold text-sm">📍 เลือกตำแหน่งบนแผนที่</h3>
-            <p className="text-gray-500 text-xs mt-0.5">แตะบนแผนที่เพื่อวางหมุด</p>
+            <h3 className="text-gray-900 font-bold text-sm">📍 เลือกตำแหน่งบนแผนที่</h3>
+            <p className="text-gray-400 text-xs mt-0.5">แตะบนแผนที่เพื่อวางหมุด</p>
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-white text-xl w-8 h-8 flex items-center justify-center">✕</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-900 text-xl w-8 h-8 flex items-center justify-center">✕</button>
         </div>
 
         {/* map */}
         <div className="relative" style={{ height: '360px', flexShrink: 0 }}>
           <div ref={mapDivRef} style={{ height: '100%', width: '100%' }} />
           {loadState === 'loading' && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-900 text-gray-400 text-sm animate-pulse">
+            <div className="absolute inset-0 flex items-center justify-center bg-white text-gray-500 text-sm animate-pulse">
               กำลังโหลดแผนที่...
             </div>
           )}
           {loadState === 'error' && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-900 text-red-400 text-sm text-center px-4">
+            <div className="absolute inset-0 flex items-center justify-center bg-white text-red-600 text-sm text-center px-4">
               โหลดแผนที่ไม่ได้<br/>ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต
             </div>
           )}
@@ -429,18 +429,18 @@ function MapPickerModal({ initCoords, onConfirm, onClose }) {
         {/* bottom controls */}
         <div className="p-3 space-y-2 shrink-0">
           {pickedCoords ? (
-            <div className="bg-gray-800 rounded-xl px-3 py-2 text-xs text-green-400 flex items-center gap-2">
+            <div className="bg-white rounded-xl px-3 py-2 text-xs text-green-600 flex items-center gap-2">
               <span>✅</span>
               <span className="flex-1">วางหมุดที่ {pickedCoords.lat}, {pickedCoords.lng}</span>
             </div>
           ) : (
-            <div className="bg-gray-800/50 rounded-xl px-3 py-2 text-xs text-gray-500 text-center">
+            <div className="bg-white/50 rounded-xl px-3 py-2 text-xs text-gray-400 text-center">
               ยังไม่ได้วางหมุด — แตะบนแผนที่เพื่อเลือกตำแหน่ง
             </div>
           )}
           <div className="flex gap-2">
             <button onClick={useCurrentGps} disabled={gpsLoading}
-              className="flex-1 bg-gray-700 hover:bg-blue-800 disabled:opacity-50 text-gray-300 hover:text-white text-xs py-2.5 rounded-xl transition-colors flex items-center justify-center gap-1.5 border border-gray-600">
+              className="flex-1 bg-gray-100 hover:bg-blue-100 disabled:opacity-50 text-gray-700 hover:text-gray-900 text-xs py-2.5 rounded-xl transition-colors flex items-center justify-center gap-1.5 border border-gray-300">
               {gpsLoading
                 ? <><span className="animate-spin inline-block">⏳</span> กำลังดึง GPS...</>
                 : <><span>🎯</span> ตำแหน่งปัจจุบัน</>}
@@ -492,21 +492,21 @@ function QrContactModal({ contact, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-      <div className="bg-gray-900 rounded-2xl w-full max-w-xs">
-        <div className="p-4 border-b border-gray-800 flex items-center justify-between">
-          <h3 className="text-white font-bold">🪪 บัตรผู้ติดต่อ</h3>
-          <button onClick={onClose} className="text-gray-500 hover:text-white text-xl w-8 h-8 flex items-center justify-center">✕</button>
+      <div className="bg-white rounded-2xl w-full max-w-xs">
+        <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+          <h3 className="text-gray-900 font-bold">🪪 บัตรผู้ติดต่อ</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-900 text-xl w-8 h-8 flex items-center justify-center">✕</button>
         </div>
         <div className="p-6 text-center">
-          {!ready && <div className="text-gray-500 text-sm py-8 animate-pulse">กำลังสร้าง QR...</div>}
+          {!ready && <div className="text-gray-400 text-sm py-8 animate-pulse">กำลังสร้าง QR...</div>}
           <canvas ref={canvasRef} className={`rounded-xl mx-auto block bg-white p-2 ${ready ? '' : 'hidden'}`} />
           <div className="mt-4">
-            <p className="text-white font-semibold text-base">{contact.name}</p>
-            {contact.company_name && <p className="text-gray-400 text-sm mt-0.5">{contact.company_name}</p>}
-            {contact.phone && <p className="text-gray-300 text-sm mt-1">📞 {contact.phone}</p>}
-            {contact.email && <p className="text-gray-400 text-xs mt-0.5">✉️ {contact.email}</p>}
+            <p className="text-gray-900 font-semibold text-base">{contact.name}</p>
+            {contact.company_name && <p className="text-gray-500 text-sm mt-0.5">{contact.company_name}</p>}
+            {contact.phone && <p className="text-gray-700 text-sm mt-1">📞 {contact.phone}</p>}
+            {contact.email && <p className="text-gray-500 text-xs mt-0.5">✉️ {contact.email}</p>}
           </div>
-          <p className="text-gray-600 text-xs mt-4">สแกน QR เพื่อบันทึกผู้ติดต่อในโทรศัพท์</p>
+          <p className="text-gray-400 text-xs mt-4">สแกน QR เพื่อบันทึกผู้ติดต่อในโทรศัพท์</p>
         </div>
       </div>
     </div>
@@ -4072,20 +4072,20 @@ export default function POSPage() {
   function renderQuickAddContactForm(target) {
     if (quickAddContact?.target !== target) return null;
     return (
-      <div className="bg-gray-800 border border-green-700/50 rounded-xl p-3 space-y-2 mt-1">
-        <div className="text-green-400 text-xs font-bold">✚ เพิ่มผู้ติดต่อใหม่</div>
+      <div className="bg-white border border-green-300/50 rounded-xl p-3 space-y-2 mt-1">
+        <div className="text-green-600 text-xs font-bold">✚ เพิ่มผู้ติดต่อใหม่</div>
         <input
           autoFocus
           value={quickAddContact.name}
           onChange={e => setQuickAddContact(s => ({ ...s, name: e.target.value }))}
           placeholder="ชื่อ (บังคับ)"
-          className="w-full bg-gray-900 text-white text-sm px-3 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500"
+          className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-green-500"
         />
         <input
           value={quickAddContact.phone}
           onChange={e => setQuickAddContact(s => ({ ...s, phone: e.target.value }))}
           placeholder="เบอร์โทร (ไม่บังคับ)"
-          className="w-full bg-gray-900 text-white text-sm px-3 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500"
+          className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-green-500"
         />
         <div className="flex gap-2">
           <button type="button" onClick={saveQuickAddContact} disabled={quickAddSaving || !quickAddContact.name.trim()}
@@ -4093,7 +4093,7 @@ export default function POSPage() {
             {quickAddSaving ? 'กำลังบันทึก...' : '💾 บันทึกและเลือกใช้เลย'}
           </button>
           <button type="button" onClick={() => setQuickAddContact(null)}
-            className="px-3 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs font-bold py-2 rounded-lg transition-colors">
+            className="px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold py-2 rounded-lg transition-colors">
             ยกเลิก
           </button>
         </div>
@@ -4807,8 +4807,8 @@ export default function POSPage() {
   // (ต่างจากลิงก์ /pos?userId=... ของเจ้าของร้านที่ไม่มีการยืนยันตัวตนเพิ่มเติมเลย)
   if (cashierMode && !cashierShopId) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
-        <div className="text-gray-400 text-sm text-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+        <div className="text-gray-500 text-sm text-center">
           <div className="text-4xl mb-3">🔒</div>
           ลิงก์ไม่ถูกต้อง — ไม่พบรหัสร้าน<br />
           <span className="text-xs">ขอลิงก์แคชเชียร์ใหม่จากเจ้าของร้าน/แอดมิน</span>
@@ -4818,8 +4818,8 @@ export default function POSPage() {
   }
   if (cashierMode && !cashierSessionChecked) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <div className="text-gray-400 text-sm animate-pulse">กำลังโหลด...</div>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-gray-500 text-sm animate-pulse">กำลังโหลด...</div>
       </div>
     );
   }
@@ -4827,30 +4827,30 @@ export default function POSPage() {
     // ── ขั้นที่ 1: เลือกชื่อตัวเอง ── (ระบุตัวตนก่อน แล้วค่อยเช็ค PIN เฉพาะคนนั้น — PIN ของแต่ละ
     // คนไม่ต้องไม่ซ้ำกันทั้งร้านอีกต่อไป เพราะไม่ได้ค้นหาข้ามคนแบบเดิม)
     return (
-      <div className="min-h-screen bg-gray-950 flex flex-col items-center p-4 pt-10">
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center p-4 pt-10">
         <Head><title>เข้าสู่ระบบแคชเชียร์ · Smile Slip POS</title></Head>
         <div className="text-4xl mb-4">👤</div>
-        <h2 className="text-white font-bold text-xl mb-2">คุณคือใคร?</h2>
-        <p className="text-gray-400 text-sm mb-6">แตะชื่อของคุณเพื่อเข้าสู่ระบบ</p>
+        <h2 className="text-gray-900 font-bold text-xl mb-2">คุณคือใคร?</h2>
+        <p className="text-gray-500 text-sm mb-6">แตะชื่อของคุณเพื่อเข้าสู่ระบบ</p>
 
         <div className="w-full max-w-sm space-y-2">
           {cashierPickerLoading ? (
-            <div className="text-center text-gray-500 text-sm py-8 animate-pulse">กำลังโหลดรายชื่อ...</div>
+            <div className="text-center text-gray-400 text-sm py-8 animate-pulse">กำลังโหลดรายชื่อ...</div>
           ) : cashierPickerList.length === 0 ? (
-            <div className="text-center text-gray-500 text-sm py-8">
+            <div className="text-center text-gray-400 text-sm py-8">
               ยังไม่มีพนักงานที่ตั้ง PIN ไว้ — ให้เจ้าของร้าน/แอดมินเพิ่มพนักงานและส่งลิงก์ตั้ง PIN ให้ก่อน
             </div>
           ) : (
             cashierPickerList.map(s => (
               <button key={s.staff_id}
                 onClick={() => { setCashierSelectedStaff(s); setCashierPin(''); setCashierPinError(''); setCashierPinDeliveryOnly(false); }}
-                className="w-full flex items-center gap-3 bg-gray-900 hover:bg-gray-800 border border-gray-700 rounded-2xl px-4 py-3.5 text-left transition-colors">
-                <span className="w-10 h-10 rounded-full bg-green-900 text-green-300 flex items-center justify-center font-bold text-lg shrink-0">
+                className="w-full flex items-center gap-3 bg-white hover:bg-white border border-gray-200 rounded-2xl px-4 py-3.5 text-left transition-colors">
+                <span className="w-10 h-10 rounded-full bg-green-50 text-green-700 flex items-center justify-center font-bold text-lg shrink-0">
                   {s.name.trim().charAt(0)}
                 </span>
                 <div className="min-w-0">
-                  <div className="text-white font-medium truncate">{s.name}</div>
-                  {s.branch_name && <div className="text-gray-500 text-xs truncate">{s.branch_name}</div>}
+                  <div className="text-gray-900 font-medium truncate">{s.name}</div>
+                  {s.branch_name && <div className="text-gray-400 text-xs truncate">{s.branch_name}</div>}
                 </div>
               </button>
             ))
@@ -4863,24 +4863,24 @@ export default function POSPage() {
   if (cashierMode && !cashierSession && cashierSelectedStaff) {
     // ── ขั้นที่ 2: ใส่ PIN ของคนที่เลือกไว้ ──
     return (
-      <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center p-4">
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
         <Head><title>เข้าสู่ระบบแคชเชียร์ · Smile Slip POS</title></Head>
         <div className="text-4xl mb-4">🔐</div>
-        <h2 className="text-white font-bold text-xl mb-1">สวัสดีคุณ {cashierSelectedStaff.name}</h2>
-        <p className="text-gray-400 text-sm mb-8">ใส่ PIN ส่วนตัวของคุณเพื่อเข้าระบบ</p>
+        <h2 className="text-gray-900 font-bold text-xl mb-1">สวัสดีคุณ {cashierSelectedStaff.name}</h2>
+        <p className="text-gray-500 text-sm mb-8">ใส่ PIN ส่วนตัวของคุณเพื่อเข้าระบบ</p>
 
         <div className="w-full max-w-xs">
           <input type="password" inputMode="numeric" maxLength={4} value={cashierPin} autoFocus
             onChange={e => setCashierPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
             onKeyDown={e => { if (e.key === 'Enter') verifyCashierPin(); }}
             placeholder="••••"
-            className="w-full bg-gray-900 border border-gray-700 text-white text-center text-3xl tracking-[0.5em] px-4 py-4 rounded-2xl mb-4 focus:outline-none focus:border-green-500" />
+            className="w-full bg-white border border-gray-200 text-gray-900 text-center text-3xl tracking-[0.5em] px-4 py-4 rounded-2xl mb-4 focus:outline-none focus:border-green-500" />
 
           {cashierPinError && (
-            <div className="text-red-400 text-sm text-center mb-4">
+            <div className="text-red-600 text-sm text-center mb-4">
               {cashierPinError}
               {cashierPinDeliveryOnly && (
-                <a href={`/pos-staff?shopId=${cashierShopId}`} className="block text-green-400 hover:text-green-300 underline mt-2">
+                <a href={`/pos-staff?shopId=${cashierShopId}`} className="block text-green-600 hover:text-green-700 underline mt-2">
                   🔗 ไปหน้าพนักงาน (pos-staff) แทน
                 </a>
               )}
@@ -4892,7 +4892,7 @@ export default function POSPage() {
             {cashierPinLoading ? 'กำลังตรวจสอบ...' : 'เข้าสู่ระบบ'}
           </button>
           <button onClick={() => { setCashierSelectedStaff(null); setCashierPin(''); setCashierPinError(''); setCashierPinDeliveryOnly(false); }}
-            className="w-full text-gray-500 hover:text-gray-300 text-sm py-2 transition-colors">
+            className="w-full text-gray-400 hover:text-gray-700 text-sm py-2 transition-colors">
             ← ไม่ใช่ฉัน เลือกชื่อใหม่
           </button>
         </div>
@@ -4903,8 +4903,8 @@ export default function POSPage() {
   // ── loading ───────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <div className="text-gray-400 text-sm animate-pulse">กำลังโหลด...</div>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-gray-500 text-sm animate-pulse">กำลังโหลด...</div>
       </div>
     );
   }
@@ -4914,17 +4914,17 @@ export default function POSPage() {
     return (
       <>
         <Head><title>ระบบขายหน้าร้าน — Smile Slip Pro</title></Head>
-        <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
-          <div className="bg-gray-900 rounded-2xl p-8 max-w-md w-full text-center">
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full text-center">
             <div className="text-5xl mb-4">🛒</div>
-            <h1 className="text-white text-xl font-bold mb-2">ระบบขายหน้าร้าน</h1>
-            <p className="text-gray-400 text-sm mb-6">
+            <h1 className="text-gray-900 text-xl font-bold mb-2">ระบบขายหน้าร้าน</h1>
+            <p className="text-gray-500 text-sm mb-6">
               จัดการสต็อคสินค้า บันทึกยอดขาย และดูรายงานได้จากที่นี่
             </p>
             {!googleConnected ? (
-              <div className="bg-yellow-900/30 border border-yellow-700 rounded-xl p-4 mb-4 text-left">
-                <p className="text-yellow-300 text-sm font-medium mb-1">⚠️ ต้องเชื่อมต่อ Google Drive ก่อน</p>
-                <p className="text-yellow-400 text-xs">ไปที่ Dashboard → Settings → เชื่อมต่อ Google Drive</p>
+              <div className="bg-yellow-50/30 border border-yellow-300 rounded-xl p-4 mb-4 text-left">
+                <p className="text-yellow-700 text-sm font-medium mb-1">⚠️ ต้องเชื่อมต่อ Google Drive ก่อน</p>
+                <p className="text-yellow-600 text-xs">ไปที่ Dashboard → Settings → เชื่อมต่อ Google Drive</p>
               </div>
             ) : (
               <button
@@ -4936,7 +4936,7 @@ export default function POSPage() {
               </button>
             )}
             {!cashierMode && (
-              <a href={`/dashboard?userId=${userId}`} className="block mt-4 text-gray-500 text-sm hover:text-gray-300 transition-colors">
+              <a href={`/dashboard?userId=${userId}`} className="block mt-4 text-gray-400 text-sm hover:text-gray-700 transition-colors">
                 ← กลับ Dashboard
               </a>
             )}
@@ -4953,11 +4953,11 @@ export default function POSPage() {
     return (
       <>
         <Head><title>หมดระยะทดลองใช้ — Smile Slip Pro</title></Head>
-        <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
-          <div className="bg-gray-900 rounded-2xl p-8 max-w-md w-full text-center">
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full text-center">
             <div className="text-5xl mb-4">⏰</div>
-            <h1 className="text-white text-xl font-bold mb-2">หมดระยะเวลาทดลองใช้ฟรี 30 วันแล้ว</h1>
-            <p className="text-gray-400 text-sm mb-6">
+            <h1 className="text-gray-900 text-xl font-bold mb-2">หมดระยะเวลาทดลองใช้ฟรี 30 วันแล้ว</h1>
+            <p className="text-gray-500 text-sm mb-6">
               อัปเกรดแพ็กเกจเพื่อใช้งานระบบขายหน้าร้านต่อได้ทันที<br/>
               ข้อมูลเดิมของร้านยังอยู่ครบใน Google Sheets/Drive ไม่มีการสูญหายแต่อย่างใด
             </p>
@@ -4968,12 +4968,12 @@ export default function POSPage() {
               </a>
             )}
             {!cashierMode && (
-              <a href={`/dashboard?userId=${userId}`} className="block mt-4 text-gray-500 text-sm hover:text-gray-300 transition-colors">
+              <a href={`/dashboard?userId=${userId}`} className="block mt-4 text-gray-400 text-sm hover:text-gray-700 transition-colors">
                 ← กลับ Dashboard
               </a>
             )}
             {cashierMode && (
-              <p className="text-gray-500 text-sm mt-4">แจ้งเจ้าของร้าน/แอดมินให้อัปเกรดแพ็กเกจก่อนใช้งานต่อ</p>
+              <p className="text-gray-400 text-sm mt-4">แจ้งเจ้าของร้าน/แอดมินให้อัปเกรดแพ็กเกจก่อนใช้งานต่อ</p>
             )}
           </div>
         </div>
@@ -4986,12 +4986,12 @@ export default function POSPage() {
     return (
       <>
         <Head><title>เลือกสาขา — POS</title></Head>
-        <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
-          <div className="bg-gray-900 rounded-2xl p-8 max-w-md w-full">
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full">
             <div className="text-center mb-6">
               <div className="text-4xl mb-3">🏪</div>
-              <h2 className="text-white text-lg font-bold">เลือกสาขา</h2>
-              <p className="text-gray-400 text-sm mt-1">เลือกสาขาที่คุณกำลังทำงานอยู่</p>
+              <h2 className="text-gray-900 text-lg font-bold">เลือกสาขา</h2>
+              <p className="text-gray-500 text-sm mt-1">เลือกสาขาที่คุณกำลังทำงานอยู่</p>
             </div>
             <div className="space-y-2">
               {posBranches.map(b => (
@@ -5001,17 +5001,17 @@ export default function POSPage() {
                     setShowBranchSelect(false);
                     try { localStorage.setItem(`pos_branch_${shopId}`, JSON.stringify(b)); } catch {}
                   }}
-                  className="w-full bg-gray-800 hover:bg-green-800 border border-gray-700 hover:border-green-600 text-white text-sm font-medium py-3.5 px-5 rounded-xl transition-colors text-left flex items-center gap-3">
+                  className="w-full bg-white hover:bg-green-100 border border-gray-200 hover:border-green-600 text-gray-900 text-sm font-medium py-3.5 px-5 rounded-xl transition-colors text-left flex items-center gap-3">
                   <span className="text-xl">🏪</span>
                   <div>
                     <div className="font-semibold">{b.branch_name}</div>
-                    {b.brand_name && <div className="text-gray-400 text-xs">{b.brand_name}</div>}
+                    {b.brand_name && <div className="text-gray-500 text-xs">{b.brand_name}</div>}
                   </div>
                 </button>
               ))}
             </div>
             {!cashierMode && (
-              <a href={`/dashboard?userId=${userId}`} className="block mt-5 text-center text-gray-500 text-sm hover:text-gray-300 transition-colors">
+              <a href={`/dashboard?userId=${userId}`} className="block mt-5 text-center text-gray-400 text-sm hover:text-gray-700 transition-colors">
                 ← กลับ Dashboard
               </a>
             )}
@@ -5027,26 +5027,26 @@ export default function POSPage() {
       <Head><title>POS ขายหน้าร้าน — {shopInfo?.shop_name || 'Smile Slip Pro'}</title></Head>
 
       {toast && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-gray-800 text-white text-sm px-5 py-2.5 rounded-full shadow-lg max-w-xs text-center">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-white text-gray-900 text-sm px-5 py-2.5 rounded-full shadow-lg max-w-xs text-center">
           {toast}
         </div>
       )}
 
-      <div className="min-h-screen bg-gray-950 flex flex-col">
+      <div className="min-h-screen bg-gray-50 flex flex-col">
         {/* Header */}
-        <header className="bg-gray-900 border-b border-gray-800 px-4 py-3 flex items-center justify-between shrink-0">
+        <header className="bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <span className="text-2xl">🛒</span>
             <div>
-              <div className="text-white font-bold text-sm">{shopInfo?.shop_name || 'ร้านค้า'}</div>
-              <div className="text-gray-400 text-xs flex items-center gap-1.5">
+              <div className="text-gray-900 font-bold text-sm">{shopInfo?.shop_name || 'ร้านค้า'}</div>
+              <div className="text-gray-500 text-xs flex items-center gap-1.5">
                 ระบบขายหน้าร้าน
                 {selectedBranch && (
-                  <span className="text-green-400">
+                  <span className="text-green-600">
                     · {selectedBranch.branch_name}
                     {posBranches.length > 1 && (
                       <button onClick={() => setShowBranchSelect(true)}
-                        className="ml-1 text-gray-500 hover:text-green-400 transition-colors text-[10px] underline">
+                        className="ml-1 text-gray-400 hover:text-green-600 transition-colors text-[10px] underline">
                         เปลี่ยน
                       </button>
                     )}
@@ -5058,28 +5058,28 @@ export default function POSPage() {
           <div className="flex items-center gap-2">
             {activeShift ? (
               <button onClick={openCloseShiftModal}
-                className="flex items-center gap-1.5 bg-green-950 hover:bg-green-900 border border-green-700 text-green-300 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">
+                className="flex items-center gap-1.5 bg-green-50 hover:bg-green-50 border border-green-300 text-green-700 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"></span>
                 {activeShift.staff_name} · ปิดกะ
               </button>
             ) : (
               <button onClick={openShiftModalStart}
-                className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">
+                className="flex items-center gap-1.5 bg-white hover:bg-gray-100 border border-gray-200 text-gray-700 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">
                 🔓 เปิดกะ
               </button>
             )}
             {cashierMode ? (
               <>
                 {cashierSession?.staff?.name && (
-                  <span className="text-gray-400 text-xs hidden sm:inline">👤 {cashierSession.staff.name}</span>
+                  <span className="text-gray-500 text-xs hidden sm:inline">👤 {cashierSession.staff.name}</span>
                 )}
                 <button onClick={cashierLogout}
-                  className="text-gray-400 hover:text-white text-xs px-3 py-1.5 rounded-lg border border-gray-700 hover:border-red-500 transition-colors">
+                  className="text-gray-500 hover:text-gray-900 text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:border-red-500 transition-colors">
                   ออกจากระบบ
                 </button>
               </>
             ) : (
-              <a href={`/dashboard?userId=${userId}`} className="text-gray-400 hover:text-white text-xs px-3 py-1.5 rounded-lg border border-gray-700 hover:border-gray-500 transition-colors">
+              <a href={`/dashboard?userId=${userId}`} className="text-gray-500 hover:text-gray-900 text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:border-gray-400 transition-colors">
                 ← Dashboard
               </a>
             )}
@@ -5108,15 +5108,15 @@ export default function POSPage() {
           ];
           const isMoreActive = moreTabs.some(t => t.key === tab);
           return (
-            <nav className="bg-gray-900 border-b border-gray-800 flex shrink-0 overflow-x-auto">
+            <nav className="bg-white border-b border-gray-100 flex shrink-0 overflow-x-auto">
               {primaryTabs.map(t => (
                 <button
                   key={t.key}
                   onClick={() => setTab(t.key)}
                   className={`shrink-0 flex-1 py-3 text-xs font-medium transition-colors border-b-2 min-w-0 ${
                     tab === t.key
-                      ? 'text-green-400 border-green-400'
-                      : 'text-gray-400 border-transparent hover:text-gray-200'
+                      ? 'text-green-600 border-green-400'
+                      : 'text-gray-500 border-transparent hover:text-gray-800'
                   }`}
                 >
                   {t.label}
@@ -5126,8 +5126,8 @@ export default function POSPage() {
                 onClick={() => setShowMoreMenu(true)}
                 className={`shrink-0 flex-1 py-3 text-xs font-medium transition-colors border-b-2 min-w-0 ${
                   isMoreActive
-                    ? 'text-green-400 border-green-400'
-                    : 'text-gray-400 border-transparent hover:text-gray-200'
+                    ? 'text-green-600 border-green-400'
+                    : 'text-gray-500 border-transparent hover:text-gray-800'
                 }`}
               >
                 {isMoreActive ? moreTabs.find(t => t.key === tab)?.label : '⋯ เพิ่มเติม'}
@@ -5139,10 +5139,10 @@ export default function POSPage() {
         {/* แผงเลือกแท็บรอง — เปิดจากปุ่ม "เพิ่มเติม" */}
         {showMoreMenu && (
           <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center" onClick={() => setShowMoreMenu(false)}>
-            <div className="bg-gray-900 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm border-t sm:border border-gray-700 max-h-[70vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-              <div className="p-4 border-b border-gray-800 flex items-center justify-between">
-                <h3 className="text-white font-bold text-sm">เมนูเพิ่มเติม</h3>
-                <button onClick={() => setShowMoreMenu(false)} className="text-gray-400 hover:text-white text-xl leading-none">✕</button>
+            <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm border-t sm:border border-gray-200 max-h-[70vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+                <h3 className="text-gray-900 font-bold text-sm">เมนูเพิ่มเติม</h3>
+                <button onClick={() => setShowMoreMenu(false)} className="text-gray-500 hover:text-gray-900 text-xl leading-none">✕</button>
               </div>
               <div className="p-2">
                 {[
@@ -5157,7 +5157,7 @@ export default function POSPage() {
                   <button key={t.key}
                     onClick={() => { setTab(t.key); setShowMoreMenu(false); }}
                     className={`w-full text-left px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
-                      tab === t.key ? 'bg-green-900/40 text-green-400' : 'text-gray-300 hover:bg-gray-800'
+                      tab === t.key ? 'bg-green-50/40 text-green-600' : 'text-gray-700 hover:bg-white'
                     }`}>
                     {t.label}
                   </button>
@@ -5176,12 +5176,12 @@ export default function POSPage() {
               <div className="flex-1 flex flex-col overflow-hidden">
 
                 {/* ── Bills bar (multi-table) ──────────────────────────── */}
-                <div className="shrink-0 bg-gray-900 border-b border-gray-800 px-3 py-2 flex items-center gap-2 overflow-x-auto scrollbar-hide">
+                <div className="shrink-0 bg-white border-b border-gray-100 px-3 py-2 flex items-center gap-2 overflow-x-auto scrollbar-hide">
                   {openBills.length > 3 && (
                     <button
                       onClick={() => setShowBillsSidebar(true)}
                       title="ค้นหา/ดูบิลทั้งหมด"
-                      className="shrink-0 flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold text-blue-300 hover:text-white hover:bg-blue-900/50 border border-blue-800 transition-colors"
+                      className="shrink-0 flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold text-blue-700 hover:text-gray-900 hover:bg-blue-50/50 border border-blue-200 transition-colors"
                     >
                       🔍 ทั้งหมด ({openBills.length})
                     </button>
@@ -5197,25 +5197,25 @@ export default function POSPage() {
                         className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs shrink-0 cursor-pointer transition-all border ${
                           isActive
                             ? 'bg-green-600 border-green-500 text-white'
-                            : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+                            : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'
                         }`}
                       >
                         <span className="font-bold truncate max-w-[80px]">{bill.name}</span>
                         {itemCount > 0 && (
-                          <span className={`text-xs font-medium ${isActive ? 'text-green-200' : 'text-gray-400'}`}>
+                          <span className={`text-xs font-medium ${isActive ? 'text-green-800' : 'text-gray-500'}`}>
                             ฿{billTotal.toLocaleString()}
                           </span>
                         )}
                         <button
                           onClick={(e) => closeBill(bill.id, e)}
-                          className={`text-xs shrink-0 hover:text-red-400 transition-colors ${isActive ? 'text-green-300' : 'text-gray-600'}`}
+                          className={`text-xs shrink-0 hover:text-red-600 transition-colors ${isActive ? 'text-green-700' : 'text-gray-400'}`}
                         >✕</button>
                       </div>
                     );
                   })}
                   <button
                     onClick={() => setShowNewBillModal(true)}
-                    className="shrink-0 flex items-center gap-1 px-3 py-2 rounded-xl text-xs text-gray-400 hover:text-white hover:bg-gray-800 border border-dashed border-gray-700 transition-colors"
+                    className="shrink-0 flex items-center gap-1 px-3 py-2 rounded-xl text-xs text-gray-500 hover:text-gray-900 hover:bg-white border border-dashed border-gray-200 transition-colors"
                   >
                     <span className="text-base leading-none">＋</span>
                     <span>บิลใหม่</span>
@@ -5225,15 +5225,15 @@ export default function POSPage() {
                 {/* ── แผงขยายรายการบิลที่เปิดค้างอยู่ทั้งหมด + ค้นหา (สำหรับตอนมีบิลเยอะหาไม่เจอ) ── */}
                 {showBillsSidebar && (
                   <div className="fixed inset-0 z-[70] bg-black/60 flex justify-end" onClick={() => setShowBillsSidebar(false)}>
-                    <div className="bg-gray-900 w-full max-w-xs h-full flex flex-col border-l border-gray-800" onClick={e => e.stopPropagation()}>
-                      <div className="p-4 border-b border-gray-800 flex items-center justify-between shrink-0">
-                        <h3 className="text-white font-bold">🪑 บิลที่เปิดอยู่ ({openBills.length})</h3>
-                        <button onClick={() => setShowBillsSidebar(false)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+                    <div className="bg-white w-full max-w-xs h-full flex flex-col border-l border-gray-100" onClick={e => e.stopPropagation()}>
+                      <div className="p-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+                        <h3 className="text-gray-900 font-bold">🪑 บิลที่เปิดอยู่ ({openBills.length})</h3>
+                        <button onClick={() => setShowBillsSidebar(false)} className="text-gray-500 hover:text-gray-900 text-2xl leading-none">×</button>
                       </div>
-                      <div className="p-3 border-b border-gray-800 shrink-0">
+                      <div className="p-3 border-b border-gray-100 shrink-0">
                         <input autoFocus value={billsSidebarQ} onChange={e => setBillsSidebarQ(e.target.value)}
                           placeholder="ค้นหาชื่อบิล/ชื่อลูกค้า..."
-                          className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                          className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                       </div>
                       <div className="flex-1 overflow-y-auto p-3 space-y-2">
                         {openBills
@@ -5250,7 +5250,7 @@ export default function POSPage() {
                               <div key={bill.id}
                                 onClick={() => { switchBill(bill.id); setShowBillsSidebar(false); setBillsSidebarQ(''); }}
                                 className={`p-3 rounded-xl cursor-pointer border transition-colors flex items-center justify-between gap-2 ${
-                                  isActive ? 'bg-green-600 border-green-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+                                  isActive ? 'bg-green-600 border-green-500 text-white' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'
                                 }`}>
                                 <div className="min-w-0">
                                   <div className="font-bold text-sm truncate">{bill.name}</div>
@@ -5259,7 +5259,7 @@ export default function POSPage() {
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0">
                                   <span className="font-bold text-sm">฿{billTotal.toLocaleString()}</span>
-                                  <button onClick={(e) => closeBill(bill.id, e)} className="hover:text-red-400 transition-colors">✕</button>
+                                  <button onClick={(e) => closeBill(bill.id, e)} className="hover:text-red-600 transition-colors">✕</button>
                                 </div>
                               </div>
                             );
@@ -5269,7 +5269,7 @@ export default function POSPage() {
                           if (!q) return true;
                           return (b.name || '').toLowerCase().includes(q) || (b.customer_name || '').toLowerCase().includes(q);
                         }).length === 0 && (
-                          <div className="text-center text-gray-500 text-sm py-8">ไม่พบบิลที่ตรงกับคำค้นหา</div>
+                          <div className="text-center text-gray-400 text-sm py-8">ไม่พบบิลที่ตรงกับคำค้นหา</div>
                         )}
                       </div>
                     </div>
@@ -5280,8 +5280,8 @@ export default function POSPage() {
                 {!activeBillId && (
                   <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
                     <div className="text-6xl mb-4">🪑</div>
-                    <div className="text-white font-bold text-lg mb-2">ยังไม่มีบิลเปิด</div>
-                    <div className="text-gray-400 text-sm mb-6">กดปุ่มด้านล่างเพื่อเปิดโต๊ะหรือบิลใหม่</div>
+                    <div className="text-gray-900 font-bold text-lg mb-2">ยังไม่มีบิลเปิด</div>
+                    <div className="text-gray-500 text-sm mb-6">กดปุ่มด้านล่างเพื่อเปิดโต๊ะหรือบิลใหม่</div>
                     <button
                       onClick={() => setShowNewBillModal(true)}
                       className="bg-green-600 hover:bg-green-500 text-white font-bold px-8 py-3 rounded-2xl text-base transition-colors"
@@ -5290,11 +5290,11 @@ export default function POSPage() {
                     </button>
                     {tableNames.length > 0 && (
                       <div className="mt-6">
-                        <div className="text-gray-500 text-xs mb-3">หรือกดเปิดโต๊ะที่ตั้งค่าไว้</div>
+                        <div className="text-gray-400 text-xs mb-3">หรือกดเปิดโต๊ะที่ตั้งค่าไว้</div>
                         <div className="flex flex-wrap gap-2 justify-center max-w-sm">
                           {tableNames.map(name => (
                             <button key={name} onClick={() => createBill(name)}
-                              className="bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm px-4 py-2 rounded-xl border border-gray-700 transition-colors">
+                              className="bg-white hover:bg-gray-100 text-gray-800 text-sm px-4 py-2 rounded-xl border border-gray-200 transition-colors">
                               {name}
                             </button>
                           ))}
@@ -5308,23 +5308,23 @@ export default function POSPage() {
                 {activeBillId && (
                 <>
 
-                <div className="p-3 bg-gray-900 space-y-2 shrink-0">
+                <div className="p-3 bg-white space-y-2 shrink-0">
                   <input
                     ref={searchInputRef}
                     value={search}
                     onChange={e => setSearch(e.target.value)}
                     onKeyDown={handleScanEnter}
                     placeholder="🔍 ค้นหาสินค้า หรือสแกนบาร์โค้ด..."
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                   />
-                  <p className="text-gray-600 text-[11px] px-0.5">
+                  <p className="text-gray-400 text-[11px] px-0.5">
                     📷 วางเคอร์เซอร์ในช่องนี้แล้วสแกนได้เลย — รองรับเครื่องสแกน USB และ Bluetooth (จับคู่ผ่านตั้งค่า Bluetooth ของเครื่องเหมือนคีย์บอร์ด)
                   </p>
                   <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
                     {categories.map(cat => (
                       <button key={cat} onClick={() => setSelectedCat(cat)}
                         className={`shrink-0 text-xs px-3 py-1.5 rounded-full transition-colors ${
-                          selectedCat === cat ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                          selectedCat === cat ? 'bg-green-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
                         }`}
                       >{cat}</button>
                     ))}
@@ -5334,12 +5334,12 @@ export default function POSPage() {
                 {/* padding ล่างบน mobile เผื่อแถบตะกร้าลอยอยู่ */}
                 <div className={`flex-1 overflow-y-auto p-3 ${cart.length > 0 ? 'pb-24 lg:pb-3' : ''}`}>
                   {productsLoading ? (
-                    <div className="text-center text-gray-500 py-12 text-sm animate-pulse">กำลังโหลดสินค้า...</div>
+                    <div className="text-center text-gray-400 py-12 text-sm animate-pulse">กำลังโหลดสินค้า...</div>
                   ) : displayProducts.length === 0 ? (
-                    <div className="text-center text-gray-500 py-12">
+                    <div className="text-center text-gray-400 py-12">
                       <div className="text-4xl mb-3">📦</div>
                       <p className="text-sm">ไม่พบสินค้า</p>
-                      <button onClick={() => setTab('products')} className="mt-3 text-green-400 text-xs underline">เพิ่มสินค้าใหม่</button>
+                      <button onClick={() => setTab('products')} className="mt-3 text-green-600 text-xs underline">เพิ่มสินค้าใหม่</button>
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
@@ -5350,10 +5350,10 @@ export default function POSPage() {
                           <button key={prod.sku} onClick={() => addToCart(prod)} disabled={outOfStock}
                             className={`relative rounded-xl p-3 text-left transition-all border ${
                               outOfStock
-                                ? 'bg-gray-900 border-gray-800 opacity-50 cursor-not-allowed'
+                                ? 'bg-white border-gray-100 opacity-50 cursor-not-allowed'
                                 : inCart
-                                ? 'bg-green-900/40 border-green-600 hover:bg-green-900/60'
-                                : 'bg-gray-800 border-gray-700 hover:bg-gray-700 hover:border-gray-500 active:scale-95'
+                                ? 'bg-green-50/40 border-green-600 hover:bg-green-50/60'
+                                : 'bg-white border-gray-200 hover:bg-gray-100 hover:border-gray-400 active:scale-95'
                             }`}
                           >
                             {inCart && (
@@ -5364,12 +5364,12 @@ export default function POSPage() {
                             <div className="text-2xl mb-1">
                               {prod.type === 'ไม่นับสต็อค' ? '🛠️' : prod.category === 'เครื่องดื่ม' ? '🥤' : prod.category === 'อาหาร' ? '🍱' : prod.category === 'ของใช้' ? '🧴' : '📦'}
                             </div>
-                            <div className="text-white text-xs font-medium leading-snug line-clamp-2">{prod.name}</div>
-                            <div className="text-green-400 text-sm font-bold mt-1">฿{prod.price.toLocaleString()}</div>
+                            <div className="text-gray-900 text-xs font-medium leading-snug line-clamp-2">{prod.name}</div>
+                            <div className="text-green-600 text-sm font-bold mt-1">฿{prod.price.toLocaleString()}</div>
                             {prod.type === 'ไม่นับสต็อค' ? (
-                              <div className="text-xs mt-0.5 text-blue-400">บริการ</div>
+                              <div className="text-xs mt-0.5 text-blue-600">บริการ</div>
                             ) : (
-                              <div className={`text-xs mt-0.5 ${prod.stock <= 5 ? 'text-red-400' : 'text-gray-500'}`}>
+                              <div className={`text-xs mt-0.5 ${prod.stock <= 5 ? 'text-red-600' : 'text-gray-400'}`}>
                                 คงเหลือ {prod.stock} {prod.unit}
                               </div>
                             )}
@@ -5384,53 +5384,53 @@ export default function POSPage() {
               </div>
 
               {/* Cart — Desktop sidebar (lg+) */}
-              <div className="hidden lg:flex lg:w-80 xl:w-96 bg-gray-900 border-l border-gray-800 flex-col">
-                <div className="px-4 py-3 border-b border-gray-800 shrink-0 flex items-center justify-between">
-                  <span className="text-white font-bold text-sm">🛒 ตะกร้า</span>
+              <div className="hidden lg:flex lg:w-80 xl:w-96 bg-white border-l border-gray-100 flex-col">
+                <div className="px-4 py-3 border-b border-gray-100 shrink-0 flex items-center justify-between">
+                  <span className="text-gray-900 font-bold text-sm">🛒 ตะกร้า</span>
                   {cart.length > 0 && (
-                    <button onClick={() => setCart([])} className="text-gray-500 hover:text-red-400 text-xs transition-colors">ล้างทั้งหมด ✕</button>
+                    <button onClick={() => setCart([])} className="text-gray-400 hover:text-red-600 text-xs transition-colors">ล้างทั้งหมด ✕</button>
                   )}
                 </div>
                 <div className="flex-1 overflow-y-auto p-3 space-y-2">
                   {cart.length === 0 ? (
-                    <div className="text-center text-gray-600 py-8 text-sm">เลือกสินค้าเพื่อเพิ่มในตะกร้า</div>
+                    <div className="text-center text-gray-400 py-8 text-sm">เลือกสินค้าเพื่อเพิ่มในตะกร้า</div>
                   ) : cart.map(item => (
                     <div key={item.sku} className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <div className="flex-1 min-w-0 text-white text-xs font-medium truncate">{item.name}</div>
+                        <div className="flex-1 min-w-0 text-gray-900 text-xs font-medium truncate">{item.name}</div>
                         <div className="flex items-center gap-1 shrink-0">
-                          <button onClick={() => updateQty(item.sku, item.qty - 1)} className="w-6 h-6 rounded-full bg-gray-700 hover:bg-red-700 text-white text-sm flex items-center justify-center transition-colors">−</button>
-                          <span className="text-white text-xs w-6 text-center">{item.qty}</span>
-                          <button onClick={() => updateQty(item.sku, item.qty + 1)} className="w-6 h-6 rounded-full bg-gray-700 hover:bg-green-700 text-white text-sm flex items-center justify-center transition-colors">+</button>
+                          <button onClick={() => updateQty(item.sku, item.qty - 1)} className="w-6 h-6 rounded-full bg-gray-100 hover:bg-red-700 text-gray-900 text-sm flex items-center justify-center transition-colors">−</button>
+                          <span className="text-gray-900 text-xs w-6 text-center">{item.qty}</span>
+                          <button onClick={() => updateQty(item.sku, item.qty + 1)} className="w-6 h-6 rounded-full bg-gray-100 hover:bg-green-700 text-gray-900 text-sm flex items-center justify-center transition-colors">+</button>
                         </div>
                       </div>
                       {/* แก้ราคาต่อรายการได้ตรงนี้เลย — เดิมต้องเปิด modal ชำระเงินก่อนถึงจะแก้ได้
                           ทำให้กดจัดส่งตรงๆ ไม่ได้ถ้าจะแก้ราคาก่อน (updatePrice() ใช้ฟังก์ชันเดียวกับใน
                           modal ชำระเงิน แก้ที่ cart ตรงๆ เลย ใช้ได้ทั้งสองทาง) */}
                       <div className="flex items-center gap-1.5 justify-end">
-                        <span className="text-gray-500 text-xs">฿</span>
+                        <span className="text-gray-400 text-xs">฿</span>
                         <input type="number" value={item.price} min="0"
                           onChange={e => updatePrice(item.sku, e.target.value)}
-                          className="w-16 bg-gray-800 text-white text-right px-1.5 py-1 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500 text-xs"/>
-                        <span className="text-green-400 text-xs w-16 text-right">= ฿{(item.price * item.qty).toLocaleString()}</span>
+                          className="w-16 bg-white text-gray-900 text-right px-1.5 py-1 rounded-lg border border-gray-200 focus:outline-none focus:border-green-500 text-xs"/>
+                        <span className="text-green-600 text-xs w-16 text-right">= ฿{(item.price * item.qty).toLocaleString()}</span>
                       </div>
                     </div>
                   ))}
                 </div>
                 {cart.length > 0 && (
-                  <div className="p-4 border-t border-gray-800 shrink-0 space-y-3">
+                  <div className="p-4 border-t border-gray-100 shrink-0 space-y-3">
                     {activePromotions.length > 0 && getApplicablePromotions().map(({ promo, label }) => (
-                      <div key={promo.promo_id} className="bg-amber-950/40 border border-amber-700/50 rounded-xl px-3 py-2 flex items-center justify-between gap-2">
-                        <span className="text-amber-300 text-[11px] flex-1">🎉 {label}</span>
+                      <div key={promo.promo_id} className="bg-amber-50/40 border border-amber-300/50 rounded-xl px-3 py-2 flex items-center justify-between gap-2">
+                        <span className="text-amber-700 text-[11px] flex-1">🎉 {label}</span>
                         <button onClick={() => applyPromotion(promo)}
                           className="shrink-0 bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-bold px-2.5 py-1.5 rounded-lg transition-colors">
                           ใช้โปรนี้
                         </button>
                       </div>
                     ))}
-                    <div className="flex justify-between text-gray-400 text-xs">
+                    <div className="flex justify-between text-gray-500 text-xs">
                       <span>รวม {cart.reduce((s, i) => s + i.qty, 0)} รายการ</span>
-                      <span className="text-white font-bold text-base">฿{cartSubtotal.toLocaleString()}</span>
+                      <span className="text-gray-900 font-bold text-base">฿{cartSubtotal.toLocaleString()}</span>
                     </div>
                     <div className="flex gap-2">
                       <button onClick={openCheckout} className="flex-1 bg-green-600 hover:bg-green-500 active:bg-green-700 text-white font-bold py-3 rounded-xl transition-colors text-sm">
@@ -5446,7 +5446,7 @@ export default function POSPage() {
 
               {/* ── Mobile floating cart bar (แสดงเมื่อมีสินค้าในตะกร้า) ── */}
               {cart.length > 0 && (
-                <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 p-3 bg-gray-950/95 backdrop-blur border-t border-gray-800">
+                <div className="lg:hidden fixed bottom-0 left-0 right-0 z-30 p-3 bg-gray-50/95 backdrop-blur border-t border-gray-100">
                   <button
                     onClick={() => setShowCartDrawer(true)}
                     className="w-full bg-green-600 hover:bg-green-500 active:bg-green-700 text-white font-bold py-3.5 rounded-2xl flex items-center justify-between px-5 transition-colors"
@@ -5469,14 +5469,14 @@ export default function POSPage() {
             <div className="h-full overflow-y-auto">
               <div className="p-4 max-w-4xl mx-auto">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-white font-bold">สินค้าทั้งหมด ({products.length})</h2>
+                  <h2 className="text-gray-900 font-bold">สินค้าทั้งหมด ({products.length})</h2>
                   <div className="flex items-center gap-2 flex-wrap justify-end">
                     <button onClick={() => onlineMenuMode ? cancelOnlineMenuMode() : setOnlineMenuMode(true)}
-                      className={`text-sm px-3 py-2 rounded-xl transition-colors ${onlineMenuMode ? 'bg-sky-700 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'}`}>
+                      className={`text-sm px-3 py-2 rounded-xl transition-colors ${onlineMenuMode ? 'bg-sky-700 text-gray-900' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
                       🌐 เมนูออนไลน์
                     </button>
                     <button onClick={() => setShowProdImportModal(true)}
-                      className="bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm px-3 py-2 rounded-xl transition-colors">
+                      className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-3 py-2 rounded-xl transition-colors">
                       📥 นำเข้า
                     </button>
                     <button onClick={openAddProd} className="bg-green-600 hover:bg-green-500 text-white text-sm font-bold px-4 py-2 rounded-xl transition-colors">
@@ -5492,9 +5492,9 @@ export default function POSPage() {
                       {Object.keys(onlineVisibilityDraft).length > 0 && <span className="font-bold"> — เปลี่ยน {Object.keys(onlineVisibilityDraft).length} รายการ</span>}
                     </p>
                     <div className="flex items-center gap-2">
-                      <button onClick={cancelOnlineMenuMode} className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1.5 rounded-lg transition-colors">ยกเลิก</button>
+                      <button onClick={cancelOnlineMenuMode} className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg transition-colors">ยกเลิก</button>
                       <button onClick={() => setShowOnlineMenuConfirm(true)} disabled={!Object.keys(onlineVisibilityDraft).length}
-                        className="text-xs bg-sky-600 hover:bg-sky-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold px-3 py-1.5 rounded-lg transition-colors">
+                        className="text-xs bg-sky-600 hover:bg-sky-500 disabled:opacity-40 disabled:cursor-not-allowed text-gray-900 font-bold px-3 py-1.5 rounded-lg transition-colors">
                         ตรวจสอบและยืนยัน
                       </button>
                     </div>
@@ -5505,7 +5505,7 @@ export default function POSPage() {
                   {categories.map(cat => (
                     <button key={cat} onClick={() => setSelectedCat(cat)}
                       className={`shrink-0 text-xs px-3 py-1.5 rounded-full transition-colors ${
-                        selectedCat === cat ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                        selectedCat === cat ? 'bg-green-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
                       }`}
                     >{cat}</button>
                   ))}
@@ -5513,15 +5513,15 @@ export default function POSPage() {
 
                 <input value={search} onChange={e => setSearch(e.target.value)}
                   placeholder="🔍 ค้นหาสินค้า..."
-                  className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 mb-4"
+                  className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500 mb-4"
                 />
 
                 {productsLoading ? (
-                  <div className="text-center text-gray-500 py-12 animate-pulse">กำลังโหลด...</div>
+                  <div className="text-center text-gray-400 py-12 animate-pulse">กำลังโหลด...</div>
                 ) : displayProducts.length === 0 ? (
                   <div className="text-center py-16">
                     <div className="text-5xl mb-3">📦</div>
-                    <p className="text-gray-400 text-sm mb-4">ยังไม่มีสินค้า</p>
+                    <p className="text-gray-500 text-sm mb-4">ยังไม่มีสินค้า</p>
                     <button onClick={openAddProd} className="bg-green-600 text-white text-sm font-bold px-6 py-2.5 rounded-xl hover:bg-green-500 transition-colors">
                       + เพิ่มสินค้าแรก
                     </button>
@@ -5529,10 +5529,10 @@ export default function POSPage() {
                 ) : (
                   <div className="space-y-2">
                     {displayProducts.map(prod => (
-                      <div key={prod.sku} className={`rounded-xl p-4 flex items-center gap-4 ${prod.is_active === false ? 'bg-gray-900 border border-gray-800 opacity-70' : 'bg-gray-800'}`}>
+                      <div key={prod.sku} className={`rounded-xl p-4 flex items-center gap-4 ${prod.is_active === false ? 'bg-white border border-gray-100 opacity-70' : 'bg-white'}`}>
                         {onlineMenuMode && (
                           prod.type === 'หมุนเวียน' ? (
-                            <span title="สินค้าหมุนเวียนไม่แสดงในเมนูออนไลน์เสมอ" className="shrink-0 text-gray-600 text-lg">🚫</span>
+                            <span title="สินค้าหมุนเวียนไม่แสดงในเมนูออนไลน์เสมอ" className="shrink-0 text-gray-400 text-lg">🚫</span>
                           ) : (
                             <input type="checkbox"
                               checked={onlineVisibilityDraft[prod.sku] !== undefined ? onlineVisibilityDraft[prod.sku] : prod.online_order_visible !== false}
@@ -5542,41 +5542,41 @@ export default function POSPage() {
                         )}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-white font-medium text-sm">{prod.name}</span>
-                            {prod.category && <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full">{prod.category}</span>}
-                            {prod.type === 'ไม่นับสต็อค' && <span className="text-xs bg-blue-900/50 text-blue-300 px-2 py-0.5 rounded-full">🛠️ บริการ</span>}
-                            {prod.type === 'หมุนเวียน' && <span className="text-xs bg-purple-900/50 text-purple-300 px-2 py-0.5 rounded-full">🔄 หมุนเวียน</span>}
-                            {prod.is_active === false && <span className="text-xs bg-red-900/50 text-red-400 px-2 py-0.5 rounded-full">inactive</span>}
+                            <span className="text-gray-900 font-medium text-sm">{prod.name}</span>
+                            {prod.category && <span className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">{prod.category}</span>}
+                            {prod.type === 'ไม่นับสต็อค' && <span className="text-xs bg-blue-50/50 text-blue-700 px-2 py-0.5 rounded-full">🛠️ บริการ</span>}
+                            {prod.type === 'หมุนเวียน' && <span className="text-xs bg-purple-50/50 text-purple-700 px-2 py-0.5 rounded-full">🔄 หมุนเวียน</span>}
+                            {prod.is_active === false && <span className="text-xs bg-red-50/50 text-red-600 px-2 py-0.5 rounded-full">inactive</span>}
                           </div>
                           <div className="flex items-center gap-3 mt-1 flex-wrap">
-                            <span className="text-green-400 text-sm font-bold">฿{prod.price.toLocaleString()}</span>
+                            <span className="text-green-600 text-sm font-bold">฿{prod.price.toLocaleString()}</span>
                             {prod.cost > 0 && (
-                              <span className="text-gray-500 text-xs">ทุนเฉลี่ย ฿{prod.cost.toLocaleString()}</span>
+                              <span className="text-gray-400 text-xs">ทุนเฉลี่ย ฿{prod.cost.toLocaleString()}</span>
                             )}
                             {prod.type === 'หมุนเวียน' ? (
                               <>
-                                <span className="text-xs bg-green-900/50 text-green-300 px-2 py-0.5 rounded-full">เต็ม {prod.stock}</span>
-                                <span className="text-xs bg-orange-900/50 text-orange-300 px-2 py-0.5 rounded-full">กับลูกค้า {prod.at_customer || 0}</span>
-                                <span className="text-xs bg-gray-700 text-gray-400 px-2 py-0.5 rounded-full">เปล่า {prod.empty_waiting || 0}</span>
+                                <span className="text-xs bg-green-50/50 text-green-700 px-2 py-0.5 rounded-full">เต็ม {prod.stock}</span>
+                                <span className="text-xs bg-orange-50/50 text-orange-700 px-2 py-0.5 rounded-full">กับลูกค้า {prod.at_customer || 0}</span>
+                                <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">เปล่า {prod.empty_waiting || 0}</span>
                               </>
                             ) : prod.type === 'ไม่นับสต็อค' ? null : (
-                              <span className={`text-xs font-medium ${prod.stock <= 0 ? 'text-red-400' : prod.stock <= 5 ? 'text-yellow-400' : 'text-gray-400'}`}>
+                              <span className={`text-xs font-medium ${prod.stock <= 0 ? 'text-red-600' : prod.stock <= 5 ? 'text-yellow-600' : 'text-gray-500'}`}>
                                 สต็อค: {prod.stock} {prod.unit}
                               </span>
                             )}
                             {prod.vat_type && prod.vat_type !== 'ไม่มี VAT' && (
-                              <span className="text-xs text-gray-500">{prod.vat_type}</span>
+                              <span className="text-xs text-gray-400">{prod.vat_type}</span>
                             )}
                           </div>
-                          {prod.product_code && <div className="text-gray-500 text-xs mt-0.5">รหัส: {prod.product_code}{prod.barcode ? ` · บาร์โค้ด: ${prod.barcode}` : ''}</div>}
-                          {prod.description && <div className="text-gray-500 text-xs mt-0.5 line-clamp-1">{prod.description}</div>}
-                          {prod.aliases && <div className="text-gray-600 text-xs mt-0.5">ค้นหาได้: {prod.aliases}</div>}
+                          {prod.product_code && <div className="text-gray-400 text-xs mt-0.5">รหัส: {prod.product_code}{prod.barcode ? ` · บาร์โค้ด: ${prod.barcode}` : ''}</div>}
+                          {prod.description && <div className="text-gray-400 text-xs mt-0.5 line-clamp-1">{prod.description}</div>}
+                          {prod.aliases && <div className="text-gray-400 text-xs mt-0.5">ค้นหาได้: {prod.aliases}</div>}
                         </div>
                         <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
                           {prod.type === 'หมุนเวียน' && (
                             <>
                               <button onClick={() => { setCyclicalProd(prod); setCyclicalQty(''); setShowCyclicalModal('receive-back'); }}
-                                className="text-xs bg-gray-700 hover:bg-orange-700 text-gray-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors">
+                                className="text-xs bg-gray-100 hover:bg-orange-700 text-gray-700 hover:text-white px-3 py-1.5 rounded-lg transition-colors">
                                 รับคืน
                               </button>
                               {/* เดิมมีปุ่ม "รีฟิล" ด่วนตรงนี้ที่อัปเดตสต็อคได้โดยไม่มีใบรับสินค้า/ต้นทุน
@@ -5584,19 +5584,19 @@ export default function POSPage() {
                                   "รับสินค้า" แทนเสมอ (มีใบรับสินค้า+ต้นทุนถ่วงน้ำหนัก+ตัวเลือกรีฟิล/
                                   ซื้อใหม่ในตัว) ปุ่มนี้แค่พาไปหน้านั้นพร้อมใส่สินค้าให้อัตโนมัติ */}
                               <button onClick={() => { setTab('receives'); addReceiveItem(prod); }}
-                                className="text-xs bg-gray-700 hover:bg-blue-700 text-gray-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors">
+                                className="text-xs bg-gray-100 hover:bg-blue-700 text-gray-700 hover:text-white px-3 py-1.5 rounded-lg transition-colors">
                                 🔄 รีฟิล (ไปหน้ารับสินค้า)
                               </button>
                             </>
                           )}
                           {posBranches.length > 0 && prod.type !== 'ไม่นับสต็อค' && (
                             <button onClick={() => openTransferModal(prod)}
-                              className="text-xs bg-gray-700 hover:bg-purple-700 text-gray-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors">
+                              className="text-xs bg-gray-100 hover:bg-purple-700 text-gray-700 hover:text-white px-3 py-1.5 rounded-lg transition-colors">
                               🔄 โอนย้าย
                             </button>
                           )}
-                          <button onClick={() => openEditProd(prod)} className="text-xs bg-gray-700 hover:bg-blue-700 text-gray-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors">แก้ไข</button>
-                          <button onClick={() => deleteProd(prod)} className="text-xs bg-gray-700 hover:bg-red-700 text-gray-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors">ลบ</button>
+                          <button onClick={() => openEditProd(prod)} className="text-xs bg-gray-100 hover:bg-blue-700 text-gray-700 hover:text-white px-3 py-1.5 rounded-lg transition-colors">แก้ไข</button>
+                          <button onClick={() => deleteProd(prod)} className="text-xs bg-gray-100 hover:bg-red-700 text-gray-700 hover:text-white px-3 py-1.5 rounded-lg transition-colors">ลบ</button>
                         </div>
                       </div>
                     ))}
@@ -5620,7 +5620,7 @@ export default function POSPage() {
                   ].map(v => (
                     <button key={v.key} onClick={() => setReceiveView(v.key)}
                       className={`px-4 py-2 rounded-xl text-xs font-medium transition-colors ${
-                        receiveView === v.key ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                        receiveView === v.key ? 'bg-green-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
                       }`}
                     >{v.label}</button>
                   ))}
@@ -5629,19 +5629,19 @@ export default function POSPage() {
                 {receiveView === 'form' ? (
                   <>
                     {/* ผู้จำหน่าย — เลือกจาก contact จริงเพื่อผูกประวัติราคาซื้อ หรือพิมพ์ชื่อใหม่เฉยๆ ก็ได้ */}
-                    <div className="bg-gray-800 rounded-xl p-4 mb-4">
-                      <label className="block text-gray-400 text-xs mb-2 font-medium">🏢 ผู้จำหน่าย</label>
+                    <div className="bg-white rounded-xl p-4 mb-4">
+                      <label className="block text-gray-500 text-xs mb-2 font-medium">🏢 ผู้จำหน่าย</label>
                       {receiveSupplierContact ? (
-                        <div className="bg-gray-700 rounded-xl p-3 flex items-center justify-between">
+                        <div className="bg-gray-100 rounded-xl p-3 flex items-center justify-between">
                           <div>
-                            <div className="text-white font-bold text-sm">{receiveSupplierContact.name}</div>
-                            {receiveSupplierContact.phone && <div className="text-gray-400 text-xs">{receiveSupplierContact.phone}</div>}
+                            <div className="text-gray-900 font-bold text-sm">{receiveSupplierContact.name}</div>
+                            {receiveSupplierContact.phone && <div className="text-gray-500 text-xs">{receiveSupplierContact.phone}</div>}
                             {Object.keys(supplierPrices).length > 0 && (
-                              <div className="text-green-400 text-xs mt-0.5">💰 ใช้ราคาซื้อล่าสุดแล้ว</div>
+                              <div className="text-green-600 text-xs mt-0.5">💰 ใช้ราคาซื้อล่าสุดแล้ว</div>
                             )}
                           </div>
                           <button onClick={() => { setReceiveSupplierContact(null); setSupplierPrices({}); }}
-                            className="text-gray-500 hover:text-gray-300 text-lg ml-2">✕</button>
+                            className="text-gray-400 hover:text-gray-700 text-lg ml-2">✕</button>
                         </div>
                       ) : (
                         <div>
@@ -5649,21 +5649,21 @@ export default function POSPage() {
                             value={receiveSupplierQ}
                             onChange={e => { setReceiveSupplierQ(e.target.value); setReceiveSupplier(e.target.value); }}
                             placeholder="ค้นหาผู้จำหน่ายเดิม หรือพิมพ์ชื่อใหม่..."
-                            className="w-full bg-gray-700 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-600 focus:outline-none focus:border-green-500"
+                            className="w-full bg-gray-100 text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:border-green-500"
                           />
                           {receiveMatchedSuppliers.length > 0 && (
-                            <div className="bg-gray-700 rounded-xl overflow-hidden border border-gray-600 mt-2">
+                            <div className="bg-gray-100 rounded-xl overflow-hidden border border-gray-300 mt-2">
                               {receiveMatchedSuppliers.map(c => (
-                                <button key={c.contact_id} className="w-full text-left px-3 py-2.5 hover:bg-gray-600 text-sm text-gray-200 border-b border-gray-600/50 last:border-0"
+                                <button key={c.contact_id} className="w-full text-left px-3 py-2.5 hover:bg-gray-200 text-sm text-gray-800 border-b border-gray-300/50 last:border-0"
                                   onClick={() => { setReceiveSupplierContact(c); setReceiveSupplierQ(''); setReceiveSupplier(''); fetchSupplierPrices(c.contact_id); }}>
                                   <div>{c.name}</div>
-                                  {c.phone && <div className="text-gray-500 text-xs">{c.phone}</div>}
+                                  {c.phone && <div className="text-gray-400 text-xs">{c.phone}</div>}
                                 </button>
                               ))}
                             </div>
                           )}
                           {suppliers.length === 0 && (
-                            <p className="text-gray-600 text-xs mt-1.5">
+                            <p className="text-gray-400 text-xs mt-1.5">
                               ยังไม่มีผู้จำหน่ายในระบบ —{' '}
                               <button onClick={() => setTab('contacts')} className="text-green-500 underline">เพิ่มผู้จำหน่าย</button>
                               {' '}(หรือพิมพ์ชื่อไว้เฉยๆ ก็บันทึกได้ แค่จะไม่ผูกประวัติราคาซื้อ)
@@ -5674,10 +5674,10 @@ export default function POSPage() {
                     </div>
 
                     {/* เพิ่มรายการสินค้า */}
-                    <div className="bg-gray-800 rounded-xl p-4 mb-4">
+                    <div className="bg-white rounded-xl p-4 mb-4">
                       <div className="flex items-center justify-between mb-3">
-                        <label className="text-gray-400 text-xs font-medium">📦 รายการสินค้าที่รับ</label>
-                        <span className="text-gray-500 text-xs">{receiveItems.length} รายการ</span>
+                        <label className="text-gray-500 text-xs font-medium">📦 รายการสินค้าที่รับ</label>
+                        <span className="text-gray-400 text-xs">{receiveItems.length} รายการ</span>
                       </div>
 
                       {/* ค้นหา + เลือกจากรายการสินค้า */}
@@ -5688,23 +5688,23 @@ export default function POSPage() {
                             onChange={e => { setReceiveSearch(e.target.value); setShowReceivePicker(true); }}
                             onFocus={() => setShowReceivePicker(true)}
                             placeholder="🔍 ค้นหาสินค้าที่ต้องการเพิ่ม..."
-                            className="flex-1 min-w-0 bg-gray-700 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-600 focus:outline-none focus:border-green-500"
+                            className="flex-1 min-w-0 bg-gray-100 text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:border-green-500"
                           />
                           <button type="button" onClick={() => setShowReceivePicker(v => !v)}
-                            className={`shrink-0 text-xs px-3 py-2.5 rounded-xl transition-colors ${showReceivePicker ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+                            className={`shrink-0 text-xs px-3 py-2.5 rounded-xl transition-colors ${showReceivePicker ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
                             📋 เลือกจากรายการ
                           </button>
                         </div>
 
                         {showReceivePicker && (
-                          <div className="bg-gray-700 rounded-xl border border-gray-600 overflow-hidden">
+                          <div className="bg-gray-100 rounded-xl border border-gray-300 overflow-hidden">
                             {/* ตัวกรองหมวดหมู่ */}
                             {categories.length > 1 && (
-                              <div className="flex gap-1.5 overflow-x-auto p-2 border-b border-gray-600 scrollbar-hide">
+                              <div className="flex gap-1.5 overflow-x-auto p-2 border-b border-gray-300 scrollbar-hide">
                                 {categories.map(cat => (
                                   <button key={cat} onClick={() => setReceiveCat(cat)}
                                     className={`shrink-0 text-xs px-3 py-1 rounded-full transition-colors ${
-                                      receiveCat === cat ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-600'
+                                      receiveCat === cat ? 'bg-green-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-200'
                                     }`}>{cat}</button>
                                 ))}
                               </div>
@@ -5717,15 +5717,15 @@ export default function POSPage() {
                                     key={p.sku}
                                     onClick={() => !already && addReceiveItem(p)}
                                     disabled={already}
-                                    className={`w-full text-left px-4 py-2.5 transition-colors flex items-center justify-between gap-2 border-b border-gray-600/50 last:border-0 ${already ? 'opacity-50 cursor-default' : 'hover:bg-gray-600'}`}
+                                    className={`w-full text-left px-4 py-2.5 transition-colors flex items-center justify-between gap-2 border-b border-gray-300/50 last:border-0 ${already ? 'opacity-50 cursor-default' : 'hover:bg-gray-200'}`}
                                   >
-                                    <span className="text-white text-sm truncate">{p.name}</span>
-                                    <span className="text-gray-400 text-xs shrink-0">{already ? '✅ เพิ่มแล้ว' : `${p.stock} ${p.unit}`}</span>
+                                    <span className="text-gray-900 text-sm truncate">{p.name}</span>
+                                    <span className="text-gray-500 text-xs shrink-0">{already ? '✅ เพิ่มแล้ว' : `${p.stock} ${p.unit}`}</span>
                                   </button>
                                 );
                               })}
                               {receiveFiltered.length === 0 && (
-                                <div className="text-gray-500 text-xs text-center py-3">ไม่พบสินค้า</div>
+                                <div className="text-gray-400 text-xs text-center py-3">ไม่พบสินค้า</div>
                               )}
                             </div>
                           </div>
@@ -5739,25 +5739,25 @@ export default function POSPage() {
                             const itemProd = products.find(p => p.sku === item.sku);
                             const isCyclicalItem = itemProd?.type === 'หมุนเวียน';
                             return (
-                            <div key={item.sku} className="bg-gray-700 rounded-xl p-3">
+                            <div key={item.sku} className="bg-gray-100 rounded-xl p-3">
                               <div className="flex items-center justify-between mb-2">
-                                <span className="text-white text-sm font-medium">{item.name}</span>
-                                <button onClick={() => removeReceiveItem(item.sku)} className="text-gray-500 hover:text-red-400 text-xs transition-colors">✕</button>
+                                <span className="text-gray-900 text-sm font-medium">{item.name}</span>
+                                <button onClick={() => removeReceiveItem(item.sku)} className="text-gray-400 hover:text-red-600 text-xs transition-colors">✕</button>
                               </div>
                               {isCyclicalItem && (
-                                <div className="mb-2 flex bg-gray-600 rounded-lg border border-gray-500 overflow-hidden">
+                                <div className="mb-2 flex bg-gray-200 rounded-lg border border-gray-400 overflow-hidden">
                                   <button type="button" onClick={() => updateReceiveItem(item.sku, 'isRefill', true)}
-                                    className={`flex-1 py-1.5 text-xs font-bold transition-colors ${item.isRefill ? 'bg-orange-600 text-white' : 'text-gray-300 hover:bg-gray-500'}`}>
+                                    className={`flex-1 py-1.5 text-xs font-bold transition-colors ${item.isRefill ? 'bg-orange-600 text-white' : 'text-gray-700 hover:bg-gray-300'}`}>
                                     🔄 รีฟิลของที่ส่งไปเติม
                                   </button>
                                   <button type="button" onClick={() => updateReceiveItem(item.sku, 'isRefill', false)}
-                                    className={`flex-1 py-1.5 text-xs font-bold transition-colors ${!item.isRefill ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-500'}`}>
+                                    className={`flex-1 py-1.5 text-xs font-bold transition-colors ${!item.isRefill ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-300'}`}>
                                     🆕 ซื้อ{itemProd?.unit || 'ของ'}ใหม่เพิ่ม
                                   </button>
                                 </div>
                               )}
                               {isCyclicalItem && (
-                                <p className="text-gray-500 text-[11px] mb-2 -mt-1">
+                                <p className="text-gray-400 text-[11px] mb-2 -mt-1">
                                   {item.isRefill
                                     ? `รีฟิล = ${itemProd?.unit || 'ของ'}เต็ม +${item.qty || 0}, เปล่ารอรีฟิล -${item.qty || 0}`
                                     : `ซื้อใหม่ = ${itemProd?.unit || 'ของ'}เต็ม +${item.qty || 0} เท่านั้น (ไม่กระทบยอดเปล่ารอรีฟิล)`}
@@ -5765,30 +5765,30 @@ export default function POSPage() {
                               )}
                               <div className="grid grid-cols-2 gap-2">
                                 <div>
-                                  <label className="block text-gray-400 text-xs mb-1">จำนวนที่รับ ({item.unit})</label>
+                                  <label className="block text-gray-500 text-xs mb-1">จำนวนที่รับ ({item.unit})</label>
                                   <input
                                     type="number"
                                     value={item.qty}
                                     onChange={e => updateReceiveItem(item.sku, 'qty', e.target.value)}
                                     placeholder="0"
                                     min="0.01" step="any"
-                                    className="w-full bg-gray-600 text-white text-sm px-3 py-2 rounded-lg border border-gray-500 focus:outline-none focus:border-green-500"
+                                    className="w-full bg-gray-200 text-gray-900 text-sm px-3 py-2 rounded-lg border border-gray-400 focus:outline-none focus:border-green-500"
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-gray-400 text-xs mb-1">ราคาต้นทุน/หน่วย (฿)</label>
+                                  <label className="block text-gray-500 text-xs mb-1">ราคาต้นทุน/หน่วย (฿)</label>
                                   <input
                                     type="number"
                                     value={item.unitCost}
                                     onChange={e => updateReceiveItem(item.sku, 'unitCost', e.target.value)}
                                     placeholder="0.00"
                                     min="0" step="0.01"
-                                    className="w-full bg-gray-600 text-white text-sm px-3 py-2 rounded-lg border border-gray-500 focus:outline-none focus:border-green-500"
+                                    className="w-full bg-gray-200 text-gray-900 text-sm px-3 py-2 rounded-lg border border-gray-400 focus:outline-none focus:border-green-500"
                                   />
                                 </div>
                               </div>
                               <div className="mt-2">
-                                <div className="text-gray-400 text-xs mb-1">ราคานี้</div>
+                                <div className="text-gray-500 text-xs mb-1">ราคานี้</div>
                                 <div className="flex gap-1.5">
                                   {['ไม่มี VAT', 'รวม VAT แล้ว', 'ไม่รวม VAT'].map(v => (
                                     <button key={v} type="button"
@@ -5796,7 +5796,7 @@ export default function POSPage() {
                                       className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
                                         (item.vatType || 'ไม่มี VAT') === v
                                           ? 'bg-blue-700 border-blue-600 text-white'
-                                          : 'bg-gray-600 border-gray-500 text-gray-300 hover:bg-gray-500'
+                                          : 'bg-gray-200 border-gray-400 text-gray-700 hover:bg-gray-300'
                                       }`}>
                                       {v}
                                     </button>
@@ -5809,9 +5809,9 @@ export default function POSPage() {
                                 const lineSub = qty * base;
                                 const lineVat = qty * unitVat;
                                 return (
-                                  <div className="text-green-400 text-xs mt-1.5">
+                                  <div className="text-green-600 text-xs mt-1.5">
                                     รวม ฿{(lineSub + lineVat).toLocaleString(undefined, {minimumFractionDigits:2})}
-                                    {lineVat > 0 && <span className="text-gray-500"> (ก่อน VAT ฿{lineSub.toLocaleString(undefined, {minimumFractionDigits:2})} + VAT ฿{lineVat.toLocaleString(undefined, {minimumFractionDigits:2})})</span>}
+                                    {lineVat > 0 && <span className="text-gray-400"> (ก่อน VAT ฿{lineSub.toLocaleString(undefined, {minimumFractionDigits:2})} + VAT ฿{lineVat.toLocaleString(undefined, {minimumFractionDigits:2})})</span>}
                                   </div>
                                 );
                               })()}
@@ -5820,60 +5820,60 @@ export default function POSPage() {
                           })}
 
                           {/* สรุปยอด — แบบใบกำกับภาษี */}
-                          <div className="bg-gray-700 rounded-xl p-3 space-y-1.5">
+                          <div className="bg-gray-100 rounded-xl p-3 space-y-1.5">
                             <div className="flex justify-between items-center text-sm">
-                              <span className="text-gray-400">ยอดก่อน VAT</span>
-                              <span className="text-gray-200">฿{receiveSubtotal.toLocaleString(undefined, {minimumFractionDigits:2})}</span>
+                              <span className="text-gray-500">ยอดก่อน VAT</span>
+                              <span className="text-gray-800">฿{receiveSubtotal.toLocaleString(undefined, {minimumFractionDigits:2})}</span>
                             </div>
                             <div className="flex justify-between items-center text-sm">
-                              <span className="text-gray-400">VAT รวม</span>
-                              <span className="text-gray-200">฿{receiveVatTotal.toLocaleString(undefined, {minimumFractionDigits:2})}</span>
+                              <span className="text-gray-500">VAT รวม</span>
+                              <span className="text-gray-800">฿{receiveVatTotal.toLocaleString(undefined, {minimumFractionDigits:2})}</span>
                             </div>
-                            <div className="flex justify-between items-center border-t border-gray-600 pt-1.5">
-                              <span className="text-gray-300 text-sm font-medium">ยอดสุทธิ</span>
-                              <span className="text-green-400 font-bold text-lg">฿{receiveTotalCost.toLocaleString(undefined, {minimumFractionDigits:2})}</span>
+                            <div className="flex justify-between items-center border-t border-gray-300 pt-1.5">
+                              <span className="text-gray-700 text-sm font-medium">ยอดสุทธิ</span>
+                              <span className="text-green-600 font-bold text-lg">฿{receiveTotalCost.toLocaleString(undefined, {minimumFractionDigits:2})}</span>
                             </div>
                           </div>
                         </div>
                       ) : (
-                        <div className="text-center text-gray-600 text-sm py-4">ค้นหาสินค้าด้านบนเพื่อเพิ่มในใบรับสินค้า</div>
+                        <div className="text-center text-gray-400 text-sm py-4">ค้นหาสินค้าด้านบนเพื่อเพิ่มในใบรับสินค้า</div>
                       )}
                     </div>
 
                     {/* แนบรูปบิล/ใบส่งของ */}
-                    <div className="bg-gray-800 rounded-xl p-4 mb-4">
-                      <label className="block text-gray-400 text-xs mb-2 font-medium">แนบรูปบิล/ใบส่งของ (ไม่บังคับ — แต่แนะนำให้แนบเพื่อความน่าเชื่อถือของข้อมูล)</label>
-                      <label className="flex items-center justify-center gap-2 border border-dashed border-gray-600 rounded-xl py-3 cursor-pointer hover:border-gray-500 transition-colors">
+                    <div className="bg-white rounded-xl p-4 mb-4">
+                      <label className="block text-gray-500 text-xs mb-2 font-medium">แนบรูปบิล/ใบส่งของ (ไม่บังคับ — แต่แนะนำให้แนบเพื่อความน่าเชื่อถือของข้อมูล)</label>
+                      <label className="flex items-center justify-center gap-2 border border-dashed border-gray-300 rounded-xl py-3 cursor-pointer hover:border-gray-400 transition-colors">
                         <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleReceivePhoto} disabled={receivePhotoUploading} />
                         {receivePhotoUploading ? (
-                          <span className="text-gray-400 text-xs animate-pulse">กำลังอัปโหลด...</span>
+                          <span className="text-gray-500 text-xs animate-pulse">กำลังอัปโหลด...</span>
                         ) : receivePhotoUrl ? (
-                          <span className="text-green-400 text-xs">✅ แนบรูปแล้ว — แตะเพื่อเปลี่ยน</span>
+                          <span className="text-green-600 text-xs">✅ แนบรูปแล้ว — แตะเพื่อเปลี่ยน</span>
                         ) : (
-                          <span className="text-gray-500 text-xs">📷 แตะเพื่อถ่ายรูป/เลือกรูปบิล-ใบส่งของ</span>
+                          <span className="text-gray-400 text-xs">📷 แตะเพื่อถ่ายรูป/เลือกรูปบิล-ใบส่งของ</span>
                         )}
                       </label>
                     </div>
 
                     {/* วันที่รับสินค้า — ปกติเป็นวันนี้ แก้ย้อนหลังได้ถ้าเอกสารมาช้า */}
-                    <div className="bg-gray-800 rounded-xl p-4 mb-4">
-                      <label className="block text-gray-400 text-xs mb-2 font-medium">📅 วันที่รับสินค้า</label>
+                    <div className="bg-white rounded-xl p-4 mb-4">
+                      <label className="block text-gray-500 text-xs mb-2 font-medium">📅 วันที่รับสินค้า</label>
                       <input type="date" value={receiveDate || getTodayISO()} max={getTodayISO()}
                         onChange={e => setReceiveDate(e.target.value)}
-                        className="w-full bg-gray-700 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-600 focus:outline-none focus:border-green-500"/>
+                        className="w-full bg-gray-100 text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:border-green-500"/>
                       {receiveDate && receiveDate !== getTodayISO() && (
-                        <div className="text-amber-400 text-[11px] mt-1">⚠️ กำลังบันทึกย้อนหลัง — ไม่ใช่วันนี้</div>
+                        <div className="text-amber-600 text-[11px] mt-1">⚠️ กำลังบันทึกย้อนหลัง — ไม่ใช่วันนี้</div>
                       )}
                     </div>
 
                     {/* หมายเหตุ */}
-                    <div className="bg-gray-800 rounded-xl p-4 mb-4">
-                      <label className="block text-gray-400 text-xs mb-2 font-medium">หมายเหตุ (ไม่บังคับ)</label>
+                    <div className="bg-white rounded-xl p-4 mb-4">
+                      <label className="block text-gray-500 text-xs mb-2 font-medium">หมายเหตุ (ไม่บังคับ)</label>
                       <input
                         value={receiveNotes}
                         onChange={e => setReceiveNotes(e.target.value)}
                         placeholder="เช่น เลขบิล, เงื่อนไขการชำระ"
-                        className="w-full bg-gray-700 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-600 focus:outline-none focus:border-green-500"
+                        className="w-full bg-gray-100 text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:border-green-500"
                       />
                     </div>
 
@@ -5888,35 +5888,35 @@ export default function POSPage() {
                 ) : receiveView === 'pending' ? (
                   /* รอยืนยันจาก LINE (#รับสินค้า → ถ่ายรูปใบส่งของ → OCR) */
                   pendingReceivesLoading ? (
-                    <div className="text-center text-gray-500 py-12 animate-pulse">กำลังโหลด...</div>
+                    <div className="text-center text-gray-400 py-12 animate-pulse">กำลังโหลด...</div>
                   ) : pendingReceives.length === 0 ? (
-                    <div className="text-center py-16 text-gray-500">
+                    <div className="text-center py-16 text-gray-400">
                       <div className="text-4xl mb-3">🔔</div>
                       <p className="text-sm">ไม่มีรายการรอยืนยัน</p>
-                      <p className="text-xs mt-1 text-gray-600">พิมพ์ <span className="text-gray-400">#รับสินค้า</span> ในกลุ่ม LINE แล้วส่งรูปใบส่งของ ระบบจะมาโผล่ที่นี่</p>
+                      <p className="text-xs mt-1 text-gray-400">พิมพ์ <span className="text-gray-500">#รับสินค้า</span> ในกลุ่ม LINE แล้วส่งรูปใบส่งของ ระบบจะมาโผล่ที่นี่</p>
                     </div>
                   ) : (
                     <div className="space-y-3">
                       {pendingReceives.map(p => (
-                        <div key={p.pending_no} className="bg-gray-800 rounded-xl p-4">
+                        <div key={p.pending_no} className="bg-white rounded-xl p-4">
                           <div className="flex items-center justify-between mb-2">
-                            <span className="text-gray-400 text-xs font-mono">{p.pending_no}</span>
-                            <span className="text-gray-500 text-xs">{p.created_at}</span>
+                            <span className="text-gray-500 text-xs font-mono">{p.pending_no}</span>
+                            <span className="text-gray-400 text-xs">{p.created_at}</span>
                           </div>
-                          <div className="text-white text-sm font-medium mb-1">🏢 {p.supplier}</div>
-                          <div className="text-gray-500 text-xs mb-2">เลขที่ {p.invoice_no} · วันที่ {p.invoice_date}{p.branch ? ` · ${p.branch}` : ''}</div>
+                          <div className="text-gray-900 text-sm font-medium mb-1">🏢 {p.supplier}</div>
+                          <div className="text-gray-400 text-xs mb-2">เลขที่ {p.invoice_no} · วันที่ {p.invoice_date}{p.branch ? ` · ${p.branch}` : ''}</div>
                           {Array.isArray(p.items) && p.items.map((item, j) => (
-                            <div key={j} className="text-gray-400 text-xs flex justify-between">
+                            <div key={j} className="text-gray-500 text-xs flex justify-between">
                               <span>{item.name} ×{item.qty}</span>
                               <span>฿{(item.unitPrice || 0).toLocaleString()}/หน่วย</span>
                             </div>
                           ))}
                           {p.image_url && (
-                            <a href={p.image_url} target="_blank" rel="noreferrer" className="text-blue-400 underline text-xs mt-2 inline-block">🖼️ ดูรูปใบส่งของ</a>
+                            <a href={p.image_url} target="_blank" rel="noreferrer" className="text-blue-600 underline text-xs mt-2 inline-block">🖼️ ดูรูปใบส่งของ</a>
                           )}
                           <div className="flex gap-2 mt-3">
                             <button onClick={() => rejectPendingReceive(p)}
-                              className="flex-1 bg-gray-700 hover:bg-red-800 text-gray-300 hover:text-white text-xs font-medium py-2 rounded-lg transition-colors">
+                              className="flex-1 bg-gray-100 hover:bg-red-100 text-gray-700 hover:text-gray-900 text-xs font-medium py-2 rounded-lg transition-colors">
                               ❌ ปฏิเสธ
                             </button>
                             <button onClick={() => loadPendingIntoForm(p)}
@@ -5931,9 +5931,9 @@ export default function POSPage() {
                 ) : (
                   /* ประวัติรับสินค้า */
                   receiveHistoryLoading ? (
-                    <div className="text-center text-gray-500 py-12 animate-pulse">กำลังโหลด...</div>
+                    <div className="text-center text-gray-400 py-12 animate-pulse">กำลังโหลด...</div>
                   ) : receiveHistory.length === 0 ? (
-                    <div className="text-center py-16 text-gray-500">
+                    <div className="text-center py-16 text-gray-400">
                       <div className="text-4xl mb-3">📋</div>
                       <p className="text-sm">ยังไม่มีประวัติรับสินค้า</p>
                     </div>
@@ -5954,7 +5954,7 @@ export default function POSPage() {
                           <div className="flex items-center gap-2 mb-3 flex-wrap">
                             <select value={receiveHistoryMonth}
                               onChange={e => { setReceiveHistoryMonth(e.target.value); setReceiveHistoryPage(0); }}
-                              className="bg-gray-800 text-white text-xs px-3 py-2 rounded-lg border border-gray-700 focus:outline-none">
+                              className="bg-white text-gray-900 text-xs px-3 py-2 rounded-lg border border-gray-200 focus:outline-none">
                               <option value="all">ทุกเดือน ({receiveHistory.length} รายการ)</option>
                               {monthKeys.map(k => {
                                 const [y, m] = k.split('-');
@@ -5965,7 +5965,7 @@ export default function POSPage() {
                           </div>
                         )}
                         {filtered.length === 0 ? (
-                          <div className="text-center py-16 text-gray-500">
+                          <div className="text-center py-16 text-gray-400">
                             <div className="text-4xl mb-3">📋</div>
                             <p className="text-sm">ไม่มีรายการในเดือนที่เลือก</p>
                           </div>
@@ -5973,28 +5973,28 @@ export default function POSPage() {
                           <>
                             <div className="space-y-3">
                               {pageItems.map((r, i) => (
-                                <div key={r.receive_no || i} className="bg-gray-800 rounded-xl p-4">
+                                <div key={r.receive_no || i} className="bg-white rounded-xl p-4">
                                   <div className="flex items-center justify-between mb-2">
-                                    <span className="text-gray-400 text-xs font-mono">{r.receive_no}</span>
-                                    <span className="text-green-400 font-bold text-sm">฿{(r.total_cost || 0).toLocaleString()}</span>
+                                    <span className="text-gray-500 text-xs font-mono">{r.receive_no}</span>
+                                    <span className="text-green-600 font-bold text-sm">฿{(r.total_cost || 0).toLocaleString()}</span>
                                   </div>
-                                  {r.supplier && <div className="text-white text-sm font-medium mb-1">🏢 {r.supplier}</div>}
-                                  <div className="text-gray-500 text-xs mb-2">{r.created_at}</div>
+                                  {r.supplier && <div className="text-gray-900 text-sm font-medium mb-1">🏢 {r.supplier}</div>}
+                                  <div className="text-gray-400 text-xs mb-2">{r.created_at}</div>
                                   {Array.isArray(r.items) && r.items.map((item, j) => (
-                                    <div key={j} className="text-gray-400 text-xs flex justify-between">
+                                    <div key={j} className="text-gray-500 text-xs flex justify-between">
                                       <span>{item.name} ×{item.qty} {item.unit}</span>
                                       <span>฿{(item.unitCost || 0).toLocaleString()}/หน่วย</span>
                                     </div>
                                   ))}
-                                  {r.notes && <div className="text-gray-600 text-xs mt-1.5">{r.notes}</div>}
-                                  <div className="flex items-center gap-3 mt-2 pt-2 border-t border-gray-700/50">
+                                  {r.notes && <div className="text-gray-400 text-xs mt-1.5">{r.notes}</div>}
+                                  <div className="flex items-center gap-3 mt-2 pt-2 border-t border-gray-200/50">
                                     {r.photo_url && (
-                                      <a href={r.photo_url} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 underline text-xs">
+                                      <a href={r.photo_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:text-blue-700 underline text-xs">
                                         🖼️ ดูรูปบิล/ใบส่งของ
                                       </a>
                                     )}
                                     <button onClick={() => cancelReceive(r.receive_no)}
-                                      className="text-red-400 hover:text-red-300 text-xs ml-auto">
+                                      className="text-red-600 hover:text-red-700 text-xs ml-auto">
                                       ยกเลิกใบนี้
                                     </button>
                                   </div>
@@ -6004,12 +6004,12 @@ export default function POSPage() {
                             {totalPages > 1 && (
                               <div className="flex items-center justify-center gap-3 mt-4">
                                 <button onClick={() => setReceiveHistoryPage(p => Math.max(0, p - 1))} disabled={page === 0}
-                                  className="text-xs px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed">
+                                  className="text-xs px-3 py-1.5 rounded-lg bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed">
                                   ← ก่อนหน้า
                                 </button>
-                                <span className="text-xs text-gray-500">หน้า {page + 1}/{totalPages}</span>
+                                <span className="text-xs text-gray-400">หน้า {page + 1}/{totalPages}</span>
                                 <button onClick={() => setReceiveHistoryPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}
-                                  className="text-xs px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed">
+                                  className="text-xs px-3 py-1.5 rounded-lg bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed">
                                   ถัดไป →
                                 </button>
                               </div>
@@ -6030,30 +6030,30 @@ export default function POSPage() {
               <div className="p-4 max-w-xl mx-auto space-y-4">
                 {/* รอยืนยันจาก LINE (#รายจ่าย → ถ่ายรูปบิล → OCR) */}
                 {(pendingExpensesLoading || pendingExpenses.length > 0) && (
-                  <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden">
-                    <div className="px-5 py-3 border-b border-gray-800">
-                      <h3 className="text-white font-bold text-sm">🔔 รอยืนยันจาก LINE{pendingExpenses.length ? ` (${pendingExpenses.length})` : ''}</h3>
-                      <p className="text-gray-500 text-xs mt-0.5">พิมพ์ <span className="text-gray-400">#รายจ่าย</span> ในกลุ่ม LINE แล้วส่งรูปบิล ระบบจะมาโผล่ที่นี่</p>
+                  <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                    <div className="px-5 py-3 border-b border-gray-100">
+                      <h3 className="text-gray-900 font-bold text-sm">🔔 รอยืนยันจาก LINE{pendingExpenses.length ? ` (${pendingExpenses.length})` : ''}</h3>
+                      <p className="text-gray-400 text-xs mt-0.5">พิมพ์ <span className="text-gray-500">#รายจ่าย</span> ในกลุ่ม LINE แล้วส่งรูปบิล ระบบจะมาโผล่ที่นี่</p>
                     </div>
                     {pendingExpensesLoading ? (
-                      <div className="text-center text-gray-500 py-8 animate-pulse">กำลังโหลด...</div>
+                      <div className="text-center text-gray-400 py-8 animate-pulse">กำลังโหลด...</div>
                     ) : (
                       <div className="p-4 space-y-3">
                         {pendingExpenses.map(p => (
-                          <div key={p.pending_no} className="bg-gray-800 rounded-xl p-4">
+                          <div key={p.pending_no} className="bg-white rounded-xl p-4">
                             <div className="flex items-center justify-between mb-2">
-                              <span className="text-gray-400 text-xs font-mono">{p.pending_no}</span>
-                              <span className="text-gray-500 text-xs">{p.created_at}</span>
+                              <span className="text-gray-500 text-xs font-mono">{p.pending_no}</span>
+                              <span className="text-gray-400 text-xs">{p.created_at}</span>
                             </div>
-                            <div className="text-white text-sm font-medium mb-1">📝 {p.label}</div>
-                            <div className="text-gray-500 text-xs mb-1">ผู้รับเงิน: {p.vendor} · {p.vat_type}</div>
-                            <div className="text-green-400 text-sm font-bold mb-2">฿{p.amount.toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+                            <div className="text-gray-900 text-sm font-medium mb-1">📝 {p.label}</div>
+                            <div className="text-gray-400 text-xs mb-1">ผู้รับเงิน: {p.vendor} · {p.vat_type}</div>
+                            <div className="text-green-600 text-sm font-bold mb-2">฿{p.amount.toLocaleString(undefined,{minimumFractionDigits:2})}</div>
                             {p.image_url && (
-                              <a href={p.image_url} target="_blank" rel="noreferrer" className="text-blue-400 underline text-xs mb-2 inline-block">🖼️ ดูรูปบิล</a>
+                              <a href={p.image_url} target="_blank" rel="noreferrer" className="text-blue-600 underline text-xs mb-2 inline-block">🖼️ ดูรูปบิล</a>
                             )}
                             <div className="flex gap-2 mt-1">
                               <button onClick={() => rejectPendingExpense(p)}
-                                className="flex-1 bg-gray-700 hover:bg-red-800 text-gray-300 hover:text-white text-xs font-medium py-2 rounded-lg transition-colors">
+                                className="flex-1 bg-gray-100 hover:bg-red-100 text-gray-700 hover:text-gray-900 text-xs font-medium py-2 rounded-lg transition-colors">
                                 ❌ ปฏิเสธ
                               </button>
                               <button onClick={() => loadPendingExpenseIntoForm(p)}
@@ -6068,17 +6068,17 @@ export default function POSPage() {
                   </div>
                 )}
 
-                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800 space-y-3">
-                  <h3 className="text-white font-bold">🧾 บันทึกรายจ่าย</h3>
-                  <p className="text-gray-400 text-xs -mt-2">ค่าใช้จ่ายของร้านที่ไม่เกี่ยวกับสต็อคสินค้า เช่น ค่าเช่า ค่าน้ำ-ไฟ ค่าแรง ฯลฯ</p>
+                <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3">
+                  <h3 className="text-gray-900 font-bold">🧾 บันทึกรายจ่าย</h3>
+                  <p className="text-gray-500 text-xs -mt-2">ค่าใช้จ่ายของร้านที่ไม่เกี่ยวกับสต็อคสินค้า เช่น ค่าเช่า ค่าน้ำ-ไฟ ค่าแรง ฯลฯ</p>
 
                   <div>
-                    <label className="block text-gray-400 text-xs mb-1.5">รายการ/หมวดหมู่</label>
+                    <label className="block text-gray-500 text-xs mb-1.5">รายการ/หมวดหมู่</label>
                     <div className="flex flex-wrap gap-1.5 mb-2">
                       {EXPENSE_CATEGORIES.map(cat => (
                         <button key={cat} type="button" onClick={() => setExpenseForm(f => ({ ...f, label: cat }))}
                           className={`text-xs px-3 py-1.5 rounded-full transition-colors ${
-                            expenseForm.label === cat ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                            expenseForm.label === cat ? 'bg-green-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
                           }`}>
                           {cat}
                         </button>
@@ -6087,24 +6087,24 @@ export default function POSPage() {
                     <input type="text" value={expenseForm.label}
                       onChange={e => setExpenseForm(f => ({ ...f, label: e.target.value }))}
                       placeholder="เช่น ค่าเช่าร้าน, ค่าน้ำมันรถส่งของ หรือกดเลือกจากด้านบน"
-                      className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                      className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                   </div>
 
                   <div>
-                    <label className="block text-gray-400 text-xs mb-1.5">จำนวนเงิน (฿)</label>
+                    <label className="block text-gray-500 text-xs mb-1.5">จำนวนเงิน (฿)</label>
                     <input type="number" value={expenseForm.amount}
                       onChange={e => setExpenseForm(f => ({ ...f, amount: e.target.value }))}
                       placeholder="0.00" min="0" step="0.01"
-                      className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                      className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                   </div>
 
                   <div>
-                    <label className="block text-gray-400 text-xs mb-1.5">ราคานี้</label>
+                    <label className="block text-gray-500 text-xs mb-1.5">ราคานี้</label>
                     <div className="flex gap-1.5">
                       {['ไม่มี VAT', 'รวม VAT แล้ว', 'ไม่รวม VAT'].map(v => (
                         <button key={v} type="button" onClick={() => setExpenseForm(f => ({ ...f, vatType: v }))}
                           className={`flex-1 py-2 rounded-xl text-xs font-medium transition-colors border ${
-                            expenseForm.vatType === v ? 'bg-blue-700 border-blue-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+                            expenseForm.vatType === v ? 'bg-blue-700 border-blue-600 text-white' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'
                           }`}>
                           {v}
                         </button>
@@ -6113,18 +6113,18 @@ export default function POSPage() {
                     {expenseForm.amount && parseFloat(expenseForm.amount) > 0 && (() => {
                       const { base, vat } = splitVatAmount(parseFloat(expenseForm.amount) || 0, expenseForm.vatType);
                       return vat > 0 ? (
-                        <div className="text-gray-500 text-xs mt-1.5">ก่อน VAT ฿{base.toLocaleString(undefined,{minimumFractionDigits:2})} + VAT ฿{vat.toLocaleString(undefined,{minimumFractionDigits:2})}</div>
+                        <div className="text-gray-400 text-xs mt-1.5">ก่อน VAT ฿{base.toLocaleString(undefined,{minimumFractionDigits:2})} + VAT ฿{vat.toLocaleString(undefined,{minimumFractionDigits:2})}</div>
                       ) : null;
                     })()}
                   </div>
 
                   <div>
-                    <label className="block text-gray-400 text-xs mb-1.5">วิธีชำระ</label>
+                    <label className="block text-gray-500 text-xs mb-1.5">วิธีชำระ</label>
                     <div className="flex gap-1.5">
                       {['เงินสด', 'โอน'].map(v => (
                         <button key={v} type="button" onClick={() => setExpenseForm(f => ({ ...f, payment_method: v }))}
                           className={`flex-1 py-2 rounded-xl text-xs font-medium transition-colors ${
-                            expenseForm.payment_method === v ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                            expenseForm.payment_method === v ? 'bg-green-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
                           }`}>
                           {v}
                         </button>
@@ -6133,34 +6133,34 @@ export default function POSPage() {
                   </div>
 
                   <div>
-                    <label className="block text-gray-400 text-xs mb-1.5">แนบรูปบิล/สลิป (ไม่บังคับ)</label>
-                    <label className="flex items-center justify-center gap-2 border border-dashed border-gray-700 rounded-xl py-4 cursor-pointer hover:border-gray-500 transition-colors">
+                    <label className="block text-gray-500 text-xs mb-1.5">แนบรูปบิล/สลิป (ไม่บังคับ)</label>
+                    <label className="flex items-center justify-center gap-2 border border-dashed border-gray-200 rounded-xl py-4 cursor-pointer hover:border-gray-400 transition-colors">
                       <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleExpensePhoto} disabled={expensePhotoUploading} />
                       {expensePhotoUploading ? (
-                        <span className="text-gray-400 text-xs animate-pulse">กำลังอัปโหลด...</span>
+                        <span className="text-gray-500 text-xs animate-pulse">กำลังอัปโหลด...</span>
                       ) : expensePhotoUrl ? (
-                        <span className="text-green-400 text-xs">✅ แนบรูปแล้ว — แตะเพื่อเปลี่ยน</span>
+                        <span className="text-green-600 text-xs">✅ แนบรูปแล้ว — แตะเพื่อเปลี่ยน</span>
                       ) : (
-                        <span className="text-gray-500 text-xs">📷 แตะเพื่อถ่ายรูป/เลือกรูปบิล-สลิป</span>
+                        <span className="text-gray-400 text-xs">📷 แตะเพื่อถ่ายรูป/เลือกรูปบิล-สลิป</span>
                       )}
                     </label>
                   </div>
 
                   <div>
-                    <label className="block text-gray-400 text-xs mb-1.5">📅 วันที่รายจ่าย</label>
+                    <label className="block text-gray-500 text-xs mb-1.5">📅 วันที่รายจ่าย</label>
                     <input type="date" value={expenseForm.transactionDate || getTodayISO()} max={getTodayISO()}
                       onChange={e => setExpenseForm(f => ({ ...f, transactionDate: e.target.value }))}
-                      className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                      className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                     {expenseForm.transactionDate && expenseForm.transactionDate !== getTodayISO() && (
-                      <div className="text-amber-400 text-[11px] mt-1">⚠️ กำลังบันทึกย้อนหลัง — ไม่ใช่วันนี้</div>
+                      <div className="text-amber-600 text-[11px] mt-1">⚠️ กำลังบันทึกย้อนหลัง — ไม่ใช่วันนี้</div>
                     )}
                   </div>
 
                   <div>
-                    <label className="block text-gray-400 text-xs mb-1.5">หมายเหตุ (ไม่บังคับ)</label>
+                    <label className="block text-gray-500 text-xs mb-1.5">หมายเหตุ (ไม่บังคับ)</label>
                     <input type="text" value={expenseForm.notes}
                       onChange={e => setExpenseForm(f => ({ ...f, notes: e.target.value }))}
-                      className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                      className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                   </div>
 
                   <button onClick={submitExpense} disabled={expenseSaving}
@@ -6170,30 +6170,30 @@ export default function POSPage() {
                 </div>
 
                 {/* ประวัติรายจ่าย */}
-                <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden">
-                  <div className="px-5 py-3 border-b border-gray-800 flex items-center justify-between">
-                    <h3 className="text-white font-bold text-sm">ประวัติรายจ่าย</h3>
+                <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                  <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+                    <h3 className="text-gray-900 font-bold text-sm">ประวัติรายจ่าย</h3>
                     {expenseSummary && (
-                      <span className="text-gray-400 text-xs">รวม ฿{expenseSummary.total.toLocaleString(undefined,{minimumFractionDigits:2})} ({expenseSummary.count} รายการ)</span>
+                      <span className="text-gray-500 text-xs">รวม ฿{expenseSummary.total.toLocaleString(undefined,{minimumFractionDigits:2})} ({expenseSummary.count} รายการ)</span>
                     )}
                   </div>
-                  {expenseHistoryLoading && <div className="text-center text-gray-500 py-8 text-sm animate-pulse">กำลังโหลด...</div>}
+                  {expenseHistoryLoading && <div className="text-center text-gray-400 py-8 text-sm animate-pulse">กำลังโหลด...</div>}
                   {!expenseHistoryLoading && (
-                    <div className="divide-y divide-gray-800">
+                    <div className="divide-y divide-gray-100">
                       {expenseHistory.map(e => (
                         <div key={e.expense_no} className="px-5 py-3 flex items-center justify-between gap-2">
                           <div className="min-w-0">
-                            <div className="text-white text-sm truncate">{e.label}</div>
-                            <div className="text-gray-500 text-xs">{e.created_at} · {e.payment_method}{e.vat_amount > 0 ? ` · VAT ฿${e.vat_amount.toLocaleString(undefined,{minimumFractionDigits:2})}` : ''}</div>
-                            {e.photo_url && <a href={e.photo_url} target="_blank" rel="noopener noreferrer" className="text-blue-400 text-xs underline">📎 ดูรูปบิล/สลิป</a>}
+                            <div className="text-gray-900 text-sm truncate">{e.label}</div>
+                            <div className="text-gray-400 text-xs">{e.created_at} · {e.payment_method}{e.vat_amount > 0 ? ` · VAT ฿${e.vat_amount.toLocaleString(undefined,{minimumFractionDigits:2})}` : ''}</div>
+                            {e.photo_url && <a href={e.photo_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 text-xs underline">📎 ดูรูปบิล/สลิป</a>}
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-red-400 font-bold text-sm">฿{e.total.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
-                            <button onClick={() => deleteExpense(e.expense_no)} className="text-gray-500 hover:text-red-400 text-xs">🗑️</button>
+                            <span className="text-red-600 font-bold text-sm">฿{e.total.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                            <button onClick={() => deleteExpense(e.expense_no)} className="text-gray-400 hover:text-red-600 text-xs">🗑️</button>
                           </div>
                         </div>
                       ))}
-                      {!expenseHistory.length && <div className="text-center text-gray-500 py-8 text-sm">ยังไม่มีรายจ่าย</div>}
+                      {!expenseHistory.length && <div className="text-center text-gray-400 py-8 text-sm">ยังไม่มีรายจ่าย</div>}
                     </div>
                   )}
                 </div>
@@ -6206,13 +6206,13 @@ export default function POSPage() {
             <div className="h-full overflow-y-auto">
               <div className="p-4 max-w-3xl mx-auto">
                 <div className="flex items-center justify-between mb-4 gap-2">
-                  <h2 className="text-white font-bold">ออเดอร์จัดส่ง ({displayOrders.length}{displayOrders.length !== orders.length ? `/${orders.length}` : ''})</h2>
+                  <h2 className="text-gray-900 font-bold">ออเดอร์จัดส่ง ({displayOrders.length}{displayOrders.length !== orders.length ? `/${orders.length}` : ''})</h2>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button onClick={() => setShowCustomerOrders(true)}
-                      className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${customerOrders.length ? 'bg-orange-900/60 text-orange-300 border-orange-700 animate-pulse' : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700'}`}>
+                      className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${customerOrders.length ? 'bg-orange-50/60 text-orange-700 border-orange-300 animate-pulse' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'}`}>
                       🛒 รอยืนยันจากลูกค้า{customerOrders.length ? ` (${customerOrders.length})` : ''}
                     </button>
-                    <button onClick={() => fetchOrders(shopId)} className="text-xs text-gray-400 hover:text-white bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-700 transition-colors">
+                    <button onClick={() => fetchOrders(shopId)} className="text-xs text-gray-500 hover:text-gray-900 bg-white px-3 py-1.5 rounded-lg border border-gray-200 transition-colors">
                       🔄 รีเฟรช
                     </button>
                   </div>
@@ -6226,64 +6226,64 @@ export default function POSPage() {
                     { v: 'delivered', label: '✅ จัดส่งสำเร็จ' },
                   ].map(f => (
                     <button key={f.v} onClick={() => setOrderStatusFilter(f.v)}
-                      className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${orderStatusFilter === f.v ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                      className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${orderStatusFilter === f.v ? 'bg-green-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}`}>
                       {f.label}
                     </button>
                   ))}
-                  <span className="w-px h-5 bg-gray-700 mx-0.5" />
+                  <span className="w-px h-5 bg-gray-100 mx-0.5" />
                   {[
                     { v: 'all', label: 'ทุกวันที่' },
                     { v: 'today', label: '📅 ค้างวันนี้' },
                     { v: 'month', label: '📅 ค้างเดือนนี้' },
                   ].map(f => (
                     <button key={f.v} onClick={() => setOrderDateFilter(f.v)}
-                      className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${orderDateFilter === f.v ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                      className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${orderDateFilter === f.v ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}`}>
                       {f.label}
                     </button>
                   ))}
                 </div>
 
                 {ordersLoading ? (
-                  <div className="text-center text-gray-500 py-12 animate-pulse">กำลังโหลด...</div>
+                  <div className="text-center text-gray-400 py-12 animate-pulse">กำลังโหลด...</div>
                 ) : displayOrders.length === 0 ? (
                   <div className="text-center py-16">
                     <div className="text-5xl mb-3">🚚</div>
-                    <p className="text-gray-400 text-sm">{orders.length === 0 ? 'ยังไม่มีออเดอร์จัดส่ง' : 'ไม่พบออเดอร์ตามตัวกรองที่เลือก'}</p>
+                    <p className="text-gray-500 text-sm">{orders.length === 0 ? 'ยังไม่มีออเดอร์จัดส่ง' : 'ไม่พบออเดอร์ตามตัวกรองที่เลือก'}</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
                     {displayOrders.map(order => {
                       const statusColor = {
-                        'รอจัดส่ง': 'bg-yellow-900/60 text-yellow-300',
-                        'กำลังส่ง': 'bg-blue-900/60 text-blue-300',
-                        'ส่งแล้ว': 'bg-green-900/60 text-green-300',
-                        'ยกเลิก': 'bg-gray-700 text-gray-400',
-                      }[order.status] || 'bg-gray-700 text-gray-400';
+                        'รอจัดส่ง': 'bg-yellow-50/60 text-yellow-700',
+                        'กำลังส่ง': 'bg-blue-50/60 text-blue-700',
+                        'ส่งแล้ว': 'bg-green-50/60 text-green-700',
+                        'ยกเลิก': 'bg-gray-100 text-gray-500',
+                      }[order.status] || 'bg-gray-100 text-gray-500';
                       const nextStatuses = order.status === 'รอจัดส่ง' ? ['กำลังส่ง', 'ยกเลิก'] :
                                            order.status === 'กำลังส่ง' ? ['ส่งแล้ว', 'ยกเลิก'] : [];
                       return (
-                        <div key={order.order_no} className="bg-gray-800 rounded-xl p-4">
+                        <div key={order.order_no} className="bg-white rounded-xl p-4">
                           <div className="flex items-start justify-between gap-2 mb-2">
                             <div>
-                              <div className="text-gray-400 text-xs font-mono">{order.order_no}</div>
-                              <div className="text-white font-medium">{order.customer_name}</div>
-                              {order.phone && <div className="text-gray-400 text-xs">📞 {order.phone}</div>}
-                              {order.address && <div className="text-gray-500 text-xs mt-0.5 max-w-xs">{order.address}</div>}
+                              <div className="text-gray-500 text-xs font-mono">{order.order_no}</div>
+                              <div className="text-gray-900 font-medium">{order.customer_name}</div>
+                              {order.phone && <div className="text-gray-500 text-xs">📞 {order.phone}</div>}
+                              {order.address && <div className="text-gray-400 text-xs mt-0.5 max-w-xs">{order.address}</div>}
                             </div>
                             <span className={`shrink-0 text-xs px-2 py-1 rounded-full font-medium ${statusColor}`}>{order.status}</span>
                           </div>
                           <div className="flex items-center justify-between mt-2">
                             <div>
-                              <div className="text-green-400 text-sm font-bold">฿{order.total?.toLocaleString()}</div>
-                              <div className="text-gray-500 text-xs">{order.payment_method} · {order.staff_name}</div>
-                              <div className="text-gray-600 text-xs">{order.created_at}</div>
+                              <div className="text-green-600 text-sm font-bold">฿{order.total?.toLocaleString()}</div>
+                              <div className="text-gray-400 text-xs">{order.payment_method} · {order.staff_name}</div>
+                              <div className="text-gray-400 text-xs">{order.created_at}</div>
                               {order.created_by && (
-                                <div className="text-gray-600 text-xs">👤 ออกโดย {resolveCreatedBy(order.created_by)}</div>
+                                <div className="text-gray-400 text-xs">👤 ออกโดย {resolveCreatedBy(order.created_by)}</div>
                               )}
                             </div>
                             <div className="flex flex-col gap-1.5 items-end">
                               {order.maps_link && (
-                                <a href={order.maps_link} target="_blank" rel="noreferrer" className="text-xs bg-gray-700 hover:bg-green-800 text-gray-300 hover:text-green-300 px-2.5 py-1.5 rounded-lg transition-colors">🗺️ แผนที่</a>
+                                <a href={order.maps_link} target="_blank" rel="noreferrer" className="text-xs bg-gray-100 hover:bg-green-100 text-gray-700 hover:text-green-700 px-2.5 py-1.5 rounded-lg transition-colors">🗺️ แผนที่</a>
                               )}
                               {nextStatuses.map(s => (
                                 <button key={s} disabled={orderStatusUpdating === order.order_no}
@@ -6291,7 +6291,7 @@ export default function POSPage() {
                                   className={`text-xs px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50 ${
                                     s === 'ส่งแล้ว' ? 'bg-green-700 hover:bg-green-600 text-white' :
                                     s === 'กำลังส่ง' ? 'bg-blue-700 hover:bg-blue-600 text-white' :
-                                    'bg-gray-700 hover:bg-red-800 text-gray-300 hover:text-red-300'
+                                    'bg-gray-100 hover:bg-red-100 text-gray-700 hover:text-red-700'
                                   }`}>
                                   {orderStatusUpdating === order.order_no ? '...' : s}
                                 </button>
@@ -6299,11 +6299,11 @@ export default function POSPage() {
                             </div>
                           </div>
                           {Array.isArray(order.items) && order.items.length > 0 && (
-                            <div className="mt-2 pt-2 border-t border-gray-700 text-xs text-gray-500">
+                            <div className="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-400">
                               {order.items.map((item, j) => (
                                 <span key={j} className="mr-2">
                                   {item.name} ×{item.qty}
-                                  {item.returned_qty > 0 && <span className="text-orange-400"> (คืนเปล่า {item.returned_qty})</span>}
+                                  {item.returned_qty > 0 && <span className="text-orange-600"> (คืนเปล่า {item.returned_qty})</span>}
                                 </span>
                               ))}
                             </div>
@@ -6311,17 +6311,17 @@ export default function POSPage() {
 
                           {/* ยืนยันจัดส่งแล้ว — แสดงรายละเอียดการยืนยันจากพนักงาน + ปุ่มยืนยันรับเงิน/รับของ (Phase B) */}
                           {order.status === 'ส่งแล้ว' && order.confirmed_at && (
-                            <div className="mt-2 pt-2 border-t border-gray-700">
-                              <div className="text-gray-500 text-xs">
+                            <div className="mt-2 pt-2 border-t border-gray-200">
+                              <div className="text-gray-400 text-xs">
                                 ✅ ยืนยันจัดส่งเมื่อ {order.confirmed_at}{order.confirmed_by ? ` โดย ${order.confirmed_by}` : ''}
                                 {order.slip_url && (
-                                  <> · <a href={order.slip_url} target="_blank" rel="noreferrer" className="text-blue-400 underline">ดูสลิป</a></>
+                                  <> · <a href={order.slip_url} target="_blank" rel="noreferrer" className="text-blue-600 underline">ดูสลิป</a></>
                                 )}
                               </div>
                               <div className="flex gap-1.5 mt-1.5 flex-wrap">
                                 {order.payment_method !== 'ค้างจ่าย' && (
                                   order.cash_received ? (
-                                    <span className="text-xs bg-green-900/60 text-green-300 px-2.5 py-1.5 rounded-lg">💰 รับเงินเข้าร้านแล้ว</span>
+                                    <span className="text-xs bg-green-50/60 text-green-700 px-2.5 py-1.5 rounded-lg">💰 รับเงินเข้าร้านแล้ว</span>
                                   ) : (
                                     <button onClick={() => confirmCashReceived(order)} disabled={cashConfirming === order.order_no}
                                       className="text-xs bg-yellow-700 hover:bg-yellow-600 text-white px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50">
@@ -6331,7 +6331,7 @@ export default function POSPage() {
                                 )}
                                 {Array.isArray(order.items) && order.items.some(i => i.returned_qty > 0) && (
                                   order.goods_received ? (
-                                    <span className="text-xs bg-green-900/60 text-green-300 px-2.5 py-1.5 rounded-lg">📦 รับของเข้าคลังแล้ว</span>
+                                    <span className="text-xs bg-green-50/60 text-green-700 px-2.5 py-1.5 rounded-lg">📦 รับของเข้าคลังแล้ว</span>
                                   ) : (
                                     <button onClick={() => confirmGoodsReceived(order)} disabled={goodsConfirming === order.order_no}
                                       className="text-xs bg-orange-700 hover:bg-orange-600 text-white px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50">
@@ -6343,11 +6343,11 @@ export default function POSPage() {
                             </div>
                           )}
 
-                          <div className="flex gap-1.5 mt-2 pt-2 border-t border-gray-700">
+                          <div className="flex gap-1.5 mt-2 pt-2 border-t border-gray-200">
                             <button onClick={() => openEditOrder(order)}
-                              className="text-xs bg-gray-700 hover:bg-blue-700 text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">✏️ แก้ไข</button>
+                              className="text-xs bg-gray-100 hover:bg-blue-700 text-gray-700 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">✏️ แก้ไข</button>
                             <button onClick={() => deleteOrder(order)} disabled={orderDeleting === order.order_no}
-                              className="text-xs bg-gray-700 hover:bg-red-700 text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50">
+                              className="text-xs bg-gray-100 hover:bg-red-700 text-gray-700 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50">
                               {orderDeleting === order.order_no ? 'กำลังลบ...' : '🗑️ ลบ'}
                             </button>
                           </div>
@@ -6392,8 +6392,8 @@ export default function POSPage() {
               <div className="h-full overflow-y-auto">
                 <div className="p-4 max-w-3xl mx-auto">
                   <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-white font-bold">งานเก็บเงิน/ของ ({displayTasks.length}{displayTasks.length !== collectionTasks.length ? `/${collectionTasks.length}` : ''})</h2>
-                    <button onClick={() => fetchCollectionTasks(shopId)} className="text-xs text-gray-400 hover:text-white bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-700 transition-colors">
+                    <h2 className="text-gray-900 font-bold">งานเก็บเงิน/ของ ({displayTasks.length}{displayTasks.length !== collectionTasks.length ? `/${collectionTasks.length}` : ''})</h2>
+                    <button onClick={() => fetchCollectionTasks(shopId)} className="text-xs text-gray-500 hover:text-gray-900 bg-white px-3 py-1.5 rounded-lg border border-gray-200 transition-colors">
                       🔄 รีเฟรช
                     </button>
                   </div>
@@ -6405,11 +6405,11 @@ export default function POSPage() {
                       { v: 'done', label: '✅ เสร็จแล้ว' },
                     ].map(f => (
                       <button key={f.v} onClick={() => setCollectStatusFilter(f.v)}
-                        className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${collectStatusFilter === f.v ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                        className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${collectStatusFilter === f.v ? 'bg-orange-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}`}>
                         {f.label}
                       </button>
                     ))}
-                    <span className="w-px h-5 bg-gray-700 mx-0.5" />
+                    <span className="w-px h-5 bg-gray-100 mx-0.5" />
                     {[
                       { v: 'all', label: 'ทุกวันที่' },
                       { v: 'today', label: '📅 วันนี้' },
@@ -6417,66 +6417,66 @@ export default function POSPage() {
                       { v: 'month', label: '📅 เดือนนี้' },
                     ].map(f => (
                       <button key={f.v} onClick={() => setCollectDateFilter(f.v)}
-                        className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${collectDateFilter === f.v ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                        className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${collectDateFilter === f.v ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}`}>
                         {f.label}
                       </button>
                     ))}
                   </div>
 
                   {collectionTasksLoading ? (
-                    <div className="text-center text-gray-500 py-12 animate-pulse">กำลังโหลด...</div>
+                    <div className="text-center text-gray-400 py-12 animate-pulse">กำลังโหลด...</div>
                   ) : displayTasks.length === 0 ? (
                     <div className="text-center py-16">
                       <div className="text-5xl mb-3">🧾</div>
-                      <p className="text-gray-400 text-sm">{collectionTasks.length === 0 ? 'ยังไม่มีงานเก็บเงิน/ของ' : 'ไม่พบงานตามตัวกรองที่เลือก'}</p>
+                      <p className="text-gray-500 text-sm">{collectionTasks.length === 0 ? 'ยังไม่มีงานเก็บเงิน/ของ' : 'ไม่พบงานตามตัวกรองที่เลือก'}</p>
                     </div>
                   ) : (
                     <div className="space-y-3">
                       {displayTasks.map(task => {
                         const statusColor = {
-                          'รอดำเนินการ': 'bg-yellow-900/60 text-yellow-300',
-                          'เก็บสำเร็จ': 'bg-green-900/60 text-green-300',
-                          'เก็บไม่ได้': 'bg-red-900/60 text-red-300',
-                        }[task.status] || 'bg-gray-700 text-gray-400';
+                          'รอดำเนินการ': 'bg-yellow-50/60 text-yellow-700',
+                          'เก็บสำเร็จ': 'bg-green-50/60 text-green-700',
+                          'เก็บไม่ได้': 'bg-red-50/60 text-red-700',
+                        }[task.status] || 'bg-gray-100 text-gray-500';
                         return (
-                          <div key={task.collection_no} className="bg-gray-800 rounded-xl p-4">
+                          <div key={task.collection_no} className="bg-white rounded-xl p-4">
                             <div className="flex items-start justify-between gap-2 mb-2">
                               <div>
-                                <div className="text-gray-400 text-xs font-mono">{task.collection_no}</div>
-                                <div className="text-white font-medium">{task.customer_name}</div>
-                                {task.phone && <div className="text-gray-400 text-xs">📞 {task.phone}</div>}
+                                <div className="text-gray-500 text-xs font-mono">{task.collection_no}</div>
+                                <div className="text-gray-900 font-medium">{task.customer_name}</div>
+                                {task.phone && <div className="text-gray-500 text-xs">📞 {task.phone}</div>}
                               </div>
                               <span className={`shrink-0 text-xs px-2 py-1 rounded-full font-medium ${statusColor}`}>{task.status}</span>
                             </div>
-                            <div className="text-gray-500 text-xs mb-1.5">{task.task_type} · {task.staff_name} · {task.created_at}</div>
-                            {task.debt_amount > 0 && <div className="text-orange-400 text-sm font-bold">💳 เงินเชื่อค้าง ฿{task.debt_amount.toLocaleString()}</div>}
+                            <div className="text-gray-400 text-xs mb-1.5">{task.task_type} · {task.staff_name} · {task.created_at}</div>
+                            {task.debt_amount > 0 && <div className="text-orange-600 text-sm font-bold">💳 เงินเชื่อค้าง ฿{task.debt_amount.toLocaleString()}</div>}
                             {Array.isArray(task.items) && task.items.length > 0 && (
-                              <div className="text-xs text-gray-500 mt-1">
+                              <div className="text-xs text-gray-400 mt-1">
                                 {task.items.map((item, j) => <span key={j} className="mr-2">🔄 {item.name} ×{item.qty}</span>)}
                               </div>
                             )}
-                            {task.notes && <div className="text-gray-500 text-xs mt-1">📝 {task.notes}</div>}
+                            {task.notes && <div className="text-gray-400 text-xs mt-1">📝 {task.notes}</div>}
 
                             {task.status !== 'รอดำเนินการ' && (
-                              <div className="mt-2 pt-2 border-t border-gray-700">
-                                <div className="text-gray-500 text-xs">
+                              <div className="mt-2 pt-2 border-t border-gray-200">
+                                <div className="text-gray-400 text-xs">
                                   ยืนยันเมื่อ {task.confirmed_at}{task.confirmed_by ? ` โดย ${task.confirmed_by}` : ''}
-                                  {task.slip_url && (<> · <a href={task.slip_url} target="_blank" rel="noreferrer" className="text-blue-400 underline">ดูสลิป</a></>)}
+                                  {task.slip_url && (<> · <a href={task.slip_url} target="_blank" rel="noreferrer" className="text-blue-600 underline">ดูสลิป</a></>)}
                                 </div>
                                 {task.status === 'เก็บสำเร็จ' && (
-                                  <div className="text-green-400 text-xs mt-0.5">
+                                  <div className="text-green-600 text-xs mt-0.5">
                                     เก็บได้ ฿{task.collected_amount.toLocaleString()}
                                     {task.collected_items?.length > 0 && ` · ${task.collected_items.map(i => `${i.name} ×${i.qty}`).join(', ')}`}
                                   </div>
                                 )}
                                 {task.status === 'เก็บไม่ได้' && task.staff_note && (
-                                  <div className="text-red-400 text-xs mt-0.5">เหตุผล: {task.staff_note}</div>
+                                  <div className="text-red-600 text-xs mt-0.5">เหตุผล: {task.staff_note}</div>
                                 )}
                                 {task.status === 'เก็บสำเร็จ' && (
                                   <div className="flex gap-1.5 mt-1.5 flex-wrap">
                                     {task.collected_amount > 0 && (
                                       task.cash_received ? (
-                                        <span className="text-xs bg-green-900/60 text-green-300 px-2.5 py-1.5 rounded-lg">💰 รับเงินเข้าร้านแล้ว</span>
+                                        <span className="text-xs bg-green-50/60 text-green-700 px-2.5 py-1.5 rounded-lg">💰 รับเงินเข้าร้านแล้ว</span>
                                       ) : (
                                         <button onClick={() => confirmCollectCash(task)} disabled={collectCashConfirming === task.collection_no}
                                           className="text-xs bg-yellow-700 hover:bg-yellow-600 text-white px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50">
@@ -6486,7 +6486,7 @@ export default function POSPage() {
                                     )}
                                     {task.collected_items?.length > 0 && (
                                       task.goods_received ? (
-                                        <span className="text-xs bg-green-900/60 text-green-300 px-2.5 py-1.5 rounded-lg">📦 รับของเข้าคลังแล้ว</span>
+                                        <span className="text-xs bg-green-50/60 text-green-700 px-2.5 py-1.5 rounded-lg">📦 รับของเข้าคลังแล้ว</span>
                                       ) : (
                                         <button onClick={() => confirmCollectGoods(task)} disabled={collectGoodsConfirming === task.collection_no}
                                           className="text-xs bg-orange-700 hover:bg-orange-600 text-white px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50">
@@ -6500,9 +6500,9 @@ export default function POSPage() {
                             )}
 
                             {task.status === 'รอดำเนินการ' && (
-                              <div className="flex gap-1.5 mt-2 pt-2 border-t border-gray-700">
+                              <div className="flex gap-1.5 mt-2 pt-2 border-t border-gray-200">
                                 <button onClick={() => deleteCollectionTask(task)}
-                                  className="text-xs bg-gray-700 hover:bg-red-700 text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">
+                                  className="text-xs bg-gray-100 hover:bg-red-700 text-gray-700 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">
                                   🗑️ ยกเลิกงาน
                                 </button>
                               </div>
@@ -6520,36 +6520,36 @@ export default function POSPage() {
           {/* ══ Modal: แก้ไขออเดอร์จัดส่ง ══════════════════════════════════════ */}
           {showOrderEditForm && editingOrder && (
             <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-gray-900 rounded-2xl w-full max-w-md border border-gray-700 shadow-2xl max-h-[90vh] overflow-y-auto">
+              <div className="bg-white rounded-2xl w-full max-w-md border border-gray-200 shadow-2xl max-h-[90vh] overflow-y-auto">
                 <div className="p-5">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-white font-bold">✏️ แก้ไขออเดอร์ {editingOrder.order_no}</h3>
-                    <button onClick={() => setShowOrderEditForm(false)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+                    <h3 className="text-gray-900 font-bold">✏️ แก้ไขออเดอร์ {editingOrder.order_no}</h3>
+                    <button onClick={() => setShowOrderEditForm(false)} className="text-gray-500 hover:text-gray-900 text-2xl leading-none">×</button>
                   </div>
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-gray-400 text-xs mb-1.5">ชื่อลูกค้า</label>
+                      <label className="block text-gray-500 text-xs mb-1.5">ชื่อลูกค้า</label>
                       <input value={orderEditForm.customer_name}
                         onChange={e => setOrderEditForm(f => ({ ...f, customer_name: e.target.value }))}
-                        className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                        className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                     </div>
                     <div>
-                      <label className="block text-gray-400 text-xs mb-1.5">เบอร์โทร</label>
+                      <label className="block text-gray-500 text-xs mb-1.5">เบอร์โทร</label>
                       <input value={orderEditForm.phone}
                         onChange={e => setOrderEditForm(f => ({ ...f, phone: e.target.value }))}
-                        className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                        className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                     </div>
                     <div>
-                      <label className="block text-gray-400 text-xs mb-1.5">ที่อยู่จัดส่ง</label>
+                      <label className="block text-gray-500 text-xs mb-1.5">ที่อยู่จัดส่ง</label>
                       <textarea value={orderEditForm.address} rows={2}
                         onChange={e => setOrderEditForm(f => ({ ...f, address: e.target.value }))}
-                        className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                        className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                     </div>
                     <div>
-                      <label className="block text-gray-400 text-xs mb-1.5">พนักงานส่ง</label>
+                      <label className="block text-gray-500 text-xs mb-1.5">พนักงานส่ง</label>
                       <select value={orderEditForm.staff_id}
                         onChange={e => setOrderEditForm(f => ({ ...f, staff_id: e.target.value }))}
-                        className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500">
+                        className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500">
                         <option value="">— ไม่ระบุ —</option>
                         {staff.map(s => (
                           <option key={s.staff_id} value={s.staff_id}>{s.name}</option>
@@ -6557,24 +6557,24 @@ export default function POSPage() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-gray-400 text-xs mb-1.5">วิธีชำระ</label>
+                      <label className="block text-gray-500 text-xs mb-1.5">วิธีชำระ</label>
                       <select value={orderEditForm.payment_method}
                         onChange={e => setOrderEditForm(f => ({ ...f, payment_method: e.target.value }))}
-                        className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500">
+                        className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500">
                         <option value="เก็บปลายทาง">เก็บปลายทาง</option>
                         <option value="โอนแล้ว">โอนแล้ว</option>
                         <option value="ค้างจ่าย">ค้างจ่าย</option>
                       </select>
                     </div>
                     <div>
-                      <label className="block text-gray-400 text-xs mb-1.5">หมายเหตุ</label>
+                      <label className="block text-gray-500 text-xs mb-1.5">หมายเหตุ</label>
                       <textarea value={orderEditForm.notes} rows={2}
                         onChange={e => setOrderEditForm(f => ({ ...f, notes: e.target.value }))}
-                        className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                        className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                     </div>
                   </div>
                   <div className="flex gap-3 mt-5">
-                    <button onClick={() => setShowOrderEditForm(false)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-colors text-sm">ยกเลิก</button>
+                    <button onClick={() => setShowOrderEditForm(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-900 font-bold py-3 rounded-xl transition-colors text-sm">ยกเลิก</button>
                     <button onClick={saveOrderEdit} disabled={orderEditSaving}
                       className="flex-[2] bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm">
                       {orderEditSaving ? 'กำลังบันทึก...' : '💾 บันทึก'}
@@ -6588,32 +6588,32 @@ export default function POSPage() {
           {/* ══ Modal: เปิดกะเงินสด ══════════════════════════════════════════ */}
           {showOpenShiftModal && (
             <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-gray-900 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl">
+              <div className="bg-white rounded-2xl w-full max-w-sm border border-gray-200 shadow-2xl">
                 <div className="p-5">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-white font-bold">🔓 เปิดกะเงินสด</h3>
-                    <button onClick={() => setShowOpenShiftModal(false)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+                    <h3 className="text-gray-900 font-bold">🔓 เปิดกะเงินสด</h3>
+                    <button onClick={() => setShowOpenShiftModal(false)} className="text-gray-500 hover:text-gray-900 text-2xl leading-none">×</button>
                   </div>
 
                   {openShiftStep === 'name' ? (
                     <>
-                      <div className="text-gray-400 text-xs mb-3">เลือกชื่อของคุณก่อนเปิดกะ</div>
+                      <div className="text-gray-500 text-xs mb-3">เลือกชื่อของคุณก่อนเปิดกะ</div>
                       {openShiftPickerLoading ? (
-                        <div className="text-center text-gray-500 text-sm py-6 animate-pulse">กำลังโหลดรายชื่อ...</div>
+                        <div className="text-center text-gray-400 text-sm py-6 animate-pulse">กำลังโหลดรายชื่อ...</div>
                       ) : openShiftPickerList.length === 0 ? (
-                        <div className="text-center text-gray-500 text-sm py-6">ยังไม่มีพนักงานที่ตั้ง PIN ไว้</div>
+                        <div className="text-center text-gray-400 text-sm py-6">ยังไม่มีพนักงานที่ตั้ง PIN ไว้</div>
                       ) : (
                         <div className="space-y-2 max-h-64 overflow-y-auto">
                           {openShiftPickerList.map(s => (
                             <button key={s.staff_id}
                               onClick={() => { setOpenShiftSelectedName(s); setOpenShiftPin(''); setOpenShiftPinError(''); setOpenShiftStep('pin'); }}
-                              className="w-full flex items-center gap-3 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl px-3 py-2.5 text-left transition-colors">
-                              <span className="w-8 h-8 rounded-full bg-green-900 text-green-300 flex items-center justify-center font-bold text-sm shrink-0">
+                              className="w-full flex items-center gap-3 bg-white hover:bg-gray-100 border border-gray-200 rounded-xl px-3 py-2.5 text-left transition-colors">
+                              <span className="w-8 h-8 rounded-full bg-green-50 text-green-700 flex items-center justify-center font-bold text-sm shrink-0">
                                 {s.name.trim().charAt(0)}
                               </span>
                               <div className="min-w-0">
-                                <div className="text-white text-sm font-medium truncate">{s.name}</div>
-                                {s.branch_name && <div className="text-gray-500 text-xs truncate">{s.branch_name}</div>}
+                                <div className="text-gray-900 text-sm font-medium truncate">{s.name}</div>
+                                {s.branch_name && <div className="text-gray-400 text-xs truncate">{s.branch_name}</div>}
                               </div>
                             </button>
                           ))}
@@ -6622,41 +6622,41 @@ export default function POSPage() {
                     </>
                   ) : openShiftStep === 'pin' ? (
                     <>
-                      <div className="text-gray-400 text-xs mb-3">ใส่ PIN ของ {openShiftSelectedName?.name} เพื่อยืนยันตัวตนก่อนเปิดกะ</div>
+                      <div className="text-gray-500 text-xs mb-3">ใส่ PIN ของ {openShiftSelectedName?.name} เพื่อยืนยันตัวตนก่อนเปิดกะ</div>
                       <input
                         type="password" inputMode="numeric" autoFocus
                         value={openShiftPin}
                         onChange={e => { setOpenShiftPin(e.target.value.replace(/\D/g, '').slice(0, 8)); setOpenShiftPinError(''); }}
                         onKeyDown={e => { if (e.key === 'Enter') verifyOpenShiftPin(); }}
                         placeholder="PIN"
-                        className="w-full bg-gray-800 text-white text-2xl font-bold text-center tracking-widest px-4 py-3 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 mb-2"
+                        className="w-full bg-white text-gray-900 text-2xl font-bold text-center tracking-widest px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500 mb-2"
                       />
-                      {openShiftPinError && <div className="text-red-400 text-xs mb-3">{openShiftPinError}</div>}
+                      {openShiftPinError && <div className="text-red-600 text-xs mb-3">{openShiftPinError}</div>}
                       <button onClick={verifyOpenShiftPin} disabled={openShiftVerifying || !openShiftPin.trim()}
                         className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm mb-2">
                         {openShiftVerifying ? 'กำลังตรวจสอบ...' : 'ยืนยันตัวตน'}
                       </button>
                       <button onClick={() => { setOpenShiftStep('name'); setOpenShiftPin(''); setOpenShiftPinError(''); }}
-                        className="w-full text-gray-500 hover:text-gray-300 text-xs py-1 transition-colors">
+                        className="w-full text-gray-400 hover:text-gray-700 text-xs py-1 transition-colors">
                         ← ไม่ใช่ฉัน เลือกชื่อใหม่
                       </button>
                     </>
                   ) : (
                     <>
-                      <div className="bg-gray-800 rounded-xl p-3 mb-4">
-                        <div className="text-white font-medium">👋 {openShiftStaff?.name}</div>
-                        {selectedBranch && <div className="text-gray-400 text-xs mt-0.5">สาขา: {selectedBranch.branch_name}</div>}
+                      <div className="bg-white rounded-xl p-3 mb-4">
+                        <div className="text-gray-900 font-medium">👋 {openShiftStaff?.name}</div>
+                        {selectedBranch && <div className="text-gray-500 text-xs mt-0.5">สาขา: {selectedBranch.branch_name}</div>}
                       </div>
-                      <label className="text-gray-400 text-xs block mb-1.5">เงินสดตั้งต้นในลิ้นชัก (บาท)</label>
+                      <label className="text-gray-500 text-xs block mb-1.5">เงินสดตั้งต้นในลิ้นชัก (บาท)</label>
                       <input
                         type="number" autoFocus
                         value={openShiftAmount}
                         onChange={e => setOpenShiftAmount(e.target.value)}
                         placeholder="0"
-                        className="w-full bg-gray-800 text-white text-lg font-bold px-4 py-3 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 mb-4"
+                        className="w-full bg-white text-gray-900 text-lg font-bold px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500 mb-4"
                       />
                       <div className="flex gap-3">
-                        <button onClick={() => setOpenShiftStep('pin')} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-colors text-sm">← กลับ</button>
+                        <button onClick={() => setOpenShiftStep('pin')} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-900 font-bold py-3 rounded-xl transition-colors text-sm">← กลับ</button>
                         <button onClick={confirmOpenShift} disabled={openShiftSaving}
                           className="flex-[2] bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm">
                           {openShiftSaving ? 'กำลังเปิดกะ...' : '🔓 เปิดกะ'}
@@ -6672,85 +6672,85 @@ export default function POSPage() {
           {/* ══ Modal: ปิดกะเงินสด ══════════════════════════════════════════ */}
           {showCloseShiftModal && activeShift && (
             <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-gray-900 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl max-h-[90vh] overflow-y-auto">
+              <div className="bg-white rounded-2xl w-full max-w-sm border border-gray-200 shadow-2xl max-h-[90vh] overflow-y-auto">
                 <div className="p-5">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-white font-bold">🔒 ปิดกะเงินสด</h3>
-                    <button onClick={() => setShowCloseShiftModal(false)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+                    <h3 className="text-gray-900 font-bold">🔒 ปิดกะเงินสด</h3>
+                    <button onClick={() => setShowCloseShiftModal(false)} className="text-gray-500 hover:text-gray-900 text-2xl leading-none">×</button>
                   </div>
 
                   {closeShiftResult ? (
                     <>
-                      <div className={`rounded-xl p-4 mb-4 ${closeShiftResult.variance === 0 ? 'bg-green-950 border border-green-800' : 'bg-yellow-950 border border-yellow-800'}`}>
-                        <div className={`font-bold mb-2 ${closeShiftResult.variance === 0 ? 'text-green-300' : 'text-yellow-300'}`}>
+                      <div className={`rounded-xl p-4 mb-4 ${closeShiftResult.variance === 0 ? 'bg-green-50 border border-green-200' : 'bg-yellow-50 border border-yellow-200'}`}>
+                        <div className={`font-bold mb-2 ${closeShiftResult.variance === 0 ? 'text-green-700' : 'text-yellow-700'}`}>
                           {closeShiftResult.variance === 0 ? '✅ ปิดกะสำเร็จ ยอดตรงพอดี' : `⚠️ ปิดกะสำเร็จ — ${closeShiftResult.variance > 0 ? 'เงินเกิน' : 'เงินขาด'} ฿${Math.abs(closeShiftResult.variance).toLocaleString()}`}
                         </div>
-                        <div className="text-gray-300 text-sm space-y-1">
+                        <div className="text-gray-700 text-sm space-y-1">
                           <div>เงินที่ควรมี: ฿{closeShiftResult.expected_cash.toLocaleString()}</div>
                           <div>นับได้จริง: ฿{closeShiftResult.counted_cash.toLocaleString()}</div>
                           <div>เก็บออกไป: ฿{closeShiftResult.withdrawn_amount.toLocaleString()}</div>
                           <div>ยกไปกะถัดไป: ฿{closeShiftResult.carried_forward.toLocaleString()}</div>
                         </div>
                         {closeShiftResult.notified_owner && (
-                          <div className="text-yellow-400 text-xs mt-2">📲 แจ้งเจ้าของร้านทาง LINE แล้ว</div>
+                          <div className="text-yellow-600 text-xs mt-2">📲 แจ้งเจ้าของร้านทาง LINE แล้ว</div>
                         )}
                       </div>
-                      <button onClick={() => setShowCloseShiftModal(false)} className="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-colors text-sm">ปิดหน้าต่าง</button>
+                      <button onClick={() => setShowCloseShiftModal(false)} className="w-full bg-gray-100 hover:bg-gray-200 text-gray-900 font-bold py-3 rounded-xl transition-colors text-sm">ปิดหน้าต่าง</button>
                     </>
                   ) : closeShiftLoading || !closeShiftPreview ? (
-                    <div className="text-center text-gray-500 py-8 animate-pulse text-sm">กำลังคำนวณยอด...</div>
+                    <div className="text-center text-gray-400 py-8 animate-pulse text-sm">กำลังคำนวณยอด...</div>
                   ) : (
                     <>
-                      <div className="bg-gray-800 rounded-xl p-3 mb-4 space-y-1">
-                        <div className="text-white font-medium">{activeShift.staff_name}</div>
-                        <div className="text-gray-400 text-xs">เปิดกะเมื่อ {closeShiftPreview.opened_at}</div>
-                        <div className="text-gray-400 text-xs">เงินสดตั้งต้น ฿{(closeShiftPreview.opening_cash || 0).toLocaleString()}</div>
-                        <div className="text-green-400 text-sm font-bold mt-1">เงินสดที่ควรมีตอนนี้: ฿{closeShiftPreview.expected_cash.toLocaleString()}</div>
+                      <div className="bg-white rounded-xl p-3 mb-4 space-y-1">
+                        <div className="text-gray-900 font-medium">{activeShift.staff_name}</div>
+                        <div className="text-gray-500 text-xs">เปิดกะเมื่อ {closeShiftPreview.opened_at}</div>
+                        <div className="text-gray-500 text-xs">เงินสดตั้งต้น ฿{(closeShiftPreview.opening_cash || 0).toLocaleString()}</div>
+                        <div className="text-green-600 text-sm font-bold mt-1">เงินสดที่ควรมีตอนนี้: ฿{closeShiftPreview.expected_cash.toLocaleString()}</div>
                       </div>
 
-                      <label className="text-gray-400 text-xs block mb-1.5">เงินสดที่นับได้จริง (บาท)</label>
+                      <label className="text-gray-500 text-xs block mb-1.5">เงินสดที่นับได้จริง (บาท)</label>
                       <input
                         type="number" autoFocus
                         value={closeShiftCounted}
                         onChange={e => setCloseShiftCounted(e.target.value)}
                         placeholder="0"
-                        className="w-full bg-gray-800 text-white text-lg font-bold px-4 py-3 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 mb-2"
+                        className="w-full bg-white text-gray-900 text-lg font-bold px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500 mb-2"
                       />
                       {closeShiftCounted !== '' && (
-                        <div className={`text-xs mb-3 font-medium ${closeShiftVariance === 0 ? 'text-green-400' : closeShiftVariance > 0 ? 'text-blue-400' : 'text-red-400'}`}>
+                        <div className={`text-xs mb-3 font-medium ${closeShiftVariance === 0 ? 'text-green-600' : closeShiftVariance > 0 ? 'text-blue-600' : 'text-red-600'}`}>
                           {closeShiftVariance === 0 ? '✅ ยอดตรงพอดี' : closeShiftVariance > 0 ? `เงินเกิน ฿${closeShiftVariance.toLocaleString()}` : `เงินขาด ฿${Math.abs(closeShiftVariance).toLocaleString()}`}
                         </div>
                       )}
 
                       {closeShiftVariance !== 0 && closeShiftCounted !== '' && (
                         <div className="mb-3">
-                          <label className="text-yellow-400 text-xs block mb-1.5">⚠️ หมายเหตุ (บังคับ — ยอดไม่ตรง ต้องระบุสาเหตุ)</label>
+                          <label className="text-yellow-600 text-xs block mb-1.5">⚠️ หมายเหตุ (บังคับ — ยอดไม่ตรง ต้องระบุสาเหตุ)</label>
                           <textarea
                             value={closeShiftNotes}
                             onChange={e => setCloseShiftNotes(e.target.value)}
                             placeholder="เช่น ทอนผิด, ลืมคีย์รายจ่าย ฯลฯ"
                             rows={2}
-                            className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-yellow-800 focus:outline-none focus:border-yellow-500"
+                            className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-yellow-200 focus:outline-none focus:border-yellow-500"
                           />
                         </div>
                       )}
 
-                      <label className="text-gray-400 text-xs block mb-1.5">ยอดเก็บออกไป (ฝากธนาคาร/เข้าตู้เซฟ — เว้นว่างได้)</label>
+                      <label className="text-gray-500 text-xs block mb-1.5">ยอดเก็บออกไป (ฝากธนาคาร/เข้าตู้เซฟ — เว้นว่างได้)</label>
                       <input
                         type="number"
                         value={closeShiftWithdrawn}
                         onChange={e => setCloseShiftWithdrawn(e.target.value)}
                         placeholder="0"
-                        className="w-full bg-gray-800 text-white px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 mb-2 text-sm"
+                        className="w-full bg-white text-gray-900 px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500 mb-2 text-sm"
                       />
                       {closeShiftCounted !== '' && (
-                        <div className="text-gray-400 text-xs mb-4">
+                        <div className="text-gray-500 text-xs mb-4">
                           ยกไปกะถัดไป: ฿{Math.max(0, (parseFloat(closeShiftCounted) || 0) - Math.min(parseFloat(closeShiftCounted) || 0, Math.max(0, parseFloat(closeShiftWithdrawn) || 0))).toLocaleString()}
                         </div>
                       )}
 
                       <div className="flex gap-3">
-                        <button onClick={() => setShowCloseShiftModal(false)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-colors text-sm">ยกเลิก</button>
+                        <button onClick={() => setShowCloseShiftModal(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-900 font-bold py-3 rounded-xl transition-colors text-sm">ยกเลิก</button>
                         <button onClick={confirmCloseShift} disabled={closeShiftSaving || closeShiftCounted === ''}
                           className="flex-[2] bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm">
                           {closeShiftSaving ? 'กำลังปิดกะ...' : '🔒 ปิดกะ'}
@@ -6766,28 +6766,28 @@ export default function POSPage() {
           {/* ══ Modal: รับเงินหนี้ลูกค้า ══════════════════════════════════════ */}
           {showDebtModal && debtCust && (
             <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-gray-900 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl">
+              <div className="bg-white rounded-2xl w-full max-w-sm border border-gray-200 shadow-2xl">
                 <div className="p-5">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-white font-bold">💵 รับชำระหนี้</h3>
-                    <button onClick={() => setShowDebtModal(false)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+                    <h3 className="text-gray-900 font-bold">💵 รับชำระหนี้</h3>
+                    <button onClick={() => setShowDebtModal(false)} className="text-gray-500 hover:text-gray-900 text-2xl leading-none">×</button>
                   </div>
-                  <div className="bg-gray-800 rounded-xl p-3 mb-4">
-                    <div className="text-white font-medium">{debtCust.name}</div>
-                    <div className="text-red-400 text-sm mt-0.5">ยอดค้างชำระทั้งหมด ฿{(debtCust.debt || 0).toLocaleString()}</div>
+                  <div className="bg-white rounded-xl p-3 mb-4">
+                    <div className="text-gray-900 font-medium">{debtCust.name}</div>
+                    <div className="text-red-600 text-sm mt-0.5">ยอดค้างชำระทั้งหมด ฿{(debtCust.debt || 0).toLocaleString()}</div>
                   </div>
                   <div className="mb-4">
-                    <label className="text-gray-400 text-xs block mb-1.5">จำนวนเงินที่รับ (บาท)</label>
+                    <label className="text-gray-500 text-xs block mb-1.5">จำนวนเงินที่รับ (บาท)</label>
                     <input
                       type="number"
                       value={debtAmount}
                       onChange={e => setDebtAmount(e.target.value)}
-                      className="w-full bg-gray-800 text-white text-lg font-bold px-4 py-3 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                      className="w-full bg-white text-gray-900 text-lg font-bold px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                       placeholder="0"
                       autoFocus
                     />
                     {debtAmount && parseFloat(debtAmount) > 0 && (
-                      <div className="text-gray-400 text-xs mt-1.5">
+                      <div className="text-gray-500 text-xs mt-1.5">
                         ยอดที่เหลือ: ฿{Math.max(0, (debtCust.debt || 0) - parseFloat(debtAmount)).toLocaleString()}
                       </div>
                     )}
@@ -6795,13 +6795,13 @@ export default function POSPage() {
                   <div className="grid grid-cols-3 gap-2 mb-4">
                     {[debtCust.debt, Math.round(debtCust.debt / 2), 100].filter(v => v > 0).map(v => (
                       <button key={v} onClick={() => setDebtAmount(String(v))}
-                        className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 py-2 rounded-lg border border-gray-700 transition-colors">
+                        className="text-xs bg-white hover:bg-gray-100 text-gray-700 py-2 rounded-lg border border-gray-200 transition-colors">
                         ฿{v.toLocaleString()}
                       </button>
                     ))}
                   </div>
                   <div className="flex gap-3">
-                    <button onClick={() => setShowDebtModal(false)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-colors text-sm">ยกเลิก</button>
+                    <button onClick={() => setShowDebtModal(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-900 font-bold py-3 rounded-xl transition-colors text-sm">ยกเลิก</button>
                     <button onClick={payDebt} disabled={debtSaving || !debtAmount || parseFloat(debtAmount) <= 0}
                       className="flex-[2] bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm">
                       {debtSaving ? 'กำลังบันทึก...' : `รับ ฿${parseFloat(debtAmount || 0).toLocaleString()}`}
@@ -6815,41 +6815,41 @@ export default function POSPage() {
           {/* ══ MODAL: คำสั่งซื้อจากลูกค้ารอยืนยัน (หน้าเว็บสาธารณะ /order) ══════════ */}
           {showCustomerOrders && (
             <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-4" onClick={() => setShowCustomerOrders(false)}>
-              <div className="bg-gray-900 rounded-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto border border-gray-700" onClick={e => e.stopPropagation()}>
-                <div className="p-4 border-b border-gray-800 flex items-center justify-between sticky top-0 bg-gray-900">
-                  <h3 className="text-white font-bold">🛒 คำสั่งซื้อจากลูกค้ารอยืนยัน</h3>
-                  <button onClick={() => setShowCustomerOrders(false)} className="text-gray-400 hover:text-white text-xl leading-none">✕</button>
+              <div className="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto border border-gray-200" onClick={e => e.stopPropagation()}>
+                <div className="p-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white">
+                  <h3 className="text-gray-900 font-bold">🛒 คำสั่งซื้อจากลูกค้ารอยืนยัน</h3>
+                  <button onClick={() => setShowCustomerOrders(false)} className="text-gray-500 hover:text-gray-900 text-xl leading-none">✕</button>
                 </div>
                 <div className="p-4">
                   {customerOrdersLoading ? (
-                    <div className="text-center text-gray-500 py-8 animate-pulse">กำลังโหลด...</div>
+                    <div className="text-center text-gray-400 py-8 animate-pulse">กำลังโหลด...</div>
                   ) : customerOrders.length === 0 ? (
-                    <div className="text-center text-gray-500 py-12 text-sm">
+                    <div className="text-center text-gray-400 py-12 text-sm">
                       <div className="text-3xl mb-2">📭</div>
                       ยังไม่มีคำสั่งซื้อจากลูกค้ารอยืนยัน
                     </div>
                   ) : (
                     <div className="space-y-3">
                       {customerOrders.map(order => (
-                        <div key={order.order_no} className="bg-gray-800 rounded-xl p-3">
+                        <div key={order.order_no} className="bg-white rounded-xl p-3">
                           <div className="flex items-start justify-between gap-2 mb-1.5">
                             <div className="min-w-0">
-                              <div className="text-white font-medium text-sm">{order.customer_name}</div>
-                              <div className="text-gray-400 text-xs">📞 {order.phone}</div>
-                              <div className="text-gray-500 text-xs mt-0.5">📍 {order.address}{order.branch ? ` (${order.branch})` : ''}</div>
+                              <div className="text-gray-900 font-medium text-sm">{order.customer_name}</div>
+                              <div className="text-gray-500 text-xs">📞 {order.phone}</div>
+                              <div className="text-gray-400 text-xs mt-0.5">📍 {order.address}{order.branch ? ` (${order.branch})` : ''}</div>
                             </div>
-                            <div className="text-green-400 font-bold text-sm shrink-0">฿{order.total.toLocaleString()}</div>
+                            <div className="text-green-600 font-bold text-sm shrink-0">฿{order.total.toLocaleString()}</div>
                           </div>
-                          <div className="text-gray-500 text-xs mt-1">{(order.items || []).map(i => `${i.name}×${i.qty}`).join(', ')}</div>
+                          <div className="text-gray-400 text-xs mt-1">{(order.items || []).map(i => `${i.name}×${i.qty}`).join(', ')}</div>
                           {(order.items || []).some(i => i.low_stock) && (
-                            <div className="text-yellow-400 text-xs mt-0.5">
+                            <div className="text-yellow-600 text-xs mt-0.5">
                               ⚠️ สต็อคที่สาขานี้อาจไม่พอ: {(order.items || []).filter(i => i.low_stock).map(i => i.name).join(', ')}
                             </div>
                           )}
-                          <div className="text-gray-500 text-xs mt-0.5">💳 {order.payment_method}{order.notes ? ` — ${order.notes}` : ''}</div>
+                          <div className="text-gray-400 text-xs mt-0.5">💳 {order.payment_method}{order.notes ? ` — ${order.notes}` : ''}</div>
                           <div className="flex gap-2 mt-2.5">
                             <button onClick={() => rejectCustomerOrder(order)}
-                              className="flex-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 py-2 rounded-lg transition-colors">ปฏิเสธ</button>
+                              className="flex-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-lg transition-colors">ปฏิเสธ</button>
                             <button onClick={() => { setConfirmingCustomerOrder(order); setConfirmOrderStaffId(''); }}
                               className="flex-[2] text-xs bg-green-700 hover:bg-green-600 text-white font-bold py-2 rounded-lg transition-colors">✅ ยืนยันเป็นออเดอร์จัดส่ง</button>
                           </div>
@@ -6865,21 +6865,21 @@ export default function POSPage() {
           {/* ══ MODAL: เลือกพนักงานส่ง เพื่อยืนยันคำสั่งซื้อจากลูกค้า ══════════════ */}
           {confirmingCustomerOrder && (
             <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-4" onClick={() => setConfirmingCustomerOrder(null)}>
-              <div className="bg-gray-900 rounded-2xl w-full max-w-sm border border-gray-700" onClick={e => e.stopPropagation()}>
-                <div className="p-4 border-b border-gray-800 flex items-center justify-between">
-                  <h3 className="text-white font-bold text-sm">เลือกพนักงานส่ง</h3>
-                  <button onClick={() => setConfirmingCustomerOrder(null)} className="text-gray-400 hover:text-white text-xl leading-none">✕</button>
+              <div className="bg-white rounded-2xl w-full max-w-sm border border-gray-200" onClick={e => e.stopPropagation()}>
+                <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+                  <h3 className="text-gray-900 font-bold text-sm">เลือกพนักงานส่ง</h3>
+                  <button onClick={() => setConfirmingCustomerOrder(null)} className="text-gray-500 hover:text-gray-900 text-xl leading-none">✕</button>
                 </div>
                 <div className="p-4">
                   <div className="grid grid-cols-2 gap-2 mb-4">
                     {staff.map(s => (
                       <button key={s.staff_id} onClick={() => setConfirmOrderStaffId(s.staff_id)}
-                        className={`py-3 rounded-xl text-sm font-medium border transition-colors ${confirmOrderStaffId === s.staff_id ? 'bg-green-700 border-green-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}`}>
+                        className={`py-3 rounded-xl text-sm font-medium border transition-colors ${confirmOrderStaffId === s.staff_id ? 'bg-green-700 border-green-600 text-white' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'}`}>
                         {s.name}
                         {!s.line_id && <div className="text-[10px] text-yellow-500 mt-0.5">⚠️ ไม่มี LINE ID</div>}
                       </button>
                     ))}
-                    {!staff.length && <div className="col-span-2 text-gray-500 text-xs text-center py-4">ยังไม่มีพนักงานในระบบ — เพิ่มได้ที่แท็บตั้งค่า</div>}
+                    {!staff.length && <div className="col-span-2 text-gray-400 text-xs text-center py-4">ยังไม่มีพนักงานในระบบ — เพิ่มได้ที่แท็บตั้งค่า</div>}
                   </div>
                   <button onClick={submitCustomerOrderConfirm} disabled={!confirmOrderStaffId || confirmOrderSubmitting}
                     className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors">
@@ -6893,15 +6893,15 @@ export default function POSPage() {
           {/* ══ MODAL: เลือกวิธีชำระตอนรับชำระเงินเชื่อ (เงินสด/โอน) ══════════════ */}
           {creditPayChoice && (
             <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-gray-900 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl">
+              <div className="bg-white rounded-2xl w-full max-w-sm border border-gray-200 shadow-2xl">
                 <div className="p-5">
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-white font-bold">✅ รับชำระ {creditPayChoice.billNo}</h3>
-                    <button onClick={() => setCreditPayChoice(null)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+                    <h3 className="text-gray-900 font-bold">✅ รับชำระ {creditPayChoice.billNo}</h3>
+                    <button onClick={() => setCreditPayChoice(null)} className="text-gray-500 hover:text-gray-900 text-2xl leading-none">×</button>
                   </div>
-                  <div className="text-gray-400 text-sm mb-1">{creditPayChoice.custName}</div>
-                  <div className="text-white text-2xl font-bold mb-4">฿{(creditPayChoice.amount || 0).toLocaleString()}</div>
-                  <div className="text-gray-400 text-xs mb-2">ลูกค้าเอาเงินมาจ่ายด้วยวิธีไหน?</div>
+                  <div className="text-gray-500 text-sm mb-1">{creditPayChoice.custName}</div>
+                  <div className="text-gray-900 text-2xl font-bold mb-4">฿{(creditPayChoice.amount || 0).toLocaleString()}</div>
+                  <div className="text-gray-500 text-xs mb-2">ลูกค้าเอาเงินมาจ่ายด้วยวิธีไหน?</div>
                   <div className="grid grid-cols-2 gap-3">
                     <button onClick={() => { markCreditPaid(creditPayChoice.billNo, creditPayChoice.source, 'เงินสด'); setCreditPayChoice(null); }}
                       className="bg-green-700 hover:bg-green-600 text-white font-bold py-3 rounded-xl transition-colors">
@@ -6920,22 +6920,22 @@ export default function POSPage() {
           {/* ══ MODAL: ส่งพนักงานไปเก็บเงินเชื่อ/สินค้ายืม ══════════════════════ */}
           {showCollectDispatch && collectDispatchCust && (
             <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-gray-900 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl max-h-[90vh] overflow-y-auto">
+              <div className="bg-white rounded-2xl w-full max-w-sm border border-gray-200 shadow-2xl max-h-[90vh] overflow-y-auto">
                 <div className="p-5">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-white font-bold">📤 ส่งพนักงานไปเก็บ</h3>
-                    <button onClick={() => setShowCollectDispatch(false)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+                    <h3 className="text-gray-900 font-bold">📤 ส่งพนักงานไปเก็บ</h3>
+                    <button onClick={() => setShowCollectDispatch(false)} className="text-gray-500 hover:text-gray-900 text-2xl leading-none">×</button>
                   </div>
-                  <div className="bg-gray-800 rounded-xl p-3 mb-4">
-                    <div className="text-white font-medium">{collectDispatchCust.name}</div>
-                    {collectDispatchCust.phone && <div className="text-gray-400 text-xs">{collectDispatchCust.phone}</div>}
+                  <div className="bg-white rounded-xl p-3 mb-4">
+                    <div className="text-gray-900 font-medium">{collectDispatchCust.name}</div>
+                    {collectDispatchCust.phone && <div className="text-gray-500 text-xs">{collectDispatchCust.phone}</div>}
                   </div>
 
-                  <label className="block text-gray-400 text-xs mb-1.5">ประเภทงาน</label>
+                  <label className="block text-gray-500 text-xs mb-1.5">ประเภทงาน</label>
                   <div className="grid grid-cols-3 gap-2 mb-4">
                     {['เงินเชื่อ', 'สินค้ายืม', 'ทั้งคู่'].map(t => (
                       <button key={t} onClick={() => setCollectDispatchForm(f => ({ ...f, task_type: t }))}
-                        className={`py-2 rounded-xl text-xs font-medium transition-colors ${collectDispatchForm.task_type === t ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
+                        className={`py-2 rounded-xl text-xs font-medium transition-colors ${collectDispatchForm.task_type === t ? 'bg-orange-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'}`}>
                         {t}
                       </button>
                     ))}
@@ -6943,65 +6943,65 @@ export default function POSPage() {
 
                   {collectDispatchForm.task_type !== 'สินค้ายืม' && (
                     <div className="mb-4">
-                      <label className="block text-gray-400 text-xs mb-1.5">ยอดเงินเชื่อที่ต้องเก็บ (บาท)</label>
+                      <label className="block text-gray-500 text-xs mb-1.5">ยอดเงินเชื่อที่ต้องเก็บ (บาท)</label>
                       <input type="number" min="0" value={collectDispatchForm.debt_amount}
                         onChange={e => setCollectDispatchForm(f => ({ ...f, debt_amount: e.target.value }))}
-                        className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                        className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                     </div>
                   )}
 
                   {collectDispatchForm.task_type !== 'เงินเชื่อ' && (
                     <div className="mb-4">
-                      <label className="block text-gray-400 text-xs mb-1.5">สินค้าหมุนเวียนที่ต้องเก็บคืน (ตรวจสอบให้ตรงกับที่ลูกค้าถืออยู่จริง)</label>
+                      <label className="block text-gray-500 text-xs mb-1.5">สินค้าหมุนเวียนที่ต้องเก็บคืน (ตรวจสอบให้ตรงกับที่ลูกค้าถืออยู่จริง)</label>
                       {collectDispatchForm.itemsUnreconciled && (
-                        <div className="text-amber-400 text-[11px] mb-2">
+                        <div className="text-amber-600 text-[11px] mb-2">
                           ⚠️ ระบบแยกไม่ได้ว่าลูกค้าถือสินค้าชนิดไหนกี่ชิ้น — รวมทั้งหมด {collectDispatchCust.cylinders} ชิ้น กรุณาระบุแยกตามชนิดสินค้าด้านล่างให้ครบ
                         </div>
                       )}
                       <div className="space-y-2">
                         {products.filter(p => p.type === 'หมุนเวียน').map(p => (
-                          <div key={p.sku} className="flex items-center justify-between gap-2 bg-gray-800 rounded-xl px-3 py-2">
-                            <span className="text-gray-300 text-sm flex-1 truncate">{p.name}</span>
+                          <div key={p.sku} className="flex items-center justify-between gap-2 bg-white rounded-xl px-3 py-2">
+                            <span className="text-gray-700 text-sm flex-1 truncate">{p.name}</span>
                             <input type="number" min="0" value={collectDispatchForm.itemsQty[p.sku] || ''}
                               onChange={e => setCollectDispatchForm(f => ({ ...f, itemsQty: { ...f.itemsQty, [p.sku]: e.target.value } }))}
                               placeholder="0"
-                              className="w-16 bg-gray-900 text-white text-sm text-center px-2 py-1.5 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500" />
+                              className="w-16 bg-white text-gray-900 text-sm text-center px-2 py-1.5 rounded-lg border border-gray-200 focus:outline-none focus:border-green-500" />
                           </div>
                         ))}
                         {products.filter(p => p.type === 'หมุนเวียน').length === 0 && (
-                          <div className="text-gray-500 text-xs">ยังไม่มีสินค้าประเภทหมุนเวียนในร้าน</div>
+                          <div className="text-gray-400 text-xs">ยังไม่มีสินค้าประเภทหมุนเวียนในร้าน</div>
                         )}
                       </div>
                     </div>
                   )}
 
-                  <label className="block text-gray-400 text-xs mb-1.5">พนักงานที่จะไปเก็บ</label>
+                  <label className="block text-gray-500 text-xs mb-1.5">พนักงานที่จะไปเก็บ</label>
                   <div className="grid grid-cols-2 gap-2 mb-4">
                     {staff.map(s => (
                       <button key={s.staff_id}
                         onClick={() => setCollectDispatchForm(f => ({ ...f, staff_id: s.staff_id, staff_name: s.name, staff_line_id: s.line_id || '' }))}
-                        className={`p-3 rounded-xl border text-sm text-left transition-colors ${collectDispatchForm.staff_id === s.staff_id ? 'bg-orange-900/40 border-orange-600 text-orange-200' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}`}>
+                        className={`p-3 rounded-xl border text-sm text-left transition-colors ${collectDispatchForm.staff_id === s.staff_id ? 'bg-orange-50/40 border-orange-600 text-orange-800' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'}`}>
                         <div className="font-medium">{s.name}</div>
-                        <div className="text-xs mt-0.5 text-gray-500">{s.role}</div>
+                        <div className="text-xs mt-0.5 text-gray-400">{s.role}</div>
                         {!s.line_id && <div className="text-xs text-yellow-500 mt-0.5">⚠️ ไม่มี LINE ID</div>}
                       </button>
                     ))}
                     {staff.length === 0 && (
-                      <div className="col-span-2 bg-gray-800 rounded-xl p-3 text-center text-sm text-yellow-400">
+                      <div className="col-span-2 bg-white rounded-xl p-3 text-center text-sm text-yellow-600">
                         ยังไม่มีพนักงาน —{' '}
                         <button onClick={() => { setShowCollectDispatch(false); setTab('settings'); }} className="underline">เพิ่มพนักงาน</button>
                       </div>
                     )}
                   </div>
 
-                  <label className="block text-gray-400 text-xs mb-1.5">หมายเหตุ (ไม่บังคับ)</label>
+                  <label className="block text-gray-500 text-xs mb-1.5">หมายเหตุ (ไม่บังคับ)</label>
                   <input value={collectDispatchForm.notes}
                     onChange={e => setCollectDispatchForm(f => ({ ...f, notes: e.target.value }))}
                     placeholder="เช่น นัดลูกค้าไว้ช่วงบ่าย"
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 mb-4" />
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500 mb-4" />
 
                   <div className="flex gap-3">
-                    <button onClick={() => setShowCollectDispatch(false)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-colors text-sm">ยกเลิก</button>
+                    <button onClick={() => setShowCollectDispatch(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-900 font-bold py-3 rounded-xl transition-colors text-sm">ยกเลิก</button>
                     <button onClick={submitCollectDispatch} disabled={collectDispatching || !collectDispatchForm.staff_id}
                       className="flex-[2] bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm">
                       {collectDispatching ? 'กำลังส่งงาน...' : '📤 ส่งงาน'}
@@ -7017,14 +7017,14 @@ export default function POSPage() {
             <div className="h-full overflow-y-auto">
               <div className="p-4 max-w-2xl mx-auto">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-white font-bold">ผู้ติดต่อ ({contacts.length})</h2>
+                  <h2 className="text-gray-900 font-bold">ผู้ติดต่อ ({contacts.length})</h2>
                   <div className="flex items-center gap-2">
                     <button onClick={() => setShowImportModal(true)}
-                      className="bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm px-3 py-2 rounded-xl transition-colors">
+                      className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-3 py-2 rounded-xl transition-colors">
                       📥 นำเข้า
                     </button>
                     <button onClick={exportContactsCsv}
-                      className="bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm px-3 py-2 rounded-xl transition-colors">
+                      className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-3 py-2 rounded-xl transition-colors">
                       📤 ส่งออก
                     </button>
                     <button onClick={openAddContact} className="bg-green-600 hover:bg-green-500 text-white text-sm font-bold px-4 py-2 rounded-xl transition-colors">
@@ -7035,16 +7035,16 @@ export default function POSPage() {
 
                 {/* search */}
                 <div className="relative mb-3">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">🔍</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
                   <input
                     type="text"
                     value={contactSearch}
                     onChange={e => setContactSearch(e.target.value)}
                     placeholder="ค้นหาชื่อ เบอร์ บริษัท..."
-                    className="w-full bg-gray-800 text-white text-sm pl-9 pr-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 placeholder-gray-600"
+                    className="w-full bg-white text-gray-900 text-sm pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500 placeholder-gray-400"
                   />
                   {contactSearch && (
-                    <button onClick={() => setContactSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">✕</button>
+                    <button onClick={() => setContactSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-900">✕</button>
                   )}
                 </div>
 
@@ -7053,44 +7053,44 @@ export default function POSPage() {
                   {['ทั้งหมด', 'ผู้จำหน่าย', 'ลูกค้า', 'ทั้งคู่'].map(f => (
                     <button key={f} onClick={() => setContactFilter(f)}
                       className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                        contactFilter === f ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                        contactFilter === f ? 'bg-green-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
                       }`}
                     >{f}</button>
                   ))}
                   <button onClick={() => setContactOutstandingOnly(v => !v)}
                     className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                      contactOutstandingOnly ? 'bg-red-700 text-white' : 'bg-gray-800 text-red-300 hover:bg-gray-700'
+                      contactOutstandingOnly ? 'bg-red-700 text-white' : 'bg-white text-red-700 hover:bg-gray-100'
                     }`}
                   >🧾 ยอดค้างชำระ/ค้างสินค้า</button>
                   <button onClick={openCleanupModal}
-                    className="px-4 py-1.5 rounded-full text-xs font-medium bg-gray-800 text-amber-300 hover:bg-gray-700 transition-colors"
+                    className="px-4 py-1.5 rounded-full text-xs font-medium bg-white text-amber-700 hover:bg-gray-100 transition-colors"
                   >🧹 เช็ครายการซ้ำ/ไม่มีความเคลื่อนไหว</button>
                   {contactSearch && (
-                    <span className="px-3 py-1.5 bg-blue-900/40 text-blue-400 text-xs rounded-full">
+                    <span className="px-3 py-1.5 bg-blue-50/40 text-blue-600 text-xs rounded-full">
                       {displayContacts.length} รายการ
                     </span>
                   )}
                 </div>
 
                 {contactOutstandingOnly && !contactsLoading && (
-                  <div className="bg-gray-900 rounded-xl p-3 mb-4 flex flex-wrap gap-4 border border-gray-800">
+                  <div className="bg-white rounded-xl p-3 mb-4 flex flex-wrap gap-4 border border-gray-100">
                     <div>
-                      <div className="text-red-400 font-bold">฿{displayContacts.reduce((s, c) => s + (c.debt || 0), 0).toLocaleString()}</div>
-                      <div className="text-gray-500 text-xs">ยอดค้างชำระรวม ({displayContacts.filter(c => c.debt > 0).length} ราย)</div>
+                      <div className="text-red-600 font-bold">฿{displayContacts.reduce((s, c) => s + (c.debt || 0), 0).toLocaleString()}</div>
+                      <div className="text-gray-400 text-xs">ยอดค้างชำระรวม ({displayContacts.filter(c => c.debt > 0).length} ราย)</div>
                     </div>
                     <div>
-                      <div className="text-orange-400 font-bold">{displayContacts.reduce((s, c) => s + (c.cylinders || 0), 0).toLocaleString()} {cyclicalUnitLabel}</div>
-                      <div className="text-gray-500 text-xs">{cyclicalUnitLabel}ค้างที่ลูกค้ารวม ({displayContacts.filter(c => c.cylinders > 0).length} ราย)</div>
+                      <div className="text-orange-600 font-bold">{displayContacts.reduce((s, c) => s + (c.cylinders || 0), 0).toLocaleString()} {cyclicalUnitLabel}</div>
+                      <div className="text-gray-400 text-xs">{cyclicalUnitLabel}ค้างที่ลูกค้ารวม ({displayContacts.filter(c => c.cylinders > 0).length} ราย)</div>
                     </div>
                   </div>
                 )}
 
                 {contactsLoading ? (
-                  <div className="text-center text-gray-500 py-12 animate-pulse">กำลังโหลด...</div>
+                  <div className="text-center text-gray-400 py-12 animate-pulse">กำลังโหลด...</div>
                 ) : displayContacts.length === 0 ? (
                   <div className="text-center py-16">
                     <div className="text-5xl mb-3">👥</div>
-                    <p className="text-gray-400 text-sm mb-4">ยังไม่มีผู้ติดต่อ</p>
+                    <p className="text-gray-500 text-sm mb-4">ยังไม่มีผู้ติดต่อ</p>
                     <button onClick={openAddContact} className="bg-green-600 text-white text-sm font-bold px-6 py-2.5 rounded-xl hover:bg-green-500 transition-colors">
                       + เพิ่มผู้ติดต่อแรก
                     </button>
@@ -7098,50 +7098,50 @@ export default function POSPage() {
                 ) : (
                   <div className="space-y-2">
                     {pagedContacts.map(c => (
-                      <div key={c.contact_id} className="bg-gray-800 rounded-xl p-4">
+                      <div key={c.contact_id} className="bg-white rounded-xl p-4">
                         <div className="flex items-start gap-3">
                           <div className="text-xl mt-0.5 shrink-0">
                             {c.contact_type === 'ผู้จำหน่าย' ? '🏢' : c.contact_type === 'ทั้งคู่' ? '🤝' : '👤'}
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className={`font-medium text-sm ${c.name ? 'text-white' : 'text-gray-500 italic'}`}>{c.name || '(ไม่มีชื่อ)'}</span>
+                              <span className={`font-medium text-sm ${c.name ? 'text-gray-900' : 'text-gray-400 italic'}`}>{c.name || '(ไม่มีชื่อ)'}</span>
                               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                                c.contact_type === 'ผู้จำหน่าย' ? 'bg-blue-900 text-blue-300'
+                                c.contact_type === 'ผู้จำหน่าย' ? 'bg-blue-50 text-blue-700'
                                 : c.contact_type === 'ทั้งคู่' ? 'bg-teal-900 text-teal-300'
-                                : 'bg-purple-900 text-purple-300'
+                                : 'bg-purple-50 text-purple-700'
                               }`}>{c.contact_type}</span>
-                              {c.person_type === 'นิติบุคคล' && <span className="text-xs bg-blue-900/60 text-blue-300 px-2 py-0.5 rounded-full">🏢 นิติบุคคล</span>}
-                              {c.debt > 0 && <span className="text-xs bg-red-900/60 text-red-300 px-2 py-0.5 rounded-full">ค้าง ฿{c.debt.toLocaleString()}</span>}
-                              {c.cylinders > 0 && <span className="text-xs bg-orange-900/60 text-orange-300 px-2 py-0.5 rounded-full">{cyclicalUnitLabel} {c.cylinders}</span>}
+                              {c.person_type === 'นิติบุคคล' && <span className="text-xs bg-blue-50/60 text-blue-700 px-2 py-0.5 rounded-full">🏢 นิติบุคคล</span>}
+                              {c.debt > 0 && <span className="text-xs bg-red-50/60 text-red-700 px-2 py-0.5 rounded-full">ค้าง ฿{c.debt.toLocaleString()}</span>}
+                              {c.cylinders > 0 && <span className="text-xs bg-orange-50/60 text-orange-700 px-2 py-0.5 rounded-full">{cyclicalUnitLabel} {c.cylinders}</span>}
                             </div>
-                            {c.company_name && <div className="text-gray-400 text-xs mt-0.5">🏛️ {c.company_name}</div>}
-                            {c.shop_name && <div className="text-gray-400 text-xs mt-0.5">🏪 {c.shop_name}</div>}
-                            {c.phone && <div className="text-gray-400 text-xs mt-0.5">📞 {c.phone}</div>}
+                            {c.company_name && <div className="text-gray-500 text-xs mt-0.5">🏛️ {c.company_name}</div>}
+                            {c.shop_name && <div className="text-gray-500 text-xs mt-0.5">🏪 {c.shop_name}</div>}
+                            {c.phone && <div className="text-gray-500 text-xs mt-0.5">📞 {c.phone}</div>}
                             {c.person_type === 'นิติบุคคล' && c.contact_person_name && (
-                              <div className="text-gray-500 text-xs mt-0.5">👤 ผู้ติดต่อ: {c.contact_person_name}{c.contact_person_phone ? ` · ${c.contact_person_phone}` : ''}</div>
+                              <div className="text-gray-400 text-xs mt-0.5">👤 ผู้ติดต่อ: {c.contact_person_name}{c.contact_person_phone ? ` · ${c.contact_person_phone}` : ''}</div>
                             )}
-                            {c.address_1 && <div className="text-gray-500 text-xs mt-0.5 truncate">📍 {c.address_1}</div>}
-                            {c.aliases && <div className="text-gray-600 text-xs mt-0.5">🔍 {c.aliases}</div>}
+                            {c.address_1 && <div className="text-gray-400 text-xs mt-0.5 truncate">📍 {c.address_1}</div>}
+                            {c.aliases && <div className="text-gray-400 text-xs mt-0.5">🔍 {c.aliases}</div>}
                           </div>
                           <div className="flex flex-col gap-1.5 shrink-0">
-                            <button onClick={() => openEditContact(c)} className="text-xs bg-gray-700 hover:bg-blue-700 text-gray-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors">แก้ไข</button>
-                            <button onClick={() => { setQrContact(c); setShowQrModal(true); }} className="text-xs bg-gray-700 hover:bg-purple-800 text-gray-300 hover:text-purple-300 px-3 py-1.5 rounded-lg transition-colors">QR</button>
-                            <button onClick={() => deleteContact(c)} className="text-xs bg-gray-700 hover:bg-red-700 text-gray-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors">ลบ</button>
+                            <button onClick={() => openEditContact(c)} className="text-xs bg-gray-100 hover:bg-blue-700 text-gray-700 hover:text-white px-3 py-1.5 rounded-lg transition-colors">แก้ไข</button>
+                            <button onClick={() => { setQrContact(c); setShowQrModal(true); }} className="text-xs bg-gray-100 hover:bg-purple-100 text-gray-700 hover:text-purple-700 px-3 py-1.5 rounded-lg transition-colors">QR</button>
+                            <button onClick={() => deleteContact(c)} className="text-xs bg-gray-100 hover:bg-red-700 text-gray-700 hover:text-white px-3 py-1.5 rounded-lg transition-colors">ลบ</button>
                           </div>
                         </div>
                         {(c.maps_1 || c.maps_2 || c.debt > 0 || c.cylinders > 0) && (
                           <div className="flex gap-2 mt-2.5 ml-9 flex-wrap">
-                            {c.maps_1 && <a href={c.maps_1} target="_blank" rel="noreferrer" className="text-xs bg-gray-700 hover:bg-green-800 text-gray-300 hover:text-green-300 px-3 py-1.5 rounded-lg transition-colors">🗺️ ที่อยู่ 1</a>}
-                            {c.maps_2 && <a href={c.maps_2} target="_blank" rel="noreferrer" className="text-xs bg-gray-700 hover:bg-green-800 text-gray-300 hover:text-green-300 px-3 py-1.5 rounded-lg transition-colors">🗺️ ที่อยู่ 2</a>}
+                            {c.maps_1 && <a href={c.maps_1} target="_blank" rel="noreferrer" className="text-xs bg-gray-100 hover:bg-green-100 text-gray-700 hover:text-green-700 px-3 py-1.5 rounded-lg transition-colors">🗺️ ที่อยู่ 1</a>}
+                            {c.maps_2 && <a href={c.maps_2} target="_blank" rel="noreferrer" className="text-xs bg-gray-100 hover:bg-green-100 text-gray-700 hover:text-green-700 px-3 py-1.5 rounded-lg transition-colors">🗺️ ที่อยู่ 2</a>}
                             {c.debt > 0 && (
                               <>
-                                <button onClick={() => openDebtHistory(c)} className="text-xs bg-orange-900/50 hover:bg-orange-900 text-orange-400 hover:text-orange-300 px-3 py-1.5 rounded-lg transition-colors">📋 ประวัติหนี้</button>
-                                <button onClick={() => { setDebtCust(c); setDebtAmount(''); setShowDebtModal(true); }} className="text-xs bg-green-800 hover:bg-green-700 text-green-300 hover:text-green-200 px-3 py-1.5 rounded-lg transition-colors">💰 รับชำระ</button>
+                                <button onClick={() => openDebtHistory(c)} className="text-xs bg-orange-50/50 hover:bg-orange-50 text-orange-600 hover:text-orange-700 px-3 py-1.5 rounded-lg transition-colors">📋 ประวัติหนี้</button>
+                                <button onClick={() => { setDebtCust(c); setDebtAmount(''); setShowDebtModal(true); }} className="text-xs bg-green-100 hover:bg-green-700 text-green-700 hover:text-green-800 px-3 py-1.5 rounded-lg transition-colors">💰 รับชำระ</button>
                               </>
                             )}
                             {(c.debt > 0 || c.cylinders > 0) && hasFeature(shopInfo?.subscription_tier, 'credit_ar') && (
-                              <button onClick={() => openCollectDispatch(c)} className="text-xs bg-orange-800 hover:bg-orange-700 text-orange-200 hover:text-white px-3 py-1.5 rounded-lg transition-colors">📤 ส่งพนักงานไปเก็บ</button>
+                              <button onClick={() => openCollectDispatch(c)} className="text-xs bg-orange-100 hover:bg-orange-700 text-orange-800 hover:text-white px-3 py-1.5 rounded-lg transition-colors">📤 ส่งพนักงานไปเก็บ</button>
                             )}
                           </div>
                         )}
@@ -7154,17 +7154,17 @@ export default function POSPage() {
                 {displayContacts.length > CONTACTS_PER_PAGE && (
                   <div className="flex items-center justify-between mt-4">
                     <button onClick={() => setContactPage(p => Math.max(1, p - 1))} disabled={contactPage <= 1}
-                      className="text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-gray-800 text-gray-300 px-3 py-2 rounded-lg transition-colors">← ก่อนหน้า</button>
-                    <span className="text-gray-500 text-xs">หน้า {contactPage} / {contactTotalPages} ({displayContacts.length} รายการ)</span>
+                      className="text-xs bg-white hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-white text-gray-700 px-3 py-2 rounded-lg transition-colors">← ก่อนหน้า</button>
+                    <span className="text-gray-400 text-xs">หน้า {contactPage} / {contactTotalPages} ({displayContacts.length} รายการ)</span>
                     <button onClick={() => setContactPage(p => Math.min(contactTotalPages, p + 1))} disabled={contactPage >= contactTotalPages}
-                      className="text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-gray-800 text-gray-300 px-3 py-2 rounded-lg transition-colors">ถัดไป →</button>
+                      className="text-xs bg-white hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-white text-gray-700 px-3 py-2 rounded-lg transition-colors">ถัดไป →</button>
                   </div>
                 )}
 
                 {/* hint for LINE bot */}
-                <div className="mt-6 bg-blue-900/20 border border-blue-800 rounded-xl p-4">
-                  <p className="text-blue-300 text-xs font-medium mb-1">💡 เชื่อมกับ LINE Bot</p>
-                  <p className="text-blue-400 text-xs">
+                <div className="mt-6 bg-blue-50/20 border border-blue-200 rounded-xl p-4">
+                  <p className="text-blue-700 text-xs font-medium mb-1">💡 เชื่อมกับ LINE Bot</p>
+                  <p className="text-blue-600 text-xs">
                     ใส่ "คำค้น/aliases" ของผู้จำหน่าย เช่น ชื่อย่อ ชื่อบริษัทบนบิล — บอท LINE จะจับคู่สลิปซื้อของอัตโนมัติ
                   </p>
                 </div>
@@ -7178,26 +7178,26 @@ export default function POSPage() {
               <div className="p-4 max-w-4xl mx-auto space-y-4">
 
                 {/* ── ตัวกรองวันที่ + shortcuts ── */}
-                <div className="bg-gray-900 rounded-2xl p-4 space-y-3">
+                <div className="bg-white rounded-2xl p-4 space-y-3">
                   <div className="flex flex-wrap gap-2 items-end">
                     <div>
-                      <label className="block text-gray-400 text-xs mb-1">ตั้งแต่วันที่</label>
+                      <label className="block text-gray-500 text-xs mb-1">ตั้งแต่วันที่</label>
                       <input type="date" value={reportDateFrom}
                         onChange={e => setReportDateFrom(e.target.value)}
-                        className="bg-gray-800 text-white text-sm px-3 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500"/>
+                        className="bg-white text-gray-900 text-sm px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-green-500"/>
                     </div>
                     <div>
-                      <label className="block text-gray-400 text-xs mb-1">ถึงวันที่</label>
+                      <label className="block text-gray-500 text-xs mb-1">ถึงวันที่</label>
                       <input type="date" value={reportDateTo}
                         onChange={e => setReportDateTo(e.target.value)}
-                        className="bg-gray-800 text-white text-sm px-3 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500"/>
+                        className="bg-white text-gray-900 text-sm px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-green-500"/>
                     </div>
                     {posBranches.length > 0 && (
                       <div>
-                        <label className="block text-gray-400 text-xs mb-1">สาขา</label>
+                        <label className="block text-gray-500 text-xs mb-1">สาขา</label>
                         <select value={reportBranch}
                           onChange={e => { setReportBranch(e.target.value); fetchReport(reportType, reportDateFrom, reportDateTo, e.target.value); }}
-                          className="bg-gray-800 text-white text-sm px-3 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500">
+                          className="bg-white text-gray-900 text-sm px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-green-500">
                           <option value="">ทุกสาขา</option>
                           {posBranches.map(b => <option key={b.id} value={b.branch_name}>{b.brand_name || b.branch_name}</option>)}
                         </select>
@@ -7217,32 +7217,32 @@ export default function POSPage() {
                       { label: 'ทั้งหมด', fn: () => { setReportDateFrom(''); setReportDateTo(''); fetchReport(reportType, '', ''); } },
                     ].map(b => (
                       <button key={b.label} onClick={b.fn}
-                        className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded-lg border border-gray-700 transition-colors">
+                        className="text-xs bg-white hover:bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg border border-gray-200 transition-colors">
                         {b.label}
                       </button>
                     ))}
                     <button onClick={fetchAiSummary} disabled={aiSummaryLoading}
-                      className="ml-auto text-xs bg-purple-800 hover:bg-purple-700 disabled:opacity-50 text-purple-200 px-3 py-1.5 rounded-lg border border-purple-700 transition-colors flex items-center gap-1">
+                      className="ml-auto text-xs bg-purple-100 hover:bg-purple-700 disabled:opacity-50 text-purple-800 px-3 py-1.5 rounded-lg border border-purple-300 transition-colors flex items-center gap-1">
                       {aiSummaryLoading ? '⏳ กำลังสรุป...' : '🤖 สรุปให้ฉันฟัง'}
                     </button>
                     <button onClick={() => setShowExportModal(true)}
-                      className="text-xs bg-blue-800 hover:bg-blue-700 text-blue-200 px-3 py-1.5 rounded-lg border border-blue-700 transition-colors flex items-center gap-1">
+                      className="text-xs bg-blue-100 hover:bg-blue-700 text-blue-800 px-3 py-1.5 rounded-lg border border-blue-300 transition-colors flex items-center gap-1">
                       📤 Export Excel
                     </button>
                   </div>
                   {(aiSummaryText || aiSummaryError) && (
-                    <div className="bg-purple-950/30 border border-purple-800/40 rounded-xl p-4">
+                    <div className="bg-purple-50/30 border border-purple-200/40 rounded-xl p-4">
                       <div className="flex items-start justify-between gap-2 mb-2">
-                        <div className="text-purple-300 text-xs font-bold flex items-center gap-1.5">🤖 สรุปโดย AI</div>
+                        <div className="text-purple-700 text-xs font-bold flex items-center gap-1.5">🤖 สรุปโดย AI</div>
                         <button onClick={() => { setAiSummaryText(''); setAiSummaryError(''); }}
-                          className="text-gray-500 hover:text-gray-300 text-xs">✕</button>
+                          className="text-gray-400 hover:text-gray-700 text-xs">✕</button>
                       </div>
                       {aiSummaryText ? (
-                        <div className="text-gray-200 text-sm whitespace-pre-line leading-relaxed">{aiSummaryText}</div>
+                        <div className="text-gray-800 text-sm whitespace-pre-line leading-relaxed">{aiSummaryText}</div>
                       ) : (
-                        <div className="text-gray-500 text-sm">{aiSummaryError}</div>
+                        <div className="text-gray-400 text-sm">{aiSummaryError}</div>
                       )}
-                      <div className="text-gray-600 text-[10px] mt-2">สรุปจากตัวเลขในระบบเท่านั้น อาจคลาดเคลื่อนได้ — ใช้ประกอบการตัดสินใจ ไม่ใช่คำแนะนำทางการเงินที่รับประกันผล</div>
+                      <div className="text-gray-400 text-[10px] mt-2">สรุปจากตัวเลขในระบบเท่านั้น อาจคลาดเคลื่อนได้ — ใช้ประกอบการตัดสินใจ ไม่ใช่คำแนะนำทางการเงินที่รับประกันผล</div>
                     </div>
                   )}
                 </div>
@@ -7272,13 +7272,13 @@ export default function POSPage() {
                   ].map(r => (
                     <button key={r.key}
                       onClick={() => { setReportType(r.key); fetchReport(r.key, reportDateFrom, reportDateTo); }}
-                      className={`text-sm px-4 py-2 rounded-xl font-medium transition-colors ${reportType === r.key ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
+                      className={`text-sm px-4 py-2 rounded-xl font-medium transition-colors ${reportType === r.key ? 'bg-green-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'}`}>
                       {r.label}
                     </button>
                   ))}
                 </div>
 
-                {reportLoading && <div className="text-center text-gray-500 py-12 animate-pulse">กำลังโหลดรายงาน...</div>}
+                {reportLoading && <div className="text-center text-gray-400 py-12 animate-pulse">กำลังโหลดรายงาน...</div>}
 
                 {/* ── ยอดขาย (bank-statement) ── */}
                 {!reportLoading && reportData?.type === 'sales' && (() => {
@@ -7287,50 +7287,50 @@ export default function POSPage() {
                     <div className="space-y-4">
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                         {[
-                          { label: 'รายรับรวม', value: `฿${(s.total_income||0).toLocaleString()}`, color: 'text-green-400' },
-                          { label: 'เงินสด', value: `฿${(s.cash||0).toLocaleString()}`, color: 'text-yellow-400' },
-                          { label: 'โอน', value: `฿${(s.transfer||0).toLocaleString()}`, color: 'text-blue-400' },
-                          { label: 'เชื่อ', value: `฿${(s.credit||0).toLocaleString()}`, color: 'text-orange-400' },
-                          { label: 'ค้างรับ', value: `฿${(s.pending||0).toLocaleString()}`, color: 'text-red-400' },
-                          { label: 'บิลทั้งหมด', value: `${s.count} บิล`, color: 'text-gray-300' },
+                          { label: 'รายรับรวม', value: `฿${(s.total_income||0).toLocaleString()}`, color: 'text-green-600' },
+                          { label: 'เงินสด', value: `฿${(s.cash||0).toLocaleString()}`, color: 'text-yellow-600' },
+                          { label: 'โอน', value: `฿${(s.transfer||0).toLocaleString()}`, color: 'text-blue-600' },
+                          { label: 'เชื่อ', value: `฿${(s.credit||0).toLocaleString()}`, color: 'text-orange-600' },
+                          { label: 'ค้างรับ', value: `฿${(s.pending||0).toLocaleString()}`, color: 'text-red-600' },
+                          { label: 'บิลทั้งหมด', value: `${s.count} บิล`, color: 'text-gray-700' },
                         ].map(c => (
-                          <div key={c.label} className="bg-gray-800 rounded-xl p-3 text-center">
+                          <div key={c.label} className="bg-white rounded-xl p-3 text-center">
                             <div className={`text-lg font-bold ${c.color}`}>{c.value}</div>
                             <div className="text-gray-400 text-xs mt-1">{c.label}</div>
                           </div>
                         ))}
                       </div>
-                      <div className="bg-gray-900 rounded-xl overflow-hidden">
+                      <div className="bg-white rounded-xl overflow-hidden">
                         <div className="overflow-x-auto">
                           <table className="w-full text-xs">
-                            <thead><tr className="border-b border-gray-800">
+                            <thead><tr className="border-b border-gray-100">
                               <th className="text-left text-gray-400 px-3 py-2">วันที่</th>
                               <th className="text-left text-gray-400 px-3 py-2">เลขบิล</th>
                               <th className="text-left text-gray-400 px-3 py-2">รายการ</th>
                               <th className="text-left text-gray-400 px-3 py-2">ลูกค้า</th>
                               <th className="text-right text-gray-400 px-3 py-2">รายรับ</th>
                               <th className="text-left text-gray-400 px-3 py-2">ชำระ</th>
-                              <th className="text-right text-gray-400 px-3 py-2" title="ยอดรวมสะสมจากบนลงล่าง คำนวณให้อัตโนมัติ ไม่ต้องกรอกเอง">ยอดสะสม<span className="text-gray-600 font-normal"> (คำนวณอัตโนมัติ)</span></th>
+                              <th className="text-right text-gray-400 px-3 py-2" title="ยอดรวมสะสมจากบนลงล่าง คำนวณให้อัตโนมัติ ไม่ต้องกรอกเอง">ยอดสะสม<span className="text-gray-500 font-normal"> (คำนวณอัตโนมัติ)</span></th>
                               <th className="text-center text-gray-400 px-3 py-2"></th>
                             </tr></thead>
                             <tbody>
                               {(reportData.statement || []).map((s, i) => (
-                                <tr key={i} className="border-b border-gray-800/50 hover:bg-gray-800/30">
+                                <tr key={i} className="border-b border-gray-100/50 hover:bg-white/30">
                                   <td className="px-3 py-2 text-gray-400 whitespace-nowrap">{s.created_at?.split(',')[0]}</td>
-                                  <td className="px-3 py-2 text-gray-300 font-mono text-[10px]">{s.bill_no}{s.source === 'delivery' && <span className="text-blue-500 ml-1">🚚</span>}</td>
+                                  <td className="px-3 py-2 text-gray-700 font-mono text-[10px]">{s.bill_no}{s.source === 'delivery' && <span className="text-blue-500 ml-1">🚚</span>}</td>
                                   <td className="px-3 py-2 text-gray-400">{(s.items||[]).map(i=>i.name+'×'+i.qty).join(', ').slice(0,30)}</td>
                                   <td className="px-3 py-2 text-gray-400">{s.customer_name || '—'}</td>
-                                  <td className="px-3 py-2 text-right text-green-400 font-medium">{s.income > 0 ? `฿${s.income.toLocaleString()}` : <span className="text-gray-600">—</span>}</td>
+                                  <td className="px-3 py-2 text-right text-green-600 font-medium">{s.income > 0 ? `฿${s.income.toLocaleString()}` : <span className="text-gray-500">—</span>}</td>
                                   <td className="px-3 py-2">
-                                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${s.payment_method === 'เชื่อ' ? 'bg-orange-900/60 text-orange-300' : s.payment_method === 'โอน' ? 'bg-blue-900/60 text-blue-300' : 'bg-yellow-900/60 text-yellow-300'}`}>{s.payment_method}</span>
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${s.payment_method === 'เชื่อ' ? 'bg-orange-50/60 text-orange-700' : s.payment_method === 'โอน' ? 'bg-blue-50/60 text-blue-700' : 'bg-yellow-50/60 text-yellow-700'}`}>{s.payment_method}</span>
                                   </td>
-                                  <td className="px-3 py-2 text-right text-white font-mono">฿{(s.balance||0).toLocaleString()}</td>
+                                  <td className="px-3 py-2 text-right text-gray-900 font-mono">฿{(s.balance||0).toLocaleString()}</td>
                                   <td className="px-3 py-2 text-center">
                                     {s.source === 'delivery' ? (
-                                      <span className="text-gray-600 text-[10px]" title="ยอดนี้มาจากออเดอร์จัดส่ง — จัดการ/ยกเลิกได้จากแท็บ 🚚 ออเดอร์จัดส่งแทน">🚚 ดูที่แท็บจัดส่ง</span>
+                                      <span className="text-gray-500 text-[10px]" title="ยอดนี้มาจากออเดอร์จัดส่ง — จัดการ/ยกเลิกได้จากแท็บ 🚚 ออเดอร์จัดส่งแทน">🚚 ดูที่แท็บจัดส่ง</span>
                                     ) : (
                                       <button onClick={() => cancelBill(s.bill_no)}
-                                        className="text-red-400 hover:text-red-300 text-[10px] border border-red-900 px-2 py-1 rounded-lg transition-colors">
+                                        className="text-red-600 hover:text-red-700 text-[10px] border border-red-200 px-2 py-1 rounded-lg transition-colors">
                                         ยกเลิก
                                       </button>
                                     )}
@@ -7352,39 +7352,39 @@ export default function POSPage() {
                   return (
                     <div className="space-y-4">
                       {posBranches.length > 0 && (
-                        <div className="text-blue-400 text-xs">
+                        <div className="text-blue-600 text-xs">
                           📍 แสดงสต็อกของ: {reportData.branch ? (posBranches.find(b => b.branch_name === reportData.branch)?.brand_name || reportData.branch) : 'ทุกสาขารวมกัน'}
                         </div>
                       )}
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         {[
-                          { label: 'สินค้าทั้งหมด', value: s.total_products + ' รายการ', color: 'text-blue-400' },
-                          { label: 'มูลค่าสต็อค (ทุน)', value: `฿${(s.total_cost_value||0).toLocaleString()}`, color: 'text-green-400' },
-                          { label: 'มูลค่าขาย', value: `฿${(s.total_retail_value||0).toLocaleString()}`, color: 'text-purple-400' },
-                          { label: 'ใกล้หมด/หมด', value: `${s.low_stock_count}/${s.out_of_stock}`, color: 'text-red-400' },
+                          { label: 'สินค้าทั้งหมด', value: s.total_products + ' รายการ', color: 'text-blue-600' },
+                          { label: 'มูลค่าสต็อค (ทุน)', value: `฿${(s.total_cost_value||0).toLocaleString()}`, color: 'text-green-600' },
+                          { label: 'มูลค่าขาย', value: `฿${(s.total_retail_value||0).toLocaleString()}`, color: 'text-purple-600' },
+                          { label: 'ใกล้หมด/หมด', value: `${s.low_stock_count}/${s.out_of_stock}`, color: 'text-red-600' },
                         ].map(c => (
-                          <div key={c.label} className="bg-gray-800 rounded-xl p-3 text-center">
+                          <div key={c.label} className="bg-white rounded-xl p-3 text-center">
                             <div className={`text-lg font-bold ${c.color}`}>{c.value}</div>
                             <div className="text-gray-400 text-xs mt-1">{c.label}</div>
                           </div>
                         ))}
                       </div>
                       {reportData.low_stock?.length > 0 && (
-                        <div className="bg-red-900/20 border border-red-800/50 rounded-xl p-3">
-                          <p className="text-red-400 text-xs font-bold mb-2">⚠️ สินค้าใกล้หมด/หมด</p>
+                        <div className="bg-red-50/20 border border-red-200/50 rounded-xl p-3">
+                          <p className="text-red-600 text-xs font-bold mb-2">⚠️ สินค้าใกล้หมด/หมด</p>
                           <div className="flex flex-wrap gap-2">
                             {reportData.low_stock.map(p => (
-                              <span key={p.sku} className="text-xs bg-red-900/40 text-red-300 px-2 py-1 rounded-lg">
+                              <span key={p.sku} className="text-xs bg-red-50/40 text-red-700 px-2 py-1 rounded-lg">
                                 {p.name} ({p.stock} {p.unit})
                               </span>
                             ))}
                           </div>
                         </div>
                       )}
-                      <div className="bg-gray-900 rounded-xl overflow-hidden">
+                      <div className="bg-white rounded-xl overflow-hidden">
                         <div className="overflow-x-auto">
                           <table className="w-full text-xs">
-                            <thead><tr className="border-b border-gray-800">
+                            <thead><tr className="border-b border-gray-100">
                               <th className="text-left text-gray-400 px-3 py-2">ชื่อสินค้า</th>
                               <th className="text-left text-gray-400 px-3 py-2">หมวด</th>
                               <th className="text-right text-gray-400 px-3 py-2">สต็อค</th>
@@ -7394,13 +7394,13 @@ export default function POSPage() {
                             </tr></thead>
                             <tbody>
                               {(reportData.products||[]).map((p, i) => (
-                                <tr key={i} className={`border-b border-gray-800/50 ${p.stock <= 0 ? 'bg-red-900/10' : p.stock <= 5 ? 'bg-yellow-900/10' : ''}`}>
-                                  <td className="px-3 py-2 text-white font-medium">{p.name}</td>
+                                <tr key={i} className={`border-b border-gray-100/50 ${p.stock <= 0 ? 'bg-red-50/10' : p.stock <= 5 ? 'bg-yellow-50/10' : ''}`}>
+                                  <td className="px-3 py-2 text-gray-900 font-medium">{p.name}</td>
                                   <td className="px-3 py-2 text-gray-400">{p.category || '—'}</td>
-                                  <td className={`px-3 py-2 text-right font-bold ${p.stock <= 0 ? 'text-red-400' : p.stock <= 5 ? 'text-yellow-400' : 'text-green-400'}`}>{p.stock} {p.unit}</td>
+                                  <td className={`px-3 py-2 text-right font-bold ${p.stock <= 0 ? 'text-red-600' : p.stock <= 5 ? 'text-yellow-600' : 'text-green-600'}`}>{p.stock} {p.unit}</td>
                                   <td className="px-3 py-2 text-right text-gray-400">฿{p.cost.toLocaleString()}</td>
-                                  <td className="px-3 py-2 text-right text-gray-300">฿{p.price.toLocaleString()}</td>
-                                  <td className="px-3 py-2 text-right text-blue-400">฿{(p.cost*p.stock).toLocaleString()}</td>
+                                  <td className="px-3 py-2 text-right text-gray-700">฿{p.price.toLocaleString()}</td>
+                                  <td className="px-3 py-2 text-right text-blue-600">฿{(p.cost*p.stock).toLocaleString()}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -7418,12 +7418,12 @@ export default function POSPage() {
                     <div className="space-y-4">
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         {[
-                          { label: 'ยอดค้างชำระ', value: `฿${(s.outstanding||0).toLocaleString()}`, color: 'text-red-400' },
-                          { label: 'ชำระแล้ว', value: `฿${(s.paid||0).toLocaleString()}`, color: 'text-green-400' },
-                          { label: 'บิลทั้งหมด', value: s.total_bills + ' บิล', color: 'text-blue-400' },
-                          { label: 'จำนวนลูกค้า', value: s.customer_count + ' ราย', color: 'text-purple-400' },
+                          { label: 'ยอดค้างชำระ', value: `฿${(s.outstanding||0).toLocaleString()}`, color: 'text-red-600' },
+                          { label: 'ชำระแล้ว', value: `฿${(s.paid||0).toLocaleString()}`, color: 'text-green-600' },
+                          { label: 'บิลทั้งหมด', value: s.total_bills + ' บิล', color: 'text-blue-600' },
+                          { label: 'จำนวนลูกค้า', value: s.customer_count + ' ราย', color: 'text-purple-600' },
                         ].map(c => (
-                          <div key={c.label} className="bg-gray-800 rounded-xl p-3 text-center">
+                          <div key={c.label} className="bg-white rounded-xl p-3 text-center">
                             <div className={`text-lg font-bold ${c.color}`}>{c.value}</div>
                             <div className="text-gray-400 text-xs mt-1">{c.label}</div>
                           </div>
@@ -7432,21 +7432,21 @@ export default function POSPage() {
                       <div className="flex gap-2">
                         {['ทั้งหมด','ค้างชำระ','ชำระแล้ว'].map(st => (
                           <button key={st} onClick={() => { setReportStatusFilter(st); fetchReport('credit', reportDateFrom, reportDateTo, reportBranch, st); }}
-                            className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${reportStatusFilter===st ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>{st}</button>
+                            className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${reportStatusFilter===st ? 'bg-green-700 text-white' : 'bg-white text-gray-400 hover:bg-gray-100'}`}>{st}</button>
                         ))}
                       </div>
                       <div className="space-y-3">
                         {(reportData.customers||[]).map((cust, i) => (
-                          <div key={i} className="bg-gray-900 rounded-xl overflow-hidden border border-gray-800">
+                          <div key={i} className="bg-white rounded-xl overflow-hidden border border-gray-100">
                             <button className="w-full p-4 flex items-center justify-between text-left"
                               onClick={() => setExpandedCredit(expandedCredit === cust.customer_name ? null : cust.customer_name)}>
                               <div>
-                                <div className="text-white font-bold text-sm">{cust.customer_name}</div>
+                                <div className="text-gray-900 font-bold text-sm">{cust.customer_name}</div>
                                 <div className="text-gray-500 text-xs">{cust.bills?.length} บิล</div>
                               </div>
                               <div className="text-right">
-                                {cust.outstanding > 0 && <div className="text-red-400 font-bold text-sm">ค้าง ฿{cust.outstanding.toLocaleString()}</div>}
-                                {cust.paid > 0 && <div className="text-green-400 text-xs">ชำระแล้ว ฿{cust.paid.toLocaleString()}</div>}
+                                {cust.outstanding > 0 && <div className="text-red-600 font-bold text-sm">ค้าง ฿{cust.outstanding.toLocaleString()}</div>}
+                                {cust.paid > 0 && <div className="text-green-600 text-xs">ชำระแล้ว ฿{cust.paid.toLocaleString()}</div>}
                               </div>
                             </button>
                             {cust.outstanding > 0 && (
@@ -7457,19 +7457,19 @@ export default function POSPage() {
                                     if (matched) openCollectDispatch(matched);
                                     else alert('ไม่พบข้อมูลผู้ติดต่อนี้ในระบบ (อาจถูกลบไปแล้ว หรือบิลนี้ไม่ได้ผูกกับผู้ติดต่อ) — ไปที่หน้าผู้ติดต่อเพื่อส่งงานเก็บเงินแทน');
                                   }}
-                                  className="text-xs bg-orange-800 hover:bg-orange-700 text-orange-200 hover:text-white px-3 py-1.5 rounded-lg transition-colors">
+                                  className="text-xs bg-orange-100 hover:bg-orange-700 text-orange-800 hover:text-white px-3 py-1.5 rounded-lg transition-colors">
                                   📤 ส่งพนักงานไปเก็บ
                                 </button>
                               </div>
                             )}
                             {expandedCredit === cust.customer_name && (
-                              <div className="border-t border-gray-800 divide-y divide-gray-800/50">
+                              <div className="border-t border-gray-100 divide-y divide-gray-100/50">
                                 {(cust.bills||[]).map((bill, j) => (
                                   <div key={j} className="px-4 py-3 flex items-center justify-between">
                                     <div>
-                                      <div className="text-gray-300 text-xs font-mono">
+                                      <div className="text-gray-700 text-xs font-mono">
                                         {bill.bill_no}{' '}
-                                        <span className={`px-1.5 py-0.5 rounded-full ${bill.source === 'delivery' ? 'bg-orange-900/60 text-orange-300' : 'bg-blue-900/60 text-blue-300'}`}>
+                                        <span className={`px-1.5 py-0.5 rounded-full ${bill.source === 'delivery' ? 'bg-orange-50/60 text-orange-700' : 'bg-blue-50/60 text-blue-700'}`}>
                                           {bill.source === 'delivery' ? '🚚 จัดส่ง' : '🏪 หน้าร้าน'}
                                         </span>
                                       </div>
@@ -7477,8 +7477,8 @@ export default function POSPage() {
                                       <div className="text-gray-500 text-xs">{(bill.items||[]).map(i=>i.name+'×'+i.qty).join(', ')}</div>
                                     </div>
                                     <div className="text-right flex flex-col items-end gap-1">
-                                      <div className="text-white font-bold text-sm">฿{bill.total.toLocaleString()}</div>
-                                      <span className={`text-xs px-2 py-0.5 rounded-full ${bill.status==='ค้างชำระ' ? 'bg-red-900/60 text-red-300' : 'bg-green-900/60 text-green-300'}`}>{bill.status}</span>
+                                      <div className="text-gray-900 font-bold text-sm">฿{bill.total.toLocaleString()}</div>
+                                      <span className={`text-xs px-2 py-0.5 rounded-full ${bill.status==='ค้างชำระ' ? 'bg-red-50/60 text-red-700' : 'bg-green-50/60 text-green-700'}`}>{bill.status}</span>
                                       {bill.status === 'ค้างชำระ' && (
                                         <button onClick={() => setCreditPayChoice({ billNo: bill.bill_no, source: bill.source, custName: cust.customer_name, amount: bill.total })}
                                           className="text-xs bg-green-700 hover:bg-green-600 text-white px-2 py-0.5 rounded-lg transition-colors">
@@ -7506,12 +7506,12 @@ export default function POSPage() {
                       <div className="flex items-center justify-between">
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-1 mr-3">
                           {[
-                            { label: 'ยืมอยู่', value: s.active + ' รายการ', color: 'text-orange-400' },
-                            { label: 'เกินกำหนด', value: s.overdue + ' รายการ', color: 'text-red-400' },
-                            { label: 'คืนแล้ว', value: s.returned + ' รายการ', color: 'text-green-400' },
-                            { label: 'ทั้งหมด', value: s.total + ' รายการ', color: 'text-gray-300' },
+                            { label: 'ยืมอยู่', value: s.active + ' รายการ', color: 'text-orange-600' },
+                            { label: 'เกินกำหนด', value: s.overdue + ' รายการ', color: 'text-red-600' },
+                            { label: 'คืนแล้ว', value: s.returned + ' รายการ', color: 'text-green-600' },
+                            { label: 'ทั้งหมด', value: s.total + ' รายการ', color: 'text-gray-700' },
                           ].map(c => (
-                            <div key={c.label} className="bg-gray-800 rounded-xl p-3 text-center">
+                            <div key={c.label} className="bg-white rounded-xl p-3 text-center">
                               <div className={`text-lg font-bold ${c.color}`}>{c.value}</div>
                               <div className="text-gray-400 text-xs mt-1">{c.label}</div>
                             </div>
@@ -7525,33 +7525,33 @@ export default function POSPage() {
                       <div className="flex gap-2">
                         {['ทั้งหมด','ยืมอยู่','คืนแล้ว'].map(st => (
                           <button key={st} onClick={() => { setReportStatusFilter(st); fetchReport('loans', reportDateFrom, reportDateTo, reportBranch, st === 'ทั้งหมด' ? '' : st); }}
-                            className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${reportStatusFilter===st ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>{st}</button>
+                            className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${reportStatusFilter===st ? 'bg-green-700 text-white' : 'bg-white text-gray-400 hover:bg-gray-100'}`}>{st}</button>
                         ))}
                       </div>
                       <div className="space-y-3">
                         {(reportData.loans||[]).map((loan, i) => {
                           const isOverdue = loan.status === 'ยืมอยู่' && loan.due_date && new Date(loan.due_date) < new Date();
                           return (
-                            <div key={i} className={`bg-gray-900 rounded-xl overflow-hidden border ${isOverdue ? 'border-red-800' : 'border-gray-800'}`}>
+                            <div key={i} className={`bg-white rounded-xl overflow-hidden border ${isOverdue ? 'border-red-200' : 'border-gray-100'}`}>
                               <button className="w-full p-4 flex items-center justify-between text-left"
                                 onClick={() => setExpandedLoan(expandedLoan === loan.loan_no ? null : loan.loan_no)}>
                                 <div>
-                                  <div className="text-white font-bold text-sm">{loan.contact_name}</div>
+                                  <div className="text-gray-900 font-bold text-sm">{loan.contact_name}</div>
                                   <div className="text-gray-500 text-xs">{loan.contact_phone} · {loan.created_at?.split(',')[0]}</div>
                                   <div className="text-gray-400 text-xs mt-0.5">{(loan.items||[]).map(i=>i.name+'×'+i.qty+(i.unit||'')).join(', ')}</div>
                                 </div>
                                 <div className="text-right">
-                                  <span className={`text-xs px-2 py-0.5 rounded-full ${isOverdue ? 'bg-red-900/60 text-red-300' : loan.status==='คืนแล้ว' ? 'bg-green-900/60 text-green-300' : 'bg-orange-900/60 text-orange-300'}`}>
+                                  <span className={`text-xs px-2 py-0.5 rounded-full ${isOverdue ? 'bg-red-50/60 text-red-700' : loan.status==='คืนแล้ว' ? 'bg-green-50/60 text-green-700' : 'bg-orange-50/60 text-orange-700'}`}>
                                     {isOverdue ? '⚠️ เกินกำหนด' : loan.status}
                                   </span>
                                   {loan.due_date && <div className="text-gray-500 text-xs mt-1">คืน: {loan.due_date}</div>}
                                 </div>
                               </button>
                               {expandedLoan === loan.loan_no && (
-                                <div className="border-t border-gray-800 px-4 py-3 space-y-2">
+                                <div className="border-t border-gray-100 px-4 py-3 space-y-2">
                                   <div className="text-gray-400 text-xs">เลขที่: {loan.loan_no}</div>
                                   {loan.notes && <div className="text-gray-500 text-xs">หมายเหตุ: {loan.notes}</div>}
-                                  {loan.returned_at && <div className="text-green-400 text-xs">คืนวันที่: {loan.returned_at}</div>}
+                                  {loan.returned_at && <div className="text-green-600 text-xs">คืนวันที่: {loan.returned_at}</div>}
                                   {loan.status === 'ยืมอยู่' && (
                                     <button onClick={() => returnLoan(loan.loan_no)}
                                       className="text-xs bg-green-700 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg transition-colors">
@@ -7576,20 +7576,20 @@ export default function POSPage() {
                     <div className="space-y-4">
                       <div className="grid grid-cols-3 gap-3">
                         {[
-                          { label: 'ยอดขายรวม', value: `฿${(s.total_revenue||0).toLocaleString()}`, color: 'text-green-400' },
-                          { label: 'บิลทั้งหมด', value: `${s.total_bills} บิล`, color: 'text-blue-400' },
-                          { label: 'สินค้าที่ขาย', value: `${s.unique_products} รายการ`, color: 'text-purple-400' },
+                          { label: 'ยอดขายรวม', value: `฿${(s.total_revenue||0).toLocaleString()}`, color: 'text-green-600' },
+                          { label: 'บิลทั้งหมด', value: `${s.total_bills} บิล`, color: 'text-blue-600' },
+                          { label: 'สินค้าที่ขาย', value: `${s.unique_products} รายการ`, color: 'text-purple-600' },
                         ].map(c => (
-                          <div key={c.label} className="bg-gray-800 rounded-xl p-3 text-center">
+                          <div key={c.label} className="bg-white rounded-xl p-3 text-center">
                             <div className={`text-lg font-bold ${c.color}`}>{c.value}</div>
                             <div className="text-gray-400 text-xs mt-1">{c.label}</div>
                           </div>
                         ))}
                       </div>
-                      <div className="bg-gray-900 rounded-xl overflow-hidden">
+                      <div className="bg-white rounded-xl overflow-hidden">
                         <div className="overflow-x-auto">
                           <table className="w-full text-xs">
-                            <thead><tr className="border-b border-gray-800">
+                            <thead><tr className="border-b border-gray-100">
                               <th className="text-center text-gray-400 px-2 py-2 w-8">#</th>
                               <th className="text-left text-gray-400 px-3 py-2">สินค้า</th>
                               <th className="text-right text-gray-400 px-3 py-2">จำนวน</th>
@@ -7599,13 +7599,13 @@ export default function POSPage() {
                             </tr></thead>
                             <tbody>
                               {(reportData.top_sellers||[]).map((p, i) => (
-                                <tr key={i} className="border-b border-gray-800/50">
+                                <tr key={i} className="border-b border-gray-100/50">
                                   <td className="px-2 py-2 text-center text-gray-500">{p.rank}</td>
-                                  <td className="px-3 py-2 text-white font-medium">{p.name}</td>
-                                  <td className="px-3 py-2 text-right text-yellow-400 font-bold">{p.qty}</td>
-                                  <td className="px-3 py-2 text-right text-green-400">฿{p.revenue.toLocaleString()}</td>
-                                  <td className="px-3 py-2 text-right text-blue-400">฿{p.profit.toLocaleString()}</td>
-                                  <td className={`px-3 py-2 text-right font-bold ${p.margin >= 30 ? 'text-green-400' : p.margin >= 10 ? 'text-yellow-400' : 'text-red-400'}`}>{p.margin}%</td>
+                                  <td className="px-3 py-2 text-gray-900 font-medium">{p.name}</td>
+                                  <td className="px-3 py-2 text-right text-yellow-600 font-bold">{p.qty}</td>
+                                  <td className="px-3 py-2 text-right text-green-600">฿{p.revenue.toLocaleString()}</td>
+                                  <td className="px-3 py-2 text-right text-blue-600">฿{p.profit.toLocaleString()}</td>
+                                  <td className={`px-3 py-2 text-right font-bold ${p.margin >= 30 ? 'text-green-600' : p.margin >= 10 ? 'text-yellow-600' : 'text-red-600'}`}>{p.margin}%</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -7624,21 +7624,21 @@ export default function POSPage() {
                     <div className="space-y-4">
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         {[
-                          { label: 'ยอดขายรวม', value: `฿${(s.total_revenue||0).toLocaleString()}`, color: 'text-green-400' },
-                          { label: 'ต้นทุนรวม', value: `฿${(s.total_cost||0).toLocaleString()}`, color: 'text-red-400' },
-                          { label: 'กำไรขั้นต้น', value: `฿${(s.gross_profit||0).toLocaleString()}`, color: s.gross_profit >= 0 ? 'text-blue-400' : 'text-red-400' },
-                          { label: 'อัตรากำไร', value: `${s.gross_margin||0}%`, color: s.gross_margin >= 20 ? 'text-green-400' : 'text-yellow-400' },
+                          { label: 'ยอดขายรวม', value: `฿${(s.total_revenue||0).toLocaleString()}`, color: 'text-green-600' },
+                          { label: 'ต้นทุนรวม', value: `฿${(s.total_cost||0).toLocaleString()}`, color: 'text-red-600' },
+                          { label: 'กำไรขั้นต้น', value: `฿${(s.gross_profit||0).toLocaleString()}`, color: s.gross_profit >= 0 ? 'text-blue-600' : 'text-red-600' },
+                          { label: 'อัตรากำไร', value: `${s.gross_margin||0}%`, color: s.gross_margin >= 20 ? 'text-green-600' : 'text-yellow-600' },
                         ].map(c => (
-                          <div key={c.label} className="bg-gray-800 rounded-xl p-3 text-center">
+                          <div key={c.label} className="bg-white rounded-xl p-3 text-center">
                             <div className={`text-lg font-bold ${c.color}`}>{c.value}</div>
                             <div className="text-gray-400 text-xs mt-1">{c.label}</div>
                           </div>
                         ))}
                       </div>
-                      <div className="bg-gray-900 rounded-xl overflow-hidden">
+                      <div className="bg-white rounded-xl overflow-hidden">
                         <div className="overflow-x-auto">
                           <table className="w-full text-xs">
-                            <thead><tr className="border-b border-gray-800">
+                            <thead><tr className="border-b border-gray-100">
                               <th className="text-left text-gray-400 px-3 py-2">หมวดหมู่</th>
                               <th className="text-right text-gray-400 px-3 py-2">ยอดขาย</th>
                               <th className="text-right text-gray-400 px-3 py-2">ต้นทุน</th>
@@ -7647,12 +7647,12 @@ export default function POSPage() {
                             </tr></thead>
                             <tbody>
                               {(reportData.categories||[]).map((c, i) => (
-                                <tr key={i} className="border-b border-gray-800/50">
-                                  <td className="px-3 py-2 text-white font-medium">{c.category}</td>
-                                  <td className="px-3 py-2 text-right text-green-400">฿{c.revenue.toLocaleString()}</td>
-                                  <td className="px-3 py-2 text-right text-red-400">฿{c.cost.toLocaleString()}</td>
-                                  <td className="px-3 py-2 text-right text-blue-400">฿{c.profit.toLocaleString()}</td>
-                                  <td className={`px-3 py-2 text-right font-bold ${c.margin >= 30 ? 'text-green-400' : c.margin >= 10 ? 'text-yellow-400' : 'text-red-400'}`}>{c.margin}%</td>
+                                <tr key={i} className="border-b border-gray-100/50">
+                                  <td className="px-3 py-2 text-gray-900 font-medium">{c.category}</td>
+                                  <td className="px-3 py-2 text-right text-green-600">฿{c.revenue.toLocaleString()}</td>
+                                  <td className="px-3 py-2 text-right text-red-600">฿{c.cost.toLocaleString()}</td>
+                                  <td className="px-3 py-2 text-right text-blue-600">฿{c.profit.toLocaleString()}</td>
+                                  <td className={`px-3 py-2 text-right font-bold ${c.margin >= 30 ? 'text-green-600' : c.margin >= 10 ? 'text-yellow-600' : 'text-red-600'}`}>{c.margin}%</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -7662,15 +7662,15 @@ export default function POSPage() {
                       </div>
 
                       {/* กำไรสุทธิ หลังหักรายจ่ายร้าน (ไม่เกี่ยวกับสต็อค) + เงินเดือน (Phase 2) */}
-                      <div className="bg-gray-900 rounded-xl p-4 flex items-center justify-between">
+                      <div className="bg-white rounded-xl p-4 flex items-center justify-between">
                         <div>
-                          <div className="text-white font-bold text-sm">กำไรสุทธิ (หักรายจ่าย+เงินเดือนแล้ว)</div>
+                          <div className="text-gray-900 font-bold text-sm">กำไรสุทธิ (หักรายจ่าย+เงินเดือนแล้ว)</div>
                           <div className="text-gray-500 text-xs mt-0.5">
                             กำไรขั้นต้น ฿{(s.gross_profit||0).toLocaleString()} − รายจ่าย ฿{((s.total_expenses||0)-(s.total_payroll||0)).toLocaleString()}
                             {s.total_payroll > 0 && <> − เงินเดือน ฿{s.total_payroll.toLocaleString()}</>}
                           </div>
                         </div>
-                        <div className={`text-xl font-bold ${(s.net_profit||0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        <div className={`text-xl font-bold ${(s.net_profit||0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                           ฿{(s.net_profit||0).toLocaleString()} <span className="text-xs text-gray-500">({s.net_margin||0}%)</span>
                         </div>
                       </div>
@@ -7684,7 +7684,7 @@ export default function POSPage() {
                     <label className="text-gray-400 text-xs">ปี</label>
                     <select value={reportTaxYear}
                       onChange={e => { setReportTaxYear(parseInt(e.target.value, 10)); fetchReport('annual_tax'); }}
-                      className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white">
+                      className="bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900">
                       {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i).map(y => (
                         <option key={y} value={y}>{y} (พ.ศ. {y + 543})</option>
                       ))}
@@ -7696,31 +7696,31 @@ export default function POSPage() {
                   const t = reportData.taxEstimate;
                   return (
                     <div className="space-y-4">
-                      <div className="bg-amber-950/40 border border-amber-800/50 rounded-xl px-4 py-2.5 text-amber-300 text-xs">
+                      <div className="bg-amber-50/40 border border-amber-200/50 rounded-xl px-4 py-2.5 text-amber-700 text-xs">
                         💡 นี่คือ<b>ตัวประมาณการณ์สำหรับวางแผน</b> ไม่ใช่เครื่องมือยื่นภาษีที่แม่นยำ 100% — ไม่รวมค่าเสื่อมราคา/รายจ่ายต้องห้าม/ค่าลดหย่อนอื่นๆ กรุณาตรวจสอบกับนักบัญชีก่อนยื่นจริงเสมอ
                       </div>
 
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                         {[
-                          { label: 'รายได้รวมทั้งปี', value: `฿${(s.total_revenue||0).toLocaleString()}`, color: 'text-green-400' },
-                          { label: 'ต้นทุนสินค้า', value: `฿${(s.total_cost||0).toLocaleString()}`, color: 'text-red-400' },
-                          { label: 'รายจ่ายร้าน', value: `฿${(s.total_expenses||0).toLocaleString()}`, color: 'text-red-400' },
-                          { label: 'เงินเดือนพนักงาน', value: `฿${(s.total_payroll||0).toLocaleString()}`, color: 'text-red-400' },
-                          { label: 'กำไรสุทธิทางบัญชี', value: `฿${(s.net_profit||0).toLocaleString()}`, color: s.net_profit >= 0 ? 'text-blue-400' : 'text-red-400' },
-                          { label: 'ประเภทที่ใช้คำนวณ', value: t.entityType === 'corporate' ? 'นิติบุคคล' : 'บุคคลธรรมดา', color: 'text-gray-300' },
+                          { label: 'รายได้รวมทั้งปี', value: `฿${(s.total_revenue||0).toLocaleString()}`, color: 'text-green-600' },
+                          { label: 'ต้นทุนสินค้า', value: `฿${(s.total_cost||0).toLocaleString()}`, color: 'text-red-600' },
+                          { label: 'รายจ่ายร้าน', value: `฿${(s.total_expenses||0).toLocaleString()}`, color: 'text-red-600' },
+                          { label: 'เงินเดือนพนักงาน', value: `฿${(s.total_payroll||0).toLocaleString()}`, color: 'text-red-600' },
+                          { label: 'กำไรสุทธิทางบัญชี', value: `฿${(s.net_profit||0).toLocaleString()}`, color: s.net_profit >= 0 ? 'text-blue-600' : 'text-red-600' },
+                          { label: 'ประเภทที่ใช้คำนวณ', value: t.entityType === 'corporate' ? 'นิติบุคคล' : 'บุคคลธรรมดา', color: 'text-gray-700' },
                         ].map(c => (
-                          <div key={c.label} className="bg-gray-800 rounded-xl p-3 text-center">
+                          <div key={c.label} className="bg-white rounded-xl p-3 text-center">
                             <div className={`text-lg font-bold ${c.color}`}>{c.value}</div>
                             <div className="text-gray-400 text-xs mt-1">{c.label}</div>
                           </div>
                         ))}
                       </div>
 
-                      <div className="bg-gray-900 rounded-xl p-5 space-y-2">
-                        <h3 className="text-white font-bold text-sm mb-1">
+                      <div className="bg-white rounded-xl p-5 space-y-2">
+                        <h3 className="text-gray-900 font-bold text-sm mb-1">
                           {t.entityType === 'corporate' ? '📑 ภาษีเงินได้นิติบุคคล (อัตรา SME)' : '📑 ภาษีเงินได้บุคคลธรรมดา (ขั้นบันได)'}
                         </h3>
-                        <div className="flex justify-between text-sm text-gray-300">
+                        <div className="flex justify-between text-sm text-gray-700">
                           <span>กำไรสุทธิทางบัญชี</span><span>฿{(s.net_profit||0).toLocaleString(undefined,{minimumFractionDigits:2})}</span>
                         </div>
                         {t.entityType === 'individual' && (
@@ -7728,12 +7728,12 @@ export default function POSPage() {
                             <span>หัก ค่าลดหย่อนส่วนตัว</span><span>-฿{t.personalAllowance.toLocaleString()}</span>
                           </div>
                         )}
-                        <div className="flex justify-between text-sm text-gray-300 pt-2 border-t border-gray-800">
+                        <div className="flex justify-between text-sm text-gray-700 pt-2 border-t border-gray-100">
                           <span>เงินได้สุทธิที่ต้องเสียภาษี</span><span>฿{t.taxableIncome.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
                         </div>
-                        <div className="flex justify-between text-xl font-bold pt-2 border-t border-gray-800">
-                          <span className="text-white">ภาษีที่ประมาณการณ์ต้องจ่าย</span>
-                          <span className="text-amber-400">฿{t.tax.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                        <div className="flex justify-between text-xl font-bold pt-2 border-t border-gray-100">
+                          <span className="text-gray-900">ภาษีที่ประมาณการณ์ต้องจ่าย</span>
+                          <span className="text-amber-600">฿{t.tax.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
                         </div>
                         <p className="text-gray-500 text-[11px] pt-2">{t.note}</p>
                       </div>
@@ -7748,39 +7748,39 @@ export default function POSPage() {
                 })()}
 
                 {!reportLoading && reportData?.type === 'price_tier' && (() => {
-                  const TIER_COLOR = { low: 'text-gray-300', mid: 'text-blue-400', high: 'text-amber-400' };
+                  const TIER_COLOR = { low: 'text-gray-700', mid: 'text-blue-600', high: 'text-amber-600' };
                   return (
                     <div className="space-y-4">
-                      <div className="bg-purple-950/40 border border-purple-800/50 rounded-xl px-4 py-2.5 text-purple-300 text-xs">
+                      <div className="bg-purple-50/40 border border-purple-200/50 rounded-xl px-4 py-2.5 text-purple-700 text-xs">
                         💵 แบ่งบิลเป็น 3 กลุ่มเท่าๆ กันตามยอดที่ลูกค้าจ่ายจริง (ต่ำ/กลาง/สูง) — ดูว่าช่วงราคาไหนขายบ่อยสุด/ทำเงินสุด
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         {(reportData.tiers || []).map(t => (
-                          <div key={t.tier} className="bg-gray-800 rounded-xl p-4">
+                          <div key={t.tier} className="bg-white rounded-xl p-4">
                             <div className={`text-sm font-bold mb-2 ${TIER_COLOR[t.tier]}`}>ช่วง{t.label} (฿{t.min.toLocaleString()} – ฿{t.max.toLocaleString()})</div>
                             <div className="grid grid-cols-2 gap-2 text-xs">
-                              <div><div className="text-gray-500">จำนวนบิล</div><div className="text-white font-medium">{t.count.toLocaleString()}</div></div>
-                              <div><div className="text-gray-500">ยอดรวม</div><div className="text-green-400 font-medium">฿{t.total_revenue.toLocaleString()}</div></div>
-                              <div className="col-span-2"><div className="text-gray-500">เฉลี่ยต่อบิล</div><div className="text-white font-medium">฿{t.avg_bill.toLocaleString()}</div></div>
+                              <div><div className="text-gray-500">จำนวนบิล</div><div className="text-gray-900 font-medium">{t.count.toLocaleString()}</div></div>
+                              <div><div className="text-gray-500">ยอดรวม</div><div className="text-green-600 font-medium">฿{t.total_revenue.toLocaleString()}</div></div>
+                              <div className="col-span-2"><div className="text-gray-500">เฉลี่ยต่อบิล</div><div className="text-gray-900 font-medium">฿{t.avg_bill.toLocaleString()}</div></div>
                             </div>
                           </div>
                         ))}
                       </div>
 
-                      <div className="bg-gray-900 rounded-xl overflow-hidden">
-                        <div className="px-3 py-2 border-b border-gray-800 text-gray-400 text-xs font-medium">🔗 สินค้าที่ลูกค้าซื้อคู่กันบ่อยที่สุด</div>
+                      <div className="bg-white rounded-xl overflow-hidden">
+                        <div className="px-3 py-2 border-b border-gray-100 text-gray-400 text-xs font-medium">🔗 สินค้าที่ลูกค้าซื้อคู่กันบ่อยที่สุด</div>
                         <div className="overflow-x-auto">
                           <table className="w-full text-xs">
-                            <thead><tr className="border-b border-gray-800">
+                            <thead><tr className="border-b border-gray-100">
                               <th className="text-left text-gray-400 px-3 py-2">คู่สินค้า</th>
                               <th className="text-right text-gray-400 px-3 py-2">จำนวนบิลที่ซื้อคู่กัน</th>
                             </tr></thead>
                             <tbody>
                               {(reportData.pairs || []).map((p, i) => (
-                                <tr key={i} className="border-b border-gray-800/50">
-                                  <td className="px-3 py-2 text-white">{p.nameA} <span className="text-gray-600">×</span> {p.nameB}</td>
-                                  <td className="px-3 py-2 text-right text-blue-400 font-medium">{p.count.toLocaleString()} บิล</td>
+                                <tr key={i} className="border-b border-gray-100/50">
+                                  <td className="px-3 py-2 text-gray-900">{p.nameA} <span className="text-gray-500">×</span> {p.nameB}</td>
+                                  <td className="px-3 py-2 text-right text-blue-600 font-medium">{p.count.toLocaleString()} บิล</td>
                                 </tr>
                               ))}
                               {(reportData.pairs || []).length === 0 && (
@@ -7800,31 +7800,31 @@ export default function POSPage() {
                   const maxCell = Math.max(...grid.flat(), 1);
                   const intensityBg = (v) => {
                     const pct = v / maxCell;
-                    if (pct === 0) return 'bg-gray-800';
-                    if (pct < 0.2) return 'bg-amber-950';
-                    if (pct < 0.4) return 'bg-amber-800';
-                    if (pct < 0.6) return 'bg-amber-700';
-                    if (pct < 0.8) return 'bg-amber-600';
-                    return 'bg-amber-500';
+                    if (pct === 0) return 'bg-gray-50';
+                    if (pct < 0.2) return 'bg-amber-100';
+                    if (pct < 0.4) return 'bg-amber-200';
+                    if (pct < 0.6) return 'bg-amber-300';
+                    if (pct < 0.8) return 'bg-amber-400';
+                    return 'bg-amber-600';
                   };
                   const peakHour = reportData.peakHour ?? 0;
                   const peakDay = reportData.peakDay ?? 0;
                   const total = reportData.summary?.total_transactions || 0;
                   return (
                     <div className="space-y-4">
-                      <div className="bg-purple-950/40 border border-purple-800/50 rounded-xl px-4 py-2.5 text-purple-300 text-xs">
+                      <div className="bg-purple-50/40 border border-purple-200/50 rounded-xl px-4 py-2.5 text-purple-700 text-xs">
                         ⏰ ช่วงเวลาที่ลูกค้ามาซื้อ/สั่งของบ่อยที่สุด (นับทุกบิล/ออเดอร์ที่ไม่ถูกยกเลิก) — ใช้จัดกะพนักงานให้ตรงกับช่วงที่ร้านคึกคักจริง
                       </div>
 
                       <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-amber-950/40 border border-amber-800/40 rounded-xl p-4">
+                        <div className="bg-amber-50/40 border border-amber-200/40 rounded-xl p-4">
                           <div className="text-amber-500 text-xs">ชั่วโมงขายดีที่สุด</div>
-                          <div className="text-2xl font-bold text-amber-300 mt-1">{peakHour}:00 น.</div>
+                          <div className="text-2xl font-bold text-amber-700 mt-1">{peakHour}:00 น.</div>
                           <div className="text-amber-600 text-xs mt-1">{(reportData.hourCounts?.[peakHour] || 0).toLocaleString()} รายการ</div>
                         </div>
-                        <div className="bg-amber-950/40 border border-amber-800/40 rounded-xl p-4">
+                        <div className="bg-amber-50/40 border border-amber-200/40 rounded-xl p-4">
                           <div className="text-amber-500 text-xs">วันขายดีที่สุด</div>
-                          <div className="text-2xl font-bold text-amber-300 mt-1">วัน{reportData.peakDayLabel}</div>
+                          <div className="text-2xl font-bold text-amber-700 mt-1">วัน{reportData.peakDayLabel}</div>
                           <div className="text-amber-600 text-xs mt-1">{(reportData.dayCounts?.[peakDay] || 0).toLocaleString()} รายการ</div>
                         </div>
                       </div>
@@ -7832,16 +7832,16 @@ export default function POSPage() {
                       {total === 0 ? (
                         <div className="text-center text-gray-500 py-12">ยังไม่มีข้อมูลธุรกรรมในช่วงที่เลือก</div>
                       ) : (
-                        <div className="bg-gray-900 rounded-xl p-4 overflow-x-auto">
+                        <div className="bg-white rounded-xl p-4 overflow-x-auto">
                           <div className="min-w-max">
                             <div className="flex ml-8 mb-1 gap-px">
                               {Array.from({ length: 24 }, (_, h) => (
-                                <div key={h} className={`w-5 text-center text-[8px] font-medium ${h === peakHour ? 'text-amber-400 font-black' : 'text-gray-600'}`}>{h}</div>
+                                <div key={h} className={`w-5 text-center text-[8px] font-medium ${h === peakHour ? 'text-amber-600 font-black' : 'text-gray-500'}`}>{h}</div>
                               ))}
                             </div>
                             {grid.map((row, d) => (
                               <div key={d} className="flex items-center gap-px mb-px">
-                                <div className={`w-7 text-[9px] font-bold shrink-0 text-right pr-1 ${d === peakDay ? 'text-amber-400' : 'text-gray-500'}`}>{DAY_TH[d]}</div>
+                                <div className={`w-7 text-[9px] font-bold shrink-0 text-right pr-1 ${d === peakDay ? 'text-amber-600' : 'text-gray-500'}`}>{DAY_TH[d]}</div>
                                 {row.map((v, h) => (
                                   <div key={h} title={`วัน${(reportData.dayLabels || [])[d] || ''} ${h}:00 — ${v} รายการ`}
                                     className={`w-5 h-5 rounded-sm ${intensityBg(v)} transition-colors cursor-default`} />
@@ -7850,8 +7850,8 @@ export default function POSPage() {
                             ))}
                             <div className="flex items-center gap-2 mt-3 ml-8">
                               <span className="text-[9px] text-gray-500">น้อย</span>
-                              {['bg-gray-800', 'bg-amber-950', 'bg-amber-800', 'bg-amber-700', 'bg-amber-600', 'bg-amber-500'].map((c, i) => (
-                                <div key={i} className={`w-4 h-3 rounded-sm ${c} border border-gray-700`} />
+                              {['bg-gray-50', 'bg-amber-100', 'bg-amber-200', 'bg-amber-300', 'bg-amber-400', 'bg-amber-600'].map((c, i) => (
+                                <div key={i} className={`w-4 h-3 rounded-sm ${c} border border-gray-200`} />
                               ))}
                               <span className="text-[9px] text-gray-500">มาก</span>
                             </div>
@@ -7870,7 +7870,7 @@ export default function POSPage() {
                   const maxQty = Math.max(...list.map(p => p.total_qty), 1);
                   return (
                     <div className="space-y-4">
-                      <div className="bg-purple-950/40 border border-purple-800/50 rounded-xl px-4 py-2.5 text-purple-300 text-xs">
+                      <div className="bg-purple-50/40 border border-purple-200/50 rounded-xl px-4 py-2.5 text-purple-700 text-xs">
                         🎨 เทียบว่าสินค้าแต่ละแบบ/สี/ไซส์ (คนละ SKU ในหมวดหมู่เดียวกัน) ขายดีกว่ากันแค่ไหน และขายดีช่วงเวลาไหน
                       </div>
 
@@ -7878,12 +7878,12 @@ export default function POSPage() {
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-gray-500 text-xs">กรองหมวดหมู่:</span>
                           <button onClick={() => { setProductPeakCategory(''); fetchReport('product_peak_hours', reportDateFrom, reportDateTo); }}
-                            className={`text-xs px-3 py-1.5 rounded-full transition-colors ${!productPeakCategory ? 'bg-purple-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
+                            className={`text-xs px-3 py-1.5 rounded-full transition-colors ${!productPeakCategory ? 'bg-purple-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'}`}>
                             ทั้งหมด (top 15)
                           </button>
                           {cats.map(c => (
                             <button key={c} onClick={() => { setProductPeakCategory(c); fetchReport('product_peak_hours', reportDateFrom, reportDateTo); }}
-                              className={`text-xs px-3 py-1.5 rounded-full transition-colors ${productPeakCategory === c ? 'bg-purple-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
+                              className={`text-xs px-3 py-1.5 rounded-full transition-colors ${productPeakCategory === c ? 'bg-purple-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'}`}>
                               {c}
                             </button>
                           ))}
@@ -7895,14 +7895,14 @@ export default function POSPage() {
                       ) : (
                         <div className="space-y-2">
                           {list.map(p => (
-                            <div key={p.sku} className="bg-gray-800 rounded-xl p-3">
+                            <div key={p.sku} className="bg-white rounded-xl p-3">
                               <div className="flex items-center justify-between gap-2 flex-wrap">
                                 <div>
-                                  <span className="text-white text-sm font-medium">{p.name}</span>
-                                  <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full ml-2">{p.category}</span>
+                                  <span className="text-gray-900 text-sm font-medium">{p.name}</span>
+                                  <span className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full ml-2">{p.category}</span>
                                 </div>
                                 <div className="text-right">
-                                  <div className="text-amber-300 text-sm font-bold">{p.total_qty.toLocaleString()} ชิ้น</div>
+                                  <div className="text-amber-700 text-sm font-bold">{p.total_qty.toLocaleString()} ชิ้น</div>
                                   <div className="text-gray-500 text-[10px]">฿{p.total_revenue.toLocaleString()}</div>
                                 </div>
                               </div>
@@ -7913,7 +7913,7 @@ export default function POSPage() {
                               <div className="flex items-end gap-px mt-2 h-6">
                                 {p.hourCounts.map((v, h) => (
                                   <div key={h} title={`${h}:00 — ${v} ชิ้น`}
-                                    className={`flex-1 rounded-sm ${h === p.peakHour ? 'bg-amber-400' : 'bg-gray-700'}`}
+                                    className={`flex-1 rounded-sm ${h === p.peakHour ? 'bg-amber-400' : 'bg-gray-100'}`}
                                     style={{ height: `${Math.max(8, (v / maxQty) * 100)}%` }} />
                                 ))}
                               </div>
@@ -7928,36 +7928,36 @@ export default function POSPage() {
                 {!reportLoading && reportData?.type === 'customer_rfm' && (() => {
                   const s = reportData.summary || {};
                   const SEGMENT_META = {
-                    champions: { label: '🏆 ลูกค้าคนสำคัญ', color: 'text-amber-400', badge: 'bg-amber-950/50 text-amber-300 border-amber-800/50' },
-                    loyal:     { label: '💚 ลูกค้าประจำ',   color: 'text-green-400', badge: 'bg-green-950/50 text-green-300 border-green-800/50' },
-                    new:       { label: '🆕 ลูกค้าใหม่',    color: 'text-blue-400',  badge: 'bg-blue-950/50 text-blue-300 border-blue-800/50' },
-                    regular:   { label: '🙂 ลูกค้าทั่วไป',  color: 'text-gray-300',  badge: 'bg-gray-800 text-gray-300 border-gray-700' },
-                    at_risk:   { label: '⚠️ เสี่ยงหายไป',   color: 'text-orange-400', badge: 'bg-orange-950/50 text-orange-300 border-orange-800/50' },
-                    lost:      { label: '💤 หายไปแล้ว',     color: 'text-red-400',   badge: 'bg-red-950/50 text-red-300 border-red-800/50' },
-                    dormant:   { label: '😴 นานๆ มาที',    color: 'text-gray-500',  badge: 'bg-gray-800 text-gray-500 border-gray-700' },
+                    champions: { label: '🏆 ลูกค้าคนสำคัญ', color: 'text-amber-600', badge: 'bg-amber-50/50 text-amber-700 border-amber-200/50' },
+                    loyal:     { label: '💚 ลูกค้าประจำ',   color: 'text-green-600', badge: 'bg-green-50/50 text-green-700 border-green-200/50' },
+                    new:       { label: '🆕 ลูกค้าใหม่',    color: 'text-blue-600',  badge: 'bg-blue-50/50 text-blue-700 border-blue-200/50' },
+                    regular:   { label: '🙂 ลูกค้าทั่วไป',  color: 'text-gray-700',  badge: 'bg-white text-gray-700 border-gray-200' },
+                    at_risk:   { label: '⚠️ เสี่ยงหายไป',   color: 'text-orange-600', badge: 'bg-orange-50/50 text-orange-700 border-orange-200/50' },
+                    lost:      { label: '💤 หายไปแล้ว',     color: 'text-red-600',   badge: 'bg-red-50/50 text-red-700 border-red-200/50' },
+                    dormant:   { label: '😴 นานๆ มาที',    color: 'text-gray-400',  badge: 'bg-white text-gray-400 border-gray-200' },
                   };
                   return (
                     <div className="space-y-4">
-                      <div className="bg-purple-950/40 border border-purple-800/50 rounded-xl px-4 py-2.5 text-purple-300 text-xs">
+                      <div className="bg-purple-50/40 border border-purple-200/50 rounded-xl px-4 py-2.5 text-purple-700 text-xs">
                         👑 Customer 360 — วิเคราะห์กลุ่มลูกค้าสมาชิกร้าน (จากผู้ติดต่อที่มีประวัติซื้อจริง {s.total_scored || 0} จาก {s.total_contacts || 0} คน)
                       </div>
 
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         {Object.entries(SEGMENT_META).map(([key, m]) => (
-                          <div key={key} className="bg-gray-800 rounded-xl p-3 text-center">
+                          <div key={key} className="bg-white rounded-xl p-3 text-center">
                             <div className={`text-lg font-bold ${m.color}`}>{(s[key] || 0).toLocaleString()}</div>
                             <div className="text-gray-400 text-xs mt-1">{m.label}</div>
                           </div>
                         ))}
                       </div>
 
-                      <div className="bg-gray-900 rounded-xl overflow-hidden">
-                        <div className="px-3 py-2 border-b border-gray-800 text-gray-400 text-xs font-medium">
+                      <div className="bg-white rounded-xl overflow-hidden">
+                        <div className="px-3 py-2 border-b border-gray-100 text-gray-400 text-xs font-medium">
                           รายชื่อลูกค้าเรียงตามยอดซื้อสะสม
                         </div>
                         <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
                           <table className="w-full text-xs">
-                            <thead className="sticky top-0 bg-gray-900"><tr className="border-b border-gray-800">
+                            <thead className="sticky top-0 bg-white"><tr className="border-b border-gray-100">
                               <th className="text-left text-gray-400 px-3 py-2">ลูกค้า</th>
                               <th className="text-left text-gray-400 px-3 py-2">กลุ่ม</th>
                               <th className="text-right text-gray-400 px-3 py-2">ยอดซื้อสะสม</th>
@@ -7968,16 +7968,16 @@ export default function POSPage() {
                               {(reportData.customers || []).map(c => {
                                 const m = SEGMENT_META[c.segment] || SEGMENT_META.regular;
                                 return (
-                                  <tr key={c.contact_id} className="border-b border-gray-800/50">
+                                  <tr key={c.contact_id} className="border-b border-gray-100/50">
                                     <td className="px-3 py-2">
-                                      <div className="text-white font-medium">{c.name || '(ไม่มีชื่อ)'}</div>
+                                      <div className="text-gray-900 font-medium">{c.name || '(ไม่มีชื่อ)'}</div>
                                       <div className="text-gray-500">{c.phone}</div>
                                     </td>
                                     <td className="px-3 py-2">
                                       <span className={`inline-block px-2 py-0.5 rounded-full border text-[11px] ${m.badge}`}>{m.label}</span>
                                     </td>
-                                    <td className="px-3 py-2 text-right text-green-400 font-medium">฿{c.total_spent.toLocaleString(undefined,{minimumFractionDigits:2})}</td>
-                                    <td className="px-3 py-2 text-right text-gray-300">{c.purchase_count} ครั้ง{c.purchase_count >= 2 ? ` (ซื้อซ้ำครั้งที่ ${c.purchase_count})` : ''}</td>
+                                    <td className="px-3 py-2 text-right text-green-600 font-medium">฿{c.total_spent.toLocaleString(undefined,{minimumFractionDigits:2})}</td>
+                                    <td className="px-3 py-2 text-right text-gray-700">{c.purchase_count} ครั้ง{c.purchase_count >= 2 ? ` (ซื้อซ้ำครั้งที่ ${c.purchase_count})` : ''}</td>
                                     <td className="px-3 py-2 text-right text-gray-400">{c.days_since_purchase === 0 ? 'วันนี้' : `${c.days_since_purchase} วันก่อน`}</td>
                                   </tr>
                                 );
@@ -7999,12 +7999,12 @@ export default function POSPage() {
                     <div className="space-y-4">
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         {[
-                          { label: 'เต็มพร้อมขาย', value: s.total_stock || 0, color: 'text-green-400' },
-                          { label: 'อยู่กับลูกค้ารวม', value: s.total_at_customer || 0, color: 'text-orange-400' },
-                          { label: 'เปล่ารอรีฟิล', value: s.total_empty_waiting || 0, color: 'text-gray-300' },
-                          { label: 'ลูกค้าที่ถืออยู่', value: s.customer_count || 0, color: 'text-blue-400' },
+                          { label: 'เต็มพร้อมขาย', value: s.total_stock || 0, color: 'text-green-600' },
+                          { label: 'อยู่กับลูกค้ารวม', value: s.total_at_customer || 0, color: 'text-orange-600' },
+                          { label: 'เปล่ารอรีฟิล', value: s.total_empty_waiting || 0, color: 'text-gray-700' },
+                          { label: 'ลูกค้าที่ถืออยู่', value: s.customer_count || 0, color: 'text-blue-600' },
                         ].map(c => (
-                          <div key={c.label} className="bg-gray-800 rounded-xl p-3 text-center">
+                          <div key={c.label} className="bg-white rounded-xl p-3 text-center">
                             <div className={`text-lg font-bold ${c.color}`}>{c.value.toLocaleString()}</div>
                             <div className="text-gray-400 text-xs mt-1">{c.label}</div>
                           </div>
@@ -8012,23 +8012,23 @@ export default function POSPage() {
                       </div>
 
                       {/* ภาพรวมสต็อคต่อสินค้าหมุนเวียน */}
-                      <div className="bg-gray-900 rounded-xl overflow-hidden">
-                        <div className="px-3 py-2 border-b border-gray-800 text-gray-400 text-xs font-medium">📦 สต็อคต่อสินค้า</div>
+                      <div className="bg-white rounded-xl overflow-hidden">
+                        <div className="px-3 py-2 border-b border-gray-100 text-gray-500 text-xs font-medium">📦 สต็อคต่อสินค้า</div>
                         <div className="overflow-x-auto">
                           <table className="w-full text-xs">
-                            <thead><tr className="border-b border-gray-800">
-                              <th className="text-left text-gray-400 px-3 py-2">สินค้า</th>
-                              <th className="text-right text-gray-400 px-3 py-2">เต็ม</th>
-                              <th className="text-right text-gray-400 px-3 py-2">กับลูกค้า</th>
-                              <th className="text-right text-gray-400 px-3 py-2">เปล่ารอรีฟิล</th>
+                            <thead><tr className="border-b border-gray-100">
+                              <th className="text-left text-gray-500 px-3 py-2">สินค้า</th>
+                              <th className="text-right text-gray-500 px-3 py-2">เต็ม</th>
+                              <th className="text-right text-gray-500 px-3 py-2">กับลูกค้า</th>
+                              <th className="text-right text-gray-500 px-3 py-2">เปล่ารอรีฟิล</th>
                             </tr></thead>
                             <tbody>
                               {(reportData.products || []).map(p => (
-                                <tr key={p.sku} className="border-b border-gray-800/50">
-                                  <td className="px-3 py-2 text-white font-medium">{p.name} <span className="text-gray-600">({p.unit})</span></td>
-                                  <td className="px-3 py-2 text-right text-green-400">{p.stock}</td>
-                                  <td className="px-3 py-2 text-right text-orange-400">{p.at_customer}</td>
-                                  <td className={`px-3 py-2 text-right ${p.over_ceiling ? 'text-red-400 font-bold' : 'text-gray-300'}`}>
+                                <tr key={p.sku} className="border-b border-gray-100/50">
+                                  <td className="px-3 py-2 text-gray-900 font-medium">{p.name} <span className="text-gray-400">({p.unit})</span></td>
+                                  <td className="px-3 py-2 text-right text-green-600">{p.stock}</td>
+                                  <td className="px-3 py-2 text-right text-orange-600">{p.at_customer}</td>
+                                  <td className={`px-3 py-2 text-right ${p.over_ceiling ? 'text-red-600 font-bold' : 'text-gray-700'}`}>
                                     {p.empty_waiting}{p.empty_ceiling > 0 ? ` / ${p.empty_ceiling}` : ''}
                                     {p.over_ceiling && ' ⚠️'}
                                   </td>
@@ -8037,31 +8037,31 @@ export default function POSPage() {
                             </tbody>
                           </table>
                         </div>
-                        {!reportData.products?.length && <div className="text-center text-gray-500 py-8 text-sm">ยังไม่มีสินค้าประเภทหมุนเวียน</div>}
+                        {!reportData.products?.length && <div className="text-center text-gray-400 py-8 text-sm">ยังไม่มีสินค้าประเภทหมุนเวียน</div>}
                       </div>
 
                       {s.over_ceiling_count > 0 && (
-                        <div className="bg-red-900/20 border border-red-800 rounded-xl p-3 text-red-300 text-xs">
+                        <div className="bg-red-50/20 border border-red-200 rounded-xl p-3 text-red-700 text-xs">
                           ⚠️ มีสินค้าหมุนเวียน {s.over_ceiling_count} รายการที่เปล่ารอรีฟิลเกินเพดานที่ตั้งไว้ — ควรรีบรีฟิลหรือตรวจสอบว่ามีของค้างสต็อกผิดปกติหรือไม่
                         </div>
                       )}
 
                       {/* ต้นทุนรีฟิล vs ซื้อใหม่ (จากใบรับสินค้าในช่วงวันที่เลือกด้านบน) */}
                       <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-gray-800 rounded-xl p-3 text-center">
-                          <div className="text-lg font-bold text-blue-400">฿{(s.refill_cost || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
-                          <div className="text-gray-400 text-xs mt-1">ต้นทุนรีฟิล (สินค้าหมุนเวียน)</div>
+                        <div className="bg-white rounded-xl p-3 text-center">
+                          <div className="text-lg font-bold text-blue-600">฿{(s.refill_cost || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
+                          <div className="text-gray-500 text-xs mt-1">ต้นทุนรีฟิล (สินค้าหมุนเวียน)</div>
                         </div>
-                        <div className="bg-gray-800 rounded-xl p-3 text-center">
-                          <div className="text-lg font-bold text-gray-300">฿{(s.new_purchase_cost || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
-                          <div className="text-gray-400 text-xs mt-1">ต้นทุนซื้อสินค้าใหม่</div>
+                        <div className="bg-white rounded-xl p-3 text-center">
+                          <div className="text-lg font-bold text-gray-700">฿{(s.new_purchase_cost || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
+                          <div className="text-gray-500 text-xs mt-1">ต้นทุนซื้อสินค้าใหม่</div>
                         </div>
                       </div>
 
                       {/* ใครถืออยู่กี่ชิ้น */}
-                      <div className="bg-gray-900 rounded-xl overflow-hidden">
-                        <div className="px-3 py-2 border-b border-gray-800 text-gray-400 text-xs font-medium">👥 ลูกค้าที่ถือสินค้าหมุนเวียนอยู่</div>
-                        <div className="divide-y divide-gray-800">
+                      <div className="bg-white rounded-xl overflow-hidden">
+                        <div className="px-3 py-2 border-b border-gray-100 text-gray-500 text-xs font-medium">👥 ลูกค้าที่ถือสินค้าหมุนเวียนอยู่</div>
+                        <div className="divide-y divide-gray-100">
                           {(reportData.customers || []).map(c => {
                             const isExpanded = expandedCyclicalCust === c.contact_id;
                             const holdings = cyclicalHoldingsCache[c.contact_id];
@@ -8075,35 +8075,35 @@ export default function POSPage() {
                                 }}
                                 className="w-full px-3 py-2.5 flex items-center justify-between gap-2 text-left">
                                 <div className="min-w-0">
-                                  <div className="text-white text-sm truncate">{c.name}</div>
-                                  {c.phone && <div className="text-gray-500 text-xs">{c.phone}</div>}
+                                  <div className="text-gray-900 text-sm truncate">{c.name}</div>
+                                  {c.phone && <div className="text-gray-400 text-xs">{c.phone}</div>}
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0">
-                                  <span className="text-orange-400 font-bold text-sm">{c.cylinders} ชิ้น</span>
-                                  <span className="text-gray-500 text-xs">{isExpanded ? '▲' : '▼'}</span>
+                                  <span className="text-orange-600 font-bold text-sm">{c.cylinders} ชิ้น</span>
+                                  <span className="text-gray-400 text-xs">{isExpanded ? '▲' : '▼'}</span>
                                 </div>
                               </button>
                               {isExpanded && (
                                 <div className="px-3 pb-3 -mt-1">
-                                  <div className="bg-gray-800 rounded-xl p-3 mb-2">
+                                  <div className="bg-white rounded-xl p-3 mb-2">
                                     {holdings === undefined ? (
-                                      <div className="text-gray-500 text-xs animate-pulse">กำลังโหลดรายการ...</div>
+                                      <div className="text-gray-400 text-xs animate-pulse">กำลังโหลดรายการ...</div>
                                     ) : holdings === 'unreconciled' ? (
-                                      <div className="text-amber-400 text-xs">⚠️ ระบบแยกไม่ได้ว่าเป็นสินค้าชนิดไหนกี่ชิ้น (มีเฉพาะยอดรวม {c.cylinders} ชิ้น) — ประวัติเก่าบางส่วนไม่ได้บันทึกแยกชนิดไว้</div>
+                                      <div className="text-amber-600 text-xs">⚠️ ระบบแยกไม่ได้ว่าเป็นสินค้าชนิดไหนกี่ชิ้น (มีเฉพาะยอดรวม {c.cylinders} ชิ้น) — ประวัติเก่าบางส่วนไม่ได้บันทึกแยกชนิดไว้</div>
                                     ) : Object.keys(holdings).length === 0 ? (
-                                      <div className="text-gray-500 text-xs">ไม่มีข้อมูลรายการ</div>
+                                      <div className="text-gray-400 text-xs">ไม่มีข้อมูลรายการ</div>
                                     ) : (
                                       <ul className="space-y-1">
                                         {Object.entries(holdings).map(([sku, qty]) => {
                                           const p = products.find(x => x.sku === sku);
-                                          return <li key={sku} className="text-gray-300 text-xs flex justify-between"><span>{p?.name || sku}</span><span className="text-white font-medium">{qty} {p?.unit || ''}</span></li>;
+                                          return <li key={sku} className="text-gray-700 text-xs flex justify-between"><span>{p?.name || sku}</span><span className="text-gray-900 font-medium">{qty} {p?.unit || ''}</span></li>;
                                         })}
                                       </ul>
                                     )}
                                   </div>
                                   {hasFeature(shopInfo?.subscription_tier, 'credit_ar') && (
                                     <button onClick={() => openCollectDispatch(contacts.find(x => x.contact_id === c.contact_id) || c)}
-                                      className="w-full text-xs bg-orange-800 hover:bg-orange-700 text-orange-200 hover:text-white px-2.5 py-2 rounded-lg transition-colors">📤 ส่งพนักงานไปเก็บ</button>
+                                      className="w-full text-xs bg-orange-100 hover:bg-orange-700 text-orange-800 hover:text-white px-2.5 py-2 rounded-lg transition-colors">📤 ส่งพนักงานไปเก็บ</button>
                                   )}
                                 </div>
                               )}
@@ -8111,7 +8111,7 @@ export default function POSPage() {
                             );
                           })}
                         </div>
-                        {!reportData.customers?.length && <div className="text-center text-gray-500 py-8 text-sm">ไม่มีลูกค้าถือสินค้าหมุนเวียนอยู่ตอนนี้</div>}
+                        {!reportData.customers?.length && <div className="text-center text-gray-400 py-8 text-sm">ไม่มีลูกค้าถือสินค้าหมุนเวียนอยู่ตอนนี้</div>}
                       </div>
                     </div>
                   );
@@ -8124,62 +8124,62 @@ export default function POSPage() {
                   return (
                     <div className="space-y-4">
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                        <div className="bg-gray-800 rounded-xl p-3 text-center">
-                          <div className="text-lg font-bold text-green-400">฿{(s.output_vat || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
-                          <div className="text-gray-400 text-xs mt-1">ภาษีขาย (Output VAT)</div>
+                        <div className="bg-white rounded-xl p-3 text-center">
+                          <div className="text-lg font-bold text-green-600">฿{(s.output_vat || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
+                          <div className="text-gray-500 text-xs mt-1">ภาษีขาย (Output VAT)</div>
                         </div>
-                        <div className="bg-gray-800 rounded-xl p-3 text-center">
-                          <div className="text-lg font-bold text-orange-400">฿{(s.input_vat || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
-                          <div className="text-gray-400 text-xs mt-1">ภาษีซื้อ (Input VAT)</div>
+                        <div className="bg-white rounded-xl p-3 text-center">
+                          <div className="text-lg font-bold text-orange-600">฿{(s.input_vat || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
+                          <div className="text-gray-500 text-xs mt-1">ภาษีซื้อ (Input VAT)</div>
                         </div>
-                        <div className="bg-gray-800 rounded-xl p-3 text-center">
-                          <div className={`text-lg font-bold ${netPayable >= 0 ? 'text-red-400' : 'text-green-400'}`}>
+                        <div className="bg-white rounded-xl p-3 text-center">
+                          <div className={`text-lg font-bold ${netPayable >= 0 ? 'text-red-600' : 'text-green-600'}`}>
                             {netPayable >= 0 ? '฿' : '-฿'}{Math.abs(netPayable).toLocaleString(undefined, {minimumFractionDigits:2})}
                           </div>
-                          <div className="text-gray-400 text-xs mt-1">{netPayable >= 0 ? 'VAT ที่ต้องนำส่ง' : 'VAT ขอคืนได้'}</div>
+                          <div className="text-gray-500 text-xs mt-1">{netPayable >= 0 ? 'VAT ที่ต้องนำส่ง' : 'VAT ขอคืนได้'}</div>
                         </div>
                       </div>
 
-                      <div className="bg-gray-900 rounded-xl overflow-hidden">
-                        <div className="px-3 py-2 border-b border-gray-800 text-gray-400 text-xs font-medium">🏪 ภาษีขายแยกตามสาขา</div>
+                      <div className="bg-white rounded-xl overflow-hidden">
+                        <div className="px-3 py-2 border-b border-gray-100 text-gray-500 text-xs font-medium">🏪 ภาษีขายแยกตามสาขา</div>
                         <div className="overflow-x-auto">
                           <table className="w-full text-xs">
-                            <thead><tr className="border-b border-gray-800">
-                              <th className="text-left text-gray-400 px-3 py-2">สาขา</th>
-                              <th className="text-right text-gray-400 px-3 py-2">จำนวนบิล</th>
-                              <th className="text-right text-gray-400 px-3 py-2">ยอดก่อน VAT</th>
-                              <th className="text-right text-gray-400 px-3 py-2">VAT</th>
+                            <thead><tr className="border-b border-gray-100">
+                              <th className="text-left text-gray-500 px-3 py-2">สาขา</th>
+                              <th className="text-right text-gray-500 px-3 py-2">จำนวนบิล</th>
+                              <th className="text-right text-gray-500 px-3 py-2">ยอดก่อน VAT</th>
+                              <th className="text-right text-gray-500 px-3 py-2">VAT</th>
                             </tr></thead>
                             <tbody>
                               {(reportData.branch_breakdown || []).map(b => (
-                                <tr key={b.branch} className="border-b border-gray-800/50">
-                                  <td className="px-3 py-2 text-white font-medium">{b.branch}</td>
-                                  <td className="px-3 py-2 text-right text-gray-300">{b.sales_count}</td>
-                                  <td className="px-3 py-2 text-right text-gray-300">฿{b.sales_subtotal.toLocaleString(undefined, {minimumFractionDigits:2})}</td>
-                                  <td className="px-3 py-2 text-right text-green-400">฿{b.sales_vat.toLocaleString(undefined, {minimumFractionDigits:2})}</td>
+                                <tr key={b.branch} className="border-b border-gray-100/50">
+                                  <td className="px-3 py-2 text-gray-900 font-medium">{b.branch}</td>
+                                  <td className="px-3 py-2 text-right text-gray-700">{b.sales_count}</td>
+                                  <td className="px-3 py-2 text-right text-gray-700">฿{b.sales_subtotal.toLocaleString(undefined, {minimumFractionDigits:2})}</td>
+                                  <td className="px-3 py-2 text-right text-green-600">฿{b.sales_vat.toLocaleString(undefined, {minimumFractionDigits:2})}</td>
                                 </tr>
                               ))}
                             </tbody>
                           </table>
                         </div>
-                        {!reportData.branch_breakdown?.length && <div className="text-center text-gray-500 py-8 text-sm">ไม่มียอดขายที่มี VAT ในช่วงนี้</div>}
+                        {!reportData.branch_breakdown?.length && <div className="text-center text-gray-400 py-8 text-sm">ไม่มียอดขายที่มี VAT ในช่วงนี้</div>}
                       </div>
 
-                      <div className="bg-gray-900 rounded-xl overflow-hidden">
-                        <div className="px-3 py-2 border-b border-gray-800 text-gray-400 text-xs font-medium">🧮 ที่มาภาษีซื้อ (Input VAT)</div>
-                        <div className="divide-y divide-gray-800 text-xs">
+                      <div className="bg-white rounded-xl overflow-hidden">
+                        <div className="px-3 py-2 border-b border-gray-100 text-gray-500 text-xs font-medium">🧮 ที่มาภาษีซื้อ (Input VAT)</div>
+                        <div className="divide-y divide-gray-100 text-xs">
                           <div className="px-3 py-2.5 flex items-center justify-between">
-                            <span className="text-gray-300">📥 ใบรับสินค้า ({s.receives_count || 0} ใบ)</span>
-                            <span className="text-orange-400 font-medium">฿{(s.input_vat_receives || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</span>
+                            <span className="text-gray-700">📥 ใบรับสินค้า ({s.receives_count || 0} ใบ)</span>
+                            <span className="text-orange-600 font-medium">฿{(s.input_vat_receives || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</span>
                           </div>
                           <div className="px-3 py-2.5 flex items-center justify-between">
-                            <span className="text-gray-300">💸 รายจ่าย ({s.expenses_count || 0} รายการ)</span>
-                            <span className="text-orange-400 font-medium">฿{(s.input_vat_expenses || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</span>
+                            <span className="text-gray-700">💸 รายจ่าย ({s.expenses_count || 0} รายการ)</span>
+                            <span className="text-orange-600 font-medium">฿{(s.input_vat_expenses || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</span>
                           </div>
                         </div>
                       </div>
 
-                      <p className="text-gray-500 text-xs px-1">
+                      <p className="text-gray-400 text-xs px-1">
                         หมายเหตุ: ภาษีซื้อ (ใบรับสินค้า+รายจ่าย) ยังไม่แยกตามสาขา เพราะยังไม่ได้ผูกกับสาขาที่ขายในตอนนี้ — แสดงเป็นยอดรวมทั้งร้านเท่านั้น
                       </p>
                     </div>
@@ -8192,33 +8192,33 @@ export default function POSPage() {
                   return (
                     <div className="space-y-4">
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                        <div className="bg-gray-800 rounded-xl p-3 text-center">
-                          <div className="text-lg font-bold text-red-400">฿{(s.total || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
-                          <div className="text-gray-400 text-xs mt-1">รายจ่ายรวม ({s.count || 0} รายการ)</div>
+                        <div className="bg-white rounded-xl p-3 text-center">
+                          <div className="text-lg font-bold text-red-600">฿{(s.total || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
+                          <div className="text-gray-500 text-xs mt-1">รายจ่ายรวม ({s.count || 0} รายการ)</div>
                         </div>
-                        <div className="bg-gray-800 rounded-xl p-3 text-center">
-                          <div className="text-lg font-bold text-gray-300">฿{(s.subtotal || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
-                          <div className="text-gray-400 text-xs mt-1">ยอดก่อน VAT</div>
+                        <div className="bg-white rounded-xl p-3 text-center">
+                          <div className="text-lg font-bold text-gray-700">฿{(s.subtotal || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
+                          <div className="text-gray-500 text-xs mt-1">ยอดก่อน VAT</div>
                         </div>
-                        <div className="bg-gray-800 rounded-xl p-3 text-center">
-                          <div className="text-lg font-bold text-orange-400">฿{(s.vat || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
-                          <div className="text-gray-400 text-xs mt-1">VAT ที่จ่ายไป</div>
+                        <div className="bg-white rounded-xl p-3 text-center">
+                          <div className="text-lg font-bold text-orange-600">฿{(s.vat || 0).toLocaleString(undefined, {minimumFractionDigits:2})}</div>
+                          <div className="text-gray-500 text-xs mt-1">VAT ที่จ่ายไป</div>
                         </div>
                       </div>
 
                       {reportData.category_breakdown?.length > 0 && (() => {
                         const maxCat = Math.max(...reportData.category_breakdown.map(c => c.total), 1);
                         return (
-                          <div className="bg-gray-900 rounded-xl p-4">
-                            <h3 className="text-white text-sm font-bold mb-3">📊 รายจ่ายแยกตามหมวดหมู่</h3>
+                          <div className="bg-white rounded-xl p-4">
+                            <h3 className="text-gray-900 text-sm font-bold mb-3">📊 รายจ่ายแยกตามหมวดหมู่</h3>
                             <div className="space-y-2.5">
                               {reportData.category_breakdown.map(c => (
                                 <div key={c.label}>
                                   <div className="flex items-center justify-between text-xs mb-1">
-                                    <span className="text-gray-300 truncate">{c.label}</span>
-                                    <span className="text-red-400 font-bold shrink-0 ml-2">฿{c.total.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                                    <span className="text-gray-700 truncate">{c.label}</span>
+                                    <span className="text-red-600 font-bold shrink-0 ml-2">฿{c.total.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
                                   </div>
-                                  <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                                  <div className="h-2 bg-white rounded-full overflow-hidden">
                                     <div className="h-full bg-red-500 rounded-full" style={{ width: `${Math.max(3, (c.total / maxCat) * 100)}%` }} />
                                   </div>
                                 </div>
@@ -8228,19 +8228,19 @@ export default function POSPage() {
                         );
                       })()}
 
-                      <div className="bg-gray-900 rounded-xl overflow-hidden">
-                        <div className="divide-y divide-gray-800">
+                      <div className="bg-white rounded-xl overflow-hidden">
+                        <div className="divide-y divide-gray-100">
                           {(reportData.expenses || []).map(e => (
                             <div key={e.expense_no} className="px-3 py-2.5 flex items-center justify-between gap-2">
                               <div className="min-w-0">
-                                <div className="text-white text-sm truncate">{e.label}</div>
-                                <div className="text-gray-500 text-xs">{e.created_at} · {e.payment_method}{e.vat_amount > 0 ? ` · VAT ฿${e.vat_amount.toLocaleString(undefined,{minimumFractionDigits:2})}` : ''}</div>
+                                <div className="text-gray-900 text-sm truncate">{e.label}</div>
+                                <div className="text-gray-400 text-xs">{e.created_at} · {e.payment_method}{e.vat_amount > 0 ? ` · VAT ฿${e.vat_amount.toLocaleString(undefined,{minimumFractionDigits:2})}` : ''}</div>
                               </div>
-                              <span className="text-red-400 font-bold text-sm shrink-0">฿{e.total.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                              <span className="text-red-600 font-bold text-sm shrink-0">฿{e.total.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
                             </div>
                           ))}
                         </div>
-                        {!reportData.expenses?.length && <div className="text-center text-gray-500 py-8 text-sm">ไม่มีรายจ่ายในช่วงนี้</div>}
+                        {!reportData.expenses?.length && <div className="text-center text-gray-400 py-8 text-sm">ไม่มีรายจ่ายในช่วงนี้</div>}
                       </div>
                     </div>
                   );
@@ -8251,51 +8251,51 @@ export default function POSPage() {
                   const alerts = reportData.alerts || [];
                   return (
                     <div className="space-y-4">
-                      <p className="text-gray-500 text-xs px-1">
+                      <p className="text-gray-400 text-xs px-1">
                         เทียบราคาที่ซื้อจริงตอนรับสินค้ากับราคากลางอำเภอ/จังหวัด (จากข้อมูลนิรนามของร้านอื่นในระบบ) —
                         ขึ้นเตือนถ้าซื้อแพงกว่าราคากลางเกิน 20% เพื่อช่วยตรวจสอบพนักงานจัดซื้อ
                       </p>
                       {reportData.notSetup && (
-                        <div className="bg-yellow-900/20 border border-yellow-800 rounded-xl p-3 text-yellow-300 text-xs">
+                        <div className="bg-yellow-50/20 border border-yellow-200 rounded-xl p-3 text-yellow-700 text-xs">
                           ⚠️ ฟีเจอร์นี้ยังไม่พร้อมใช้งาน (รอตั้งค่าฐานข้อมูลฝั่งระบบ)
                         </div>
                       )}
-                      <div className="bg-gray-900 rounded-xl overflow-hidden">
-                        <div className="divide-y divide-gray-800">
+                      <div className="bg-white rounded-xl overflow-hidden">
+                        <div className="divide-y divide-gray-100">
                           {alerts.map(a => (
                             <div key={a.id} className="px-4 py-3">
                               <div className="flex items-center justify-between gap-2 mb-1">
-                                <span className="text-white text-sm font-medium">🚩 {a.item_name}</span>
+                                <span className="text-gray-900 text-sm font-medium">🚩 {a.item_name}</span>
                                 <span className={`text-xs px-2 py-0.5 rounded-full ${
-                                  a.status === 'pending' ? 'bg-red-900/50 text-red-300' :
-                                  a.status === 'investigated' ? 'bg-yellow-900/50 text-yellow-300' : 'bg-green-900/50 text-green-300'
+                                  a.status === 'pending' ? 'bg-red-50/50 text-red-700' :
+                                  a.status === 'investigated' ? 'bg-yellow-50/50 text-yellow-700' : 'bg-green-50/50 text-green-700'
                                 }`}>
                                   {a.status === 'pending' ? 'รอตรวจสอบ' : a.status === 'investigated' ? 'กำลังตรวจสอบ' : 'จบเรื่องแล้ว'}
                                 </span>
                               </div>
-                              <div className="text-gray-500 text-xs mb-2">
+                              <div className="text-gray-400 text-xs mb-2">
                                 {a.branch_name ? `${a.branch_name} · ` : ''}{a.receive_doc_no} · {new Date(a.created_at).toLocaleDateString('th-TH')}
                               </div>
-                              <div className="text-xs text-gray-300 mb-2">
+                              <div className="text-xs text-gray-700 mb-2">
                                 ซื้อ ฿{a.submitted_price.toLocaleString()} เทียบราคากลาง ฿{a.market_median_price.toLocaleString()}
-                                <span className="text-red-400 font-bold"> (+{a.deviation_percentage}%)</span>
+                                <span className="text-red-600 font-bold"> (+{a.deviation_percentage}%)</span>
                               </div>
                               {a.status === 'pending' && (
                                 <div className="flex gap-2">
                                   <button onClick={() => updateProcurementAlertStatus(a.id, 'investigated')}
-                                    className="flex-1 bg-yellow-800 hover:bg-yellow-700 text-yellow-100 text-xs font-medium py-1.5 rounded-lg transition-colors">🔍 กำลังตรวจสอบ</button>
+                                    className="flex-1 bg-yellow-100 hover:bg-yellow-700 text-yellow-100 text-xs font-medium py-1.5 rounded-lg transition-colors">🔍 กำลังตรวจสอบ</button>
                                   <button onClick={() => updateProcurementAlertStatus(a.id, 'resolved')}
-                                    className="flex-1 bg-green-800 hover:bg-green-700 text-green-100 text-xs font-medium py-1.5 rounded-lg transition-colors">✅ จบเรื่องแล้ว</button>
+                                    className="flex-1 bg-green-100 hover:bg-green-700 text-green-100 text-xs font-medium py-1.5 rounded-lg transition-colors">✅ จบเรื่องแล้ว</button>
                                 </div>
                               )}
                               {a.status === 'investigated' && (
                                 <button onClick={() => updateProcurementAlertStatus(a.id, 'resolved')}
-                                  className="w-full bg-green-800 hover:bg-green-700 text-green-100 text-xs font-medium py-1.5 rounded-lg transition-colors">✅ จบเรื่องแล้ว</button>
+                                  className="w-full bg-green-100 hover:bg-green-700 text-green-100 text-xs font-medium py-1.5 rounded-lg transition-colors">✅ จบเรื่องแล้ว</button>
                               )}
                             </div>
                           ))}
                         </div>
-                        {!alerts.length && !reportData.notSetup && <div className="text-center text-gray-500 py-8 text-sm">ยังไม่มีรายการราคาผิดปกติ</div>}
+                        {!alerts.length && !reportData.notSetup && <div className="text-center text-gray-400 py-8 text-sm">ยังไม่มีรายการราคาผิดปกติ</div>}
                       </div>
                     </div>
                   );
@@ -8318,7 +8318,7 @@ export default function POSPage() {
             const activeProducts = products.filter(p => p.is_active !== false);
             const ProductSelect = ({ value, onChange, placeholder }) => (
               <select value={value} onChange={e => onChange(e.target.value)}
-                className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500">
+                className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500">
                 <option value="">{placeholder || '— เลือกสินค้า —'}</option>
                 {activeProducts.map(p => <option key={p.sku} value={p.sku}>{p.name} (฿{p.price})</option>)}
               </select>
@@ -8327,7 +8327,7 @@ export default function POSPage() {
             <div className="h-full overflow-y-auto">
               <div className="p-4 max-w-2xl mx-auto space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-white font-bold">🎉 โปรโมชั่น</h3>
+                  <h3 className="text-gray-900 font-bold">🎉 โปรโมชั่น</h3>
                   {!showPromoForm && (
                     <button onClick={() => { setPromoForm(emptyPromoForm()); setEditingPromoId(null); setShowPromoForm(true); }}
                       className="text-xs bg-green-700 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg font-medium">
@@ -8339,37 +8339,37 @@ export default function POSPage() {
                 {!showPromoForm && (
                   <>
                     {promotionsLoading ? (
-                      <div className="text-center text-gray-500 py-12 animate-pulse">กำลังโหลด...</div>
+                      <div className="text-center text-gray-400 py-12 animate-pulse">กำลังโหลด...</div>
                     ) : promotions.length === 0 ? (
-                      <div className="text-center text-gray-500 py-12 text-sm">ยังไม่มีโปรโมชั่น</div>
+                      <div className="text-center text-gray-400 py-12 text-sm">ยังไม่มีโปรโมชั่น</div>
                     ) : (
                       <div className="space-y-3">
                         {promotions.map(promo => (
-                          <div key={promo.promo_id} className={`bg-gray-900 rounded-2xl border p-4 ${promo.is_active ? 'border-green-800' : 'border-gray-800 opacity-60'}`}>
+                          <div key={promo.promo_id} className={`bg-white rounded-2xl border p-4 ${promo.is_active ? 'border-green-200' : 'border-gray-100 opacity-60'}`}>
                             <div className="flex items-start justify-between gap-2">
                               <div>
-                                <p className="text-white font-bold text-sm">{promo.name}</p>
-                                <p className="text-gray-500 text-[11px] mt-0.5">{PROMO_TYPE_META[promo.promo_type]?.label}{promo.branch ? ` · ${promo.branch}` : ' · ทุกสาขา'}</p>
+                                <p className="text-gray-900 font-bold text-sm">{promo.name}</p>
+                                <p className="text-gray-400 text-[11px] mt-0.5">{PROMO_TYPE_META[promo.promo_type]?.label}{promo.branch ? ` · ${promo.branch}` : ' · ทุกสาขา'}</p>
                               </div>
                               <button onClick={() => togglePromoActive(promo)}
-                                className={`shrink-0 text-[10px] font-bold px-2.5 py-1 rounded-full ${promo.is_active ? 'bg-green-800 text-green-300' : 'bg-gray-800 text-gray-400'}`}>
+                                className={`shrink-0 text-[10px] font-bold px-2.5 py-1 rounded-full ${promo.is_active ? 'bg-green-100 text-green-700' : 'bg-white text-gray-500'}`}>
                                 {promo.is_active ? '🟢 เปิดใช้งาน' : '⚪ ปิดอยู่'}
                               </button>
                             </div>
 
                             {promo.margin ? (
                               <div className="mt-2.5 grid grid-cols-3 gap-2 text-center">
-                                <div className="bg-gray-800 rounded-lg p-2">
-                                  <p className="text-[9px] text-gray-500">รายได้/{promo.margin.per}</p>
-                                  <p className="text-xs font-bold text-white">฿{promo.margin.revenue.toLocaleString()}</p>
+                                <div className="bg-white rounded-lg p-2">
+                                  <p className="text-[9px] text-gray-400">รายได้/{promo.margin.per}</p>
+                                  <p className="text-xs font-bold text-gray-900">฿{promo.margin.revenue.toLocaleString()}</p>
                                 </div>
-                                <div className="bg-gray-800 rounded-lg p-2">
-                                  <p className="text-[9px] text-gray-500">ต้นทุน</p>
-                                  <p className="text-xs font-bold text-red-400">฿{promo.margin.cost.toLocaleString()}</p>
+                                <div className="bg-white rounded-lg p-2">
+                                  <p className="text-[9px] text-gray-400">ต้นทุน</p>
+                                  <p className="text-xs font-bold text-red-600">฿{promo.margin.cost.toLocaleString()}</p>
                                 </div>
-                                <div className={`rounded-lg p-2 ${promo.margin.profit >= 0 ? 'bg-green-950' : 'bg-red-950'}`}>
-                                  <p className="text-[9px] text-gray-500">กำไรคงเหลือ</p>
-                                  <p className={`text-xs font-bold ${promo.margin.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                <div className={`rounded-lg p-2 ${promo.margin.profit >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+                                  <p className="text-[9px] text-gray-400">กำไรคงเหลือ</p>
+                                  <p className={`text-xs font-bold ${promo.margin.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                     ฿{promo.margin.profit.toLocaleString()} ({promo.margin.margin_pct}%)
                                   </p>
                                 </div>
@@ -8378,16 +8378,16 @@ export default function POSPage() {
                               <p className="text-amber-500 text-[11px] mt-2">⚠️ คำนวณกำไรไม่ได้ (สินค้าที่อ้างอิงอาจถูกลบไปแล้ว)</p>
                             )}
                             {promo.margin && promo.margin.profit < 0 && (
-                              <p className="text-red-400 text-[11px] mt-1.5">🔴 โปรนี้ขาดทุนต่อการใช้งาน — พิจารณาปรับส่วนลด/ราคาใหม่</p>
+                              <p className="text-red-600 text-[11px] mt-1.5">🔴 โปรนี้ขาดทุนต่อการใช้งาน — พิจารณาปรับส่วนลด/ราคาใหม่</p>
                             )}
 
                             <div className="flex gap-2 mt-3">
                               <button onClick={() => openEditPromo(promo)}
-                                className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-bold py-2 rounded-lg transition-colors">
+                                className="flex-1 bg-white hover:bg-gray-100 text-gray-800 text-xs font-bold py-2 rounded-lg transition-colors">
                                 ✏️ แก้ไข
                               </button>
                               <button onClick={() => deletePromotion(promo)}
-                                className="flex-1 bg-red-950 hover:bg-red-900 text-red-300 text-xs font-bold py-2 rounded-lg transition-colors">
+                                className="flex-1 bg-red-50 hover:bg-red-50 text-red-700 text-xs font-bold py-2 rounded-lg transition-colors">
                                 🗑️ ลบ
                               </button>
                             </div>
@@ -8399,24 +8399,24 @@ export default function POSPage() {
                 )}
 
                 {showPromoForm && (
-                  <div className="bg-gray-900 rounded-2xl border border-gray-800 p-4 space-y-4">
+                  <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-4">
                     <div>
-                      <label className="text-gray-400 text-xs font-bold mb-1.5 block">ชื่อโปรโมชั่น</label>
+                      <label className="text-gray-500 text-xs font-bold mb-1.5 block">ชื่อโปรโมชั่น</label>
                       <input value={promoForm.name} onChange={e => setPromoForm(f => ({ ...f, name: e.target.value }))}
                         placeholder="เช่น ลดราคาปีใหม่, ซื้อ 2 แถม 1"
-                        className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                        className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                     </div>
 
                     <div>
-                      <label className="text-gray-400 text-xs font-bold mb-1.5 block">ประเภทโปรโมชั่น</label>
+                      <label className="text-gray-500 text-xs font-bold mb-1.5 block">ประเภทโปรโมชั่น</label>
                       <div className="grid grid-cols-1 gap-1.5">
                         {Object.entries(PROMO_TYPE_META).map(([key, meta]) => (
                           <button key={key} type="button" onClick={() => setPromoForm(f => ({ ...f, promo_type: key }))}
                             className={`text-left px-3 py-2 rounded-xl border transition-colors ${
-                              promoForm.promo_type === key ? 'bg-green-900/40 border-green-700' : 'bg-gray-800 border-gray-700 hover:bg-gray-750'
+                              promoForm.promo_type === key ? 'bg-green-50/40 border-green-300' : 'bg-white border-gray-200 hover:bg-gray-50'
                             }`}>
-                            <p className="text-white text-xs font-bold">{meta.label}</p>
-                            <p className="text-gray-500 text-[10px] mt-0.5">{meta.desc}</p>
+                            <p className="text-gray-900 text-xs font-bold">{meta.label}</p>
+                            <p className="text-gray-400 text-[10px] mt-0.5">{meta.desc}</p>
                           </button>
                         ))}
                       </div>
@@ -8426,25 +8426,25 @@ export default function POSPage() {
                     {(promoForm.promo_type === 'product_discount' || promoForm.promo_type === 'quantity_discount') && (
                       <div className="space-y-2.5">
                         <div>
-                          <label className="text-gray-400 text-xs font-bold mb-1.5 block">สินค้า</label>
+                          <label className="text-gray-500 text-xs font-bold mb-1.5 block">สินค้า</label>
                           <ProductSelect value={promoForm.sku} onChange={v => setPromoForm(f => ({ ...f, sku: v }))} />
                         </div>
                         {promoForm.promo_type === 'quantity_discount' && (
                           <div>
-                            <label className="text-gray-400 text-xs font-bold mb-1.5 block">ซื้อครบกี่ชิ้นขึ้นไปถึงได้ส่วนลด</label>
+                            <label className="text-gray-500 text-xs font-bold mb-1.5 block">ซื้อครบกี่ชิ้นขึ้นไปถึงได้ส่วนลด</label>
                             <input type="number" min="2" value={promoForm.min_qty} onChange={e => setPromoForm(f => ({ ...f, min_qty: e.target.value }))}
-                              className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                              className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                           </div>
                         )}
                         <div className="flex gap-2">
                           <button type="button" onClick={() => setPromoForm(f => ({ ...f, discount_type: 'percent' }))}
-                            className={`flex-1 text-xs font-bold py-2 rounded-xl ${promoForm.discount_type === 'percent' ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400'}`}>ลด %</button>
+                            className={`flex-1 text-xs font-bold py-2 rounded-xl ${promoForm.discount_type === 'percent' ? 'bg-green-700 text-white' : 'bg-white text-gray-500'}`}>ลด %</button>
                           <button type="button" onClick={() => setPromoForm(f => ({ ...f, discount_type: 'amount' }))}
-                            className={`flex-1 text-xs font-bold py-2 rounded-xl ${promoForm.discount_type === 'amount' ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400'}`}>ลด ฿</button>
+                            className={`flex-1 text-xs font-bold py-2 rounded-xl ${promoForm.discount_type === 'amount' ? 'bg-green-700 text-white' : 'bg-white text-gray-500'}`}>ลด ฿</button>
                         </div>
                         <input type="number" min="0" value={promoForm.discount_value} onChange={e => setPromoForm(f => ({ ...f, discount_value: e.target.value }))}
                           placeholder={promoForm.discount_type === 'percent' ? 'เช่น 10 (=10%)' : 'เช่น 20 (=20 บาท)'}
-                          className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                          className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                       </div>
                     )}
 
@@ -8452,60 +8452,60 @@ export default function POSPage() {
                       <div className="space-y-2.5">
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className="text-gray-400 text-xs font-bold mb-1.5 block">ซื้อสินค้า</label>
+                            <label className="text-gray-500 text-xs font-bold mb-1.5 block">ซื้อสินค้า</label>
                             <ProductSelect value={promoForm.buySku} onChange={v => setPromoForm(f => ({ ...f, buySku: v }))} />
                           </div>
                           <div>
-                            <label className="text-gray-400 text-xs font-bold mb-1.5 block">จำนวนที่ต้องซื้อ</label>
+                            <label className="text-gray-500 text-xs font-bold mb-1.5 block">จำนวนที่ต้องซื้อ</label>
                             <input type="number" min="1" value={promoForm.buyQty} onChange={e => setPromoForm(f => ({ ...f, buyQty: e.target.value }))}
-                              className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                              className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className="text-gray-400 text-xs font-bold mb-1.5 block">แถม/ลดสินค้า</label>
+                            <label className="text-gray-500 text-xs font-bold mb-1.5 block">แถม/ลดสินค้า</label>
                             <ProductSelect value={promoForm.getSku} onChange={v => setPromoForm(f => ({ ...f, getSku: v }))} />
                           </div>
                           <div>
-                            <label className="text-gray-400 text-xs font-bold mb-1.5 block">จำนวนที่แถม/ลด</label>
+                            <label className="text-gray-500 text-xs font-bold mb-1.5 block">จำนวนที่แถม/ลด</label>
                             <input type="number" min="1" value={promoForm.getQty} onChange={e => setPromoForm(f => ({ ...f, getQty: e.target.value }))}
-                              className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                              className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                           </div>
                         </div>
                         <div className="flex gap-2">
                           <button type="button" onClick={() => setPromoForm(f => ({ ...f, get_discount_type: 'free' }))}
-                            className={`flex-1 text-xs font-bold py-2 rounded-xl ${promoForm.get_discount_type === 'free' ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400'}`}>แถมฟรี 100%</button>
+                            className={`flex-1 text-xs font-bold py-2 rounded-xl ${promoForm.get_discount_type === 'free' ? 'bg-green-700 text-white' : 'bg-white text-gray-500'}`}>แถมฟรี 100%</button>
                           <button type="button" onClick={() => setPromoForm(f => ({ ...f, get_discount_type: 'percent' }))}
-                            className={`flex-1 text-xs font-bold py-2 rounded-xl ${promoForm.get_discount_type === 'percent' ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400'}`}>ลด % แทน</button>
+                            className={`flex-1 text-xs font-bold py-2 rounded-xl ${promoForm.get_discount_type === 'percent' ? 'bg-green-700 text-white' : 'bg-white text-gray-500'}`}>ลด % แทน</button>
                         </div>
                         {promoForm.get_discount_type === 'percent' && (
                           <input type="number" min="0" max="100" value={promoForm.get_discount_value} onChange={e => setPromoForm(f => ({ ...f, get_discount_value: e.target.value }))}
                             placeholder="เช่น 50 (=ลด 50%)"
-                            className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                            className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                         )}
                       </div>
                     )}
 
                     {promoForm.promo_type === 'bundle' && (
                       <div className="space-y-2.5">
-                        <label className="text-gray-400 text-xs font-bold block">สินค้าในชุด</label>
+                        <label className="text-gray-500 text-xs font-bold block">สินค้าในชุด</label>
                         {promoForm.items.map((it, idx) => (
                           <div key={idx} className="grid grid-cols-[1fr,80px,32px] gap-2 items-center">
                             <ProductSelect value={it.sku} onChange={v => setPromoForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, sku: v } : x) }))} />
                             <input type="number" min="1" value={it.qty} onChange={e => setPromoForm(f => ({ ...f, items: f.items.map((x, i) => i === idx ? { ...x, qty: e.target.value } : x) }))}
-                              className="w-full bg-gray-800 text-white text-sm px-2 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                              className="w-full bg-white text-gray-900 text-sm px-2 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                             {promoForm.items.length > 2 && (
                               <button type="button" onClick={() => setPromoForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))}
-                                className="text-red-400 hover:text-red-300 text-lg leading-none">✕</button>
+                                className="text-red-600 hover:text-red-700 text-lg leading-none">✕</button>
                             )}
                           </div>
                         ))}
                         <button type="button" onClick={() => setPromoForm(f => ({ ...f, items: [...f.items, { sku: '', qty: '1' }] }))}
-                          className="text-green-400 hover:text-green-300 text-xs font-bold">+ เพิ่มสินค้าในชุด</button>
+                          className="text-green-600 hover:text-green-700 text-xs font-bold">+ เพิ่มสินค้าในชุด</button>
                         <div>
-                          <label className="text-gray-400 text-xs font-bold mb-1.5 block">ราคาชุด (บาท)</label>
+                          <label className="text-gray-500 text-xs font-bold mb-1.5 block">ราคาชุด (บาท)</label>
                           <input type="number" min="0" value={promoForm.bundle_price} onChange={e => setPromoForm(f => ({ ...f, bundle_price: e.target.value }))}
-                            className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                            className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                         </div>
                       </div>
                     )}
@@ -8514,24 +8514,24 @@ export default function POSPage() {
                       <div className="space-y-2.5">
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className="text-gray-400 text-xs font-bold mb-1.5 block">ต้องซื้อสินค้า</label>
+                            <label className="text-gray-500 text-xs font-bold mb-1.5 block">ต้องซื้อสินค้า</label>
                             <ProductSelect value={promoForm.triggerSku} onChange={v => setPromoForm(f => ({ ...f, triggerSku: v }))} />
                           </div>
                           <div>
-                            <label className="text-gray-400 text-xs font-bold mb-1.5 block">จำนวนที่ต้องซื้อ</label>
+                            <label className="text-gray-500 text-xs font-bold mb-1.5 block">จำนวนที่ต้องซื้อ</label>
                             <input type="number" min="1" value={promoForm.triggerQty} onChange={e => setPromoForm(f => ({ ...f, triggerQty: e.target.value }))}
-                              className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                              className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className="text-gray-400 text-xs font-bold mb-1.5 block">ของกำนัลฟรี</label>
+                            <label className="text-gray-500 text-xs font-bold mb-1.5 block">ของกำนัลฟรี</label>
                             <ProductSelect value={promoForm.giftSku} onChange={v => setPromoForm(f => ({ ...f, giftSku: v }))} />
                           </div>
                           <div>
-                            <label className="text-gray-400 text-xs font-bold mb-1.5 block">จำนวนของกำนัล</label>
+                            <label className="text-gray-500 text-xs font-bold mb-1.5 block">จำนวนของกำนัล</label>
                             <input type="number" min="1" value={promoForm.giftQty} onChange={e => setPromoForm(f => ({ ...f, giftQty: e.target.value }))}
-                              className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                              className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                           </div>
                         </div>
                       </div>
@@ -8539,9 +8539,9 @@ export default function POSPage() {
 
                     {posBranches.length > 1 && (
                       <div>
-                        <label className="text-gray-400 text-xs font-bold mb-1.5 block">สาขา (เว้นว่าง = ทุกสาขา)</label>
+                        <label className="text-gray-500 text-xs font-bold mb-1.5 block">สาขา (เว้นว่าง = ทุกสาขา)</label>
                         <select value={promoForm.branch} onChange={e => setPromoForm(f => ({ ...f, branch: e.target.value }))}
-                          className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500">
+                          className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500">
                           <option value="">ทุกสาขา</option>
                           {posBranches.map(b => <option key={b.id} value={b.branch_name}>{b.branch_name}</option>)}
                         </select>
@@ -8550,20 +8550,20 @@ export default function POSPage() {
 
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="text-gray-400 text-xs font-bold mb-1.5 block">เริ่มใช้ (ถ้ามี)</label>
+                        <label className="text-gray-500 text-xs font-bold mb-1.5 block">เริ่มใช้ (ถ้ามี)</label>
                         <input type="date" value={promoForm.valid_from} onChange={e => setPromoForm(f => ({ ...f, valid_from: e.target.value }))}
-                          className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                          className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                       </div>
                       <div>
-                        <label className="text-gray-400 text-xs font-bold mb-1.5 block">สิ้นสุด (ถ้ามี)</label>
+                        <label className="text-gray-500 text-xs font-bold mb-1.5 block">สิ้นสุด (ถ้ามี)</label>
                         <input type="date" value={promoForm.valid_until} onChange={e => setPromoForm(f => ({ ...f, valid_until: e.target.value }))}
-                          className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                          className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                       </div>
                     </div>
 
                     <div className="flex gap-2 pt-2">
                       <button onClick={() => { setShowPromoForm(false); setEditingPromoId(null); }}
-                        className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold py-3 rounded-xl transition-colors">
+                        className="flex-1 bg-white hover:bg-gray-100 text-gray-700 font-bold py-3 rounded-xl transition-colors">
                         ยกเลิก
                       </button>
                       <button onClick={savePromotion} disabled={promoSaving}
@@ -8583,7 +8583,7 @@ export default function POSPage() {
           {tab === 'payroll' && !cashierMode && (
             <div className="h-full overflow-y-auto">
               <div className="p-4 max-w-2xl mx-auto space-y-4">
-                <div className="bg-amber-950/40 border border-amber-800/50 rounded-xl px-4 py-2.5 text-amber-300 text-xs">
+                <div className="bg-amber-50/40 border border-amber-200/50 rounded-xl px-4 py-2.5 text-amber-700 text-xs">
                   💡 ประกันสังคม/ภาษีหัก ณ ที่จ่ายที่คำนวณให้เป็น <b>ตัวประมาณการณ์</b> (สมมติพนักงานโสด ไม่มีค่าลดหย่อนอื่น) แก้ไขตัวเลขเองได้เสมอก่อนบันทึกจริง
                 </div>
 
@@ -8591,7 +8591,7 @@ export default function POSPage() {
                   {[['employees','👥 พนักงาน'],['run','➕ รันจ่ายเงินเดือน'],['history','📋 ประวัติ']].map(([k,label]) => (
                     <button key={k} onClick={() => setPayrollView(k)}
                       className={`flex-1 py-2 rounded-xl text-xs font-bold transition-colors ${
-                        payrollView === k ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                        payrollView === k ? 'bg-green-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'
                       }`}>
                       {label}
                     </button>
@@ -8601,9 +8601,9 @@ export default function POSPage() {
                 {/* ── พนักงาน ── */}
                 {payrollView === 'employees' && (
                   <div className="space-y-3">
-                    <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden">
-                      <div className="px-5 py-3 border-b border-gray-800 flex items-center justify-between">
-                        <h3 className="text-white font-bold text-sm">พนักงานในระบบเงินเดือน</h3>
+                    <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                      <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+                        <h3 className="text-gray-900 font-bold text-sm">พนักงานในระบบเงินเดือน</h3>
                         <button onClick={() => setShowAddEmployee(v => !v)}
                           className="text-xs bg-green-700 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg font-medium">
                           + เพิ่มพนักงาน
@@ -8611,20 +8611,20 @@ export default function POSPage() {
                       </div>
 
                       {showAddEmployee && (
-                        <div className="p-4 bg-gray-850 border-b border-gray-800 space-y-2.5">
+                        <div className="p-4 bg-white border-b border-gray-100 space-y-2.5">
                           <input placeholder="ชื่อ-นามสกุล *" value={employeeForm.name}
                             onChange={e => setEmployeeForm(f => ({ ...f, name: e.target.value }))}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
+                            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-green-500"/>
                           <input placeholder="ตำแหน่ง" value={employeeForm.position}
                             onChange={e => setEmployeeForm(f => ({ ...f, position: e.target.value }))}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
+                            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-green-500"/>
 
                           <div>
-                            <label className="block text-gray-500 text-[11px] mb-1">ประเภทการจ่าย</label>
+                            <label className="block text-gray-400 text-[11px] mb-1">ประเภทการจ่าย</label>
                             <div className="grid grid-cols-3 gap-1.5">
                               {PAY_TYPES.map(pt => (
                                 <button key={pt.value} type="button" onClick={() => setEmployeeForm(f => ({ ...f, pay_type: pt.value }))}
-                                  className={`py-1.5 rounded-lg text-xs font-medium ${employeeForm.pay_type === pt.value ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400'}`}>
+                                  className={`py-1.5 rounded-lg text-xs font-medium ${employeeForm.pay_type === pt.value ? 'bg-green-700 text-white' : 'bg-white text-gray-500'}`}>
                                   {pt.label}
                                 </button>
                               ))}
@@ -8634,46 +8634,46 @@ export default function POSPage() {
                           {employeeForm.pay_type === 'monthly' && (
                             <input type="number" placeholder="เงินเดือน (บาท/เดือน)" value={employeeForm.base_salary}
                               onChange={e => setEmployeeForm(f => ({ ...f, base_salary: e.target.value }))}
-                              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
+                              className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-green-500"/>
                           )}
                           {employeeForm.pay_type === 'daily' && (
                             <input type="number" placeholder="ค่าแรง (บาท/วัน)" value={employeeForm.daily_rate}
                               onChange={e => setEmployeeForm(f => ({ ...f, daily_rate: e.target.value }))}
-                              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
+                              className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-green-500"/>
                           )}
                           {employeeForm.pay_type === 'cycle' && (
                             <div className="grid grid-cols-2 gap-2">
                               <input type="number" placeholder="แทรคละกี่วัน" value={employeeForm.cycle_days}
                                 onChange={e => setEmployeeForm(f => ({ ...f, cycle_days: e.target.value }))}
-                                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
+                                className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-green-500"/>
                               <input type="number" placeholder="ค่าแรง (บาท/แทรค)" value={employeeForm.cycle_rate}
                                 onChange={e => setEmployeeForm(f => ({ ...f, cycle_rate: e.target.value }))}
-                                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
+                                className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-green-500"/>
                             </div>
                           )}
 
                           <div className="grid grid-cols-2 gap-2">
                             <input placeholder="เบอร์ติดต่อ" value={employeeForm.phone}
                               onChange={e => setEmployeeForm(f => ({ ...f, phone: e.target.value }))}
-                              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
+                              className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-green-500"/>
                             <input placeholder="เลขบัตรประชาชน (ไม่บังคับ)" value={employeeForm.id_card_number}
                               onChange={e => setEmployeeForm(f => ({ ...f, id_card_number: e.target.value }))}
-                              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500 font-mono"/>
+                              className="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-green-500 font-mono"/>
                           </div>
                           <textarea placeholder="ที่อยู่" value={employeeForm.address} rows={2}
                             onChange={e => setEmployeeForm(f => ({ ...f, address: e.target.value }))}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500 resize-none"/>
+                            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-green-500 resize-none"/>
 
                           {employeeForm.pay_type === 'monthly' && (
                             <div>
-                              <label className="block text-gray-500 text-[11px] mb-1">โควตาวันหยุด/เดือนของคนนี้ (ว่าง = ใช้ค่ากลางของร้าน)</label>
+                              <label className="block text-gray-400 text-[11px] mb-1">โควตาวันหยุด/เดือนของคนนี้ (ว่าง = ใช้ค่ากลางของร้าน)</label>
                               <input type="number" min="0" step="0.5" placeholder={`ค่ากลางร้าน: ${posConfig.payroll_days_off_per_month} วัน/เดือน`} value={employeeForm.days_off_per_month_override}
                                 onChange={e => setEmployeeForm(f => ({ ...f, days_off_per_month_override: e.target.value }))}
-                                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-green-500"/>
+                                className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-green-500"/>
                             </div>
                           )}
 
-                          <label className="flex items-center gap-2 text-xs text-gray-300">
+                          <label className="flex items-center gap-2 text-xs text-gray-700">
                             <input type="checkbox" checked={employeeForm.sso_enrolled}
                               onChange={e => setEmployeeForm(f => ({ ...f, sso_enrolled: e.target.checked }))}/>
                             เข้าประกันสังคม (มาตรา 33)
@@ -8684,86 +8684,86 @@ export default function POSPage() {
                               {employeeSaving ? 'กำลังบันทึก...' : 'บันทึกพนักงาน'}
                             </button>
                             <button onClick={() => { setShowAddEmployee(false); setEmployeeForm(emptyEmployeeForm()); }}
-                              className="px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm rounded-lg">ยกเลิก</button>
+                              className="px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-lg">ยกเลิก</button>
                           </div>
                         </div>
                       )}
 
                       {payrollEmployeesLoading ? (
-                        <div className="text-center text-gray-500 py-8 animate-pulse">กำลังโหลด...</div>
+                        <div className="text-center text-gray-400 py-8 animate-pulse">กำลังโหลด...</div>
                       ) : payrollEmployees.length === 0 ? (
-                        <div className="text-center text-gray-500 py-10 text-sm">ยังไม่มีพนักงานในระบบเงินเดือน</div>
+                        <div className="text-center text-gray-400 py-10 text-sm">ยังไม่มีพนักงานในระบบเงินเดือน</div>
                       ) : (
-                        <div className="divide-y divide-gray-800">
+                        <div className="divide-y divide-gray-100">
                           {payrollEmployees.map(emp => (
                             <div key={emp.id} className="px-5 py-3.5">
                               {editEmployeeId === emp.id ? (
                                 <div className="space-y-2">
                                   <input value={editEmployeeForm.name || ''} onChange={e => setEditEmployeeForm(f => ({ ...f, name: e.target.value }))}
-                                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                    className="w-full bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900"/>
                                   <input value={editEmployeeForm.position || ''} onChange={e => setEditEmployeeForm(f => ({ ...f, position: e.target.value }))}
-                                    placeholder="ตำแหน่ง" className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                    placeholder="ตำแหน่ง" className="w-full bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900"/>
 
                                   <div className="grid grid-cols-3 gap-1.5">
                                     {PAY_TYPES.map(pt => (
                                       <button key={pt.value} type="button" onClick={() => setEditEmployeeForm(f => ({ ...f, pay_type: pt.value }))}
-                                        className={`py-1.5 rounded-lg text-xs font-medium ${(editEmployeeForm.pay_type || 'monthly') === pt.value ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-400'}`}>
+                                        className={`py-1.5 rounded-lg text-xs font-medium ${(editEmployeeForm.pay_type || 'monthly') === pt.value ? 'bg-green-700 text-white' : 'bg-white text-gray-500'}`}>
                                         {pt.label}
                                       </button>
                                     ))}
                                   </div>
                                   {(editEmployeeForm.pay_type || 'monthly') === 'monthly' && (
                                     <input type="number" value={editEmployeeForm.base_salary ?? ''} onChange={e => setEditEmployeeForm(f => ({ ...f, base_salary: e.target.value }))}
-                                      placeholder="เงินเดือน (บาท/เดือน)" className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                      placeholder="เงินเดือน (บาท/เดือน)" className="w-full bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900"/>
                                   )}
                                   {editEmployeeForm.pay_type === 'daily' && (
                                     <input type="number" value={editEmployeeForm.daily_rate ?? ''} onChange={e => setEditEmployeeForm(f => ({ ...f, daily_rate: e.target.value }))}
-                                      placeholder="ค่าแรง (บาท/วัน)" className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                      placeholder="ค่าแรง (บาท/วัน)" className="w-full bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900"/>
                                   )}
                                   {editEmployeeForm.pay_type === 'cycle' && (
                                     <div className="grid grid-cols-2 gap-2">
                                       <input type="number" value={editEmployeeForm.cycle_days ?? ''} onChange={e => setEditEmployeeForm(f => ({ ...f, cycle_days: e.target.value }))}
-                                        placeholder="แทรคละกี่วัน" className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                        placeholder="แทรคละกี่วัน" className="bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900"/>
                                       <input type="number" value={editEmployeeForm.cycle_rate ?? ''} onChange={e => setEditEmployeeForm(f => ({ ...f, cycle_rate: e.target.value }))}
-                                        placeholder="ค่าแรง (บาท/แทรค)" className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                        placeholder="ค่าแรง (บาท/แทรค)" className="bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900"/>
                                     </div>
                                   )}
 
                                   <div className="grid grid-cols-2 gap-2">
                                     <input value={editEmployeeForm.phone || ''} onChange={e => setEditEmployeeForm(f => ({ ...f, phone: e.target.value }))}
-                                      placeholder="เบอร์ติดต่อ" className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                      placeholder="เบอร์ติดต่อ" className="bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900"/>
                                     <input value={editEmployeeForm.id_card_number || ''} onChange={e => setEditEmployeeForm(f => ({ ...f, id_card_number: e.target.value }))}
-                                      placeholder="เลขบัตรประชาชน" className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white font-mono"/>
+                                      placeholder="เลขบัตรประชาชน" className="bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900 font-mono"/>
                                   </div>
                                   <textarea value={editEmployeeForm.address || ''} rows={2} onChange={e => setEditEmployeeForm(f => ({ ...f, address: e.target.value }))}
-                                    placeholder="ที่อยู่" className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white resize-none"/>
+                                    placeholder="ที่อยู่" className="w-full bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900 resize-none"/>
                                   {(editEmployeeForm.pay_type || 'monthly') === 'monthly' && (
                                     <input type="number" min="0" step="0.5" value={editEmployeeForm.days_off_per_month_override ?? ''}
                                       onChange={e => setEditEmployeeForm(f => ({ ...f, days_off_per_month_override: e.target.value }))}
                                       placeholder={`โควตาวันหยุด/เดือน (ว่าง = ค่ากลางร้าน ${posConfig.payroll_days_off_per_month} วัน)`}
-                                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                      className="w-full bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900"/>
                                   )}
                                   <div className="flex items-center justify-between">
-                                    <label className="flex items-center gap-2 text-xs text-gray-300">
+                                    <label className="flex items-center gap-2 text-xs text-gray-700">
                                       <input type="checkbox" checked={!!editEmployeeForm.sso_enrolled} onChange={e => setEditEmployeeForm(f => ({ ...f, sso_enrolled: e.target.checked }))}/>
                                       ประกันสังคม
                                     </label>
                                     <select value={editEmployeeForm.status || 'active'} onChange={e => setEditEmployeeForm(f => ({ ...f, status: e.target.value }))}
-                                      className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs text-white">
+                                      className="bg-white border border-gray-200 rounded-lg px-2 py-1 text-xs text-gray-900">
                                       <option value="active">ทำงานอยู่</option>
                                       <option value="inactive">พ้นสภาพแล้ว</option>
                                     </select>
                                   </div>
                                   <div className="flex gap-2">
                                     <button onClick={saveEditEmployee} disabled={employeeSaving} className="flex-1 bg-green-700 text-white text-xs font-bold py-1.5 rounded-lg">บันทึก</button>
-                                    <button onClick={() => setEditEmployeeId(null)} className="px-3 bg-gray-700 text-gray-300 text-xs rounded-lg">ยกเลิก</button>
+                                    <button onClick={() => setEditEmployeeId(null)} className="px-3 bg-gray-100 text-gray-700 text-xs rounded-lg">ยกเลิก</button>
                                   </div>
                                 </div>
                               ) : (
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="min-w-0">
-                                    <p className={`font-bold text-sm truncate ${emp.status === 'inactive' ? 'text-gray-500 line-through' : 'text-white'}`}>{emp.name}</p>
-                                    <p className="text-gray-500 text-xs">
+                                    <p className={`font-bold text-sm truncate ${emp.status === 'inactive' ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{emp.name}</p>
+                                    <p className="text-gray-400 text-xs">
                                       {emp.position || '—'} · {
                                         emp.pay_type === 'daily' ? `฿${(emp.daily_rate||0).toLocaleString()}/วัน (รายวัน)`
                                         : emp.pay_type === 'cycle' ? `฿${(emp.cycle_rate||0).toLocaleString()}/แทรค ${emp.cycle_days||10} วัน`
@@ -8771,15 +8771,15 @@ export default function POSPage() {
                                       }{emp.sso_enrolled ? ' · ประกันสังคม' : ''}
                                     </p>
                                     {(emp.phone || emp.address) && (
-                                      <p className="text-gray-600 text-[11px] mt-0.5 truncate">{[emp.phone, emp.address].filter(Boolean).join(' · ')}</p>
+                                      <p className="text-gray-400 text-[11px] mt-0.5 truncate">{[emp.phone, emp.address].filter(Boolean).join(' · ')}</p>
                                     )}
                                   </div>
                                   <div className="flex items-center gap-1.5 shrink-0">
                                     {emp.status !== 'inactive' && (
-                                      <button onClick={() => selectEmployeeForRun(emp)} className="text-[11px] bg-green-800 hover:bg-green-700 text-green-200 px-2.5 py-1.5 rounded-lg font-medium">จ่ายเงินเดือน</button>
+                                      <button onClick={() => selectEmployeeForRun(emp)} className="text-[11px] bg-green-100 hover:bg-green-700 text-green-800 px-2.5 py-1.5 rounded-lg font-medium">จ่ายเงินเดือน</button>
                                     )}
-                                    <button onClick={() => startEditEmployee(emp)} className="p-1.5 text-gray-400 hover:text-white"><Edit3 size={13}/></button>
-                                    <button onClick={() => deleteEmployeeRecord(emp.id)} className="p-1.5 text-gray-500 hover:text-red-400"><Trash2 size={13}/></button>
+                                    <button onClick={() => startEditEmployee(emp)} className="p-1.5 text-gray-500 hover:text-gray-900"><Edit3 size={13}/></button>
+                                    <button onClick={() => deleteEmployeeRecord(emp.id)} className="p-1.5 text-gray-400 hover:text-red-600"><Trash2 size={13}/></button>
                                   </div>
                                 </div>
                               )}
@@ -8793,15 +8793,15 @@ export default function POSPage() {
 
                 {/* ── รันจ่ายเงินเดือน ── */}
                 {payrollView === 'run' && (
-                  <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800 space-y-3">
-                    <h3 className="text-white font-bold">➕ รันจ่ายเงินเดือน</h3>
+                  <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3">
+                    <h3 className="text-gray-900 font-bold">➕ รันจ่ายเงินเดือน</h3>
                     <div>
-                      <label className="block text-gray-400 text-xs mb-1.5">พนักงาน</label>
+                      <label className="block text-gray-500 text-xs mb-1.5">พนักงาน</label>
                       <select value={runForm.employeeId} onChange={e => {
                           const emp = payrollEmployees.find(x => x.id === e.target.value);
                           if (emp) selectEmployeeForRun(emp); else setRunForm(f => ({ ...f, employeeId: '', employeeName: '' }));
                         }}
-                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white">
+                        className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900">
                         <option value="">— เลือกพนักงาน —</option>
                         {payrollEmployees.filter(e => e.status !== 'inactive').map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
                       </select>
@@ -8809,67 +8809,67 @@ export default function POSPage() {
                     {runForm.employeeName && (<>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <label className="block text-gray-400 text-xs mb-1.5">เดือนที่จ่าย</label>
+                          <label className="block text-gray-500 text-xs mb-1.5">เดือนที่จ่าย</label>
                           <input type="month" value={runForm.yearMonth} onChange={e => setRunForm(f => ({ ...f, yearMonth: e.target.value }))}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
+                            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900"/>
                         </div>
                         <div>
-                          <label className="block text-gray-400 text-xs mb-1.5">วันที่จ่ายจริง</label>
+                          <label className="block text-gray-500 text-xs mb-1.5">วันที่จ่ายจริง</label>
                           <input type="date" value={runForm.paidDate} onChange={e => setRunForm(f => ({ ...f, paidDate: e.target.value }))}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
+                            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900"/>
                         </div>
                       </div>
                       {runForm.payType === 'monthly' && (
                         <div>
-                          <label className="block text-gray-400 text-xs mb-1.5">เงินเดือนพื้นฐาน</label>
+                          <label className="block text-gray-500 text-xs mb-1.5">เงินเดือนพื้นฐาน</label>
                           <input type="number" value={runForm.baseSalary} onChange={e => setRunForm(f => ({ ...f, baseSalary: e.target.value }))}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
+                            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900"/>
                         </div>
                       )}
                       {runForm.payType === 'daily' && (
                         <div>
-                          <label className="block text-gray-400 text-xs mb-1.5">จำนวนวันที่ทำงาน (× ฿{(runForm.dailyRate||0).toLocaleString()}/วัน)</label>
+                          <label className="block text-gray-500 text-xs mb-1.5">จำนวนวันที่ทำงาน (× ฿{(runForm.dailyRate||0).toLocaleString()}/วัน)</label>
                           <input type="number" value={runForm.unitsWorked}
                             onChange={e => {
                               const units = e.target.value;
                               const base = Math.round((parseFloat(units) || 0) * (parseFloat(runForm.dailyRate) || 0) * 100) / 100;
                               setRunForm(f => ({ ...f, unitsWorked: units, baseSalary: String(base) }));
                             }}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
-                          <p className="text-gray-500 text-xs mt-1">= ฿{(parseFloat(runForm.baseSalary)||0).toLocaleString()} (แก้ยอดนี้ตรงๆ ได้ถ้าไม่ตรง)</p>
+                            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900"/>
+                          <p className="text-gray-400 text-xs mt-1">= ฿{(parseFloat(runForm.baseSalary)||0).toLocaleString()} (แก้ยอดนี้ตรงๆ ได้ถ้าไม่ตรง)</p>
                         </div>
                       )}
                       {runForm.payType === 'cycle' && (
                         <div>
-                          <label className="block text-gray-400 text-xs mb-1.5">จำนวนรอบที่ทำ (แทรคละ {runForm.cycleDays} วัน × ฿{(runForm.cycleRate||0).toLocaleString()}/แทรค)</label>
+                          <label className="block text-gray-500 text-xs mb-1.5">จำนวนรอบที่ทำ (แทรคละ {runForm.cycleDays} วัน × ฿{(runForm.cycleRate||0).toLocaleString()}/แทรค)</label>
                           <input type="number" value={runForm.unitsWorked}
                             onChange={e => {
                               const units = e.target.value;
                               const base = Math.round((parseFloat(units) || 0) * (parseFloat(runForm.cycleRate) || 0) * 100) / 100;
                               setRunForm(f => ({ ...f, unitsWorked: units, baseSalary: String(base) }));
                             }}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
-                          <p className="text-gray-500 text-xs mt-1">= ฿{(parseFloat(runForm.baseSalary)||0).toLocaleString()} (แก้ยอดนี้ตรงๆ ได้ถ้าไม่ตรง)</p>
+                            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900"/>
+                          <p className="text-gray-400 text-xs mt-1">= ฿{(parseFloat(runForm.baseSalary)||0).toLocaleString()} (แก้ยอดนี้ตรงๆ ได้ถ้าไม่ตรง)</p>
                         </div>
                       )}
 
                       {/* OT — กรอกชั่วโมง+อัตราเอง (ไม่คำนวณอัตราให้อัตโนมัติ เพราะกฎหมายแรงงานมีหลาย
                           อัตราต่างกันตามวันธรรมดา/วันหยุด/กลางคืน) กด "รวมเข้ายอดเพิ่ม" เพื่อ merge
                           เข้าช่อง "เพิ่ม" ด้านล่าง (ไม่ทับของเดิมถ้ามีการกรอกไว้ก่อนแล้ว) */}
-                      <div className="bg-gray-800/50 rounded-xl p-3 space-y-2">
-                        <p className="text-gray-400 text-xs font-medium">⏱️ ค่า OT (ไม่บังคับ)</p>
+                      <div className="bg-white/50 rounded-xl p-3 space-y-2">
+                        <p className="text-gray-500 text-xs font-medium">⏱️ ค่า OT (ไม่บังคับ)</p>
                         <div className="grid grid-cols-2 gap-2">
                           <input type="number" placeholder="ชั่วโมง OT" value={runForm.otHours}
                             onChange={e => setRunForm(f => ({ ...f, otHours: e.target.value }))}
-                            className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                            className="bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900"/>
                           <input type="number" placeholder="อัตรา/ชม. (บาท)" value={runForm.otRatePerHour}
                             onChange={e => setRunForm(f => ({ ...f, otRatePerHour: e.target.value }))}
-                            className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                            className="bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900"/>
                         </div>
                         {otCalc > 0 && (
                           <div className="flex items-center justify-between text-xs">
-                            <span className="text-gray-400">รวม OT = ฿{otCalc.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
-                            <button onClick={applyOtAddition} className="bg-green-800 hover:bg-green-700 text-green-200 px-3 py-1 rounded-lg font-medium">+ รวมเข้ายอดเพิ่ม</button>
+                            <span className="text-gray-500">รวม OT = ฿{otCalc.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                            <button onClick={applyOtAddition} className="bg-green-100 hover:bg-green-700 text-green-800 px-3 py-1 rounded-lg font-medium">+ รวมเข้ายอดเพิ่ม</button>
                           </div>
                         )}
                       </div>
@@ -8877,29 +8877,29 @@ export default function POSPage() {
                       {/* หักวันหยุดเกินสิทธิ์ — เฉพาะพนักงานรายเดือน (รายวัน/แทรคจ่ายตามที่ทำจริงอยู่แล้ว
                           ไม่มีแนวคิด "วันหยุดที่ได้รับเงิน" แบบเดียวกับรายเดือน) */}
                       {runForm.payType === 'monthly' && (
-                        <div className="bg-gray-800/50 rounded-xl p-3 space-y-2">
-                          <p className="text-gray-400 text-xs font-medium">📅 หักวันหยุดเกินสิทธิ์ (ไม่บังคับ)</p>
+                        <div className="bg-white/50 rounded-xl p-3 space-y-2">
+                          <p className="text-gray-500 text-xs font-medium">📅 หักวันหยุดเกินสิทธิ์ (ไม่บังคับ)</p>
                           <div className="grid grid-cols-2 gap-2 items-end">
                             <div>
-                              <label className="block text-gray-500 text-[11px] mb-1">จำนวนวันที่หยุดจริงเดือนนี้</label>
+                              <label className="block text-gray-400 text-[11px] mb-1">จำนวนวันที่หยุดจริงเดือนนี้</label>
                               <input type="number" min="0" value={runForm.daysAbsent}
                                 onChange={e => setRunForm(f => ({ ...f, daysAbsent: e.target.value }))}
-                                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                className="w-full bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900"/>
                             </div>
                             <div>
-                              <label className="block text-gray-500 text-[11px] mb-1">โควตาวันหยุด/เดือน</label>
+                              <label className="block text-gray-400 text-[11px] mb-1">โควตาวันหยุด/เดือน</label>
                               <input type="number" min="0" step="0.5" value={runForm.daysOffAllowed}
                                 onChange={e => setRunForm(f => ({ ...f, daysOffAllowed: e.target.value }))}
-                                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white"/>
+                                className="w-full bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900"/>
                             </div>
                           </div>
-                          <p className="text-gray-500 text-[11px]">
+                          <p className="text-gray-400 text-[11px]">
                             เดือนนี้มี {daysInYearMonth(runForm.yearMonth)} วัน · อัตราหักวันละ ฿{daysOffCalc.dailyRate.toLocaleString()} (หยุดได้ {daysOffCalc.allowedThisMonth} วันโดยไม่ถูกหัก เลือกวันไหนก็ได้)
                           </p>
                           {daysOffCalc.excessDays > 0 && (
                             <div className="flex items-center justify-between text-xs">
-                              <span className="text-red-400">หยุดเกินสิทธิ์ {daysOffCalc.excessDays} วัน = หัก ฿{daysOffCalc.deduction.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
-                              <button onClick={applyDaysOffDeduction} className="bg-red-900/60 hover:bg-red-800 text-red-200 px-3 py-1 rounded-lg font-medium">+ รวมเข้ายอดหัก</button>
+                              <span className="text-red-600">หยุดเกินสิทธิ์ {daysOffCalc.excessDays} วัน = หัก ฿{daysOffCalc.deduction.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                              <button onClick={applyDaysOffDeduction} className="bg-red-50/60 hover:bg-red-100 text-red-800 px-3 py-1 rounded-lg font-medium">+ รวมเข้ายอดหัก</button>
                             </div>
                           )}
                         </div>
@@ -8907,36 +8907,36 @@ export default function POSPage() {
 
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <label className="block text-gray-400 text-xs mb-1.5">เพิ่ม (โบนัส/OT/อื่นๆ)</label>
+                          <label className="block text-gray-500 text-xs mb-1.5">เพิ่ม (โบนัส/OT/อื่นๆ)</label>
                           <input type="number" value={runForm.additions} onChange={e => setRunForm(f => ({ ...f, additions: e.target.value }))}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
-                          {runForm.additionNote && <p className="text-gray-600 text-[10px] mt-1 truncate">{runForm.additionNote}</p>}
+                            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900"/>
+                          {runForm.additionNote && <p className="text-gray-400 text-[10px] mt-1 truncate">{runForm.additionNote}</p>}
                         </div>
                         <div>
-                          <label className="block text-gray-400 text-xs mb-1.5">หัก (เบิกล่วงหน้า/หยุดเกิน ฯลฯ)</label>
+                          <label className="block text-gray-500 text-xs mb-1.5">หัก (เบิกล่วงหน้า/หยุดเกิน ฯลฯ)</label>
                           <input type="number" value={runForm.deductions} onChange={e => setRunForm(f => ({ ...f, deductions: e.target.value }))}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
-                          {runForm.deductionNote && <p className="text-gray-600 text-[10px] mt-1 truncate">{runForm.deductionNote}</p>}
+                            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900"/>
+                          {runForm.deductionNote && <p className="text-gray-400 text-[10px] mt-1 truncate">{runForm.deductionNote}</p>}
                         </div>
                       </div>
 
-                      <div className="bg-gray-800 rounded-xl p-4 space-y-1.5 text-sm">
-                        <div className="flex justify-between text-gray-300"><span>ยอดก่อนหัก (Gross)</span><span>฿{runPreview.gross.toLocaleString(undefined,{minimumFractionDigits:2})}</span></div>
-                        <div className="flex justify-between text-gray-400 items-center">
+                      <div className="bg-white rounded-xl p-4 space-y-1.5 text-sm">
+                        <div className="flex justify-between text-gray-700"><span>ยอดก่อนหัก (Gross)</span><span>฿{runPreview.gross.toLocaleString(undefined,{minimumFractionDigits:2})}</span></div>
+                        <div className="flex justify-between text-gray-500 items-center">
                           <span>ประกันสังคม (พนักงาน)</span>
                           <input type="number" value={runForm.ssoEmployeeOverride} placeholder={runPreview.ssoEmployee.toFixed(2)}
                             onChange={e => setRunForm(f => ({ ...f, ssoEmployeeOverride: e.target.value }))}
-                            className="w-24 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-right text-xs text-white"/>
+                            className="w-24 bg-white border border-gray-200 rounded px-2 py-1 text-right text-xs text-gray-900"/>
                         </div>
-                        <div className="flex justify-between text-gray-500 text-xs"><span>ประกันสังคม (นายจ้างสมทบ — ไม่หักพนักงาน)</span><span>฿{runPreview.ssoEmployer.toLocaleString(undefined,{minimumFractionDigits:2})}</span></div>
-                        <div className="flex justify-between text-gray-400 items-center">
+                        <div className="flex justify-between text-gray-400 text-xs"><span>ประกันสังคม (นายจ้างสมทบ — ไม่หักพนักงาน)</span><span>฿{runPreview.ssoEmployer.toLocaleString(undefined,{minimumFractionDigits:2})}</span></div>
+                        <div className="flex justify-between text-gray-500 items-center">
                           <span>ภาษีหัก ณ ที่จ่าย (ประมาณการณ์)</span>
                           <input type="number" value={runForm.withholdingTaxOverride} placeholder={runPreview.withholding.toFixed(2)}
                             onChange={e => setRunForm(f => ({ ...f, withholdingTaxOverride: e.target.value }))}
-                            className="w-24 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-right text-xs text-white"/>
+                            className="w-24 bg-white border border-gray-200 rounded px-2 py-1 text-right text-xs text-gray-900"/>
                         </div>
-                        <div className="flex justify-between text-white font-bold text-base pt-2 border-t border-gray-700">
-                          <span>สุทธิที่พนักงานได้รับ</span><span className="text-green-400">฿{runPreview.net.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                        <div className="flex justify-between text-gray-900 font-bold text-base pt-2 border-t border-gray-200">
+                          <span>สุทธิที่พนักงานได้รับ</span><span className="text-green-600">฿{runPreview.net.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
                         </div>
                       </div>
 
@@ -8954,39 +8954,39 @@ export default function POSPage() {
                     <div className="flex gap-2">
                       <input type="month" value={payrollHistoryMonth}
                         onChange={e => { setPayrollHistoryMonth(e.target.value); fetchPayrollRuns(e.target.value); }}
-                        className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"/>
+                        className="flex-1 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900"/>
                       {payrollHistoryMonth && (
                         <button onClick={() => { setPayrollHistoryMonth(''); fetchPayrollRuns(''); }}
-                          className="px-3 bg-gray-700 text-gray-300 text-xs rounded-lg">ทั้งหมด</button>
+                          className="px-3 bg-gray-100 text-gray-700 text-xs rounded-lg">ทั้งหมด</button>
                       )}
                     </div>
                     {payrollRunsSummary && payrollRunsSummary.count > 0 && (
                       <div className="grid grid-cols-2 gap-2">
-                        <div className="bg-gray-900 border border-gray-800 rounded-xl p-3">
-                          <p className="text-gray-500 text-[10px]">ยอดจ่ายรวม (Gross)</p>
-                          <p className="text-white font-bold">฿{payrollRunsSummary.total_gross.toLocaleString(undefined,{minimumFractionDigits:2})}</p>
+                        <div className="bg-white border border-gray-100 rounded-xl p-3">
+                          <p className="text-gray-400 text-[10px]">ยอดจ่ายรวม (Gross)</p>
+                          <p className="text-gray-900 font-bold">฿{payrollRunsSummary.total_gross.toLocaleString(undefined,{minimumFractionDigits:2})}</p>
                         </div>
-                        <div className="bg-gray-900 border border-gray-800 rounded-xl p-3">
-                          <p className="text-gray-500 text-[10px]">ต้นทุนรวม (รวมสมทบนายจ้าง)</p>
-                          <p className="text-white font-bold">฿{(payrollRunsSummary.total_gross + payrollRunsSummary.total_sso_employer).toLocaleString(undefined,{minimumFractionDigits:2})}</p>
+                        <div className="bg-white border border-gray-100 rounded-xl p-3">
+                          <p className="text-gray-400 text-[10px]">ต้นทุนรวม (รวมสมทบนายจ้าง)</p>
+                          <p className="text-gray-900 font-bold">฿{(payrollRunsSummary.total_gross + payrollRunsSummary.total_sso_employer).toLocaleString(undefined,{minimumFractionDigits:2})}</p>
                         </div>
                       </div>
                     )}
                     {payrollRunsLoading ? (
-                      <div className="text-center text-gray-500 py-8 animate-pulse">กำลังโหลด...</div>
+                      <div className="text-center text-gray-400 py-8 animate-pulse">กำลังโหลด...</div>
                     ) : payrollRuns.length === 0 ? (
-                      <div className="text-center text-gray-500 py-10 text-sm">ยังไม่มีประวัติจ่ายเงินเดือน</div>
+                      <div className="text-center text-gray-400 py-10 text-sm">ยังไม่มีประวัติจ่ายเงินเดือน</div>
                     ) : (
-                      <div className="bg-gray-900 rounded-2xl border border-gray-800 divide-y divide-gray-800 overflow-hidden">
+                      <div className="bg-white rounded-2xl border border-gray-100 divide-y divide-gray-100 overflow-hidden">
                         {payrollRuns.map(run => (
                           <div key={run.id} className="px-5 py-3.5 flex items-center justify-between gap-2">
                             <div className="min-w-0">
-                              <p className="text-white font-bold text-sm truncate">{run.employee_name} <span className="text-gray-500 font-normal">· {run.year_month}</span></p>
-                              <p className="text-gray-500 text-xs">สุทธิ ฿{run.net_pay.toLocaleString(undefined,{minimumFractionDigits:2})} · {run.run_no}</p>
+                              <p className="text-gray-900 font-bold text-sm truncate">{run.employee_name} <span className="text-gray-400 font-normal">· {run.year_month}</span></p>
+                              <p className="text-gray-400 text-xs">สุทธิ ฿{run.net_pay.toLocaleString(undefined,{minimumFractionDigits:2})} · {run.run_no}</p>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
-                              <button onClick={() => printPayslip(run)} className="text-[11px] bg-gray-800 hover:bg-gray-700 text-gray-300 px-2.5 py-1.5 rounded-lg">🖨️ สลิป</button>
-                              <button onClick={() => cancelPayrollRun(run.id)} className="p-1.5 text-gray-500 hover:text-red-400"><Trash2 size={13}/></button>
+                              <button onClick={() => printPayslip(run)} className="text-[11px] bg-white hover:bg-gray-100 text-gray-700 px-2.5 py-1.5 rounded-lg">🖨️ สลิป</button>
+                              <button onClick={() => cancelPayrollRun(run.id)} className="p-1.5 text-gray-400 hover:text-red-600"><Trash2 size={13}/></button>
                             </div>
                           </div>
                         ))}
@@ -9010,7 +9010,7 @@ export default function POSPage() {
                   {SETTINGS_CATEGORIES.map(c => (
                     <button key={c.key} type="button" onClick={() => setSettingsCategory(c.key)}
                       className={`shrink-0 md:w-full text-center md:text-left px-4 py-2 md:py-2.5 rounded-full md:rounded-xl text-xs font-bold whitespace-nowrap transition-colors ${
-                        settingsCategory === c.key ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700'
+                        settingsCategory === c.key ? 'bg-green-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-100 border border-gray-200'
                       }`}>
                       {c.label}
                     </button>
@@ -9021,9 +9021,9 @@ export default function POSPage() {
 
                 {settingsCategory === 'links' && (<>
                 {/* Staff PIN — เปลี่ยนเป็น PIN รายบุคคลแล้ว ตั้ง/รีเซ็ตได้ที่แท็บ "พนักงาน" ด้านล่าง */}
-                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
-                  <h3 className="text-white font-bold mb-1">🔐 หน้าพนักงาน (pos-staff)</h3>
-                  <p className="text-gray-400 text-xs mb-3">
+                <div className="bg-white rounded-2xl p-5 border border-gray-100">
+                  <h3 className="text-gray-900 font-bold mb-1">🔐 หน้าพนักงาน (pos-staff)</h3>
+                  <p className="text-gray-500 text-xs mb-3">
                     พนักงานแต่ละคนตั้ง PIN ของตัวเองผ่านลิงก์ที่ระบบส่งให้ทาง LINE อัตโนมัติหลังได้รับอนุมัติ/ถูกเพิ่มเข้าระบบ —
                     ดู/รีเซ็ต PIN รายคนได้ที่รายชื่อพนักงานด้านล่าง
                   </p>
@@ -9031,7 +9031,7 @@ export default function POSPage() {
                     href={`/pos-staff?shopId=${shopId}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 text-green-400 hover:text-green-300 text-xs underline"
+                    className="inline-flex items-center gap-2 text-green-600 hover:text-green-700 text-xs underline"
                   >
                     🔗 เปิดหน้าพนักงาน (pos-staff)
                   </a>
@@ -9040,16 +9040,16 @@ export default function POSPage() {
                 {/* ลิงก์แคชเชียร์ — แยกจากลิงก์ /pos?userId=... ของเจ้าของร้านโดยสิ้นเชิง บังคับใส่
                     PIN เสมอ ไม่มีทางเห็น Dashboard/ตั้งค่า/ข้อมูลร้านทั้งหมดได้เลยจากลิงก์นี้ —
                     สิทธิ์ที่ทำได้ขึ้นกับที่ติ๊กไว้ในโปรไฟล์พนักงานแต่ละคนเท่านั้น */}
-                <div className="bg-gray-900 rounded-2xl p-5 border border-green-900">
-                  <h3 className="text-white font-bold mb-1">🖥️ ลิงก์แคชเชียร์ (หน้าขายเต็มรูปแบบ)</h3>
-                  <p className="text-gray-400 text-xs mb-3">
+                <div className="bg-white rounded-2xl p-5 border border-green-200">
+                  <h3 className="text-gray-900 font-bold mb-1">🖥️ ลิงก์แคชเชียร์ (หน้าขายเต็มรูปแบบ)</h3>
+                  <p className="text-gray-500 text-xs mb-3">
                     แชร์ลิงก์นี้ให้พนักงานแคชเชียร์แทนลิงก์ของเจ้าของร้าน — บังคับใส่ PIN ก่อนเข้าเสมอ
                     ไม่มีทางกดไปหน้า Dashboard/ตั้งค่าได้เลย ทำได้เฉพาะสิ่งที่ติ๊กสิทธิ์ไว้ในโปรไฟล์พนักงาน
                     (ตั้งสิทธิ์ได้ที่รายชื่อพนักงานด้านล่าง)
                   </p>
                   <div className="flex items-center gap-2">
                     <input readOnly value={typeof window !== 'undefined' ? `${window.location.origin}/pos?shopId=${shopId}&mode=cashier` : ''}
-                      className="flex-1 bg-gray-800 text-gray-300 text-xs px-3 py-2.5 rounded-xl border border-gray-700 truncate" />
+                      className="flex-1 bg-white text-gray-700 text-xs px-3 py-2.5 rounded-xl border border-gray-200 truncate" />
                     <button onClick={() => {
                       navigator.clipboard.writeText(`${window.location.origin}/pos?shopId=${shopId}&mode=cashier`);
                       showToast('คัดลอกลิงก์แคชเชียร์แล้ว');
@@ -9060,14 +9060,14 @@ export default function POSPage() {
                 </div>
 
                 {/* ลิงก์สั่งซื้อสำหรับลูกค้า */}
-                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
-                  <h3 className="text-white font-bold mb-1">🛒 ลิงก์สั่งซื้อสำหรับลูกค้า</h3>
-                  <p className="text-gray-400 text-xs mb-3">
+                <div className="bg-white rounded-2xl p-5 border border-gray-100">
+                  <h3 className="text-gray-900 font-bold mb-1">🛒 ลิงก์สั่งซื้อสำหรับลูกค้า</h3>
+                  <p className="text-gray-500 text-xs mb-3">
                     แชร์ลิงก์นี้ให้ลูกค้าเพื่อสั่งซื้อ/สั่งจัดส่งเองได้ (ไม่ต้อง login) — คำสั่งซื้อที่เข้ามาจะรอให้ร้านตรวจสอบ/ยืนยันในแท็บ "🚚 ออเดอร์" ก่อนเสมอ ไม่กลายเป็นออเดอร์จริงทันที
                   </p>
                   <div className="flex items-center gap-2">
                     <input readOnly value={typeof window !== 'undefined' ? `${window.location.origin}/order?shopId=${shopId}` : ''}
-                      className="flex-1 bg-gray-800 text-gray-300 text-xs px-3 py-2.5 rounded-xl border border-gray-700 truncate" />
+                      className="flex-1 bg-white text-gray-700 text-xs px-3 py-2.5 rounded-xl border border-gray-200 truncate" />
                     <button onClick={() => {
                       navigator.clipboard.writeText(`${window.location.origin}/order?shopId=${shopId}`);
                       showToast('คัดลอกลิงก์แล้ว');
@@ -9077,19 +9077,19 @@ export default function POSPage() {
                   </div>
 
                   {posBranches.length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-gray-800 space-y-2">
-                      <p className="text-gray-400 text-xs mb-2">
+                    <div className="mt-4 pt-4 border-t border-gray-100 space-y-2">
+                      <p className="text-gray-500 text-xs mb-2">
                         หรือแยกลิงก์เฉพาะสาขา (ลูกค้าจะเห็นแค่สินค้าของสาขานั้น + ล็อกสาขาไว้อัตโนมัติ ไม่ต้องเลือกเอง)
                       </p>
                       {posBranches.map(b => (
                         <div key={b.id} className="flex items-center gap-2">
-                          <span className="shrink-0 text-gray-300 text-xs w-20 truncate">{b.brand_name || b.branch_name}</span>
+                          <span className="shrink-0 text-gray-700 text-xs w-20 truncate">{b.brand_name || b.branch_name}</span>
                           <input readOnly value={typeof window !== 'undefined' ? `${window.location.origin}/order?shopId=${shopId}&branch=${encodeURIComponent(b.branch_name)}` : ''}
-                            className="flex-1 bg-gray-800 text-gray-300 text-xs px-3 py-2 rounded-xl border border-gray-700 truncate" />
+                            className="flex-1 bg-white text-gray-700 text-xs px-3 py-2 rounded-xl border border-gray-200 truncate" />
                           <button onClick={() => {
                             navigator.clipboard.writeText(`${window.location.origin}/order?shopId=${shopId}&branch=${encodeURIComponent(b.branch_name)}`);
                             showToast('คัดลอกลิงก์แล้ว');
-                          }} className="shrink-0 bg-gray-700 hover:bg-gray-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors">
+                          }} className="shrink-0 bg-gray-100 hover:bg-gray-200 text-gray-900 text-xs font-bold px-3 py-2 rounded-xl transition-colors">
                             📋
                           </button>
                         </div>
@@ -9102,9 +9102,9 @@ export default function POSPage() {
 
                 {settingsCategory === 'tables' && (<>
                 {/* Table names */}
-                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
-                  <h3 className="text-white font-bold mb-1">🪑 ชื่อโต๊ะ / บิล</h3>
-                  <p className="text-gray-400 text-xs mb-4">
+                <div className="bg-white rounded-2xl p-5 border border-gray-100">
+                  <h3 className="text-gray-900 font-bold mb-1">🪑 ชื่อโต๊ะ / บิล</h3>
+                  <p className="text-gray-500 text-xs mb-4">
                     ตั้งชื่อโต๊ะล่วงหน้า เช่น โต๊ะ 1, โต๊ะ 2, Take Away, Delivery<br />
                     คั่นด้วยเครื่องหมายจุลภาค (,)
                   </p>
@@ -9113,18 +9113,18 @@ export default function POSPage() {
                     onChange={e => setTableNamesInput(e.target.value)}
                     rows={3}
                     placeholder="โต๊ะ 1, โต๊ะ 2, โต๊ะ 3, Take Away, Delivery"
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 resize-none"
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500 resize-none"
                   />
                   <button
                     onClick={() => saveTableNames(tableNamesInput)}
-                    className="mt-2 w-full bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm font-medium py-2.5 rounded-xl transition-colors"
+                    className="mt-2 w-full bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm font-medium py-2.5 rounded-xl transition-colors"
                   >
                     บันทึกชื่อโต๊ะ
                   </button>
                   {tableNames.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {tableNames.map(n => (
-                        <span key={n} className="bg-gray-800 text-gray-300 text-xs px-3 py-1.5 rounded-full border border-gray-700">{n}</span>
+                        <span key={n} className="bg-white text-gray-700 text-xs px-3 py-1.5 rounded-full border border-gray-200">{n}</span>
                       ))}
                     </div>
                   )}
@@ -9135,27 +9135,27 @@ export default function POSPage() {
                 {settingsCategory === 'staff' && (<>
                 {/* คำขอสมัคร (#สมัครพนักงานขนส่ง / #สมัครผู้จัดการสาขา) */}
                 {staffRequests.filter(r => r.status === 'pending').length > 0 && (
-                  <div className="bg-gray-900 rounded-2xl p-5 border border-orange-800/50">
+                  <div className="bg-white rounded-2xl p-5 border border-orange-200/50">
                     <div className="flex items-center justify-between mb-1">
-                      <h3 className="text-white font-bold">📋 คำขอสมัคร</h3>
-                      <span className="text-[10px] font-bold px-2 py-0.5 bg-orange-900/60 text-orange-300 rounded-full animate-pulse">
+                      <h3 className="text-gray-900 font-bold">📋 คำขอสมัคร</h3>
+                      <span className="text-[10px] font-bold px-2 py-0.5 bg-orange-50/60 text-orange-700 rounded-full animate-pulse">
                         {staffRequests.filter(r => r.status === 'pending').length} รออนุมัติ
                       </span>
                     </div>
-                    <p className="text-gray-400 text-xs mb-4">
-                      ให้พนักงาน/ผู้จัดการพิมพ์ <span className="font-mono bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">#สมัครพนักงาน</span> หรือ <span className="font-mono bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">#สมัครผู้จัดการสาขา</span> ในกลุ่ม LINE ของสาขา แล้วมาอนุมัติที่นี่ (คำสั่งเดิม <span className="font-mono bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">#สมัครพนักงานขนส่ง</span> ยังใช้ได้เหมือนเดิม)
+                    <p className="text-gray-500 text-xs mb-4">
+                      ให้พนักงาน/ผู้จัดการพิมพ์ <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-gray-200">#สมัครพนักงาน</span> หรือ <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-gray-200">#สมัครผู้จัดการสาขา</span> ในกลุ่ม LINE ของสาขา แล้วมาอนุมัติที่นี่ (คำสั่งเดิม <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-gray-200">#สมัครพนักงานขนส่ง</span> ยังใช้ได้เหมือนเดิม)
                     </p>
                     <div className="space-y-2">
                       {staffRequests.filter(r => r.status === 'pending').map(req => (
-                        <div key={req.id} className="bg-gray-800 rounded-xl p-3 flex items-center justify-between gap-2">
+                        <div key={req.id} className="bg-white rounded-xl p-3 flex items-center justify-between gap-2">
                           <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-white text-sm font-medium">{req.display_name || 'สมาชิก LINE'}</span>
-                              <span className="text-xs bg-gray-700 text-gray-400 px-2 py-0.5 rounded-full">
+                              <span className="text-gray-900 text-sm font-medium">{req.display_name || 'สมาชิก LINE'}</span>
+                              <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
                                 {req.role === 'delivery_staff' ? '🛵 พนักงานส่ง' : '🏬 ผู้จัดการสาขา'}
                               </span>
                             </div>
-                            <div className="text-gray-500 text-xs mt-0.5">สาขา: {req.branch_name || '-'}</div>
+                            <div className="text-gray-400 text-xs mt-0.5">สาขา: {req.branch_name || '-'}</div>
                           </div>
                           <div className="flex gap-1.5 shrink-0">
                             <button onClick={() => actOnStaffRequest(req.id, 'approve')} disabled={staffRequestActing === req.id}
@@ -9163,7 +9163,7 @@ export default function POSPage() {
                               {staffRequestActing === req.id ? '...' : 'อนุมัติ'}
                             </button>
                             <button onClick={() => actOnStaffRequest(req.id, 'reject')} disabled={staffRequestActing === req.id}
-                              className="text-xs bg-gray-700 hover:bg-red-800 text-gray-300 hover:text-red-300 px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50">
+                              className="text-xs bg-gray-100 hover:bg-red-100 text-gray-700 hover:text-red-700 px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-50">
                               ปฏิเสธ
                             </button>
                           </div>
@@ -9174,11 +9174,11 @@ export default function POSPage() {
                 )}
 
                 {/* Staff / Drivers */}
-                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
+                <div className="bg-white rounded-2xl p-5 border border-gray-100">
                   <div className="flex items-center justify-between mb-3">
                     <div>
-                      <h3 className="text-white font-bold">🛵 พนักงาน / คนส่งของ</h3>
-                      <p className="text-gray-400 text-xs mt-0.5">ใส่ LINE ID ของพนักงานเพื่อรับงานส่งของผ่าน LINE อัตโนมัติ</p>
+                      <h3 className="text-gray-900 font-bold">🛵 พนักงาน / คนส่งของ</h3>
+                      <p className="text-gray-500 text-xs mt-0.5">ใส่ LINE ID ของพนักงานเพื่อรับงานส่งของผ่าน LINE อัตโนมัติ</p>
                     </div>
                     <button onClick={() => { setEditStaff(null); setStaffForm({ name:'', phone:'', line_id:'', role:'พนักงานส่ง', notes:'', ...emptyStaffPerms() }); setStaffPreset(''); setShowStaffForm(true); }} className="shrink-0 bg-green-600 hover:bg-green-500 text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors">
                       + เพิ่ม
@@ -9186,29 +9186,29 @@ export default function POSPage() {
                   </div>
 
                   {staffLoading ? (
-                    <div className="text-center text-gray-500 py-4 text-sm animate-pulse">กำลังโหลด...</div>
+                    <div className="text-center text-gray-400 py-4 text-sm animate-pulse">กำลังโหลด...</div>
                   ) : staff.length === 0 ? (
-                    <div className="text-center text-gray-500 py-6 text-sm">ยังไม่มีพนักงาน</div>
+                    <div className="text-center text-gray-400 py-6 text-sm">ยังไม่มีพนักงาน</div>
                   ) : (
                     <div className="space-y-2">
                       {staff.map(s => (
-                        <div key={s.staff_id} className="bg-gray-800 rounded-xl p-3 flex items-center gap-3">
+                        <div key={s.staff_id} className="bg-white rounded-xl p-3 flex items-center gap-3">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-white text-sm font-medium">{s.name}</span>
-                              <span className="text-xs bg-gray-700 text-gray-400 px-2 py-0.5 rounded-full">{s.role}</span>
+                              <span className="text-gray-900 text-sm font-medium">{s.name}</span>
+                              <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{s.role}</span>
                             </div>
-                            {s.phone && <div className="text-gray-400 text-xs">📞 {s.phone}</div>}
+                            {s.phone && <div className="text-gray-500 text-xs">📞 {s.phone}</div>}
                             <div className="text-xs mt-0.5">
                               {s.line_id ? (
-                                <span className="text-green-400">✅ LINE ID: {s.line_id}</span>
+                                <span className="text-green-600">✅ LINE ID: {s.line_id}</span>
                               ) : (
                                 <span className="text-yellow-500">⚠️ ยังไม่มี LINE ID</span>
                               )}
                             </div>
                             <div className="text-xs mt-0.5">
                               {s.has_pin ? (
-                                <span className="text-green-400">🔐 ตั้ง PIN แล้ว</span>
+                                <span className="text-green-600">🔐 ตั้ง PIN แล้ว</span>
                               ) : (
                                 <span className="text-yellow-500">⚠️ ยังไม่ได้ตั้ง PIN</span>
                               )}
@@ -9216,7 +9216,7 @@ export default function POSPage() {
                             {STAFF_PERM_DEFS.some(p => s[p.key]) && (
                               <div className="flex flex-wrap gap-1 mt-1">
                                 {STAFF_PERM_DEFS.filter(p => s[p.key]).map(p => (
-                                  <span key={p.key} className="text-[10px] bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded">{p.icon} {p.label}</span>
+                                  <span key={p.key} className="text-[10px] bg-blue-50/50 text-blue-700 px-1.5 py-0.5 rounded">{p.icon} {p.label}</span>
                                 ))}
                               </div>
                             )}
@@ -9230,15 +9230,15 @@ export default function POSPage() {
                                 setStaffForm({ name: s.name, phone: s.phone, line_id: s.line_id, role: s.role, notes: s.notes, ...perms });
                                 setStaffPreset('');
                                 setShowStaffForm(true);
-                              }} className="text-xs bg-gray-700 hover:bg-blue-700 text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">แก้ไข</button>
-                              <button onClick={() => deleteStaffMember(s)} className="text-xs bg-gray-700 hover:bg-red-700 text-gray-300 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">ลบ</button>
+                              }} className="text-xs bg-gray-100 hover:bg-blue-700 text-gray-700 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">แก้ไข</button>
+                              <button onClick={() => deleteStaffMember(s)} className="text-xs bg-gray-100 hover:bg-red-700 text-gray-700 hover:text-white px-2.5 py-1.5 rounded-lg transition-colors">ลบ</button>
                             </div>
                             <div className="flex gap-1.5">
                               {s.line_id && (
-                                <button onClick={() => resendStaffPinLink(s)} className="text-xs bg-gray-700 hover:bg-purple-800 text-gray-300 hover:text-purple-200 px-2.5 py-1.5 rounded-lg transition-colors">📨 ส่งลิงก์ตั้ง PIN</button>
+                                <button onClick={() => resendStaffPinLink(s)} className="text-xs bg-gray-100 hover:bg-purple-100 text-gray-700 hover:text-purple-800 px-2.5 py-1.5 rounded-lg transition-colors">📨 ส่งลิงก์ตั้ง PIN</button>
                               )}
                               {s.has_pin && (
-                                <button onClick={() => revokeStaffPin(s)} className="text-xs bg-gray-700 hover:bg-red-800 text-gray-300 hover:text-red-200 px-2.5 py-1.5 rounded-lg transition-colors">🚫 ปิดใช้งาน PIN</button>
+                                <button onClick={() => revokeStaffPin(s)} className="text-xs bg-gray-100 hover:bg-red-100 text-gray-700 hover:text-red-800 px-2.5 py-1.5 rounded-lg transition-colors">🚫 ปิดใช้งาน PIN</button>
                               )}
                             </div>
                           </div>
@@ -9252,19 +9252,19 @@ export default function POSPage() {
 
                 {settingsCategory === 'payment' && (<>
                 {/* PromptPay ID */}
-                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
-                  <h3 className="text-white font-bold mb-1">📲 พร้อมเพย์ QR</h3>
-                  <p className="text-gray-400 text-xs mb-4">
+                <div className="bg-white rounded-2xl p-5 border border-gray-100">
+                  <h3 className="text-gray-900 font-bold mb-1">📲 พร้อมเพย์ QR</h3>
+                  <p className="text-gray-500 text-xs mb-4">
                     ใช้เบอร์โทรส่วนตัว หรือเลขผู้เสียภาษีนิติบุคคล 13 หลัก (ระบบตรวจจับประเภทให้อัตโนมัติ) — เงินจะเข้าบัญชีธนาคารที่ผูกพร้อมเพย์กับเลขนี้อยู่ ณ ตอนนี้เท่านั้น
                     {posConfig.promptpay_id ? ` — ปัจจุบัน: ${posConfig.promptpay_id}` : ''}
                   </p>
                   <div>
-                    <label className="block text-gray-400 text-xs mb-1.5">เลขพร้อมเพย์</label>
+                    <label className="block text-gray-500 text-xs mb-1.5">เลขพร้อมเพย์</label>
                     <input
                       type="text"
                       value={posSettingsForm.promptpay_id}
                       onChange={e => setPosSettingsForm(f => ({ ...f, promptpay_id: e.target.value }))}
-                      className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                      className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                       placeholder="เช่น 0812345678 หรือ 0105536000000"
                     />
                   </div>
@@ -9275,43 +9275,43 @@ export default function POSPage() {
                   const billerCheck = validateBillerId(posSettingsForm.scb_biller_id, posSettingsForm.scb_biller_ref1);
                   const billerIdOk = !posSettingsForm.scb_biller_id || /^\d{15}$/.test(String(posSettingsForm.scb_biller_id).replace(/[\s-]/g, ''));
                   return (
-                    <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
-                      <h3 className="text-white font-bold mb-1">🏦 Biller ID จากธนาคาร</h3>
-                      <p className="text-gray-400 text-xs mb-2">
+                    <div className="bg-white rounded-2xl p-5 border border-gray-100">
+                      <h3 className="text-gray-900 font-bold mb-1">🏦 Biller ID จากธนาคาร</h3>
+                      <p className="text-gray-500 text-xs mb-2">
                         สำหรับร้าน/บริษัทที่ธนาคารออกการ์ดหรือเอกสารระบุคำว่า "Biller ID" มาให้ (ธนาคารใดก็ได้ ไม่จำกัดแค่ SCB/KBank) —
                         เป็นคนละระบบกับพร้อมเพย์ด้านบน เงินจะเข้าบัญชีที่ผูกกับ Biller ID นี้โดยตรง <b>ถ้ากรอกช่องนี้ ระบบจะใช้ช่องนี้แทนพร้อมเพย์ทันที</b>
                         {posConfig.scb_biller_id ? ` — ปัจจุบัน: ${posConfig.scb_biller_id}` : ' — เว้นว่างไว้ถ้าไม่มี'}
                       </p>
-                      <p className="text-amber-400/90 text-xs mb-4 bg-amber-900/20 border border-amber-800/50 rounded-lg px-3 py-2">
+                      <p className="text-amber-600/90 text-xs mb-4 bg-amber-50/20 border border-amber-200/50 rounded-lg px-3 py-2">
                         ⚠️ เลขที่โชว์หน้าจอ "QR รับเงิน" ของแอปธนาคาร (เช่น "เลขอ้างอิง"/Reference number) <b>มักไม่ใช่</b> Biller ID จริง —
                         ต้องไปหาที่เมนู "แก้ไขข้อมูลร้านค้า"/Merchant Settings ในแอปธนาคารแทน (ตัวเลขล้วน 15 หลัก) ถ้ากรอกเลขผิด QR จะสร้างได้ปกติแต่สแกนจ่ายไม่ได้ ("QR ไม่ถูกต้อง")
                         <br/>แต่ <b>"เลขอ้างอิง" ตัวนั้นห้ามทิ้ง</b> — ต้องเอามากรอกในช่องแยกด้านล่างนี้แทน เพราะเป็นฟิลด์บังคับตามมาตรฐาน ธปท. (ไม่มี = QR ขาดข้อมูล สแกนไม่ผ่านทันที)
                       </p>
                       <div className="space-y-3">
                         <div>
-                          <label className="block text-gray-400 text-xs mb-1.5">Biller ID (ตัวเลขล้วน 15 หลัก)</label>
+                          <label className="block text-gray-500 text-xs mb-1.5">Biller ID (ตัวเลขล้วน 15 หลัก)</label>
                           <input
                             type="text"
                             value={posSettingsForm.scb_biller_id}
                             onChange={e => setPosSettingsForm(f => ({ ...f, scb_biller_id: e.target.value }))}
-                            className={`w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border focus:outline-none ${
-                              !billerIdOk ? 'border-red-600 focus:border-red-500' : 'border-gray-700 focus:border-green-500'
+                            className={`w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border focus:outline-none ${
+                              !billerIdOk ? 'border-red-600 focus:border-red-500' : 'border-gray-200 focus:border-green-500'
                             }`}
                             placeholder='ตัวเลขล้วน 15 หลัก (ดูในเมนู "แก้ไขข้อมูลร้านค้า"/Merchant Settings ของแอปธนาคาร)'
                           />
                           {!billerIdOk && (
-                            <p className="text-red-400 text-xs mt-1.5">❌ {validateBillerId(posSettingsForm.scb_biller_id, 'x').message}</p>
+                            <p className="text-red-600 text-xs mt-1.5">❌ {validateBillerId(posSettingsForm.scb_biller_id, 'x').message}</p>
                           )}
                         </div>
                         {!!posSettingsForm.scb_biller_id && (
                           <div>
-                            <label className="block text-gray-400 text-xs mb-1.5">เลขอ้างอิง (Reference 1) — บังคับกรอกคู่กับ Biller ID เสมอ</label>
+                            <label className="block text-gray-500 text-xs mb-1.5">เลขอ้างอิง (Reference 1) — บังคับกรอกคู่กับ Biller ID เสมอ</label>
                             <input
                               type="text"
                               value={posSettingsForm.scb_biller_ref1}
                               onChange={e => setPosSettingsForm(f => ({ ...f, scb_biller_ref1: e.target.value }))}
-                              className={`w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border focus:outline-none ${
-                                !posSettingsForm.scb_biller_ref1?.trim() || posSettingsForm.scb_biller_ref1.trim().length > 20 ? 'border-red-600 focus:border-red-500' : 'border-gray-700 focus:border-green-500'
+                              className={`w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border focus:outline-none ${
+                                !posSettingsForm.scb_biller_ref1?.trim() || posSettingsForm.scb_biller_ref1.trim().length > 20 ? 'border-red-600 focus:border-red-500' : 'border-gray-200 focus:border-green-500'
                               }`}
                               placeholder="ตัวเลข/ตัวอักษรที่โชว์คู่กับ Biller ID ในหน้าจอ QR ของแอปธนาคาร (ไม่เกิน 20 ตัวอักษร)"
                               maxLength={20}
@@ -9319,7 +9319,7 @@ export default function POSPage() {
                           </div>
                         )}
                         {billerCheck.valid && !billerCheck.empty && (
-                          <p className="text-green-400 text-xs">✅ ครบทุกช่อง พร้อมสร้าง QR</p>
+                          <p className="text-green-600 text-xs">✅ ครบทุกช่อง พร้อมสร้าง QR</p>
                         )}
                       </div>
                     </div>
@@ -9330,23 +9330,23 @@ export default function POSPage() {
 
                 {settingsCategory === 'accounting' && (<>
                 {/* ร้านจด VAT */}
-                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
-                  <h3 className="text-white font-bold mb-1">🧾 ร้านนี้จดทะเบียน VAT</h3>
-                  <p className="text-gray-400 text-xs mb-4">
+                <div className="bg-white rounded-2xl p-5 border border-gray-100">
+                  <h3 className="text-gray-900 font-bold mb-1">🧾 ร้านนี้จดทะเบียน VAT</h3>
+                  <p className="text-gray-500 text-xs mb-4">
                     เปิดไว้ถ้าร้านจดทะเบียนภาษีมูลค่าเพิ่ม — ใบเสร็จขายหน้าร้านทุกใบจะแสดงยอดก่อน VAT/VAT 7% แยกให้อัตโนมัติตามประเภท VAT ของสินค้าแต่ละชิ้น
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     <button type="button"
                       onClick={() => setPosSettingsForm(f => ({ ...f, vat_registered: true }))}
                       className={`py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                        posSettingsForm.vat_registered ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                        posSettingsForm.vat_registered ? 'bg-green-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
                       }`}>
                       ✅ จด VAT
                     </button>
                     <button type="button"
                       onClick={() => setPosSettingsForm(f => ({ ...f, vat_registered: false }))}
                       className={`py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                        !posSettingsForm.vat_registered ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                        !posSettingsForm.vat_registered ? 'bg-green-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
                       }`}>
                       ไม่จด VAT
                     </button>
@@ -9354,14 +9354,14 @@ export default function POSPage() {
                 </div>
 
                 {/* นโยบายวันหยุด (ค่าเริ่มต้นทั้งร้าน — ใช้คำนวณหักเงินพนักงานรายเดือนที่หยุดเกินสิทธิ์) */}
-                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
-                  <h3 className="text-white font-bold mb-1">📅 โควตาวันหยุด/เดือน (ค่าเริ่มต้นทั้งร้าน)</h3>
-                  <p className="text-gray-400 text-xs mb-4">
+                <div className="bg-white rounded-2xl p-5 border border-gray-100">
+                  <h3 className="text-gray-900 font-bold mb-1">📅 โควตาวันหยุด/เดือน (ค่าเริ่มต้นทั้งร้าน)</h3>
+                  <p className="text-gray-500 text-xs mb-4">
                     จำนวนวันหยุดที่ได้รับต่อเดือน เลือกวันไหนก็ได้ ไม่ผูกกับรอบสัปดาห์ — ใช้คำนวณ "หักเงินกรณีหยุดเกินสิทธิ์" ในหน้ารันจ่ายเงินเดือน (เฉพาะพนักงานรายเดือน) ตั้งเป็นค่ากลางของร้าน แก้เฉพาะรายคนได้ที่หน้าแก้ไขพนักงานถ้าจำเป็น
                   </p>
                   <input type="number" min="0" step="0.5" value={posSettingsForm.payroll_days_off_per_month}
                     onChange={e => setPosSettingsForm(f => ({ ...f, payroll_days_off_per_month: e.target.value }))}
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                     placeholder="เช่น 6"/>
                 </div>
 
@@ -9371,25 +9371,25 @@ export default function POSPage() {
                 {/* โลโก้หัวใบเสร็จ — เก็บเป็น data URL ตรงในฐานข้อมูล (ไม่ผ่าน Google Drive) ใช้ได้
                     แม้ร้านยังไม่เชื่อมต่อ Google เลย และไม่มีความเสี่ยง CORS ตอนวาดลง canvas สำหรับ
                     พิมพ์ผ่าน Bluetooth (ดูรายละเอียดใน pos-config.js/escpos-bluetooth.js) */}
-                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
-                  <h3 className="text-white font-bold mb-1">🎨 โลโก้ร้านค้า (หัวใบเสร็จ)</h3>
-                  <p className="text-gray-400 text-xs mb-4">
+                <div className="bg-white rounded-2xl p-5 border border-gray-100">
+                  <h3 className="text-gray-900 font-bold mb-1">🎨 โลโก้ร้านค้า (หัวใบเสร็จ)</h3>
+                  <p className="text-gray-500 text-xs mb-4">
                     แสดงที่หัวใบเสร็จทุกใบ (เหนือชื่อร้าน) ทั้งพิมพ์ผ่านเครื่องพิมพ์ปกติ/AirPrint และ Bluetooth — แนะนำรูปพื้นหลังโปร่งใส/ขาว ไม่ต้องใช้ไฟล์ความละเอียดสูง (ระบบย่อให้อัตโนมัติ)
                   </p>
                   <div className="flex items-center gap-4">
                     {posSettingsForm.receipt_logo_data ? (
-                      <img src={posSettingsForm.receipt_logo_data} alt="โลโก้ร้านค้า" className="w-20 h-20 object-contain bg-white rounded-xl p-1.5 border border-gray-700" />
+                      <img src={posSettingsForm.receipt_logo_data} alt="โลโก้ร้านค้า" className="w-20 h-20 object-contain bg-white rounded-xl p-1.5 border border-gray-200" />
                     ) : (
-                      <div className="w-20 h-20 rounded-xl bg-gray-800 border border-dashed border-gray-700 flex items-center justify-center text-gray-600 text-xs text-center px-1">ไม่มีโลโก้</div>
+                      <div className="w-20 h-20 rounded-xl bg-white border border-dashed border-gray-200 flex items-center justify-center text-gray-400 text-xs text-center px-1">ไม่มีโลโก้</div>
                     )}
                     <div className="flex-1 space-y-2">
-                      <label className={`block w-full text-center cursor-pointer bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 text-sm font-bold py-2.5 rounded-xl transition-colors ${logoUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                      <label className={`block w-full text-center cursor-pointer bg-white hover:bg-gray-100 disabled:opacity-50 text-gray-800 text-sm font-bold py-2.5 rounded-xl transition-colors ${logoUploading ? 'opacity-50 pointer-events-none' : ''}`}>
                         {logoUploading ? '⏳ กำลังประมวลผล...' : '📁 เลือกรูปโลโก้'}
                         <input type="file" accept="image/*" onChange={handleLogoUpload} disabled={logoUploading} className="hidden" />
                       </label>
                       {posSettingsForm.receipt_logo_data && (
                         <button type="button" onClick={() => setPosSettingsForm(f => ({ ...f, receipt_logo_data: '' }))}
-                          className="w-full bg-gray-800 hover:bg-red-900/40 text-gray-400 hover:text-red-300 text-xs font-bold py-2 rounded-xl transition-colors">
+                          className="w-full bg-white hover:bg-red-50/40 text-gray-500 hover:text-red-700 text-xs font-bold py-2 rounded-xl transition-colors">
                           🗑️ ลบโลโก้
                         </button>
                       )}
@@ -9398,9 +9398,9 @@ export default function POSPage() {
                 </div>
 
                 {/* ขนาดกระดาษเครื่องพิมพ์ใบเสร็จ */}
-                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
-                  <h3 className="text-white font-bold mb-1">🖨️ ขนาดกระดาษเครื่องพิมพ์ใบเสร็จ</h3>
-                  <p className="text-gray-400 text-xs mb-4">
+                <div className="bg-white rounded-2xl p-5 border border-gray-100">
+                  <h3 className="text-gray-900 font-bold mb-1">🖨️ ขนาดกระดาษเครื่องพิมพ์ใบเสร็จ</h3>
+                  <p className="text-gray-500 text-xs mb-4">
                     เลือกตามเครื่องพิมพ์ใบเสร็จที่ร้านมีอยู่แล้ว (ไม่ต้องซื้อเครื่องใหม่) — ใช้กำหนดความกว้างตอนพิมพ์ใบเสร็จ/ใบกำกับภาษี
                   </p>
                   <div className="grid grid-cols-2 gap-2">
@@ -9408,7 +9408,7 @@ export default function POSPage() {
                       <button key={size} type="button"
                         onClick={() => setPosSettingsForm(f => ({ ...f, receipt_paper_size: size }))}
                         className={`py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                          posSettingsForm.receipt_paper_size === size ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                          posSettingsForm.receipt_paper_size === size ? 'bg-green-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
                         }`}>
                         {size}
                       </button>
@@ -9418,29 +9418,29 @@ export default function POSPage() {
 
                 {/* ปรับแต่งท้ายใบเสร็จ — ข้อความขอบคุณ/โปรโมชั่นที่ร้านกำหนดเอง + QR ไลน์ร้านค้า —
                     ใช้ร่วมกันทั้งปุ่ม "พิมพ์ใบเสร็จ" (window.print) และ "พิมพ์ (Bluetooth)" */}
-                <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
-                  <h3 className="text-white font-bold mb-1">🧾 ปรับแต่งท้ายใบเสร็จ</h3>
-                  <p className="text-gray-400 text-xs mb-4">
+                <div className="bg-white rounded-2xl p-5 border border-gray-100">
+                  <h3 className="text-gray-900 font-bold mb-1">🧾 ปรับแต่งท้ายใบเสร็จ</h3>
+                  <p className="text-gray-500 text-xs mb-4">
                     ใช้กับใบเสร็จทุกใบทั้งพิมพ์ผ่านเครื่องพิมพ์ปกติ/AirPrint และพิมพ์ตรงผ่าน Bluetooth — ไม่กระทบใบกำกับภาษี (ยังใช้รูปแบบเดิม)
                   </p>
-                  <label className="block text-gray-300 text-xs font-medium mb-1.5">ข้อความท้ายใบเสร็จ (ขอบคุณ / โปรโมชั่น)</label>
+                  <label className="block text-gray-700 text-xs font-medium mb-1.5">ข้อความท้ายใบเสร็จ (ขอบคุณ / โปรโมชั่น)</label>
                   <textarea
                     value={posSettingsForm.receipt_footer_message}
                     onChange={e => setPosSettingsForm(f => ({ ...f, receipt_footer_message: e.target.value }))}
                     rows={3}
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 mb-4"
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500 mb-4"
                     placeholder="เช่น ขอบคุณที่อุดหนุนค่ะ 🙏&#10;โปรโมชั่นเดือนนี้ ซื้อครบ 500 บาท รับส่วนลด 10%"/>
-                  <label className="block text-gray-300 text-xs font-medium mb-1.5">ลิงก์ไลน์ร้านค้า (แสดงเป็น QR ให้ลูกค้าสแกนเพิ่มเพื่อน)</label>
-                  <p className="text-gray-500 text-xs mb-2">
+                  <label className="block text-gray-700 text-xs font-medium mb-1.5">ลิงก์ไลน์ร้านค้า (แสดงเป็น QR ให้ลูกค้าสแกนเพิ่มเพื่อน)</label>
+                  <p className="text-gray-400 text-xs mb-2">
                     หาได้จาก LINE Official Account Manager → "หน้าแรก" → "เพิ่มเพื่อน" → คัดลอกลิงก์ (รูปแบบ https://lin.ee/xxxx) หรือใช้ลิงก์ไลน์ส่วนตัวก็ได้ — เว้นว่างไว้ถ้าไม่ต้องการแสดง QR
                   </p>
                   <div className="flex gap-2 mb-2">
                     <input type="text" value={posSettingsForm.receipt_line_url}
                       onChange={e => setPosSettingsForm(f => ({ ...f, receipt_line_url: e.target.value }))}
-                      className="flex-1 bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                      className="flex-1 bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                       placeholder="https://lin.ee/xxxxxxx"/>
                     <button type="button" onClick={previewFooterQr} disabled={footerQrPreviewBusy}
-                      className="bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 text-sm font-bold px-4 rounded-xl transition-colors whitespace-nowrap">
+                      className="bg-white hover:bg-gray-100 disabled:opacity-50 text-gray-800 text-sm font-bold px-4 rounded-xl transition-colors whitespace-nowrap">
                       {footerQrPreviewBusy ? '⏳' : '👁️ ดูตัวอย่าง'}
                     </button>
                   </div>
@@ -9453,9 +9453,9 @@ export default function POSPage() {
                     (Web Bluetooth ถูก Safari/iOS บล็อกไว้ในระดับเบราว์เซอร์ ไม่มีทางเลี่ยง) —
                     best-effort ข้ามยี่ห้อ/รุ่นเครื่องพิมพ์ ดูรายละเอียดใน lib/escpos-bluetooth.js */}
                 {btPrintSupported && (
-                  <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
-                    <h3 className="text-white font-bold mb-1">🖨️ เครื่องพิมพ์ Bluetooth</h3>
-                    <p className="text-gray-400 text-xs mb-4">
+                  <div className="bg-white rounded-2xl p-5 border border-gray-100">
+                    <h3 className="text-gray-900 font-bold mb-1">🖨️ เครื่องพิมพ์ Bluetooth</h3>
+                    <p className="text-gray-500 text-xs mb-4">
                       จับคู่เครื่องพิมพ์ใบเสร็จ Bluetooth ไว้ล่วงหน้าที่นี่ (ไม่บังคับ — ครั้งแรกที่กด "พิมพ์ (Bluetooth)" หรือ "เปิดลิ้นชัก" หลังขายของ ระบบจะเปิดหน้าต่างเลือกเครื่องพิมพ์ให้เองอัตโนมัติอยู่แล้ว) — ใช้ได้เฉพาะ Chrome บน Android เท่านั้น (iPhone พิมพ์ผ่านปุ่ม "พิมพ์ใบเสร็จ" ปกติ/AirPrint แทนได้) — เป็นการเชื่อมต่อแบบพยายามให้เข้ากับเครื่องพิมพ์ ESC/POS ทั่วไปที่สุด ไม่รับประกันว่าใช้ได้กับทุกรุ่น ต้องเปิดเครื่องพิมพ์รอไว้และไม่ได้เชื่อมต่ออยู่กับแอปอื่นก่อนกด
                     </p>
                     <button type="button" onClick={handlePairPrinter}
@@ -9464,11 +9464,11 @@ export default function POSPage() {
                     </button>
                     <div className="grid grid-cols-2 gap-2">
                       <button type="button" onClick={handleTestBtPrint}
-                        className="bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-bold py-2.5 rounded-xl transition-colors">
+                        className="bg-white hover:bg-gray-100 text-gray-800 text-sm font-bold py-2.5 rounded-xl transition-colors">
                         🧪 ทดสอบพิมพ์
                       </button>
                       <button type="button" onClick={handleOpenDrawer} disabled={drawerBusy}
-                        className="bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 text-sm font-bold py-2.5 rounded-xl transition-colors">
+                        className="bg-white hover:bg-gray-100 disabled:opacity-50 text-gray-800 text-sm font-bold py-2.5 rounded-xl transition-colors">
                         {drawerBusy ? '⏳ กำลังทดสอบ...' : '🧪 ทดสอบเปิดลิ้นชัก'}
                       </button>
                     </div>
@@ -9494,37 +9494,37 @@ export default function POSPage() {
       {/* ══ CART DRAWER (mobile) ══════════════════════════════════════════ */}
       {showCartDrawer && (
         <div className="lg:hidden fixed inset-0 z-40 bg-black/60" onClick={() => setShowCartDrawer(false)}>
-          <div className="absolute bottom-0 left-0 right-0 bg-gray-900 rounded-t-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between shrink-0">
-              <span className="text-white font-bold">🛒 ตะกร้า ({cart.reduce((s, i) => s + i.qty, 0)} รายการ)</span>
-              <button onClick={() => setShowCartDrawer(false)} className="text-gray-400 hover:text-white text-xl">✕</button>
+          <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+              <span className="text-gray-900 font-bold">🛒 ตะกร้า ({cart.reduce((s, i) => s + i.qty, 0)} รายการ)</span>
+              <button onClick={() => setShowCartDrawer(false)} className="text-gray-500 hover:text-gray-900 text-xl">✕</button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {cart.map(item => (
                 <div key={item.sku} className="space-y-1.5">
                   <div className="flex items-center gap-3">
-                    <div className="flex-1 min-w-0 text-white text-sm font-medium truncate">{item.name}</div>
+                    <div className="flex-1 min-w-0 text-gray-900 text-sm font-medium truncate">{item.name}</div>
                     <div className="flex items-center gap-1.5 shrink-0">
-                      <button onClick={() => updateQty(item.sku, item.qty - 1)} className="w-7 h-7 rounded-full bg-gray-700 hover:bg-red-700 text-white flex items-center justify-center transition-colors">−</button>
-                      <span className="text-white text-sm w-6 text-center">{item.qty}</span>
-                      <button onClick={() => updateQty(item.sku, item.qty + 1)} className="w-7 h-7 rounded-full bg-gray-700 hover:bg-green-700 text-white flex items-center justify-center transition-colors">+</button>
+                      <button onClick={() => updateQty(item.sku, item.qty - 1)} className="w-7 h-7 rounded-full bg-gray-100 hover:bg-red-700 text-gray-900 flex items-center justify-center transition-colors">−</button>
+                      <span className="text-gray-900 text-sm w-6 text-center">{item.qty}</span>
+                      <button onClick={() => updateQty(item.sku, item.qty + 1)} className="w-7 h-7 rounded-full bg-gray-100 hover:bg-green-700 text-gray-900 flex items-center justify-center transition-colors">+</button>
                     </div>
                   </div>
                   {/* แก้ราคาต่อรายการได้ตรงนี้เลย (เหมือนฝั่ง desktop sidebar) — ไม่ต้องเปิด modal ชำระเงินก่อน */}
                   <div className="flex items-center gap-1.5 justify-end">
-                    <span className="text-gray-500 text-xs">฿</span>
+                    <span className="text-gray-400 text-xs">฿</span>
                     <input type="number" value={item.price} min="0"
                       onChange={e => updatePrice(item.sku, e.target.value)}
-                      className="w-20 bg-gray-800 text-white text-right px-2 py-1 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500 text-sm"/>
-                    <span className="text-green-400 text-xs w-20 text-right">= ฿{(item.price * item.qty).toLocaleString()}</span>
+                      className="w-20 bg-white text-gray-900 text-right px-2 py-1 rounded-lg border border-gray-200 focus:outline-none focus:border-green-500 text-sm"/>
+                    <span className="text-green-600 text-xs w-20 text-right">= ฿{(item.price * item.qty).toLocaleString()}</span>
                   </div>
                 </div>
               ))}
             </div>
-            <div className="p-4 border-t border-gray-800 shrink-0 space-y-3">
+            <div className="p-4 border-t border-gray-100 shrink-0 space-y-3">
               {activePromotions.length > 0 && getApplicablePromotions().map(({ promo, label }) => (
-                <div key={promo.promo_id} className="bg-amber-950/40 border border-amber-700/50 rounded-xl px-3 py-2 flex items-center justify-between gap-2">
-                  <span className="text-amber-300 text-xs flex-1">🎉 {label}</span>
+                <div key={promo.promo_id} className="bg-amber-50/40 border border-amber-300/50 rounded-xl px-3 py-2 flex items-center justify-between gap-2">
+                  <span className="text-amber-700 text-xs flex-1">🎉 {label}</span>
                   <button onClick={() => applyPromotion(promo)}
                     className="shrink-0 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors">
                     ใช้โปรนี้
@@ -9532,12 +9532,12 @@ export default function POSPage() {
                 </div>
               ))}
               <div className="flex justify-between items-center">
-                <span className="text-gray-400 text-sm">รวมทั้งหมด</span>
-                <span className="text-white font-bold text-xl">฿{cartSubtotal.toLocaleString()}</span>
+                <span className="text-gray-500 text-sm">รวมทั้งหมด</span>
+                <span className="text-gray-900 font-bold text-xl">฿{cartSubtotal.toLocaleString()}</span>
               </div>
               <div className="flex gap-2">
                 <button onClick={() => { setCart([]); setShowCartDrawer(false); }}
-                  className="flex-1 bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm font-medium py-3 rounded-xl transition-colors">
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium py-3 rounded-xl transition-colors">
                   ล้าง
                 </button>
                 <button onClick={openDelivery}
@@ -9557,63 +9557,63 @@ export default function POSPage() {
       {/* ══ CHECKOUT MODAL ════════════════════════════════════════════════ */}
       {showCheckout && (
         <div className="fixed inset-0 z-40 bg-black/60 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <div className="p-5 border-b border-gray-800 flex items-center justify-between">
+          <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between">
               <div>
-                <h3 className="text-white font-bold">ชำระเงิน</h3>
+                <h3 className="text-gray-900 font-bold">ชำระเงิน</h3>
                 {openBills.find(b => b.id === activeBillId)?.name && (
-                  <div className="text-green-400 text-xs mt-0.5">{openBills.find(b => b.id === activeBillId).name}</div>
+                  <div className="text-green-600 text-xs mt-0.5">{openBills.find(b => b.id === activeBillId).name}</div>
                 )}
               </div>
-              <button onClick={() => setShowCheckout(false)} className="text-gray-500 hover:text-white text-xl leading-none">✕</button>
+              <button onClick={() => setShowCheckout(false)} className="text-gray-400 hover:text-gray-900 text-xl leading-none">✕</button>
             </div>
             <div className="p-5 space-y-4">
               {/* รายการสินค้า — ราคาแก้ไขได้ต่อรายการ */}
-              <div className="bg-gray-800 rounded-xl p-3 space-y-2 max-h-48 overflow-y-auto">
+              <div className="bg-white rounded-xl p-3 space-y-2 max-h-48 overflow-y-auto">
                 {cart.map(item => (
                   <div key={item.sku} className="flex items-center justify-between gap-2 text-sm">
-                    <span className="text-gray-300 flex-1 min-w-0 truncate">{item.name} ×{item.qty}</span>
+                    <span className="text-gray-700 flex-1 min-w-0 truncate">{item.name} ×{item.qty}</span>
                     <div className="flex items-center gap-1 shrink-0">
-                      <span className="text-gray-500">฿</span>
+                      <span className="text-gray-400">฿</span>
                       <input type="number" value={item.price} min="0"
                         onChange={e => updatePrice(item.sku, e.target.value)}
-                        className="w-16 bg-gray-900 text-white text-right px-1.5 py-1 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500 text-sm"
+                        className="w-16 bg-white text-gray-900 text-right px-1.5 py-1 rounded-lg border border-gray-200 focus:outline-none focus:border-green-500 text-sm"
                       />
-                      <span className="text-white font-medium w-16 text-right">= ฿{(item.price * item.qty).toLocaleString()}</span>
+                      <span className="text-gray-900 font-medium w-16 text-right">= ฿{(item.price * item.qty).toLocaleString()}</span>
                     </div>
                   </div>
                 ))}
-                <div className="border-t border-gray-700 pt-1.5 flex justify-between text-sm font-bold">
-                  <span className="text-gray-400">รวม</span>
-                  <span className="text-white">฿{cartSubtotal.toLocaleString()}</span>
+                <div className="border-t border-gray-200 pt-1.5 flex justify-between text-sm font-bold">
+                  <span className="text-gray-500">รวม</span>
+                  <span className="text-gray-900">฿{cartSubtotal.toLocaleString()}</span>
                 </div>
               </div>
 
               {/* สินค้าหมุนเวียน (เช่น ถังแก๊ส/ขวดน้ำ/ถังออกซิเจน) — ค่าเริ่มต้นถือว่าลูกค้านำของเก่ามาแลกครบทุกชิ้น
                   กดปุ่ม "ยืม" เฉพาะรายการที่ลูกค้าไม่ได้เอาของเก่ามาคืน (ยืมไปก่อน) */}
               {cyclicalCartItems.length > 0 && (
-                <div className="bg-purple-900/20 border border-purple-800/60 rounded-xl p-3 space-y-2">
-                  <label className="block text-purple-300 text-xs font-bold">🔄 สินค้าหมุนเวียน — ค่าเริ่มต้นคือลูกค้านำของเก่ามาแลกครบ</label>
+                <div className="bg-purple-50/20 border border-purple-200/60 rounded-xl p-3 space-y-2">
+                  <label className="block text-purple-700 text-xs font-bold">🔄 สินค้าหมุนเวียน — ค่าเริ่มต้นคือลูกค้านำของเก่ามาแลกครบ</label>
                   {cyclicalCartItems.map(item => {
                     const unit = item.unit || 'ชิ้น';
                     const isBorrowing = !!borrowingSku[item.sku];
                     return (
                       <div key={item.sku} className="space-y-1.5">
                         <div className="flex items-center justify-between gap-2 text-sm">
-                          <span className="text-gray-300 flex-1 min-w-0 truncate">{item.name} (ซื้อ {item.qty})</span>
+                          <span className="text-gray-700 flex-1 min-w-0 truncate">{item.name} (ซื้อ {item.qty})</span>
                           <button type="button"
                             onClick={() => setBorrowingSku(s => ({ ...s, [item.sku]: !s[item.sku] }))}
-                            className={`text-xs px-3 py-1.5 rounded-lg shrink-0 transition-colors ${isBorrowing ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
+                            className={`text-xs px-3 py-1.5 rounded-lg shrink-0 transition-colors ${isBorrowing ? 'bg-orange-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}`}>
                             {isBorrowing ? '🤝 ยืม' : 'แลกครบ'}
                           </button>
                         </div>
                         {isBorrowing && (
-                          <div className="flex items-center justify-end gap-2 text-xs text-gray-400">
+                          <div className="flex items-center justify-end gap-2 text-xs text-gray-500">
                             <span>จำนวนที่ยืม (ไม่เอา{unit}เก่ามาแลก)</span>
                             <input type="number" min="0" max={item.qty} value={borrowedQty[item.sku] || ''}
                               onChange={e => setBorrowedQty(q => ({ ...q, [item.sku]: e.target.value }))}
                               placeholder="0"
-                              className="w-16 bg-gray-900 text-white text-right px-2 py-1.5 rounded-lg border border-orange-700/50 focus:outline-none focus:border-orange-500 text-sm"
+                              className="w-16 bg-white text-gray-900 text-right px-2 py-1.5 rounded-lg border border-orange-300/50 focus:outline-none focus:border-orange-500 text-sm"
                             />
                           </div>
                         )}
@@ -9625,15 +9625,15 @@ export default function POSPage() {
 
               {/* ลูกค้า — ค้นหาลูกค้าเดิมเพื่อดึงราคาประจำตัว หรือพิมพ์ชื่อใหม่เฉยๆ ก็ได้ */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">ลูกค้า (ไม่บังคับ)</label>
+                <label className="block text-gray-500 text-xs mb-1.5">ลูกค้า (ไม่บังคับ)</label>
                 {creditCustomer ? (
-                  <div className="bg-gray-800 rounded-xl p-3 flex items-center justify-between border border-gray-700">
+                  <div className="bg-white rounded-xl p-3 flex items-center justify-between border border-gray-200">
                     <div>
-                      <div className="text-white font-bold text-sm">{creditCustomer.name}</div>
-                      {creditCustomer.phone && <div className="text-gray-400 text-xs">{creditCustomer.phone}</div>}
+                      <div className="text-gray-900 font-bold text-sm">{creditCustomer.name}</div>
+                      {creditCustomer.phone && <div className="text-gray-500 text-xs">{creditCustomer.phone}</div>}
                     </div>
                     <button onClick={() => setCreditCustomer(null)}
-                      className="text-gray-500 hover:text-gray-300 text-lg ml-2">✕</button>
+                      className="text-gray-400 hover:text-gray-700 text-lg ml-2">✕</button>
                   </div>
                 ) : (
                   <div>
@@ -9642,7 +9642,7 @@ export default function POSPage() {
                       value={creditCustomerQ}
                       onChange={e => setCreditCustomerQ(e.target.value)}
                       placeholder="ค้นหาลูกค้าเดิม หรือพิมพ์ชื่อใหม่..."
-                      className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 mb-2"
+                      className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500 mb-2"
                     />
                     {creditCustomerQ.length > 0 && (() => {
                       const q = creditCustomerQ.toLowerCase();
@@ -9652,12 +9652,12 @@ export default function POSPage() {
                         (qDigits.length > 0 && (c.phone || '').replace(/\D/g, '').includes(qDigits))
                       ).slice(0, 5);
                       return matches.length > 0 ? (
-                        <div className="bg-gray-800 rounded-xl overflow-hidden border border-gray-700">
+                        <div className="bg-white rounded-xl overflow-hidden border border-gray-200">
                           {matches.map((c, i) => (
-                            <button key={i} className="w-full text-left px-3 py-2.5 hover:bg-gray-700 text-sm text-gray-200 border-b border-gray-700/50 last:border-0"
+                            <button key={i} className="w-full text-left px-3 py-2.5 hover:bg-gray-100 text-sm text-gray-800 border-b border-gray-200/50 last:border-0"
                               onClick={() => { setCreditCustomer(c); setCreditCustomerQ(''); }}>
                               <div>{c.name}</div>
-                              {c.phone && <div className="text-gray-500 text-xs">{c.phone}</div>}
+                              {c.phone && <div className="text-gray-400 text-xs">{c.phone}</div>}
                             </button>
                           ))}
                         </div>
@@ -9666,11 +9666,11 @@ export default function POSPage() {
                       ) : (
                         <div className="text-center py-2 space-y-1">
                           <button onClick={() => { setCreditCustomer({ name: creditCustomerQ, phone: '' }); setCreditCustomerQ(''); }}
-                            className="block w-full text-xs text-gray-400 hover:text-gray-300">
+                            className="block w-full text-xs text-gray-500 hover:text-gray-700">
                             + ใช้ "{creditCustomerQ}" เป็นชื่อลูกค้าใหม่ (ครั้งเดียว ไม่บันทึกลงระบบ)
                           </button>
                           <button onClick={() => openQuickAddContact('credit', creditCustomerQ)}
-                            className="block w-full text-xs text-green-400 hover:text-green-300 font-bold">
+                            className="block w-full text-xs text-green-600 hover:text-green-700 font-bold">
                             ✚ เพิ่มผู้ติดต่อใหม่เข้าระบบ
                           </button>
                         </div>
@@ -9683,49 +9683,49 @@ export default function POSPage() {
               {/* ส่วนลด — เลือกได้ทั้ง บาท / เปอร์เซ็นต์ */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-gray-400 text-xs">ส่วนลด</label>
-                  <div className="flex bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+                  <label className="block text-gray-500 text-xs">ส่วนลด</label>
+                  <div className="flex bg-white rounded-lg border border-gray-200 overflow-hidden">
                     <button type="button" onClick={() => setDiscountType('amount')}
-                      className={`text-xs px-3 py-1 transition-colors ${discountType === 'amount' ? 'bg-green-600 text-white' : 'text-gray-400 hover:text-white'}`}>฿ บาท</button>
+                      className={`text-xs px-3 py-1 transition-colors ${discountType === 'amount' ? 'bg-green-600 text-white' : 'text-gray-500 hover:text-gray-900'}`}>฿ บาท</button>
                     <button type="button" onClick={() => setDiscountType('percent')}
-                      className={`text-xs px-3 py-1 transition-colors ${discountType === 'percent' ? 'bg-green-600 text-white' : 'text-gray-400 hover:text-white'}`}>% เปอร์เซ็นต์</button>
+                      className={`text-xs px-3 py-1 transition-colors ${discountType === 'percent' ? 'bg-green-600 text-white' : 'text-gray-500 hover:text-gray-900'}`}>% เปอร์เซ็นต์</button>
                   </div>
                 </div>
                 <input type="number" value={discount}
                   onChange={e => setDiscount(e.target.value < 0 ? '0' : e.target.value)}
                   placeholder="0" min="0" max={discountType === 'percent' ? 100 : undefined}
-                  className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                  className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                 />
                 {discountType === 'percent' && discount && (
-                  <div className="text-gray-500 text-xs mt-1">= ฿{cartDiscount.toLocaleString()}</div>
+                  <div className="text-gray-400 text-xs mt-1">= ฿{cartDiscount.toLocaleString()}</div>
                 )}
               </div>
 
               {/* ยอดสุทธิ */}
-              <div className="bg-gray-800 rounded-xl p-4 text-center">
-                <div className="text-gray-400 text-xs mb-1">ยอดสุทธิ</div>
-                <div className="text-green-400 text-3xl font-bold">฿{cartTotal.toLocaleString()}</div>
+              <div className="bg-white rounded-xl p-4 text-center">
+                <div className="text-gray-500 text-xs mb-1">ยอดสุทธิ</div>
+                <div className="text-green-600 text-3xl font-bold">฿{cartTotal.toLocaleString()}</div>
               </div>
 
               {/* วันที่ทำรายการ — ปกติเป็นวันนี้ แก้เป็นวันอื่นได้ถ้าคีย์ข้อมูลย้อนหลัง */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">📅 วันที่ทำรายการ</label>
+                <label className="block text-gray-500 text-xs mb-1.5">📅 วันที่ทำรายการ</label>
                 <input type="date" value={saleDate || getTodayISO()} max={getTodayISO()}
                   onChange={e => setSaleDate(e.target.value)}
-                  className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"/>
+                  className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"/>
                 {saleDate && saleDate !== getTodayISO() && (
-                  <div className="text-amber-400 text-[11px] mt-1">⚠️ กำลังบันทึกย้อนหลัง — ไม่ใช่วันนี้</div>
+                  <div className="text-amber-600 text-[11px] mt-1">⚠️ กำลังบันทึกย้อนหลัง — ไม่ใช่วันนี้</div>
                 )}
               </div>
 
               {/* วิธีชำระ */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">วิธีชำระ</label>
+                <label className="block text-gray-500 text-xs mb-1.5">วิธีชำระ</label>
                 <div className="grid grid-cols-4 gap-2">
                   {PAY_METHODS.filter(m => m !== 'เชื่อ' || hasFeature(shopInfo?.subscription_tier, 'credit_ar')).map(m => (
                     <button key={m} onClick={() => setPayMethod(m)}
                       className={`py-2 rounded-xl text-xs font-medium transition-colors ${
-                        payMethod === m ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                        payMethod === m ? 'bg-green-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
                       }`}
                     >{m}</button>
                   ))}
@@ -9734,13 +9734,13 @@ export default function POSPage() {
 
               {payMethod === 'เงินสด' && (
                 <div>
-                  <label className="block text-gray-400 text-xs mb-1.5">รับเงินมา (บาท)</label>
+                  <label className="block text-gray-500 text-xs mb-1.5">รับเงินมา (บาท)</label>
                   <input type="number" value={cashReceived} onChange={e => setCashReceived(e.target.value)}
                     placeholder={cartTotal}
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                   />
                   {cashReceived && (
-                    <div className={`mt-2 text-center text-sm font-bold ${cartChange >= 0 ? 'text-yellow-400' : 'text-red-400'}`}>
+                    <div className={`mt-2 text-center text-sm font-bold ${cartChange >= 0 ? 'text-yellow-600' : 'text-red-600'}`}>
                       {cartChange >= 0 ? `เงินทอน ฿${cartChange.toLocaleString()}` : '⚠️ เงินไม่พอ'}
                     </div>
                   )}
@@ -9753,13 +9753,13 @@ export default function POSPage() {
                   {(qrLoading || qrImageData) && (
                     <div className="bg-white rounded-2xl p-4 text-center">
                       {qrLoading ? (
-                        <div className="text-gray-400 text-sm py-6">กำลังสร้าง QR...</div>
+                        <div className="text-gray-500 text-sm py-6">กำลังสร้าง QR...</div>
                       ) : (
                         <>
                           <div className="text-gray-700 text-xs mb-2 font-medium">สแกนพร้อมเพย์ ฿{cartTotal.toLocaleString()}</div>
                           <img src={qrImageData} alt="PromptPay QR"
                             className="mx-auto w-48 h-48 object-contain" />
-                          <div className="text-gray-500 text-xs mt-2">ยอดเงินล็อคไว้แล้ว — ลูกค้าสแกนแล้วโอนได้เลย</div>
+                          <div className="text-gray-400 text-xs mt-2">ยอดเงินล็อคไว้แล้ว — ลูกค้าสแกนแล้วโอนได้เลย</div>
                         </>
                       )}
                     </div>
@@ -9767,20 +9767,20 @@ export default function POSPage() {
 
                   {/* slip upload */}
                   {slipDriveUrl ? (
-                    <div className="bg-green-900/30 border border-green-800 rounded-xl p-3 flex items-center gap-3">
-                      <div className="text-green-400 text-xl shrink-0">✅</div>
+                    <div className="bg-green-50/30 border border-green-200 rounded-xl p-3 flex items-center gap-3">
+                      <div className="text-green-600 text-xl shrink-0">✅</div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-green-300 text-xs font-bold">อัปโหลดสลิปแล้ว</div>
+                        <div className="text-green-700 text-xs font-bold">อัปโหลดสลิปแล้ว</div>
                         {slipOcrData?.amount && (
-                          <div className="text-green-200 text-xs mt-0.5">
+                          <div className="text-green-800 text-xs mt-0.5">
                             ยอด ฿{Number(slipOcrData.amount).toLocaleString()}
                             {slipOcrData.sender ? ` · ${slipOcrData.sender}` : ''}
                           </div>
                         )}
-                        <div className="text-gray-500 text-xs mt-0.5">ไม่ต้องส่งซ้ำใน LINE</div>
+                        <div className="text-gray-400 text-xs mt-0.5">ไม่ต้องส่งซ้ำใน LINE</div>
                       </div>
                       <button onClick={() => { setSlipDriveUrl(''); setSlipOcrData(null); }}
-                        className="text-gray-500 hover:text-gray-300 text-sm shrink-0">✕</button>
+                        className="text-gray-400 hover:text-gray-700 text-sm shrink-0">✕</button>
                     </div>
                   ) : (
                     <>
@@ -9788,7 +9788,7 @@ export default function POSPage() {
                         type="button"
                         onClick={() => slipInputRef.current?.click()}
                         disabled={slipUploading}
-                        className="w-full bg-gray-800 hover:bg-gray-700 border border-dashed border-gray-600 text-gray-300 text-sm font-medium py-3 rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+                        className="w-full bg-white hover:bg-gray-100 border border-dashed border-gray-300 text-gray-700 text-sm font-medium py-3 rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
                       >
                         {slipUploading
                           ? <><span className="inline-block animate-spin">⏳</span> กำลังอัปโหลด...</>
@@ -9796,7 +9796,7 @@ export default function POSPage() {
                       </button>
                       <input ref={slipInputRef} type="file" accept="image/*" capture="environment"
                         className="hidden" onChange={handleSlipCapture} />
-                      <div className="bg-blue-900/20 border border-blue-900 rounded-xl p-3 text-xs text-blue-400">
+                      <div className="bg-blue-50/20 border border-blue-200 rounded-xl p-3 text-xs text-blue-600">
                         💡 ถ้าไม่แนบสลิปตอนนี้ พนักงานยืนยันทีหลังได้ที่หน้า Staff หรือส่งสลิปเข้า LINE
                       </div>
                     </>
@@ -9806,11 +9806,11 @@ export default function POSPage() {
 
               {/* เชื่อ — เตือนว่าต้องเลือกลูกค้า (เลือกได้จากช่อง "ลูกค้า" ด้านบนแล้ว) */}
               {payMethod === 'เชื่อ' && (
-                <div className="bg-orange-900/20 border border-orange-800/60 rounded-xl p-3">
+                <div className="bg-orange-50/20 border border-orange-200/60 rounded-xl p-3">
                   {!creditCustomer ? (
-                    <div className="text-orange-300 text-xs">⚠️ ขายเชื่อต้องเลือกลูกค้าที่ช่อง "ลูกค้า" ด้านบนก่อน</div>
+                    <div className="text-orange-700 text-xs">⚠️ ขายเชื่อต้องเลือกลูกค้าที่ช่อง "ลูกค้า" ด้านบนก่อน</div>
                   ) : (
-                    <div className="text-orange-400 text-xs">⚠️ บิลเชื่อจะไม่บันทึกลงบัญชีหลักจนกว่าจะรับชำระ</div>
+                    <div className="text-orange-600 text-xs">⚠️ บิลเชื่อจะไม่บันทึกลงบัญชีหลักจนกว่าจะรับชำระ</div>
                   )}
                 </div>
               )}
@@ -9833,12 +9833,12 @@ export default function POSPage() {
           <div className="bg-white rounded-2xl w-full max-w-xs text-center p-6">
             <div className="text-4xl mb-3">✅</div>
             <div className="text-gray-800 font-bold text-lg mb-1">ชำระเงินสำเร็จ!</div>
-            <div className="text-gray-500 text-xs mb-1">{lastBill.billNo}</div>
-            {lastBill.billName && <div className="text-gray-600 text-xs mb-3 font-medium">{lastBill.billName}</div>}
+            <div className="text-gray-400 text-xs mb-1">{lastBill.billNo}</div>
+            {lastBill.billName && <div className="text-gray-400 text-xs mb-3 font-medium">{lastBill.billName}</div>}
             <div className="bg-gray-50 rounded-xl p-4 text-left mb-4 text-xs space-y-1">
               {lastBill.items.map((item, i) => (
                 <div key={i} className="flex justify-between">
-                  <span className="text-gray-600">{item.name} ×{item.qty}</span>
+                  <span className="text-gray-400">{item.name} ×{item.qty}</span>
                   <span className="text-gray-800">฿{(item.price * item.qty).toLocaleString()}</span>
                 </div>
               ))}
@@ -9892,59 +9892,59 @@ export default function POSPage() {
       {/* ══ TAX INVOICE FORM MODAL ══════════════════════════════════════════ */}
       {showTaxInvoiceForm && lastBill && (
         <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl">
+          <div className="bg-white rounded-2xl w-full max-w-sm border border-gray-200 shadow-2xl">
             <div className="p-5">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-white font-bold">🧾 ออกใบกำกับภาษี</h3>
-                <button onClick={() => setShowTaxInvoiceForm(false)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+                <h3 className="text-gray-900 font-bold">🧾 ออกใบกำกับภาษี</h3>
+                <button onClick={() => setShowTaxInvoiceForm(false)} className="text-gray-500 hover:text-gray-900 text-2xl leading-none">×</button>
               </div>
-              <p className="text-gray-500 text-xs mb-4">อ้างอิงบิล {lastBill.billNo} — ยอด ฿{lastBill.total.toLocaleString()}</p>
+              <p className="text-gray-400 text-xs mb-4">อ้างอิงบิล {lastBill.billNo} — ยอด ฿{lastBill.total.toLocaleString()}</p>
               <div className="space-y-3">
                 <div className="relative">
-                  <label className="block text-gray-400 text-xs mb-1.5">🔍 ค้นหาจากผู้ติดต่อ (ชื่อ/เบอร์โทร)</label>
+                  <label className="block text-gray-500 text-xs mb-1.5">🔍 ค้นหาจากผู้ติดต่อ (ชื่อ/เบอร์โทร)</label>
                   <input value={taxInvoiceContactQ} onChange={e => setTaxInvoiceContactQ(e.target.value)}
                     placeholder="พิมพ์ชื่อหรือเบอร์โทรเพื่อเลือกผู้ซื้อ..."
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-blue-500" />
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-blue-500" />
                   {taxInvoiceContactQ.trim() && (
-                    <div className="absolute z-10 left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-xl overflow-hidden shadow-xl max-h-48 overflow-y-auto">
+                    <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-xl max-h-48 overflow-y-auto">
                       {taxInvoiceMatchedContacts.length === 0 ? (
-                        <div className="px-4 py-3 text-gray-500 text-xs">ไม่พบผู้ติดต่อ</div>
+                        <div className="px-4 py-3 text-gray-400 text-xs">ไม่พบผู้ติดต่อ</div>
                       ) : taxInvoiceMatchedContacts.map(c => (
                         <button key={c.contact_id} onClick={() => pickTaxInvoiceContact(c)}
-                          className="w-full text-left px-4 py-2.5 hover:bg-gray-700 transition-colors border-b border-gray-700 last:border-0">
-                          <div className="text-white text-sm">{c.company_name || c.name}</div>
-                          <div className="text-gray-500 text-xs">{c.phone || 'ไม่มีเบอร์'}{c.tax_id ? ` · ${c.tax_id}` : ''}</div>
+                          className="w-full text-left px-4 py-2.5 hover:bg-gray-100 transition-colors border-b border-gray-200 last:border-0">
+                          <div className="text-gray-900 text-sm">{c.company_name || c.name}</div>
+                          <div className="text-gray-400 text-xs">{c.phone || 'ไม่มีเบอร์'}{c.tax_id ? ` · ${c.tax_id}` : ''}</div>
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
                 <div>
-                  <label className="block text-gray-400 text-xs mb-1.5">ชื่อผู้ซื้อ / บริษัท *</label>
+                  <label className="block text-gray-500 text-xs mb-1.5">ชื่อผู้ซื้อ / บริษัท *</label>
                   <input value={taxInvoiceForm.buyer_name} onChange={e => setTaxInvoiceForm(f => ({ ...f, buyer_name: e.target.value }))}
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                 </div>
                 <div>
-                  <label className="block text-gray-400 text-xs mb-1.5">เบอร์โทรศัพท์</label>
+                  <label className="block text-gray-500 text-xs mb-1.5">เบอร์โทรศัพท์</label>
                   <input value={taxInvoiceForm.buyer_phone} onChange={e => setTaxInvoiceForm(f => ({ ...f, buyer_phone: e.target.value }))}
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                     placeholder="08x-xxx-xxxx" />
                 </div>
                 <div>
-                  <label className="block text-gray-400 text-xs mb-1.5">เลขประจำตัวผู้เสียภาษี (13 หลัก) *</label>
+                  <label className="block text-gray-500 text-xs mb-1.5">เลขประจำตัวผู้เสียภาษี (13 หลัก) *</label>
                   <input value={taxInvoiceForm.buyer_tax_id} onChange={e => setTaxInvoiceForm(f => ({ ...f, buyer_tax_id: e.target.value }))}
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                     placeholder="0-0000-00000-00-0" maxLength={17} />
                 </div>
                 <div>
-                  <label className="block text-gray-400 text-xs mb-1.5">ที่อยู่</label>
+                  <label className="block text-gray-500 text-xs mb-1.5">ที่อยู่</label>
                   <textarea value={taxInvoiceForm.buyer_address} rows={2} onChange={e => setTaxInvoiceForm(f => ({ ...f, buyer_address: e.target.value }))}
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 resize-none" />
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500 resize-none" />
                 </div>
                 <div>
-                  <label className="block text-gray-400 text-xs mb-1.5">สาขา</label>
+                  <label className="block text-gray-500 text-xs mb-1.5">สาขา</label>
                   <input value={taxInvoiceForm.buyer_branch} onChange={e => setTaxInvoiceForm(f => ({ ...f, buyer_branch: e.target.value }))}
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                     placeholder="สำนักงานใหญ่" />
                 </div>
               </div>
@@ -9960,16 +9960,16 @@ export default function POSPage() {
       {/* ══ PRODUCT FORM MODAL ══════════════════════════════════════════════ */}
       {showProdForm && (
         <div className="fixed inset-0 z-40 bg-black/60 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-2xl w-full max-w-md max-h-[92vh] overflow-y-auto">
-            <div className="p-5 border-b border-gray-800 flex items-center justify-between">
-              <h3 className="text-white font-bold">{editProd ? 'แก้ไขสินค้า' : 'เพิ่มสินค้าใหม่'}</h3>
-              <button onClick={() => { setShowProdForm(false); setEditProd(null); }} className="text-gray-500 hover:text-white text-xl">✕</button>
+          <div className="bg-white rounded-2xl w-full max-w-md max-h-[92vh] overflow-y-auto">
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-gray-900 font-bold">{editProd ? 'แก้ไขสินค้า' : 'เพิ่มสินค้าใหม่'}</h3>
+              <button onClick={() => { setShowProdForm(false); setEditProd(null); }} className="text-gray-400 hover:text-gray-900 text-xl">✕</button>
             </div>
             <div className="p-5 space-y-4">
 
               {/* ── ประเภทสินค้า 3 ปุ่ม ── */}
               <div>
-                <label className="text-gray-400 text-xs block mb-1.5">ประเภทสินค้า</label>
+                <label className="text-gray-500 text-xs block mb-1.5">ประเภทสินค้า</label>
                 <div className="flex gap-1.5">
                   {[
                     { v: 'ไม่นับสต็อค', label: '🛠️', sub: 'ไม่นับสต็อค', desc: 'บริการ' },
@@ -9982,11 +9982,11 @@ export default function POSPage() {
                       className={`flex-1 py-2 px-1 rounded-xl text-xs font-medium transition-colors border flex flex-col items-center gap-0.5 ${
                         prodForm.type === opt.v
                           ? 'bg-green-700 border-green-600 text-white'
-                          : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+                          : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'
                       }`}>
                       <span className="text-base">{opt.label}</span>
                       <span className="font-semibold">{opt.sub}</span>
-                      <span className={`text-[10px] ${prodForm.type === opt.v ? 'text-green-300' : 'text-gray-500'}`}>{opt.desc}</span>
+                      <span className={`text-[10px] ${prodForm.type === opt.v ? 'text-green-700' : 'text-gray-400'}`}>{opt.desc}</span>
                     </button>
                   ))}
                 </div>
@@ -9994,24 +9994,24 @@ export default function POSPage() {
 
               {/* ── ชื่อสินค้า ── */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">ชื่อสินค้า *</label>
+                <label className="block text-gray-500 text-xs mb-1.5">ชื่อสินค้า *</label>
                 <input value={prodForm.name} onChange={e => setProdForm(f => ({...f, name: e.target.value}))}
-                  className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                  className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                   placeholder="เช่น เบียช้าง 320ml" />
               </div>
 
               {/* ── รหัสสินค้า + บาร์โค้ด ── */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-gray-400 text-xs mb-1.5">รหัสสินค้า</label>
+                  <label className="block text-gray-500 text-xs mb-1.5">รหัสสินค้า</label>
                   <input value={prodForm.product_code} onChange={e => setProdForm(f => ({...f, product_code: e.target.value}))}
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                     placeholder="เช่น BV-001" />
                 </div>
                 <div>
-                  <label className="block text-gray-400 text-xs mb-1.5">บาร์โค้ด</label>
+                  <label className="block text-gray-500 text-xs mb-1.5">บาร์โค้ด</label>
                   <input value={prodForm.barcode} onChange={e => setProdForm(f => ({...f, barcode: e.target.value}))}
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                     placeholder="8850999..." />
                 </div>
               </div>
@@ -10019,17 +10019,17 @@ export default function POSPage() {
               {/* ── หมวดหมู่ + หน่วย ── */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-gray-400 text-xs mb-1.5">หมวดหมู่</label>
+                  <label className="block text-gray-500 text-xs mb-1.5">หมวดหมู่</label>
                   <input value={prodForm.category} onChange={e => setProdForm(f => ({...f, category: e.target.value}))}
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                     placeholder="เครื่องดื่ม" />
                 </div>
                 <div>
-                  <label className="block text-gray-400 text-xs mb-1.5">หน่วย</label>
+                  <label className="block text-gray-500 text-xs mb-1.5">หน่วย</label>
                   <input list="unit-options" value={prodForm.unit}
                     onChange={e => setProdForm(f => ({...f, unit: e.target.value}))}
                     placeholder="ชิ้น, ถัง, กก."
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500" />
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                   <datalist id="unit-options">
                     {UNITS.map(u => <option key={u} value={u} />)}
                   </datalist>
@@ -10039,14 +10039,14 @@ export default function POSPage() {
               {/* ── ราคาขาย + ราคาทุน ── */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-gray-400 text-xs mb-1.5">ราคาขาย (บาท)</label>
+                  <label className="block text-gray-500 text-xs mb-1.5">ราคาขาย (บาท)</label>
                   <input type="number" value={prodForm.price} onChange={e => setProdForm(f => ({...f, price: e.target.value}))}
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                     placeholder="0" min="0" />
                 </div>
                 <div>
-                  <label className="block text-gray-400 text-xs mb-1.5">ราคาทุนเฉลี่ย</label>
-                  <div className="w-full bg-gray-800/50 text-gray-400 text-sm px-4 py-2.5 rounded-xl border border-gray-700/50">
+                  <label className="block text-gray-500 text-xs mb-1.5">ราคาทุนเฉลี่ย</label>
+                  <div className="w-full bg-white/50 text-gray-500 text-sm px-4 py-2.5 rounded-xl border border-gray-200/50">
                     {editProd?.cost > 0 ? `฿${editProd.cost.toLocaleString()}` : '— คำนวณอัตโนมัติ'}
                   </div>
                 </div>
@@ -10054,14 +10054,14 @@ export default function POSPage() {
 
               {/* ── VAT ── */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">ราคานี้</label>
+                <label className="block text-gray-500 text-xs mb-1.5">ราคานี้</label>
                 <div className="flex gap-1.5">
                   {['ไม่มี VAT', 'รวม VAT แล้ว', 'ไม่รวม VAT'].map(v => (
                     <button key={v} type="button" onClick={() => setProdForm(f => ({ ...f, vat_type: v }))}
                       className={`flex-1 py-2 rounded-xl text-xs font-medium transition-colors border ${
                         prodForm.vat_type === v
                           ? 'bg-blue-700 border-blue-600 text-white'
-                          : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+                          : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'
                       }`}>
                       {v}
                     </button>
@@ -10072,12 +10072,12 @@ export default function POSPage() {
               {/* ── สต็อค (แสดงเฉพาะนับสต็อค / หมุนเวียน) ── */}
               {prodForm.type !== 'ไม่นับสต็อค' && (
                 <div>
-                  <label className="block text-gray-400 text-xs mb-1.5">
+                  <label className="block text-gray-500 text-xs mb-1.5">
                     {prodForm.type === 'หมุนเวียน' ? 'สต็อคพร้อมขาย' : (editProd ? 'จำนวนสต็อค' : 'จำนวนสต็อคเริ่มต้น')}
-                    {posBranches.length > 0 && <span className="text-blue-400"> — สาขา: {selectedBranch?.branch_name || 'ไม่ระบุสาขา'}</span>}
+                    {posBranches.length > 0 && <span className="text-blue-600"> — สาขา: {selectedBranch?.branch_name || 'ไม่ระบุสาขา'}</span>}
                   </label>
                   <input type="number" value={prodForm.stock} onChange={e => setProdForm(f => ({...f, stock: e.target.value}))}
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                     placeholder="0" min="0" />
                 </div>
               )}
@@ -10085,9 +10085,9 @@ export default function POSPage() {
               {/* ── เพดานเปล่ารอรีฟิล (เฉพาะสินค้าหมุนเวียน) ── */}
               {prodForm.type === 'หมุนเวียน' && (
                 <div>
-                  <label className="block text-gray-400 text-xs mb-1.5">เพดานเปล่ารอรีฟิล (แจ้งเตือนถ้าเกิน — เว้นว่าง/0 = ไม่ตั้งเพดาน)</label>
+                  <label className="block text-gray-500 text-xs mb-1.5">เพดานเปล่ารอรีฟิล (แจ้งเตือนถ้าเกิน — เว้นว่าง/0 = ไม่ตั้งเพดาน)</label>
                   <input type="number" value={prodForm.empty_ceiling} onChange={e => setProdForm(f => ({...f, empty_ceiling: e.target.value}))}
-                    className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                     placeholder="0" min="0" />
                 </div>
               )}
@@ -10097,19 +10097,19 @@ export default function POSPage() {
               {prodForm.type === 'หมุนเวียน' && editProd && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-gray-400 text-xs mb-1.5">
-                      {prodForm.unit || 'ของ'}อยู่กับลูกค้า{posBranches.length > 0 && <span className="text-blue-400"> ({selectedBranch?.branch_name || 'ไม่ระบุสาขา'})</span>}
+                    <label className="block text-gray-500 text-xs mb-1.5">
+                      {prodForm.unit || 'ของ'}อยู่กับลูกค้า{posBranches.length > 0 && <span className="text-blue-600"> ({selectedBranch?.branch_name || 'ไม่ระบุสาขา'})</span>}
                     </label>
                     <input type="number" value={prodForm.at_customer} onChange={e => setProdForm(f => ({...f, at_customer: e.target.value}))}
-                      className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                      className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                       placeholder="0" min="0" />
                   </div>
                   <div>
-                    <label className="block text-gray-400 text-xs mb-1.5">
-                      {prodForm.unit || 'ของ'}เปล่ารอรีฟิล{posBranches.length > 0 && <span className="text-blue-400"> ({selectedBranch?.branch_name || 'ไม่ระบุสาขา'})</span>}
+                    <label className="block text-gray-500 text-xs mb-1.5">
+                      {prodForm.unit || 'ของ'}เปล่ารอรีฟิล{posBranches.length > 0 && <span className="text-blue-600"> ({selectedBranch?.branch_name || 'ไม่ระบุสาขา'})</span>}
                     </label>
                     <input type="number" value={prodForm.empty_waiting} onChange={e => setProdForm(f => ({...f, empty_waiting: e.target.value}))}
-                      className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                      className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                       placeholder="0" min="0" />
                   </div>
                 </div>
@@ -10118,7 +10118,7 @@ export default function POSPage() {
               {/* ── สาขาที่ขาย (แสดงเฉพาะร้านที่มีมากกว่า 1 สาขา) ── */}
               {posBranches.length > 0 && (
                 <div>
-                  <label className="block text-gray-400 text-xs mb-1.5">สาขาที่ขาย (ไม่เลือก = ขายได้ทุกสาขา)</label>
+                  <label className="block text-gray-500 text-xs mb-1.5">สาขาที่ขาย (ไม่เลือก = ขายได้ทุกสาขา)</label>
                   <div className="flex flex-wrap gap-2">
                     {posBranches.map(b => {
                       const checked = prodForm.branches.includes(b.branch_name);
@@ -10128,7 +10128,7 @@ export default function POSPage() {
                             ...f,
                             branches: checked ? f.branches.filter(x => x !== b.branch_name) : [...f.branches, b.branch_name],
                           }))}
-                          className={`text-xs font-bold px-3 py-2 rounded-xl border-2 transition-colors ${checked ? 'bg-green-900/40 border-green-600 text-green-300' : 'bg-gray-800 border-gray-700 text-gray-400'}`}>
+                          className={`text-xs font-bold px-3 py-2 rounded-xl border-2 transition-colors ${checked ? 'bg-green-50/40 border-green-600 text-green-700' : 'bg-white border-gray-200 text-gray-500'}`}>
                           {checked ? '✓ ' : ''}{b.brand_name || b.branch_name}
                         </button>
                       );
@@ -10139,37 +10139,37 @@ export default function POSPage() {
 
               {/* ── รายละเอียดสินค้า ── */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">รายละเอียดสินค้า</label>
+                <label className="block text-gray-500 text-xs mb-1.5">รายละเอียดสินค้า</label>
                 <textarea value={prodForm.description} onChange={e => setProdForm(f => ({...f, description: e.target.value}))}
                   rows={2}
-                  className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 resize-none"
+                  className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500 resize-none"
                   placeholder="คำอธิบายเพิ่มเติม เช่น ขนาด, สี, คุณสมบัติ" />
               </div>
 
               {/* ── คำค้น / ชื่ออื่น ── */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">คำค้น / ชื่ออื่น</label>
+                <label className="block text-gray-500 text-xs mb-1.5">คำค้น / ชื่ออื่น</label>
                 <input value={prodForm.aliases} onChange={e => setProdForm(f => ({...f, aliases: e.target.value}))}
-                  className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                  className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                   placeholder="เช่น chang, ช้าง, 320ml" />
-                <p className="text-gray-600 text-xs mt-1">ช่วยให้บอท LINE จับคู่ชื่อสินค้าบนบิลซื้อได้</p>
+                <p className="text-gray-400 text-xs mt-1">ช่วยให้บอท LINE จับคู่ชื่อสินค้าบนบิลซื้อได้</p>
               </div>
 
               {/* ── หมายเหตุ ── */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">หมายเหตุ</label>
+                <label className="block text-gray-500 text-xs mb-1.5">หมายเหตุ</label>
                 <input value={prodForm.notes} onChange={e => setProdForm(f => ({...f, notes: e.target.value}))}
-                  className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                  className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                   placeholder="ไม่บังคับ" />
               </div>
 
               {/* ── สถานะ active ── */}
               <label className="flex items-center gap-3 cursor-pointer select-none">
-                <div className={`relative w-11 h-6 rounded-full transition-colors ${prodForm.is_active ? 'bg-green-600' : 'bg-gray-700'}`}
+                <div className={`relative w-11 h-6 rounded-full transition-colors ${prodForm.is_active ? 'bg-green-600' : 'bg-gray-100'}`}
                   onClick={() => setProdForm(f => ({ ...f, is_active: !f.is_active }))}>
                   <div className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${prodForm.is_active ? 'translate-x-5' : ''}`} />
                 </div>
-                <span className="text-sm text-gray-300">
+                <span className="text-sm text-gray-700">
                   {prodForm.is_active ? 'แสดงในหน้าขาย (active)' : 'ซ่อนจากหน้าขาย (inactive)'}
                 </span>
               </label>
@@ -10187,28 +10187,28 @@ export default function POSPage() {
       {showNewBillModal && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
           onClick={() => { setShowNewBillModal(false); setNewBillName(''); setNewBillCust(null); setNewBillCustQ(''); }}>
-          <div className="bg-gray-900 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl"
+          <div className="bg-white rounded-2xl w-full max-w-sm border border-gray-200 shadow-2xl"
             onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-gray-800 flex items-center justify-between">
-              <h3 className="text-white font-bold">เปิดบิลใหม่</h3>
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-gray-900 font-bold">เปิดบิลใหม่</h3>
               <button onClick={() => { setShowNewBillModal(false); setNewBillName(''); setNewBillCust(null); setNewBillCustQ(''); }}
-                className="text-gray-500 hover:text-white text-xl">✕</button>
+                className="text-gray-400 hover:text-gray-900 text-xl">✕</button>
             </div>
             <div className="p-5 space-y-4">
               {/* ── เลือกลูกค้า ── */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">ลูกค้า <span className="text-gray-600">(ไม่บังคับ)</span></label>
+                <label className="block text-gray-500 text-xs mb-1.5">ลูกค้า <span className="text-gray-400">(ไม่บังคับ)</span></label>
                 {newBillCust ? (
-                  <div className="flex items-center gap-2 bg-green-900/30 border border-green-700/50 rounded-xl px-3 py-2.5">
+                  <div className="flex items-center gap-2 bg-green-50/30 border border-green-300/50 rounded-xl px-3 py-2.5">
                     <div className="flex-1 min-w-0">
-                      <div className="text-white text-sm font-medium">{newBillCust.name}</div>
-                      <div className="text-green-400 text-xs">
+                      <div className="text-gray-900 text-sm font-medium">{newBillCust.name}</div>
+                      <div className="text-green-600 text-xs">
                         {newBillCust.shop_name && <span className="mr-2">🏪 {newBillCust.shop_name}</span>}
                         {newBillCust.phone && <span>📞 {newBillCust.phone}</span>}
                       </div>
                     </div>
                     <button onClick={() => { setNewBillCust(null); setNewBillCustQ(''); }}
-                      className="text-gray-400 hover:text-red-400 text-lg leading-none shrink-0">×</button>
+                      className="text-gray-500 hover:text-red-600 text-lg leading-none shrink-0">×</button>
                   </div>
                 ) : (
                   <div className="relative">
@@ -10216,7 +10216,7 @@ export default function POSPage() {
                       value={newBillCustQ}
                       onChange={e => setNewBillCustQ(e.target.value)}
                       placeholder="ค้นหาชื่อ หรือเบอร์โทร..."
-                      className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                      className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                     />
                     {newBillCustQ.trim().length > 0 && (() => {
                       const q = newBillCustQ.toLowerCase();
@@ -10227,13 +10227,13 @@ export default function POSPage() {
                         (c.shop_name || '').toLowerCase().includes(q)
                       ).slice(0, 6);
                       return hits.length > 0 ? (
-                        <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-xl overflow-hidden shadow-xl">
+                        <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-xl">
                           {hits.map(c => (
                             <button key={c.contact_id} type="button"
                               onClick={() => { setNewBillCust(c); setNewBillCustQ(''); }}
-                              className="w-full text-left px-4 py-2.5 hover:bg-gray-700 transition-colors border-b border-gray-700/50 last:border-0">
-                              <div className="text-white text-sm">{c.name}</div>
-                              <div className="text-gray-400 text-xs">
+                              className="w-full text-left px-4 py-2.5 hover:bg-gray-100 transition-colors border-b border-gray-200/50 last:border-0">
+                              <div className="text-gray-900 text-sm">{c.name}</div>
+                              <div className="text-gray-500 text-xs">
                                 {c.shop_name && <span className="mr-2">🏪 {c.shop_name}</span>}
                                 {c.phone && <span>📞 {c.phone}</span>}
                               </div>
@@ -10245,10 +10245,10 @@ export default function POSPage() {
                           {renderQuickAddContactForm('newbill')}
                         </div>
                       ) : (
-                        <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 shadow-xl space-y-2">
-                          <div className="text-gray-500 text-sm">ไม่พบลูกค้า</div>
+                        <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl px-4 py-3 shadow-xl space-y-2">
+                          <div className="text-gray-400 text-sm">ไม่พบลูกค้า</div>
                           <button type="button" onClick={() => openQuickAddContact('newbill', newBillCustQ)}
-                            className="text-xs text-green-400 hover:text-green-300 font-bold">
+                            className="text-xs text-green-600 hover:text-green-700 font-bold">
                             ✚ เพิ่มผู้ติดต่อใหม่เข้าระบบ
                           </button>
                         </div>
@@ -10260,28 +10260,28 @@ export default function POSPage() {
 
               {/* ── ชื่อบิล (optional override) ── */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">
-                  ชื่อโต๊ะ / บิล <span className="text-gray-600">(ถ้าไม่ระบุ ใช้ชื่อลูกค้า หรือ "cash sale")</span>
+                <label className="block text-gray-500 text-xs mb-1.5">
+                  ชื่อโต๊ะ / บิล <span className="text-gray-400">(ถ้าไม่ระบุ ใช้ชื่อลูกค้า หรือ "cash sale")</span>
                 </label>
                 <input
                   value={newBillName}
                   onChange={e => setNewBillName(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && createBill(newBillName, newBillCust)}
                   placeholder={newBillCust ? newBillCust.name : `เช่น โต๊ะ ${openBills.length + 1}, Take Away`}
-                  className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                  className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                 />
               </div>
 
               {/* quick-pick จากชื่อที่ตั้งค่าไว้ (กรองออกที่เปิดอยู่แล้ว) */}
               {tableNames.filter(n => !openBills.some(b => b.name === n)).length > 0 && (
                 <div>
-                  <div className="text-gray-500 text-xs mb-2">โต๊ะที่ตั้งค่าไว้</div>
+                  <div className="text-gray-400 text-xs mb-2">โต๊ะที่ตั้งค่าไว้</div>
                   <div className="flex flex-wrap gap-2">
                     {tableNames
                       .filter(n => !openBills.some(b => b.name === n))
                       .map(name => (
                         <button key={name} onClick={() => createBill(name)}
-                          className="bg-gray-800 hover:bg-green-800 text-gray-200 text-sm px-4 py-2 rounded-xl border border-gray-700 hover:border-green-600 transition-colors">
+                          className="bg-white hover:bg-green-100 text-gray-800 text-sm px-4 py-2 rounded-xl border border-gray-200 hover:border-green-600 transition-colors">
                           {name}
                         </button>
                       ))}
@@ -10292,10 +10292,10 @@ export default function POSPage() {
               {/* บิลที่เปิดอยู่แล้ว (ถ้ามี) */}
               {openBills.length > 0 && tableNames.filter(n => openBills.some(b => b.name === n)).length > 0 && (
                 <div>
-                  <div className="text-gray-600 text-xs mb-2">เปิดอยู่แล้ว</div>
+                  <div className="text-gray-400 text-xs mb-2">เปิดอยู่แล้ว</div>
                   <div className="flex flex-wrap gap-2">
                     {tableNames.filter(n => openBills.some(b => b.name === n)).map(name => (
-                      <span key={name} className="bg-gray-900 text-gray-600 text-xs px-3 py-1.5 rounded-xl border border-gray-800 line-through">
+                      <span key={name} className="bg-white text-gray-400 text-xs px-3 py-1.5 rounded-xl border border-gray-100 line-through">
                         {name}
                       </span>
                     ))}
@@ -10305,7 +10305,7 @@ export default function POSPage() {
 
               <div className="flex gap-3 pt-1">
                 <button onClick={() => { setShowNewBillModal(false); setNewBillName(''); setNewBillCust(null); setNewBillCustQ(''); }}
-                  className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 py-2.5 rounded-xl text-sm transition-colors">
+                  className="flex-1 bg-white hover:bg-gray-100 text-gray-700 py-2.5 rounded-xl text-sm transition-colors">
                   ยกเลิก
                 </button>
                 <button onClick={() => createBill(newBillName, newBillCust)}
@@ -10321,25 +10321,25 @@ export default function POSPage() {
       {/* ══ CONTACT FORM MODAL ════════════════════════════════════════════ */}
       {showContactForm && (
         <div className="fixed inset-0 z-40 bg-black/60 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
             {/* header — sticky */}
-            <div className="p-4 border-b border-gray-800 flex items-center justify-between sticky top-0 bg-gray-900 z-10">
-              <h3 className="text-white font-bold">{editContact ? 'แก้ไขผู้ติดต่อ' : 'เพิ่มผู้ติดต่อ'}</h3>
-              <button onClick={() => { setShowContactForm(false); setEditContact(null); }} className="text-gray-500 hover:text-white text-xl w-8 h-8 flex items-center justify-center">✕</button>
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+              <h3 className="text-gray-900 font-bold">{editContact ? 'แก้ไขผู้ติดต่อ' : 'เพิ่มผู้ติดต่อ'}</h3>
+              <button onClick={() => { setShowContactForm(false); setEditContact(null); }} className="text-gray-400 hover:text-gray-900 text-xl w-8 h-8 flex items-center justify-center">✕</button>
             </div>
 
             <div className="p-5 space-y-4">
               {/* ชื่อ */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">ชื่อ / บริษัท *</label>
+                <label className="block text-gray-500 text-xs mb-1.5">ชื่อ / บริษัท *</label>
                 <input value={contactForm.name} onChange={e => setContactForm(f => ({...f, name: e.target.value}))}
-                  className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                  className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                   placeholder="เช่น คุณสมชาย หรือ บริษัท ABC จำกัด" autoFocus />
               </div>
 
               {/* ประเภท — 3 ตัวเลือก */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">ประเภท</label>
+                <label className="block text-gray-500 text-xs mb-1.5">ประเภท</label>
                 <div className="grid grid-cols-3 gap-2">
                   {[
                     { key: 'ผู้จำหน่าย', icon: '🏢' },
@@ -10348,7 +10348,7 @@ export default function POSPage() {
                   ].map(({ key, icon }) => (
                     <button key={key} type="button" onClick={() => setContactForm(f => ({...f, contact_type: key}))}
                       className={`py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                        contactForm.contact_type === key ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                        contactForm.contact_type === key ? 'bg-green-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
                       }`}>
                       {icon} {key}
                     </button>
@@ -10359,24 +10359,24 @@ export default function POSPage() {
               {/* เบอร์โทร + อีเมล */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-gray-400 text-xs mb-1.5">เบอร์โทร</label>
+                  <label className="block text-gray-500 text-xs mb-1.5">เบอร์โทร</label>
                   <input value={contactForm.phone} onChange={e => setContactForm(f => ({...f, phone: e.target.value}))}
-                    className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                     placeholder="0812345678" type="tel" />
                 </div>
                 <div>
-                  <label className="block text-gray-400 text-xs mb-1.5">อีเมล</label>
+                  <label className="block text-gray-500 text-xs mb-1.5">อีเมล</label>
                   <input value={contactForm.email} onChange={e => setContactForm(f => ({...f, email: e.target.value}))}
-                    className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                     placeholder="email@example.com" type="email" />
                 </div>
               </div>
 
               {/* ชื่อร้านค้า */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">ชื่อร้านค้า</label>
+                <label className="block text-gray-500 text-xs mb-1.5">ชื่อร้านค้า</label>
                 <input value={contactForm.shop_name} onChange={e => setContactForm(f => ({...f, shop_name: e.target.value}))}
-                  className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                  className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                   placeholder="ชื่อร้าน (ถ้ามี)" />
               </div>
 
@@ -10384,25 +10384,25 @@ export default function POSPage() {
               {(contactForm.contact_type === 'ลูกค้า' || contactForm.contact_type === 'ทั้งคู่') && (
                 <>
                   {[1, 2].map(slot => (
-                    <div key={slot} className="border border-gray-700 rounded-xl p-3 space-y-2">
-                      <div className="text-gray-400 text-xs font-medium">
+                    <div key={slot} className="border border-gray-200 rounded-xl p-3 space-y-2">
+                      <div className="text-gray-500 text-xs font-medium">
                         📍 ที่อยู่จัดส่งที่ {slot}{slot === 1 ? ' (หลัก)' : ' (เพิ่มเติม)'}
                       </div>
                       <textarea
                         value={contactForm[`address_${slot}`]}
                         onChange={e => setContactForm(f => ({ ...f, [`address_${slot}`]: e.target.value }))}
-                        className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 resize-none" rows={2}
+                        className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500 resize-none" rows={2}
                         placeholder={slot === 1 ? 'บ้านเลขที่ ถนน ตำบล อำเภอ จังหวัด' : 'ที่อยู่ที่ 2 (ถ้ามี)'} />
                       {contactForm[`maps_${slot}`] ? (
                         <div className="flex items-center gap-2">
-                          <span className="text-green-400 text-xs flex-1 truncate">✅ ปักหมุดแล้ว</span>
-                          <button type="button" onClick={() => openMapPicker(slot)} className="text-xs text-blue-400 hover:text-blue-300 shrink-0">แก้ไข</button>
-                          <a href={contactForm[`maps_${slot}`]} target="_blank" rel="noreferrer" className="text-xs text-gray-400 hover:text-gray-200 shrink-0">ดู</a>
-                          <button type="button" onClick={() => setContactForm(f => ({ ...f, [`maps_${slot}`]: '' }))} className="text-xs text-gray-500 hover:text-red-400 shrink-0">ลบ</button>
+                          <span className="text-green-600 text-xs flex-1 truncate">✅ ปักหมุดแล้ว</span>
+                          <button type="button" onClick={() => openMapPicker(slot)} className="text-xs text-blue-600 hover:text-blue-700 shrink-0">แก้ไข</button>
+                          <a href={contactForm[`maps_${slot}`]} target="_blank" rel="noreferrer" className="text-xs text-gray-500 hover:text-gray-800 shrink-0">ดู</a>
+                          <button type="button" onClick={() => setContactForm(f => ({ ...f, [`maps_${slot}`]: '' }))} className="text-xs text-gray-400 hover:text-red-600 shrink-0">ลบ</button>
                         </div>
                       ) : (
                         <button type="button" onClick={() => openMapPicker(slot)}
-                          className="w-full flex items-center justify-center gap-1.5 bg-gray-700 hover:bg-green-800 text-gray-300 hover:text-green-300 text-xs py-2 rounded-xl border border-gray-600 hover:border-green-700 transition-colors">
+                          className="w-full flex items-center justify-center gap-1.5 bg-gray-100 hover:bg-green-100 text-gray-700 hover:text-green-700 text-xs py-2 rounded-xl border border-gray-300 hover:border-green-300 transition-colors">
                           🗺️ เปิดแผนที่วางหมุด
                         </button>
                       )}
@@ -10413,13 +10413,13 @@ export default function POSPage() {
 
               {/* ประเภทบุคคล */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">ประเภทบุคคล</label>
+                <label className="block text-gray-500 text-xs mb-1.5">ประเภทบุคคล</label>
                 <div className="grid grid-cols-2 gap-2">
                   {['บุคคลธรรมดา', 'นิติบุคคล'].map(pt => (
                     <button key={pt} type="button"
                       onClick={() => setContactForm(f => ({ ...f, person_type: pt }))}
                       className={`py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                        contactForm.person_type === pt ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                        contactForm.person_type === pt ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
                       }`}>
                       {pt === 'บุคคลธรรมดา' ? '👤 บุคคลธรรมดา' : '🏢 นิติบุคคล'}
                     </button>
@@ -10429,25 +10429,25 @@ export default function POSPage() {
 
               {/* ฟิลด์เพิ่มเติมสำหรับนิติบุคคล */}
               {contactForm.person_type === 'นิติบุคคล' && (
-                <div className="bg-blue-950/40 border border-blue-800/50 rounded-xl p-4 space-y-3">
-                  <p className="text-blue-300 text-xs font-medium">🏢 ข้อมูลนิติบุคคล</p>
+                <div className="bg-blue-50/40 border border-blue-200/50 rounded-xl p-4 space-y-3">
+                  <p className="text-blue-700 text-xs font-medium">🏢 ข้อมูลนิติบุคคล</p>
                   <div>
-                    <label className="block text-gray-400 text-xs mb-1.5">เลขประจำตัวผู้เสียภาษี (13 หลัก)</label>
+                    <label className="block text-gray-500 text-xs mb-1.5">เลขประจำตัวผู้เสียภาษี (13 หลัก)</label>
                     <input value={contactForm.tax_id} onChange={e => setContactForm(f => ({...f, tax_id: e.target.value}))}
-                      className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-blue-500"
+                      className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-blue-500"
                       placeholder="0-0000-00000-00-0" maxLength={17} />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-gray-400 text-xs mb-1.5">ชื่อผู้ติดต่อ</label>
+                      <label className="block text-gray-500 text-xs mb-1.5">ชื่อผู้ติดต่อ</label>
                       <input value={contactForm.contact_person_name} onChange={e => setContactForm(f => ({...f, contact_person_name: e.target.value}))}
-                        className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-blue-500"
+                        className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-blue-500"
                         placeholder="ชื่อ-นามสกุล" />
                     </div>
                     <div>
-                      <label className="block text-gray-400 text-xs mb-1.5">เบอร์โทรผู้ติดต่อ</label>
+                      <label className="block text-gray-500 text-xs mb-1.5">เบอร์โทรผู้ติดต่อ</label>
                       <input value={contactForm.contact_person_phone} onChange={e => setContactForm(f => ({...f, contact_person_phone: e.target.value}))}
-                        className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-blue-500"
+                        className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-blue-500"
                         placeholder="0812345678" type="tel" />
                     </div>
                   </div>
@@ -10455,40 +10455,40 @@ export default function POSPage() {
               )}
 
               {/* ข้อมูลบริษัท/ภาษี — accordion (บุคคลธรรมดาก็ยังมีตัวเลือกนี้) */}
-              <div className="border border-gray-700 rounded-xl overflow-hidden">
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
                 <button type="button" onClick={() => setShowTaxSection(v => !v)}
-                  className="w-full flex items-center justify-between px-4 py-3 text-sm text-gray-300 hover:bg-gray-800 transition-colors">
+                  className="w-full flex items-center justify-between px-4 py-3 text-sm text-gray-700 hover:bg-white transition-colors">
                   <span>🏛️ ข้อมูลบริษัท / ที่อยู่ภาษี</span>
-                  <span className="text-gray-600 text-xs">{showTaxSection ? '▲ ซ่อน' : '▼ แสดง'}</span>
+                  <span className="text-gray-400 text-xs">{showTaxSection ? '▲ ซ่อน' : '▼ แสดง'}</span>
                 </button>
                 {showTaxSection && (
-                  <div className="px-4 pb-4 space-y-3 border-t border-gray-700">
+                  <div className="px-4 pb-4 space-y-3 border-t border-gray-200">
                     <div className="mt-3">
-                      <label className="block text-gray-400 text-xs mb-1.5">ชื่อบริษัท / นิติบุคคล</label>
+                      <label className="block text-gray-500 text-xs mb-1.5">ชื่อบริษัท / นิติบุคคล</label>
                       <input value={contactForm.company_name} onChange={e => setContactForm(f => ({...f, company_name: e.target.value}))}
-                        className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                        className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                         placeholder="ชื่อบริษัทตามที่จดทะเบียน" />
                     </div>
                     {contactForm.person_type !== 'นิติบุคคล' && (
                       <div>
-                        <label className="block text-gray-400 text-xs mb-1.5">เลขภาษี (13 หลัก)</label>
+                        <label className="block text-gray-500 text-xs mb-1.5">เลขภาษี (13 หลัก)</label>
                         <input value={contactForm.tax_id} onChange={e => setContactForm(f => ({...f, tax_id: e.target.value}))}
-                          className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                          className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                           placeholder="0-0000-00000-00-0" />
                       </div>
                     )}
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-gray-400 text-xs mb-1.5">สาขา / สำนักงาน</label>
+                        <label className="block text-gray-500 text-xs mb-1.5">สาขา / สำนักงาน</label>
                         <input value={contactForm.tax_branch} onChange={e => setContactForm(f => ({...f, tax_branch: e.target.value}))}
-                          className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                          className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                           placeholder="สำนักงานใหญ่" />
                       </div>
                     </div>
                     <div>
-                      <label className="block text-gray-400 text-xs mb-1.5">ที่อยู่ภาษี</label>
+                      <label className="block text-gray-500 text-xs mb-1.5">ที่อยู่ภาษี</label>
                       <textarea value={contactForm.tax_address} onChange={e => setContactForm(f => ({...f, tax_address: e.target.value}))}
-                        className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 resize-none" rows={2}
+                        className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500 resize-none" rows={2}
                         placeholder="ที่อยู่ตามที่จดทะเบียนภาษี" />
                     </div>
                   </div>
@@ -10497,18 +10497,18 @@ export default function POSPage() {
 
               {/* aliases */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">คำค้น / ชื่ออื่น / aliases</label>
+                <label className="block text-gray-500 text-xs mb-1.5">คำค้น / ชื่ออื่น / aliases</label>
                 <input value={contactForm.aliases} onChange={e => setContactForm(f => ({...f, aliases: e.target.value}))}
-                  className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                  className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                   placeholder="เช่น แก๊สซัพ, กรุงเทพกลการ" />
-                <p className="text-gray-600 text-xs mt-1">บอท LINE จะใช้คำเหล่านี้จับคู่ชื่อบนสลิป/บิล</p>
+                <p className="text-gray-400 text-xs mt-1">บอท LINE จะใช้คำเหล่านี้จับคู่ชื่อบนสลิป/บิล</p>
               </div>
 
               {/* notes */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">หมายเหตุ</label>
+                <label className="block text-gray-500 text-xs mb-1.5">หมายเหตุ</label>
                 <input value={contactForm.notes} onChange={e => setContactForm(f => ({...f, notes: e.target.value}))}
-                  className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                  className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                   placeholder="เช่น ต้องโทรก่อนส่ง, รับของเวลาเช้าเท่านั้น" />
               </div>
 
@@ -10516,24 +10516,24 @@ export default function POSPage() {
               {(contactForm.contact_type === 'ลูกค้า' || contactForm.contact_type === 'ทั้งคู่') && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-gray-400 text-xs mb-1.5">ยอดค้าง (บาท)</label>
+                    <label className="block text-gray-500 text-xs mb-1.5">ยอดค้าง (บาท)</label>
                     <input value={contactForm.debt} onChange={e => setContactForm(f => ({...f, debt: e.target.value}))}
                       type="number" min="0"
-                      className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                      className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                       placeholder="0" />
                   </div>
                   <div>
-                    <label className="block text-gray-400 text-xs mb-1.5">{cyclicalUnitLabel}อยู่กับลูกค้า</label>
+                    <label className="block text-gray-500 text-xs mb-1.5">{cyclicalUnitLabel}อยู่กับลูกค้า</label>
                     <input value={contactForm.cylinders} onChange={e => setContactForm(f => ({...f, cylinders: e.target.value}))}
                       type="number" min="0"
-                      className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                      className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                       placeholder="0" />
                   </div>
                   <div className="col-span-2">
-                    <label className="block text-gray-400 text-xs mb-1.5">วงเงินยืมสูงสุด ({cyclicalUnitLabel}) — เว้นว่าง/0 = ไม่จำกัด</label>
+                    <label className="block text-gray-500 text-xs mb-1.5">วงเงินยืมสูงสุด ({cyclicalUnitLabel}) — เว้นว่าง/0 = ไม่จำกัด</label>
                     <input value={contactForm.cylinder_limit} onChange={e => setContactForm(f => ({...f, cylinder_limit: e.target.value}))}
                       type="number" min="0"
-                      className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                      className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                       placeholder="ไม่จำกัด" />
                   </div>
                 </div>
@@ -10551,47 +10551,47 @@ export default function POSPage() {
       {/* ══ STAFF FORM MODAL ═══════════════════════════════════════════════ */}
       {showStaffForm && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
             <div className="p-5">
               <div className="flex items-center justify-between mb-5">
-                <h3 className="text-white font-bold text-lg">{editStaff ? 'แก้ไขพนักงาน' : 'เพิ่มพนักงาน'}</h3>
-                <button onClick={() => setShowStaffForm(false)} className="text-gray-400 hover:text-white text-2xl leading-none transition-colors">×</button>
+                <h3 className="text-gray-900 font-bold text-lg">{editStaff ? 'แก้ไขพนักงาน' : 'เพิ่มพนักงาน'}</h3>
+                <button onClick={() => setShowStaffForm(false)} className="text-gray-500 hover:text-gray-900 text-2xl leading-none transition-colors">×</button>
               </div>
               <div className="space-y-3">
                 <div>
-                  <label className="text-gray-400 text-xs block mb-1">ชื่อพนักงาน *</label>
+                  <label className="text-gray-500 text-xs block mb-1">ชื่อพนักงาน *</label>
                   <input value={staffForm.name} onChange={e => setStaffForm(f => ({ ...f, name: e.target.value }))}
-                    className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                     placeholder="ชื่อ-นามสกุล" />
                 </div>
                 <div>
-                  <label className="text-gray-400 text-xs block mb-1">เบอร์โทรศัพท์</label>
+                  <label className="text-gray-500 text-xs block mb-1">เบอร์โทรศัพท์</label>
                   <input value={staffForm.phone} onChange={e => setStaffForm(f => ({ ...f, phone: e.target.value }))}
-                    className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                     placeholder="0812345678" type="tel" />
                 </div>
                 <div>
-                  <label className="text-gray-400 text-xs block mb-1">LINE User ID</label>
+                  <label className="text-gray-500 text-xs block mb-1">LINE User ID</label>
                   <input value={staffForm.line_id} onChange={e => setStaffForm(f => ({ ...f, line_id: e.target.value }))}
-                    className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                     placeholder="เช่น Uf3d9a8b2c1e4f5a6..." />
-                  <p className="text-gray-600 text-xs mt-1">ดู User ID ได้จาก LINE Developers Console → Basic settings → Your user ID</p>
+                  <p className="text-gray-400 text-xs mt-1">ดู User ID ได้จาก LINE Developers Console → Basic settings → Your user ID</p>
                 </div>
                 <div>
-                  <label className="text-gray-400 text-xs block mb-1">บทบาท</label>
+                  <label className="text-gray-500 text-xs block mb-1">บทบาท</label>
                   <select value={staffForm.role} onChange={e => setStaffForm(f => ({ ...f, role: e.target.value }))}
-                    className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500">
+                    className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500">
                     {['พนักงานส่ง', 'พนักงานขาย', 'หัวหน้าทีม', 'แคชเชียร์', 'อื่นๆ'].map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-gray-400 text-xs block mb-1">หมายเหตุ</label>
+                  <label className="text-gray-500 text-xs block mb-1">หมายเหตุ</label>
                   <input value={staffForm.notes} onChange={e => setStaffForm(f => ({ ...f, notes: e.target.value }))}
-                    className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                     placeholder="ไม่บังคับ" />
                 </div>
-                <div className="bg-gray-800/60 rounded-xl p-3 border border-gray-700">
-                  <label className="text-gray-400 text-xs block mb-2">🔑 สิทธิ์เข้าถึงหน้าพนักงาน (ไม่บังคับ — ผ่าน PIN ที่ /pos-staff หรือลิงก์แคชเชียร์)</label>
+                <div className="bg-white/60 rounded-xl p-3 border border-gray-200">
+                  <label className="text-gray-500 text-xs block mb-2">🔑 สิทธิ์เข้าถึงหน้าพนักงาน (ไม่บังคับ — ผ่าน PIN ที่ /pos-staff หรือลิงก์แคชเชียร์)</label>
 
                   {/* ตำแหน่งสำเร็จรูป — กดแล้วติ๊กสิทธิ์แนะนำให้อัตโนมัติ ยังแก้ทีละอันต่อได้ */}
                   <div className="flex flex-wrap gap-1.5 mb-3">
@@ -10604,7 +10604,7 @@ export default function POSPage() {
                           setStaffForm(f => ({ ...f, ...perms }));
                           setStaffPreset(presetName);
                         }}
-                        className={`text-xs font-bold px-2.5 py-1.5 rounded-lg transition-colors ${staffPreset === presetName ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+                        className={`text-xs font-bold px-2.5 py-1.5 rounded-lg transition-colors ${staffPreset === presetName ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
                         {presetName}
                       </button>
                     ))}
@@ -10616,14 +10616,14 @@ export default function POSPage() {
                         <input type="checkbox" checked={!!staffForm[p.key]}
                           onChange={e => { setStaffForm(f => ({ ...f, [p.key]: e.target.checked })); setStaffPreset(''); }}
                           className="w-4 h-4 accent-green-600" />
-                        <span className="text-gray-300 text-xs">{p.icon} {p.label}</span>
+                        <span className="text-gray-700 text-xs">{p.icon} {p.label}</span>
                       </label>
                     ))}
                   </div>
                 </div>
               </div>
               <div className="flex gap-3 mt-5">
-                <button onClick={() => setShowStaffForm(false)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-colors text-sm">ยกเลิก</button>
+                <button onClick={() => setShowStaffForm(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-900 font-bold py-3 rounded-xl transition-colors text-sm">ยกเลิก</button>
                 <button onClick={() => saveStaffMember()} disabled={staffSaving || !staffForm.name.trim()}
                   className="flex-1 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm">
                   {staffSaving ? 'กำลังบันทึก...' : editStaff ? 'บันทึกการแก้ไข' : 'เพิ่มพนักงาน'}
@@ -10637,23 +10637,23 @@ export default function POSPage() {
       {/* ══ Modal: โอนย้ายสต็อกข้ามสาขา (Phase 2) ══════════════════════ */}
       {showTransferModal && transferProd && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-2xl w-full max-w-md border border-gray-700 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl w-full max-w-md border border-gray-200 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="p-5">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-white font-bold">🔄 โอนย้ายสต็อกข้ามสาขา</h3>
-                <button onClick={() => setShowTransferModal(false)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+                <h3 className="text-gray-900 font-bold">🔄 โอนย้ายสต็อกข้ามสาขา</h3>
+                <button onClick={() => setShowTransferModal(false)} className="text-gray-500 hover:text-gray-900 text-2xl leading-none">×</button>
               </div>
 
-              <div className="bg-gray-800 rounded-xl p-3 mb-4">
-                <div className="text-white font-medium text-sm mb-2">{transferProd.name}</div>
+              <div className="bg-white rounded-xl p-3 mb-4">
+                <div className="text-gray-900 font-medium text-sm mb-2">{transferProd.name}</div>
                 {transferHistoryLoading ? (
-                  <div className="text-gray-500 text-xs">กำลังโหลดสต็อกแยกตามสาขา...</div>
+                  <div className="text-gray-400 text-xs">กำลังโหลดสต็อกแยกตามสาขา...</div>
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {transferBreakdown.length === 0 ? (
-                      <span className="text-gray-500 text-xs">ยังไม่มีสต็อกที่สาขาไหนเลย</span>
+                      <span className="text-gray-400 text-xs">ยังไม่มีสต็อกที่สาขาไหนเลย</span>
                     ) : transferBreakdown.map(b => (
-                      <span key={b.branch_name} className="text-xs bg-gray-700 text-gray-300 px-2 py-1 rounded-full">
+                      <span key={b.branch_name} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-full">
                         {branchLabel(b.branch_name)}: {b.qty} {transferProd.unit}
                       </span>
                     ))}
@@ -10663,17 +10663,17 @@ export default function POSPage() {
 
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div>
-                  <label className="text-gray-400 text-xs block mb-1.5">จากสาขา</label>
+                  <label className="text-gray-500 text-xs block mb-1.5">จากสาขา</label>
                   <select value={transferFrom} onChange={e => setTransferFrom(e.target.value)}
-                    className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-purple-500">
+                    className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-purple-500">
                     <option value="">ยังไม่ระบุสาขา (เดิม)</option>
                     {posBranches.map(b => <option key={b.id} value={b.branch_name}>{b.brand_name || b.branch_name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-gray-400 text-xs block mb-1.5">ไปสาขา</label>
+                  <label className="text-gray-500 text-xs block mb-1.5">ไปสาขา</label>
                   <select value={transferTo} onChange={e => setTransferTo(e.target.value)}
-                    className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-purple-500">
+                    className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-purple-500">
                     <option value="">ยังไม่ระบุสาขา (เดิม)</option>
                     {posBranches.map(b => <option key={b.id} value={b.branch_name}>{b.brand_name || b.branch_name}</option>)}
                   </select>
@@ -10681,21 +10681,21 @@ export default function POSPage() {
               </div>
 
               <div className="mb-3">
-                <label className="text-gray-400 text-xs block mb-1.5">จำนวน ({transferProd.unit})</label>
+                <label className="text-gray-500 text-xs block mb-1.5">จำนวน ({transferProd.unit})</label>
                 <input type="number" min="1" value={transferQty} onChange={e => setTransferQty(e.target.value)}
-                  className="w-full bg-gray-800 text-white text-lg font-bold px-4 py-3 rounded-xl border border-gray-700 focus:outline-none focus:border-purple-500"
+                  className="w-full bg-white text-gray-900 text-lg font-bold px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-purple-500"
                   placeholder="0" autoFocus />
               </div>
 
               <div className="mb-4">
-                <label className="text-gray-400 text-xs block mb-1.5">หมายเหตุ (ไม่บังคับ)</label>
+                <label className="text-gray-500 text-xs block mb-1.5">หมายเหตุ (ไม่บังคับ)</label>
                 <input type="text" value={transferNote} onChange={e => setTransferNote(e.target.value)}
-                  className="w-full bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-purple-500"
+                  className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-purple-500"
                   placeholder="เช่น ย้ายไปเติมสต็อกสาขาใหม่" />
               </div>
 
               <div className="flex gap-3 mb-2">
-                <button onClick={() => setShowTransferModal(false)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-colors text-sm">ยกเลิก</button>
+                <button onClick={() => setShowTransferModal(false)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-900 font-bold py-3 rounded-xl transition-colors text-sm">ยกเลิก</button>
                 <button onClick={submitTransfer}
                   disabled={transferSaving || !transferQty || parseFloat(transferQty) <= 0 || transferFrom === transferTo}
                   className="flex-[2] bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm">
@@ -10705,12 +10705,12 @@ export default function POSPage() {
 
               {transferHistory.length > 0 && (
                 <details className="mt-3">
-                  <summary className="text-gray-400 text-xs cursor-pointer hover:text-gray-300">📋 ประวัติการโอนย้ายล่าสุด ({transferHistory.length})</summary>
+                  <summary className="text-gray-500 text-xs cursor-pointer hover:text-gray-700">📋 ประวัติการโอนย้ายล่าสุด ({transferHistory.length})</summary>
                   <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto">
                     {transferHistory.map(t => (
-                      <div key={t.id} className="text-xs text-gray-400 bg-gray-800/60 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2">
+                      <div key={t.id} className="text-xs text-gray-500 bg-white/60 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2">
                         <span>{branchLabel(t.from_branch)} → {branchLabel(t.to_branch)}: {t.qty} {transferProd.unit}</span>
-                        <span className={`shrink-0 ${t.status === 'committed' ? 'text-green-400' : t.status === 'failed' ? 'text-red-400' : 'text-yellow-400'}`}>
+                        <span className={`shrink-0 ${t.status === 'committed' ? 'text-green-600' : t.status === 'failed' ? 'text-red-600' : 'text-yellow-600'}`}>
                           {t.status === 'committed' ? '✓' : t.status === 'failed' ? '✕' : '⏳'}
                         </span>
                       </div>
@@ -10726,32 +10726,32 @@ export default function POSPage() {
       {/* ══ Modal: รับคืน / รีฟิล สินค้าหมุนเวียน ══════════════════════ */}
       {showCyclicalModal && cyclicalProd && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-2xl w-full max-w-sm border border-gray-700 shadow-2xl">
+          <div className="bg-white rounded-2xl w-full max-w-sm border border-gray-200 shadow-2xl">
             <div className="p-5">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-white font-bold">
+                <h3 className="text-gray-900 font-bold">
                   {showCyclicalModal === 'receive-back' ? `🔄 รับ${cyclicalProd.unit || 'ของ'}คืนจากลูกค้า` : `⛽ รีฟิล${cyclicalProd.unit || 'ของ'}เปล่า`}
                 </h3>
-                <button onClick={() => setShowCyclicalModal(null)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+                <button onClick={() => setShowCyclicalModal(null)} className="text-gray-500 hover:text-gray-900 text-2xl leading-none">×</button>
               </div>
-              <div className="bg-gray-800 rounded-xl p-3 mb-4">
-                <div className="text-white font-medium text-sm">{cyclicalProd.name}</div>
+              <div className="bg-white rounded-xl p-3 mb-4">
+                <div className="text-gray-900 font-medium text-sm">{cyclicalProd.name}</div>
                 <div className="flex gap-3 mt-1.5 text-xs">
-                  <span className="text-green-400">เต็ม {cyclicalProd.stock}</span>
-                  <span className="text-orange-400">กับลูกค้า {cyclicalProd.at_customer || 0}</span>
-                  <span className="text-gray-400">เปล่า {cyclicalProd.empty_waiting || 0}</span>
+                  <span className="text-green-600">เต็ม {cyclicalProd.stock}</span>
+                  <span className="text-orange-600">กับลูกค้า {cyclicalProd.at_customer || 0}</span>
+                  <span className="text-gray-500">เปล่า {cyclicalProd.empty_waiting || 0}</span>
                 </div>
               </div>
               <div className="mb-4">
-                <label className="text-gray-400 text-xs block mb-1.5">
+                <label className="text-gray-500 text-xs block mb-1.5">
                   {showCyclicalModal === 'receive-back' ? `จำนวนที่รับคืน (${cyclicalProd.unit})` : `จำนวนที่รีฟิล (${cyclicalProd.unit})`}
                 </label>
                 <input type="number" min="1" value={cyclicalQty} onChange={e => setCyclicalQty(e.target.value)}
-                  className="w-full bg-gray-800 text-white text-lg font-bold px-4 py-3 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                  className="w-full bg-white text-gray-900 text-lg font-bold px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                   placeholder="0" autoFocus />
               </div>
               <div className="flex gap-3">
-                <button onClick={() => setShowCyclicalModal(null)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-colors text-sm">ยกเลิก</button>
+                <button onClick={() => setShowCyclicalModal(null)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-900 font-bold py-3 rounded-xl transition-colors text-sm">ยกเลิก</button>
                 <button onClick={doCyclicalAction} disabled={cyclicalSaving || !cyclicalQty || parseInt(cyclicalQty) <= 0}
                   className="flex-[2] bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm">
                   {cyclicalSaving ? 'กำลังบันทึก...' : showCyclicalModal === 'receive-back' ? `รับคืน ${cyclicalQty || 0}` : `รีฟิล ${cyclicalQty || 0}`}
@@ -10765,13 +10765,13 @@ export default function POSPage() {
       {/* ══ DELIVERY MODAL ════════════════════════════════════════════════ */}
       {showDelivery && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
-            <div className="p-5 border-b border-gray-800 flex items-center justify-between">
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between">
               <div>
-                <h3 className="text-white font-bold text-lg">🛵 ส่งสินค้า</h3>
-                <div className="text-gray-400 text-xs mt-0.5">ขั้นตอน {delivStep}/2: {delivStep === 1 ? 'เลือกลูกค้า' : 'เลือกที่อยู่ + พนักงาน'}</div>
+                <h3 className="text-gray-900 font-bold text-lg">🛵 ส่งสินค้า</h3>
+                <div className="text-gray-500 text-xs mt-0.5">ขั้นตอน {delivStep}/2: {delivStep === 1 ? 'เลือกลูกค้า' : 'เลือกที่อยู่ + พนักงาน'}</div>
               </div>
-              <button onClick={() => setShowDelivery(false)} className="text-gray-400 hover:text-white text-2xl leading-none transition-colors">×</button>
+              <button onClick={() => setShowDelivery(false)} className="text-gray-500 hover:text-gray-900 text-2xl leading-none transition-colors">×</button>
             </div>
 
             <div className="p-5">
@@ -10779,24 +10779,24 @@ export default function POSPage() {
               {delivStep === 1 && (
                 <div className="space-y-3">
                   {/* สรุปออเดอร์ */}
-                  <div className="bg-gray-800 rounded-xl p-3">
-                    <div className="text-gray-400 text-xs mb-2">สินค้าในออเดอร์</div>
+                  <div className="bg-white rounded-xl p-3">
+                    <div className="text-gray-500 text-xs mb-2">สินค้าในออเดอร์</div>
                     {cart.map(item => (
                       <div key={item.sku} className="flex justify-between text-sm py-0.5">
-                        <span className="text-white">{item.name} <span className="text-gray-500">×{item.qty}</span></span>
-                        <span className="text-green-400">฿{(item.price * item.qty).toLocaleString()}</span>
+                        <span className="text-gray-900">{item.name} <span className="text-gray-400">×{item.qty}</span></span>
+                        <span className="text-green-600">฿{(item.price * item.qty).toLocaleString()}</span>
                       </div>
                     ))}
-                    <div className="border-t border-gray-700 mt-2 pt-2 flex justify-between font-bold">
-                      <span className="text-gray-300 text-sm">รวม</span>
-                      <span className="text-white">฿{cartTotal.toLocaleString()}</span>
+                    <div className="border-t border-gray-200 mt-2 pt-2 flex justify-between font-bold">
+                      <span className="text-gray-700 text-sm">รวม</span>
+                      <span className="text-gray-900">฿{cartTotal.toLocaleString()}</span>
                     </div>
                   </div>
 
                   <div>
-                    <label className="text-gray-400 text-xs block mb-1.5">ค้นหาลูกค้า</label>
+                    <label className="text-gray-500 text-xs block mb-1.5">ค้นหาลูกค้า</label>
                     <input value={delivCustSearch} onChange={e => setDelivCustSearch(e.target.value)}
-                      className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                      className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                       placeholder="ชื่อหรือเบอร์โทร..." autoFocus />
                   </div>
 
@@ -10805,23 +10805,23 @@ export default function POSPage() {
                     {delivMatchedCustomers.map(c => (
                       <button key={c.contact_id}
                         onClick={() => { setDelivCust(c); setDelivStep(2); fetchCustomerPrices(c.contact_id); }}
-                        className="w-full text-left bg-gray-800 hover:bg-gray-700 rounded-xl p-3 transition-colors flex items-center justify-between gap-2">
+                        className="w-full text-left bg-white hover:bg-gray-100 rounded-xl p-3 transition-colors flex items-center justify-between gap-2">
                         <div>
-                          <div className="text-white text-sm font-medium">{c.name}</div>
-                          {c.phone && <div className="text-gray-400 text-xs">{c.phone}</div>}
-                          {c.address_1 && <div className="text-gray-500 text-xs truncate max-w-xs">{c.address_1}</div>}
+                          <div className="text-gray-900 text-sm font-medium">{c.name}</div>
+                          {c.phone && <div className="text-gray-500 text-xs">{c.phone}</div>}
+                          {c.address_1 && <div className="text-gray-400 text-xs truncate max-w-xs">{c.address_1}</div>}
                         </div>
-                        <span className="text-green-400 text-lg shrink-0">›</span>
+                        <span className="text-green-600 text-lg shrink-0">›</span>
                       </button>
                     ))}
                     {delivMatchedCustomers.length === 0 && quickAddContact?.target === 'deliv' && (
                       renderQuickAddContactForm('deliv')
                     )}
                     {delivMatchedCustomers.length === 0 && quickAddContact?.target !== 'deliv' && (
-                      <div className="text-center py-6 text-gray-500 text-sm space-y-1.5">
+                      <div className="text-center py-6 text-gray-400 text-sm space-y-1.5">
                         <div>ไม่พบลูกค้า</div>
                         <button onClick={() => openQuickAddContact('deliv', delivCustSearch)}
-                          className="text-green-400 hover:text-green-300 font-bold text-xs">
+                          className="text-green-600 hover:text-green-700 font-bold text-xs">
                           ✚ เพิ่มผู้ติดต่อใหม่เข้าระบบ
                         </button>
                       </div>
@@ -10834,56 +10834,56 @@ export default function POSPage() {
               {delivStep === 2 && delivCust && (
                 <div className="space-y-4">
                   {/* ลูกค้าที่เลือก */}
-                  <div className="bg-gray-800 rounded-xl p-3 flex items-center justify-between">
+                  <div className="bg-white rounded-xl p-3 flex items-center justify-between">
                     <div>
-                      <div className="text-white font-medium text-sm">{delivCust.name}</div>
-                      {delivCust.phone && <div className="text-gray-400 text-xs">{delivCust.phone}</div>}
+                      <div className="text-gray-900 font-medium text-sm">{delivCust.name}</div>
+                      {delivCust.phone && <div className="text-gray-500 text-xs">{delivCust.phone}</div>}
                       {Object.keys(customerPrices).length > 0 && (
-                        <div className="text-green-400 text-xs mt-0.5">💰 ใช้ราคาประจำตัวแล้ว</div>
+                        <div className="text-green-600 text-xs mt-0.5">💰 ใช้ราคาประจำตัวแล้ว</div>
                       )}
                     </div>
-                    <button onClick={() => setDelivStep(1)} className="text-xs text-green-400 underline">เปลี่ยน</button>
+                    <button onClick={() => setDelivStep(1)} className="text-xs text-green-600 underline">เปลี่ยน</button>
                   </div>
 
                   {/* เลือกที่อยู่ */}
                   <div>
-                    <label className="text-gray-400 text-xs block mb-2">📍 ที่อยู่จัดส่ง</label>
+                    <label className="text-gray-500 text-xs block mb-2">📍 ที่อยู่จัดส่ง</label>
                     <div className="space-y-2">
                       {delivCust.address_1 && (
                         <button onClick={() => setDelivAddrIdx(0)}
-                          className={`w-full text-left p-3 rounded-xl border text-sm transition-colors ${delivAddrIdx === 0 ? 'bg-green-900/40 border-green-600 text-green-200' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}`}>
-                          <div className="font-medium text-xs text-gray-400 mb-0.5">ที่อยู่ 1</div>
+                          className={`w-full text-left p-3 rounded-xl border text-sm transition-colors ${delivAddrIdx === 0 ? 'bg-green-50/40 border-green-600 text-green-800' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'}`}>
+                          <div className="font-medium text-xs text-gray-500 mb-0.5">ที่อยู่ 1</div>
                           {delivCust.address_1}
-                          {delivCust.maps_1 && <span className="ml-2 text-xs text-green-400">🗺️ มี Maps</span>}
+                          {delivCust.maps_1 && <span className="ml-2 text-xs text-green-600">🗺️ มี Maps</span>}
                         </button>
                       )}
                       {delivCust.address_2 && (
                         <button onClick={() => setDelivAddrIdx(1)}
-                          className={`w-full text-left p-3 rounded-xl border text-sm transition-colors ${delivAddrIdx === 1 ? 'bg-green-900/40 border-green-600 text-green-200' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}`}>
-                          <div className="font-medium text-xs text-gray-400 mb-0.5">ที่อยู่ 2</div>
+                          className={`w-full text-left p-3 rounded-xl border text-sm transition-colors ${delivAddrIdx === 1 ? 'bg-green-50/40 border-green-600 text-green-800' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'}`}>
+                          <div className="font-medium text-xs text-gray-500 mb-0.5">ที่อยู่ 2</div>
                           {delivCust.address_2}
-                          {delivCust.maps_2 && <span className="ml-2 text-xs text-green-400">🗺️ มี Maps</span>}
+                          {delivCust.maps_2 && <span className="ml-2 text-xs text-green-600">🗺️ มี Maps</span>}
                         </button>
                       )}
                       <div role="button" tabIndex={0} onClick={() => setDelivAddrIdx(2)}
                         onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && setDelivAddrIdx(2)}
-                        className={`w-full text-left p-3 rounded-xl border text-sm transition-colors cursor-pointer ${delivAddrIdx === 2 ? 'bg-green-900/40 border-green-600 text-green-200' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}`}>
-                        <div className="font-medium text-xs text-gray-400 mb-0.5">ที่อยู่อื่น (พิมพ์เอง)</div>
+                        className={`w-full text-left p-3 rounded-xl border text-sm transition-colors cursor-pointer ${delivAddrIdx === 2 ? 'bg-green-50/40 border-green-600 text-green-800' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'}`}>
+                        <div className="font-medium text-xs text-gray-500 mb-0.5">ที่อยู่อื่น (พิมพ์เอง)</div>
                         {delivAddrIdx === 2 && (
                           <div className="space-y-1.5 mt-2" onClick={e => e.stopPropagation()}>
                             <input value={delivAddrCustom} onChange={e => setDelivAddrCustom(e.target.value)}
-                              className="w-full bg-gray-700 text-white text-sm px-3 py-2 rounded-lg border border-gray-600 focus:outline-none"
+                              className="w-full bg-gray-100 text-gray-900 text-sm px-3 py-2 rounded-lg border border-gray-300 focus:outline-none"
                               placeholder="ที่อยู่จัดส่ง..." />
                             {delivMapsCustom ? (
                               <div className="flex items-center gap-2">
-                                <span className="text-green-400 text-xs flex-1 truncate">✅ ปักหมุดแล้ว</span>
-                                <button type="button" onClick={() => setShowDelivMapPicker(true)} className="text-xs text-blue-400 hover:text-blue-300 shrink-0">แก้ไข</button>
-                                <a href={delivMapsCustom} target="_blank" rel="noreferrer" className="text-xs text-gray-400 hover:text-gray-200 shrink-0">ดู</a>
-                                <button type="button" onClick={() => setDelivMapsCustom('')} className="text-xs text-gray-500 hover:text-red-400 shrink-0">ลบ</button>
+                                <span className="text-green-600 text-xs flex-1 truncate">✅ ปักหมุดแล้ว</span>
+                                <button type="button" onClick={() => setShowDelivMapPicker(true)} className="text-xs text-blue-600 hover:text-blue-700 shrink-0">แก้ไข</button>
+                                <a href={delivMapsCustom} target="_blank" rel="noreferrer" className="text-xs text-gray-500 hover:text-gray-800 shrink-0">ดู</a>
+                                <button type="button" onClick={() => setDelivMapsCustom('')} className="text-xs text-gray-400 hover:text-red-600 shrink-0">ลบ</button>
                               </div>
                             ) : (
                               <button type="button" onClick={() => setShowDelivMapPicker(true)}
-                                className="w-full flex items-center justify-center gap-1.5 bg-gray-600 hover:bg-green-800 text-gray-300 hover:text-green-300 text-xs py-2 rounded-lg border border-gray-500 hover:border-green-700 transition-colors">
+                                className="w-full flex items-center justify-center gap-1.5 bg-gray-200 hover:bg-green-100 text-gray-700 hover:text-green-700 text-xs py-2 rounded-lg border border-gray-400 hover:border-green-300 transition-colors">
                                 🗺️ เปิดแผนที่วางหมุด
                               </button>
                             )}
@@ -10895,9 +10895,9 @@ export default function POSPage() {
 
                   {/* เลือกพนักงาน */}
                   <div>
-                    <label className="text-gray-400 text-xs block mb-2">🛵 พนักงานส่ง</label>
+                    <label className="text-gray-500 text-xs block mb-2">🛵 พนักงานส่ง</label>
                     {staff.length === 0 ? (
-                      <div className="bg-gray-800 rounded-xl p-3 text-center text-sm text-yellow-400">
+                      <div className="bg-white rounded-xl p-3 text-center text-sm text-yellow-600">
                         ยังไม่มีพนักงาน —{' '}
                         <button onClick={() => { setShowDelivery(false); setTab('settings'); }} className="underline">เพิ่มพนักงาน</button>
                       </div>
@@ -10905,9 +10905,9 @@ export default function POSPage() {
                       <div className="grid grid-cols-2 gap-2">
                         {staff.map(s => (
                           <button key={s.staff_id} onClick={() => setDelivStaff(s)}
-                            className={`p-3 rounded-xl border text-sm text-left transition-colors ${delivStaff?.staff_id === s.staff_id ? 'bg-green-900/40 border-green-600 text-green-200' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}`}>
+                            className={`p-3 rounded-xl border text-sm text-left transition-colors ${delivStaff?.staff_id === s.staff_id ? 'bg-green-50/40 border-green-600 text-green-800' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'}`}>
                             <div className="font-medium">{s.name}</div>
-                            <div className="text-xs mt-0.5 text-gray-500">{s.role}</div>
+                            <div className="text-xs mt-0.5 text-gray-400">{s.role}</div>
                             {!s.line_id && <div className="text-xs text-yellow-500 mt-0.5">⚠️ ไม่มี LINE ID</div>}
                           </button>
                         ))}
@@ -10917,11 +10917,11 @@ export default function POSPage() {
 
                   {/* วิธีชำระเงิน */}
                   <div>
-                    <label className="text-gray-400 text-xs block mb-2">💳 วิธีชำระเงิน</label>
+                    <label className="text-gray-500 text-xs block mb-2">💳 วิธีชำระเงิน</label>
                     <div className="grid grid-cols-3 gap-2">
                       {['เก็บปลายทาง', 'โอนแล้ว', ...(hasFeature(shopInfo?.subscription_tier, 'credit_ar') ? ['ค้างจ่าย'] : [])].map(pm => (
                         <button key={pm} onClick={() => setDelivPayment(pm)}
-                          className={`py-2.5 rounded-xl text-xs font-medium transition-colors ${delivPayment === pm ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
+                          className={`py-2.5 rounded-xl text-xs font-medium transition-colors ${delivPayment === pm ? 'bg-green-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'}`}>
                           {pm}
                         </button>
                       ))}
@@ -10930,14 +10930,14 @@ export default function POSPage() {
 
                   {/* หมายเหตุ */}
                   <div>
-                    <label className="text-gray-400 text-xs block mb-1.5">หมายเหตุ (ไม่บังคับ)</label>
+                    <label className="text-gray-500 text-xs block mb-1.5">หมายเหตุ (ไม่บังคับ)</label>
                     <input value={delivNotes} onChange={e => setDelivNotes(e.target.value)}
-                      className="w-full bg-gray-800 text-white text-sm px-3 py-2.5 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                      className="w-full bg-white text-gray-900 text-sm px-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                       placeholder="เช่น โทรก่อนถึง 15 นาที" />
                   </div>
 
                   <div className="flex gap-3 pt-1">
-                    <button onClick={() => setDelivStep(1)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-colors text-sm">← กลับ</button>
+                    <button onClick={() => setDelivStep(1)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-900 font-bold py-3 rounded-xl transition-colors text-sm">← กลับ</button>
                     <button
                       onClick={() => handleDelivery()}
                       disabled={delivLoading || !delivStaff || cart.length === 0 || (delivAddrIdx === 2 && !delivAddrCustom.trim())}
@@ -10960,53 +10960,53 @@ export default function POSPage() {
       {/* ══ DEBT HISTORY MODAL ═══════════════════════════════════════════════════ */}
       {showDebtHistory && debtHistoryCont && (
         <div className="fixed inset-0 z-50 bg-black/75 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto">
-            <div className="p-4 border-b border-gray-800 flex items-center justify-between sticky top-0 bg-gray-900 z-10">
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
               <div>
-                <h3 className="text-white font-bold">📋 ประวัติหนี้</h3>
-                <p className="text-gray-400 text-xs mt-0.5">{debtHistoryCont.name}</p>
+                <h3 className="text-gray-900 font-bold">📋 ประวัติหนี้</h3>
+                <p className="text-gray-500 text-xs mt-0.5">{debtHistoryCont.name}</p>
               </div>
-              <button onClick={() => setShowDebtHistory(false)} className="text-gray-500 hover:text-white text-xl w-8 h-8 flex items-center justify-center">✕</button>
+              <button onClick={() => setShowDebtHistory(false)} className="text-gray-400 hover:text-gray-900 text-xl w-8 h-8 flex items-center justify-center">✕</button>
             </div>
             <div className="p-4">
               <div className="flex gap-3 mb-4">
-                <div className="flex-1 bg-red-900/30 border border-red-800/60 rounded-xl p-3 text-center">
-                  <div className="text-red-400 font-bold text-xl">฿{(debtHistoryCont.debt || 0).toLocaleString()}</div>
-                  <div className="text-gray-500 text-xs mt-0.5">ยอดค้างชำระ</div>
+                <div className="flex-1 bg-red-50/30 border border-red-200/60 rounded-xl p-3 text-center">
+                  <div className="text-red-600 font-bold text-xl">฿{(debtHistoryCont.debt || 0).toLocaleString()}</div>
+                  <div className="text-gray-400 text-xs mt-0.5">ยอดค้างชำระ</div>
                 </div>
-                <div className="flex-1 bg-gray-800 rounded-xl p-3 text-center">
-                  <div className="text-white font-bold text-xl">{debtHistoryOrders.filter(o => o.status !== 'ชำระแล้ว').length}</div>
-                  <div className="text-gray-500 text-xs mt-0.5">บิลค้างชำระ</div>
+                <div className="flex-1 bg-white rounded-xl p-3 text-center">
+                  <div className="text-gray-900 font-bold text-xl">{debtHistoryOrders.filter(o => o.status !== 'ชำระแล้ว').length}</div>
+                  <div className="text-gray-400 text-xs mt-0.5">บิลค้างชำระ</div>
                 </div>
               </div>
 
               {debtHistoryLoading ? (
-                <div className="text-center text-gray-500 py-8 animate-pulse">กำลังโหลด...</div>
+                <div className="text-center text-gray-400 py-8 animate-pulse">กำลังโหลด...</div>
               ) : debtHistoryOrders.length === 0 ? (
-                <div className="text-center text-gray-500 py-8 text-sm">
+                <div className="text-center text-gray-400 py-8 text-sm">
                   <div className="text-3xl mb-2">📭</div>
                   <p>ไม่พบบิลค้างชำระ</p>
-                  <p className="text-xs mt-1 text-gray-600">ยอดค้างอาจถูกปรับโดยตรง</p>
+                  <p className="text-xs mt-1 text-gray-400">ยอดค้างอาจถูกปรับโดยตรง</p>
                 </div>
               ) : (
                 <div className="space-y-2">
                   {debtHistoryOrders.map(o => (
-                    <div key={o.order_no} className="bg-gray-800 rounded-xl p-3">
+                    <div key={o.order_no} className="bg-white rounded-xl p-3">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-white text-sm font-medium">{o.order_no}</span>
-                            <span className={`text-xs px-1.5 py-0.5 rounded-full ${o.source === 'delivery' ? 'bg-orange-900/60 text-orange-300' : 'bg-blue-900/60 text-blue-300'}`}>
+                            <span className="text-gray-900 text-sm font-medium">{o.order_no}</span>
+                            <span className={`text-xs px-1.5 py-0.5 rounded-full ${o.source === 'delivery' ? 'bg-orange-50/60 text-orange-700' : 'bg-blue-50/60 text-blue-700'}`}>
                               {o.source === 'delivery' ? '🚚 จัดส่ง' : '🏪 หน้าร้าน'}
                             </span>
-                            <span className={`text-xs px-2 py-0.5 rounded-full ${o.status === 'ชำระแล้ว' ? 'bg-green-900 text-green-400' : 'bg-red-900/60 text-red-300'}`}>{o.status}</span>
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${o.status === 'ชำระแล้ว' ? 'bg-green-50 text-green-600' : 'bg-red-50/60 text-red-700'}`}>{o.status}</span>
                           </div>
                           {(o.items||[]).length > 0 && (
-                            <p className="text-gray-500 text-xs mt-1">{o.items.map(i => `${i.name}×${i.qty}`).join(', ')}</p>
+                            <p className="text-gray-400 text-xs mt-1">{o.items.map(i => `${i.name}×${i.qty}`).join(', ')}</p>
                           )}
-                          {o.notes && <p className="text-gray-600 text-xs mt-0.5">{o.notes}</p>}
+                          {o.notes && <p className="text-gray-400 text-xs mt-0.5">{o.notes}</p>}
                         </div>
-                        <div className="text-red-400 font-bold text-sm shrink-0">฿{(o.total || 0).toLocaleString()}</div>
+                        <div className="text-red-600 font-bold text-sm shrink-0">฿{(o.total || 0).toLocaleString()}</div>
                       </div>
                     </div>
                   ))}
@@ -11031,25 +11031,25 @@ export default function POSPage() {
       {/* ══ CONTACTS CSV/VCF IMPORT MODAL ═══════════════════════════════════════ */}
       {showImportModal && (
         <div className="fixed inset-0 z-50 bg-black/75 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
-            <div className="p-4 border-b border-gray-800 flex items-center justify-between sticky top-0 bg-gray-900 z-10">
-              <h3 className="text-white font-bold text-base">
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+              <h3 className="text-gray-900 font-bold text-base">
                 {isVcfMode ? '📱 นำเข้าผู้ติดต่อจากโทรศัพท์ (VCF)' : '📥 นำเข้าผู้ติดต่อจาก CSV'}
               </h3>
               <button onClick={closeImportModal} disabled={importLoading}
-                className="text-gray-500 hover:text-white text-xl w-8 h-8 flex items-center justify-center disabled:opacity-30">✕</button>
+                className="text-gray-400 hover:text-gray-900 text-xl w-8 h-8 flex items-center justify-center disabled:opacity-30">✕</button>
             </div>
 
             <div className="p-5">
               {importProgress ? (
                 <div className="text-center py-10">
                   <div className="text-5xl mb-4">⏳</div>
-                  <p className="text-white font-bold text-lg mb-3">กำลังนำเข้า...</p>
-                  <div className="bg-gray-800 rounded-full h-3 overflow-hidden mb-3 max-w-xs mx-auto">
+                  <p className="text-gray-900 font-bold text-lg mb-3">กำลังนำเข้า...</p>
+                  <div className="bg-white rounded-full h-3 overflow-hidden mb-3 max-w-xs mx-auto">
                     <div className="bg-green-500 h-full transition-all duration-300 rounded-full"
                       style={{ width: `${Math.round((importProgress.done / importProgress.total) * 100)}%` }} />
                   </div>
-                  <p className="text-gray-400 text-sm">{importProgress.done} / {importProgress.total} รายการ</p>
+                  <p className="text-gray-500 text-sm">{importProgress.done} / {importProgress.total} รายการ</p>
                   {importProgress.skipped > 0 && (
                     <p className="text-yellow-500 text-xs mt-1">ข้าม {importProgress.skipped} รายการที่ซ้ำ</p>
                   )}
@@ -11058,28 +11058,28 @@ export default function POSPage() {
               ) : importRows.length === 0 ? (
                 <div>
                   <div onClick={() => importFileRef.current?.click()}
-                    className="border-2 border-dashed border-gray-600 hover:border-green-500 rounded-xl p-10 text-center cursor-pointer transition-colors group">
+                    className="border-2 border-dashed border-gray-300 hover:border-green-500 rounded-xl p-10 text-center cursor-pointer transition-colors group">
                     <div className="text-4xl mb-3 group-hover:scale-110 transition-transform">📱</div>
-                    <p className="text-gray-200 font-medium mb-1">คลิกเพื่อเลือกไฟล์</p>
-                    <p className="text-gray-500 text-xs">รองรับ <strong className="text-green-400">VCF</strong> (รายชื่อโทรศัพท์), <strong className="text-blue-400">Excel</strong> และ <strong className="text-blue-400">CSV</strong></p>
+                    <p className="text-gray-800 font-medium mb-1">คลิกเพื่อเลือกไฟล์</p>
+                    <p className="text-gray-400 text-xs">รองรับ <strong className="text-green-600">VCF</strong> (รายชื่อโทรศัพท์), <strong className="text-blue-600">Excel</strong> และ <strong className="text-blue-600">CSV</strong></p>
                     <input ref={importFileRef} type="file"
                       accept=".vcf,.csv,.xlsx,.xls,text/vcard,text/x-vcard,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                       className="hidden"
                       onChange={e => { if (e.target.files?.[0]) { handleImportFile(e.target.files[0]); e.target.value = ''; } }} />
                   </div>
                   <div className="mt-4 flex items-center justify-between">
-                    <p className="text-gray-500 text-xs">ต้องการ CSV เปล่า?</p>
+                    <p className="text-gray-400 text-xs">ต้องการ CSV เปล่า?</p>
                     <button onClick={downloadTemplateCsv}
-                      className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded-lg border border-gray-700 transition-colors">
+                      className="text-xs bg-white hover:bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg border border-gray-200 transition-colors">
                       ⬇ ดาวน์โหลด Template CSV
                     </button>
                   </div>
-                  <div className="mt-4 bg-gray-800/50 rounded-xl p-4 text-xs text-gray-400 space-y-1.5">
-                    <p className="font-medium text-gray-300 mb-2">💡 วิธี Export รายชื่อจากโทรศัพท์</p>
-                    <p>• <strong className="text-green-400">ไฟล์ VCF (แนะนำ):</strong> แอปรายชื่อ → เลือกทั้งหมด → Share / ส่งออก → เลือก "ไฟล์ VCF" หรือ "vCard"</p>
-                    <p>• <strong className="text-gray-200">Android / Samsung:</strong> แอป Contacts → ⋮ → จัดการผู้ติดต่อ → นำออก → บันทึกเป็น .vcf</p>
-                    <p>• <strong className="text-gray-200">iPhone:</strong> Settings → Contacts → iCloud → Export vCard (หรือใช้แอป "Contacts+")</p>
-                    <p>• <strong className="text-blue-400">ไฟล์ Excel/CSV:</strong> อัปโหลดไฟล์รายชื่อลูกค้า/ผู้จำหน่ายจากระบบบัญชี (.xlsx/.xls/.csv) ได้ตรงๆ เลย หรือดาวน์โหลด Template ด้านบน</p>
+                  <div className="mt-4 bg-white/50 rounded-xl p-4 text-xs text-gray-500 space-y-1.5">
+                    <p className="font-medium text-gray-700 mb-2">💡 วิธี Export รายชื่อจากโทรศัพท์</p>
+                    <p>• <strong className="text-green-600">ไฟล์ VCF (แนะนำ):</strong> แอปรายชื่อ → เลือกทั้งหมด → Share / ส่งออก → เลือก "ไฟล์ VCF" หรือ "vCard"</p>
+                    <p>• <strong className="text-gray-800">Android / Samsung:</strong> แอป Contacts → ⋮ → จัดการผู้ติดต่อ → นำออก → บันทึกเป็น .vcf</p>
+                    <p>• <strong className="text-gray-800">iPhone:</strong> Settings → Contacts → iCloud → Export vCard (หรือใช้แอป "Contacts+")</p>
+                    <p>• <strong className="text-blue-600">ไฟล์ Excel/CSV:</strong> อัปโหลดไฟล์รายชื่อลูกค้า/ผู้จำหน่ายจากระบบบัญชี (.xlsx/.xls/.csv) ได้ตรงๆ เลย หรือดาวน์โหลด Template ด้านบน</p>
                   </div>
                 </div>
 
@@ -11088,7 +11088,7 @@ export default function POSPage() {
                   {/* column mapping — แสดงเฉพาะ CSV (VCF ไม่ต้องจับคู่) */}
                   {!isVcfMode && (
                     <div>
-                      <h4 className="text-white font-medium text-sm mb-3">🔗 จับคู่คอลัมน์ CSV กับข้อมูลผู้ติดต่อ</h4>
+                      <h4 className="text-gray-900 font-medium text-sm mb-3">🔗 จับคู่คอลัมน์ CSV กับข้อมูลผู้ติดต่อ</h4>
                       <div className="space-y-2">
                         {[
                           { field: 'name',         label: 'ชื่อ *',      required: true  },
@@ -11098,11 +11098,11 @@ export default function POSPage() {
                           { field: 'notes',        label: 'หมายเหตุ',   required: false },
                         ].map(({ field, label, required }) => (
                           <div key={field} className="flex items-center gap-3">
-                            <span className={`text-xs w-28 shrink-0 ${required ? 'text-yellow-400' : 'text-gray-400'}`}>{label}</span>
-                            <span className="text-gray-600 text-xs shrink-0">←</span>
+                            <span className={`text-xs w-28 shrink-0 ${required ? 'text-yellow-600' : 'text-gray-500'}`}>{label}</span>
+                            <span className="text-gray-400 text-xs shrink-0">←</span>
                             <select value={importMapping[field] || ''}
                               onChange={e => setImportMapping(m => ({ ...m, [field]: e.target.value }))}
-                              className="flex-1 bg-gray-800 text-white text-xs px-3 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500">
+                              className="flex-1 bg-white text-gray-900 text-xs px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-green-500">
                               <option value="">— ไม่นำเข้า —</option>
                               {/* แสดงตัวอย่างค่าจริงจากแถวแรกกำกับชื่อคอลัมน์เสมอ (เหมือนหน้านำเข้า
                                   สินค้า) กันงงกรณีไฟล์ใช้ชื่อคอลัมน์เป็นภาษาอังกฤษ/ศัพท์เทคนิคที่ผู้ใช้
@@ -11123,18 +11123,18 @@ export default function POSPage() {
                   )}
 
                   {isVcfMode && (
-                    <div className="bg-green-900/30 border border-green-700/50 rounded-xl px-4 py-3 text-xs text-green-400 flex items-center gap-2">
+                    <div className="bg-green-50/30 border border-green-300/50 rounded-xl px-4 py-3 text-xs text-green-600 flex items-center gap-2">
                       <span>✅</span>
                       <span>อ่านไฟล์ VCF สำเร็จ พบ <strong>{importRows.length}</strong> รายชื่อ — พร้อมนำเข้าได้เลย</span>
                     </div>
                   )}
 
                   <div>
-                    <h4 className="text-white font-medium text-sm mb-2">ประเภทผู้ติดต่อ (ทุกรายการ)</h4>
+                    <h4 className="text-gray-900 font-medium text-sm mb-2">ประเภทผู้ติดต่อ (ทุกรายการ)</h4>
                     <div className="flex gap-2">
                       {['ลูกค้า', 'ผู้จำหน่าย', 'ทั้งคู่'].map(t => (
                         <button key={t} type="button" onClick={() => setImportDefaultType(t)}
-                          className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${importDefaultType === t ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
+                          className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${importDefaultType === t ? 'bg-green-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'}`}>
                           {t}
                         </button>
                       ))}
@@ -11143,27 +11143,27 @@ export default function POSPage() {
 
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-white font-medium text-sm">ตัวอย่าง (5 แถวแรก)</h4>
-                      <span className="text-gray-500 text-xs">พบ {importRows.length} รายการ</span>
+                      <h4 className="text-gray-900 font-medium text-sm">ตัวอย่าง (5 แถวแรก)</h4>
+                      <span className="text-gray-400 text-xs">พบ {importRows.length} รายการ</span>
                     </div>
-                    <div className="bg-gray-800 rounded-xl overflow-hidden">
+                    <div className="bg-white rounded-xl overflow-hidden">
                       <div className="overflow-x-auto">
                         <table className="w-full text-xs">
                           <thead>
-                            <tr className="border-b border-gray-700">
-                              <th className="text-left text-gray-400 px-3 py-2 font-medium">ชื่อ</th>
-                              <th className="text-left text-gray-400 px-3 py-2 font-medium">เบอร์โทร</th>
-                              <th className="text-left text-gray-400 px-3 py-2 font-medium">อีเมล</th>
-                              <th className="text-left text-gray-400 px-3 py-2 font-medium">บริษัท</th>
+                            <tr className="border-b border-gray-200">
+                              <th className="text-left text-gray-500 px-3 py-2 font-medium">ชื่อ</th>
+                              <th className="text-left text-gray-500 px-3 py-2 font-medium">เบอร์โทร</th>
+                              <th className="text-left text-gray-500 px-3 py-2 font-medium">อีเมล</th>
+                              <th className="text-left text-gray-500 px-3 py-2 font-medium">บริษัท</th>
                             </tr>
                           </thead>
                           <tbody>
                             {importRows.slice(0, 5).map((row, i) => (
-                              <tr key={i} className="border-b border-gray-700/50 last:border-0">
-                                <td className="px-3 py-2 text-white font-medium">{importMapping.name ? (row[importMapping.name] || '—') : '—'}</td>
-                                <td className="px-3 py-2 text-gray-300">{importMapping.phone ? (row[importMapping.phone] || '—') : '—'}</td>
-                                <td className="px-3 py-2 text-gray-400">{importMapping.email ? (row[importMapping.email] || '—') : '—'}</td>
-                                <td className="px-3 py-2 text-gray-400">{importMapping.company_name ? (row[importMapping.company_name] || '—') : '—'}</td>
+                              <tr key={i} className="border-b border-gray-200/50 last:border-0">
+                                <td className="px-3 py-2 text-gray-900 font-medium">{importMapping.name ? (row[importMapping.name] || '—') : '—'}</td>
+                                <td className="px-3 py-2 text-gray-700">{importMapping.phone ? (row[importMapping.phone] || '—') : '—'}</td>
+                                <td className="px-3 py-2 text-gray-500">{importMapping.email ? (row[importMapping.email] || '—') : '—'}</td>
+                                <td className="px-3 py-2 text-gray-500">{importMapping.company_name ? (row[importMapping.company_name] || '—') : '—'}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -11174,7 +11174,7 @@ export default function POSPage() {
 
                   <div className="flex gap-3">
                     <button onClick={() => { setImportRows([]); setImportHeaders([]); }}
-                      className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium py-3 rounded-xl transition-colors text-sm">
+                      className="flex-1 bg-white hover:bg-gray-100 text-gray-700 font-medium py-3 rounded-xl transition-colors text-sm">
                       ← เลือกไฟล์ใหม่
                     </button>
                     <button onClick={runImport}
@@ -11193,53 +11193,53 @@ export default function POSPage() {
       {/* ══ CONTACTS CLEANUP MODAL (เช็ครายการซ้ำ / ไม่มีความเคลื่อนไหว) ═══════════ */}
       {showCleanupModal && (
         <div className="fixed inset-0 z-50 bg-black/75 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto flex flex-col">
-            <div className="p-4 border-b border-gray-800 flex items-center justify-between sticky top-0 bg-gray-900 z-10">
-              <h3 className="text-white font-bold text-base">🧹 เช็ครายการซ้ำ / ไม่มีความเคลื่อนไหว</h3>
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto flex flex-col">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+              <h3 className="text-gray-900 font-bold text-base">🧹 เช็ครายการซ้ำ / ไม่มีความเคลื่อนไหว</h3>
               <button onClick={() => setShowCleanupModal(false)} disabled={cleanupDeleting}
-                className="text-gray-500 hover:text-white text-xl w-8 h-8 flex items-center justify-center disabled:opacity-30">✕</button>
+                className="text-gray-400 hover:text-gray-900 text-xl w-8 h-8 flex items-center justify-center disabled:opacity-30">✕</button>
             </div>
 
             <div className="p-5">
               {cleanupLoading ? (
-                <div className="text-center text-gray-500 py-16 animate-pulse">กำลังตรวจสอบผู้ติดต่อทั้งหมด...</div>
+                <div className="text-center text-gray-400 py-16 animate-pulse">กำลังตรวจสอบผู้ติดต่อทั้งหมด...</div>
               ) : !cleanupInfo ? (
-                <div className="text-center text-gray-500 py-16">โหลดข้อมูลไม่สำเร็จ ลองปิดแล้วเปิดใหม่</div>
+                <div className="text-center text-gray-400 py-16">โหลดข้อมูลไม่สำเร็จ ลองปิดแล้วเปิดใหม่</div>
               ) : (
                 <>
                   {/* filters */}
                   <div className="mb-4">
-                    <p className="text-gray-500 text-xs mb-2">รายการซ้ำ</p>
+                    <p className="text-gray-400 text-xs mb-2">รายการซ้ำ</p>
                     <button onClick={() => setCleanupDuplicatesOnly(v => !v)}
                       className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                        cleanupDuplicatesOnly ? 'bg-amber-600 text-white' : 'bg-gray-800 text-amber-300 hover:bg-gray-700'
+                        cleanupDuplicatesOnly ? 'bg-amber-600 text-white' : 'bg-white text-amber-700 hover:bg-gray-100'
                       }`}
                     >🔁 เฉพาะที่ชื่อ+เบอร์ซ้ำกัน</button>
                   </div>
                   <div className="mb-4">
-                    <p className="text-gray-500 text-xs mb-2">ไม่มีความเคลื่อนไหว (ไม่เคยซื้อขาย/ค้างชำระ) นานกว่า</p>
+                    <p className="text-gray-400 text-xs mb-2">ไม่มีความเคลื่อนไหว (ไม่เคยซื้อขาย/ค้างชำระ) นานกว่า</p>
                     <div className="flex gap-2 flex-wrap">
                       {[3, 6, 12].map(m => (
                         <button key={m} onClick={() => setCleanupInactiveMonths(v => v === m ? null : m)}
                           className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                            cleanupInactiveMonths === m ? 'bg-red-700 text-white' : 'bg-gray-800 text-red-300 hover:bg-gray-700'
+                            cleanupInactiveMonths === m ? 'bg-red-700 text-white' : 'bg-white text-red-700 hover:bg-gray-100'
                           }`}
                         >{m} เดือน</button>
                       ))}
                       {cleanupInactiveMonths && (
                         <button onClick={() => setCleanupInactiveMonths(null)}
-                          className="px-4 py-1.5 rounded-full text-xs font-medium bg-gray-800 text-gray-400 hover:bg-gray-700 transition-colors"
+                          className="px-4 py-1.5 rounded-full text-xs font-medium bg-white text-gray-500 hover:bg-gray-100 transition-colors"
                         >ล้างตัวกรองนี้</button>
                       )}
                     </div>
                   </div>
 
                   {/* summary + bulk select */}
-                  <div className="bg-gray-800/60 rounded-xl px-4 py-3 mb-3">
+                  <div className="bg-white/60 rounded-xl px-4 py-3 mb-3">
                     <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
-                      <span className="text-gray-300 text-sm">พบ <b className="text-white">{cleanupMatches.length}</b> รายการที่ตรงเงื่อนไข</span>
+                      <span className="text-gray-700 text-sm">พบ <b className="text-gray-900">{cleanupMatches.length}</b> รายการที่ตรงเงื่อนไข</span>
                       <button onClick={clearCleanupSelection} disabled={!cleanupSelected.size}
-                        className="text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-30 text-gray-200 px-3 py-1.5 rounded-lg transition-colors">
+                        className="text-xs bg-gray-100 hover:bg-gray-200 disabled:opacity-30 text-gray-800 px-3 py-1.5 rounded-lg transition-colors">
                         ล้างที่เลือก ({cleanupSelected.size})
                       </button>
                     </div>
@@ -11251,7 +11251,7 @@ export default function POSPage() {
                         </button>
                       )}
                       <button onClick={selectAllCleanupMatches} disabled={!cleanupMatches.length}
-                        className="text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-30 text-gray-200 px-3 py-1.5 rounded-lg transition-colors">
+                        className="text-xs bg-gray-100 hover:bg-gray-200 disabled:opacity-30 text-gray-800 px-3 py-1.5 rounded-lg transition-colors">
                         เลือกทั้งหมดที่เห็น ({cleanupMatches.length}) — รวมตัวแรกของแต่ละคู่ด้วย
                       </button>
                     </div>
@@ -11259,26 +11259,26 @@ export default function POSPage() {
 
                   {/* list */}
                   {cleanupMatches.length === 0 ? (
-                    <div className="text-center text-gray-500 py-10 text-sm">ไม่พบรายการที่ตรงเงื่อนไข</div>
+                    <div className="text-center text-gray-400 py-10 text-sm">ไม่พบรายการที่ตรงเงื่อนไข</div>
                   ) : (
                     <div className="space-y-1.5">
                       {pagedCleanupMatches.map(c => (
                         <label key={c.contact_id}
-                          className="flex items-center gap-3 bg-gray-800 rounded-lg px-3 py-2.5 cursor-pointer hover:bg-gray-750"
+                          className="flex items-center gap-3 bg-white rounded-lg px-3 py-2.5 cursor-pointer hover:bg-gray-50"
                         >
                           <input type="checkbox" checked={cleanupSelected.has(c.contact_id)}
                             onChange={() => toggleCleanupSelect(c.contact_id)}
                             className="w-4 h-4 shrink-0 accent-red-600" />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className={`text-sm font-medium truncate ${c.name ? 'text-white' : 'text-gray-500 italic'}`}>{c.name || '(ไม่มีชื่อ)'}</span>
+                              <span className={`text-sm font-medium truncate ${c.name ? 'text-gray-900' : 'text-gray-400 italic'}`}>{c.name || '(ไม่มีชื่อ)'}</span>
                               {c._cleanup?.is_duplicate && (
-                                <span className="text-[10px] bg-amber-900/60 text-amber-300 px-2 py-0.5 rounded-full shrink-0">
+                                <span className="text-[10px] bg-amber-50/60 text-amber-700 px-2 py-0.5 rounded-full shrink-0">
                                   🔁 ซ้ำ x{c._cleanup.duplicate_group_size}
                                 </span>
                               )}
                             </div>
-                            <div className="text-gray-500 text-xs mt-0.5">
+                            <div className="text-gray-400 text-xs mt-0.5">
                               {c.phone || 'ไม่มีเบอร์'} · {formatCleanupLastActivity(c._cleanup?.last_activity_at)}
                             </div>
                           </div>
@@ -11290,10 +11290,10 @@ export default function POSPage() {
                   {cleanupMatches.length > CLEANUP_PER_PAGE && (
                     <div className="flex items-center justify-between mt-3">
                       <button onClick={() => setCleanupPage(p => Math.max(1, p - 1))} disabled={cleanupPage <= 1}
-                        className="text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-30 text-gray-300 px-3 py-2 rounded-lg transition-colors">← ก่อนหน้า</button>
-                      <span className="text-gray-500 text-xs">หน้า {cleanupPage} / {cleanupTotalPages}</span>
+                        className="text-xs bg-white hover:bg-gray-100 disabled:opacity-30 text-gray-700 px-3 py-2 rounded-lg transition-colors">← ก่อนหน้า</button>
+                      <span className="text-gray-400 text-xs">หน้า {cleanupPage} / {cleanupTotalPages}</span>
                       <button onClick={() => setCleanupPage(p => Math.min(cleanupTotalPages, p + 1))} disabled={cleanupPage >= cleanupTotalPages}
-                        className="text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-30 text-gray-300 px-3 py-2 rounded-lg transition-colors">ถัดไป →</button>
+                        className="text-xs bg-white hover:bg-gray-100 disabled:opacity-30 text-gray-700 px-3 py-2 rounded-lg transition-colors">ถัดไป →</button>
                     </div>
                   )}
                 </>
@@ -11301,12 +11301,12 @@ export default function POSPage() {
             </div>
 
             {cleanupInfo && (
-              <div className="p-4 border-t border-gray-800 sticky bottom-0 bg-gray-900">
+              <div className="p-4 border-t border-gray-100 sticky bottom-0 bg-white">
                 <button onClick={runCleanupDelete} disabled={!cleanupSelected.size || cleanupDeleting}
                   className="w-full bg-red-700 hover:bg-red-600 disabled:opacity-40 text-white font-bold py-3 rounded-xl transition-colors text-sm">
                   {cleanupDeleting ? 'กำลังลบ...' : `🗑️ ลบที่เลือก (${cleanupSelected.size} รายการ)`}
                 </button>
-                <p className="text-gray-600 text-[11px] text-center mt-2">ลบแบบ soft-delete — กู้คืนได้ทีหลังถ้าจำเป็น</p>
+                <p className="text-gray-400 text-[11px] text-center mt-2">ลบแบบ soft-delete — กู้คืนได้ทีหลังถ้าจำเป็น</p>
               </div>
             )}
           </div>
@@ -11316,11 +11316,11 @@ export default function POSPage() {
       {/* ══ ข้อ 94: ยืนยันการเปลี่ยนแปลงเมนูสั่งซื้อออนไลน์ ═══════════ */}
       {showOnlineMenuConfirm && (
         <div className="fixed inset-0 z-50 bg-black/75 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
-            <div className="p-4 border-b border-gray-800 flex items-center justify-between sticky top-0 bg-gray-900 z-10">
-              <h3 className="text-white font-bold text-base">🌐 ยืนยันการเปลี่ยนเมนูออนไลน์</h3>
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+              <h3 className="text-gray-900 font-bold text-base">🌐 ยืนยันการเปลี่ยนเมนูออนไลน์</h3>
               <button onClick={() => setShowOnlineMenuConfirm(false)} disabled={savingOnlineMenu}
-                className="text-gray-500 hover:text-white text-xl w-8 h-8 flex items-center justify-center disabled:opacity-30">✕</button>
+                className="text-gray-400 hover:text-gray-900 text-xl w-8 h-8 flex items-center justify-center disabled:opacity-30">✕</button>
             </div>
             <div className="p-4 space-y-4">
               {(() => {
@@ -11337,8 +11337,8 @@ export default function POSPage() {
                         <p className="text-emerald-400 text-xs font-bold mb-2">✅ จะแสดงในเมนูออนไลน์ ({willShow.length})</p>
                         <div className="space-y-1">
                           {willShow.map(p => (
-                            <div key={p.sku} className="text-sm text-gray-200 bg-gray-800 rounded-lg px-3 py-2 flex justify-between">
-                              <span>{p.name}</span><span className="text-gray-500">฿{p.price.toLocaleString()}</span>
+                            <div key={p.sku} className="text-sm text-gray-800 bg-white rounded-lg px-3 py-2 flex justify-between">
+                              <span>{p.name}</span><span className="text-gray-400">฿{p.price.toLocaleString()}</span>
                             </div>
                           ))}
                         </div>
@@ -11346,11 +11346,11 @@ export default function POSPage() {
                     )}
                     {willHide.length > 0 && (
                       <div>
-                        <p className="text-red-400 text-xs font-bold mb-2">🚫 จะซ่อนจากเมนูออนไลน์ ({willHide.length})</p>
+                        <p className="text-red-600 text-xs font-bold mb-2">🚫 จะซ่อนจากเมนูออนไลน์ ({willHide.length})</p>
                         <div className="space-y-1">
                           {willHide.map(p => (
-                            <div key={p.sku} className="text-sm text-gray-200 bg-gray-800 rounded-lg px-3 py-2 flex justify-between">
-                              <span>{p.name}</span><span className="text-gray-500">฿{p.price.toLocaleString()}</span>
+                            <div key={p.sku} className="text-sm text-gray-800 bg-white rounded-lg px-3 py-2 flex justify-between">
+                              <span>{p.name}</span><span className="text-gray-400">฿{p.price.toLocaleString()}</span>
                             </div>
                           ))}
                         </div>
@@ -11360,13 +11360,13 @@ export default function POSPage() {
                 );
               })()}
             </div>
-            <div className="p-4 border-t border-gray-800 flex gap-2 sticky bottom-0 bg-gray-900">
+            <div className="p-4 border-t border-gray-100 flex gap-2 sticky bottom-0 bg-white">
               <button onClick={() => setShowOnlineMenuConfirm(false)} disabled={savingOnlineMenu}
-                className="flex-1 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm font-medium py-2.5 rounded-xl transition-colors disabled:opacity-50">
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm font-medium py-2.5 rounded-xl transition-colors disabled:opacity-50">
                 กลับไปแก้ไข
               </button>
               <button onClick={confirmOnlineMenuChanges} disabled={savingOnlineMenu}
-                className="flex-1 bg-sky-600 hover:bg-sky-500 text-white text-sm font-bold py-2.5 rounded-xl transition-colors disabled:opacity-50">
+                className="flex-1 bg-sky-600 hover:bg-sky-500 text-gray-900 text-sm font-bold py-2.5 rounded-xl transition-colors disabled:opacity-50">
                 {savingOnlineMenu ? 'กำลังบันทึก...' : '✅ ยืนยันการเปลี่ยนแปลง'}
               </button>
             </div>
@@ -11377,23 +11377,23 @@ export default function POSPage() {
       {/* ══ PRODUCTS EXCEL/CSV IMPORT MODAL (เช่น นำเข้าจาก FlowAccount) ═══════════ */}
       {showProdImportModal && (
         <div className="fixed inset-0 z-50 bg-black/75 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
-            <div className="p-4 border-b border-gray-800 flex items-center justify-between sticky top-0 bg-gray-900 z-10">
-              <h3 className="text-white font-bold text-base">📥 นำเข้าสินค้าจาก Excel/CSV</h3>
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+              <h3 className="text-gray-900 font-bold text-base">📥 นำเข้าสินค้าจาก Excel/CSV</h3>
               <button onClick={closeProdImportModal} disabled={prodImportLoading}
-                className="text-gray-500 hover:text-white text-xl w-8 h-8 flex items-center justify-center disabled:opacity-30">✕</button>
+                className="text-gray-400 hover:text-gray-900 text-xl w-8 h-8 flex items-center justify-center disabled:opacity-30">✕</button>
             </div>
 
             <div className="p-5">
               {prodImportProgress ? (
                 <div className="text-center py-10">
                   <div className="text-5xl mb-4">⏳</div>
-                  <p className="text-white font-bold text-lg mb-3">กำลังนำเข้า...</p>
-                  <div className="bg-gray-800 rounded-full h-3 overflow-hidden mb-3 max-w-xs mx-auto">
+                  <p className="text-gray-900 font-bold text-lg mb-3">กำลังนำเข้า...</p>
+                  <div className="bg-white rounded-full h-3 overflow-hidden mb-3 max-w-xs mx-auto">
                     <div className="bg-green-500 h-full transition-all duration-300 rounded-full"
                       style={{ width: `${Math.round((prodImportProgress.done / prodImportProgress.total) * 100)}%` }} />
                   </div>
-                  <p className="text-gray-400 text-sm">{prodImportProgress.done} / {prodImportProgress.total} รายการ</p>
+                  <p className="text-gray-500 text-sm">{prodImportProgress.done} / {prodImportProgress.total} รายการ</p>
                   {prodImportProgress.skipped > 0 && (
                     <p className="text-yellow-500 text-xs mt-1">ข้าม {prodImportProgress.skipped} รายการที่ซ้ำ</p>
                   )}
@@ -11402,24 +11402,24 @@ export default function POSPage() {
               ) : prodImportRows.length === 0 ? (
                 <div>
                   <div onClick={() => prodImportFileRef.current?.click()}
-                    className="border-2 border-dashed border-gray-600 hover:border-green-500 rounded-xl p-10 text-center cursor-pointer transition-colors group">
+                    className="border-2 border-dashed border-gray-300 hover:border-green-500 rounded-xl p-10 text-center cursor-pointer transition-colors group">
                     <div className="text-4xl mb-3 group-hover:scale-110 transition-transform">📦</div>
-                    <p className="text-gray-200 font-medium mb-1">คลิกเพื่อเลือกไฟล์ Excel หรือ CSV</p>
-                    <p className="text-gray-500 text-xs">Export จาก FlowAccount หรือระบบบัญชี/POS อื่น แล้วอัปโหลดที่นี่ได้เลย ไม่ต้องแปลงไฟล์</p>
+                    <p className="text-gray-800 font-medium mb-1">คลิกเพื่อเลือกไฟล์ Excel หรือ CSV</p>
+                    <p className="text-gray-400 text-xs">Export จาก FlowAccount หรือระบบบัญชี/POS อื่น แล้วอัปโหลดที่นี่ได้เลย ไม่ต้องแปลงไฟล์</p>
                     <input ref={prodImportFileRef} type="file"
                       accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                       className="hidden"
                       onChange={e => { if (e.target.files?.[0]) { handleProdImportFile(e.target.files[0]); e.target.value = ''; } }} />
                   </div>
                   <div className="mt-4 flex items-center justify-between">
-                    <p className="text-gray-500 text-xs">ต้องการ CSV เปล่า?</p>
+                    <p className="text-gray-400 text-xs">ต้องการ CSV เปล่า?</p>
                     <button onClick={downloadProductTemplateCsv}
-                      className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded-lg border border-gray-700 transition-colors">
+                      className="text-xs bg-white hover:bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg border border-gray-200 transition-colors">
                       ⬇ ดาวน์โหลด Template CSV
                     </button>
                   </div>
-                  <div className="mt-4 bg-gray-800/50 rounded-xl p-4 text-xs text-gray-400 space-y-1.5">
-                    <p className="font-medium text-gray-300 mb-2">💡 วิธี Export จาก FlowAccount</p>
+                  <div className="mt-4 bg-white/50 rounded-xl p-4 text-xs text-gray-500 space-y-1.5">
+                    <p className="font-medium text-gray-700 mb-2">💡 วิธี Export จาก FlowAccount</p>
                     <p>• เข้าเมนู "สินค้า/บริการ" → เลือกส่งออก/Export → บันทึกเป็นไฟล์ Excel หรือ CSV</p>
                     <p>• อัปโหลดไฟล์ .xlsx/.xls/.csv ได้ตรงๆ เลย ไม่ต้องเปิด Excel แปลงเป็น CSV เองก่อนแล้ว</p>
                     <p>• ระบบอื่นก็ใช้วิธีเดียวกันได้ — อัปโหลดแล้วจับคู่คอลัมน์เองได้ในขั้นต่อไป ไม่จำเป็นต้องตรงชื่อเป๊ะ</p>
@@ -11430,7 +11430,7 @@ export default function POSPage() {
               ) : (
                 <div className="space-y-5">
                   <div>
-                    <h4 className="text-white font-medium text-sm mb-3">🔗 จับคู่คอลัมน์ CSV กับข้อมูลสินค้า</h4>
+                    <h4 className="text-gray-900 font-medium text-sm mb-3">🔗 จับคู่คอลัมน์ CSV กับข้อมูลสินค้า</h4>
                     <div className="space-y-2">
                       {[
                         { field: 'name',         label: 'ชื่อสินค้า *',  required: true  },
@@ -11444,11 +11444,11 @@ export default function POSPage() {
                         { field: 'description',  label: 'รายละเอียด',    required: false },
                       ].map(({ field, label, required }) => (
                         <div key={field} className="flex items-center gap-3">
-                          <span className={`text-xs w-28 shrink-0 ${required ? 'text-yellow-400' : 'text-gray-400'}`}>{label}</span>
-                          <span className="text-gray-600 text-xs shrink-0">←</span>
+                          <span className={`text-xs w-28 shrink-0 ${required ? 'text-yellow-600' : 'text-gray-500'}`}>{label}</span>
+                          <span className="text-gray-400 text-xs shrink-0">←</span>
                           <select value={prodImportMapping[field] || ''}
                             onChange={e => setProdImportMapping(m => ({ ...m, [field]: e.target.value }))}
-                            className="flex-1 bg-gray-800 text-white text-xs px-3 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-green-500">
+                            className="flex-1 bg-white text-gray-900 text-xs px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-green-500">
                             <option value="">— ไม่นำเข้า —</option>
                             {/* ไฟล์ export จากบางระบบ (เช่น FlowAccount) ใช้ชื่อคอลัมน์เป็นภาษาอังกฤษ
                                 ล้วน (BarCode/UnitPriceWithVat ฯลฯ) ผู้ใช้ที่ไม่คุ้นภาษาอังกฤษดูไม่ออก
@@ -11469,11 +11469,11 @@ export default function POSPage() {
                   </div>
 
                   <div>
-                    <h4 className="text-white font-medium text-sm mb-2">ประเภท VAT เริ่มต้น (ใช้เฉพาะรายการที่ระบบเทียบ VAT อัตโนมัติไม่ได้)</h4>
+                    <h4 className="text-gray-900 font-medium text-sm mb-2">ประเภท VAT เริ่มต้น (ใช้เฉพาะรายการที่ระบบเทียบ VAT อัตโนมัติไม่ได้)</h4>
                     <div className="flex gap-2">
                       {['ไม่มี VAT', 'รวม VAT แล้ว', 'ไม่รวม VAT'].map(t => (
                         <button key={t} type="button" onClick={() => setProdImportVatType(t)}
-                          className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${prodImportVatType === t ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
+                          className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${prodImportVatType === t ? 'bg-green-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'}`}>
                           {t}
                         </button>
                       ))}
@@ -11484,15 +11484,15 @@ export default function POSPage() {
                         เช่น UnitPrice กับ UnitPriceWithVat) ปุ่มด้านบนเป็นแค่ค่า fallback สำหรับ
                         แถวที่เทียบไม่ได้เท่านั้น */}
                     {prodImportVatSummary ? (
-                      <p className="text-amber-400/90 text-xs mt-2 bg-amber-900/20 border border-amber-800/50 rounded-lg px-3 py-2 leading-relaxed">
+                      <p className="text-amber-600/90 text-xs mt-2 bg-amber-50/20 border border-amber-200/50 rounded-lg px-3 py-2 leading-relaxed">
                         💡 ตรวจ VAT รายตัวจากคอลัมน์ "<b>{prodImportMapping.price}</b>" เทียบกับคอลัมน์ราคาก่อน VAT อัตโนมัติแล้ว:{' '}
-                        {prodImportVatSummary.withVat > 0 && <>มี VAT <b className="text-white">{prodImportVatSummary.withVat}</b> รายการ, </>}
-                        {prodImportVatSummary.noVat > 0 && <>ไม่มี VAT <b className="text-white">{prodImportVatSummary.noVat}</b> รายการ, </>}
-                        {prodImportVatSummary.fallback > 0 && <>เทียบไม่ได้ (ใช้ค่าเริ่มต้นด้านบน "{prodImportVatType}") <b className="text-white">{prodImportVatSummary.fallback}</b> รายการ</>}
+                        {prodImportVatSummary.withVat > 0 && <>มี VAT <b className="text-gray-900">{prodImportVatSummary.withVat}</b> รายการ, </>}
+                        {prodImportVatSummary.noVat > 0 && <>ไม่มี VAT <b className="text-gray-900">{prodImportVatSummary.noVat}</b> รายการ, </>}
+                        {prodImportVatSummary.fallback > 0 && <>เทียบไม่ได้ (ใช้ค่าเริ่มต้นด้านบน "{prodImportVatType}") <b className="text-gray-900">{prodImportVatSummary.fallback}</b> รายการ</>}
                         {' '}— แก้รายตัวได้ทีหลังถ้าไม่ตรง
                       </p>
                     ) : (
-                      <p className="text-gray-500 text-xs mt-2">
+                      <p className="text-gray-400 text-xs mt-2">
                         ไม่พบคอลัมน์ราคาก่อน VAT คู่กันในไฟล์นี้ ระบบจะใช้ค่าเริ่มต้นด้านบนกับทุกรายการ
                       </p>
                     )}
@@ -11500,27 +11500,27 @@ export default function POSPage() {
 
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-white font-medium text-sm">ตัวอย่าง (5 แถวแรก)</h4>
-                      <span className="text-gray-500 text-xs">พบ {prodImportRows.length} รายการ</span>
+                      <h4 className="text-gray-900 font-medium text-sm">ตัวอย่าง (5 แถวแรก)</h4>
+                      <span className="text-gray-400 text-xs">พบ {prodImportRows.length} รายการ</span>
                     </div>
-                    <div className="bg-gray-800 rounded-xl overflow-hidden">
+                    <div className="bg-white rounded-xl overflow-hidden">
                       <div className="overflow-x-auto">
                         <table className="w-full text-xs">
                           <thead>
-                            <tr className="border-b border-gray-700">
-                              <th className="text-left text-gray-400 px-3 py-2 font-medium">ชื่อสินค้า</th>
-                              <th className="text-left text-gray-400 px-3 py-2 font-medium">ราคาขาย</th>
-                              <th className="text-left text-gray-400 px-3 py-2 font-medium">ต้นทุน</th>
-                              <th className="text-left text-gray-400 px-3 py-2 font-medium">คงเหลือ</th>
+                            <tr className="border-b border-gray-200">
+                              <th className="text-left text-gray-500 px-3 py-2 font-medium">ชื่อสินค้า</th>
+                              <th className="text-left text-gray-500 px-3 py-2 font-medium">ราคาขาย</th>
+                              <th className="text-left text-gray-500 px-3 py-2 font-medium">ต้นทุน</th>
+                              <th className="text-left text-gray-500 px-3 py-2 font-medium">คงเหลือ</th>
                             </tr>
                           </thead>
                           <tbody>
                             {prodImportRows.slice(0, 5).map((row, i) => (
-                              <tr key={i} className="border-b border-gray-700/50 last:border-0">
-                                <td className="px-3 py-2 text-white font-medium">{prodImportMapping.name ? (row[prodImportMapping.name] || '—') : '—'}</td>
-                                <td className="px-3 py-2 text-gray-300">{prodImportMapping.price ? (row[prodImportMapping.price] || '—') : '—'}</td>
-                                <td className="px-3 py-2 text-gray-400">{prodImportMapping.cost ? (row[prodImportMapping.cost] || '—') : '—'}</td>
-                                <td className="px-3 py-2 text-gray-400">{prodImportMapping.stock ? (row[prodImportMapping.stock] || '—') : '—'}</td>
+                              <tr key={i} className="border-b border-gray-200/50 last:border-0">
+                                <td className="px-3 py-2 text-gray-900 font-medium">{prodImportMapping.name ? (row[prodImportMapping.name] || '—') : '—'}</td>
+                                <td className="px-3 py-2 text-gray-700">{prodImportMapping.price ? (row[prodImportMapping.price] || '—') : '—'}</td>
+                                <td className="px-3 py-2 text-gray-500">{prodImportMapping.cost ? (row[prodImportMapping.cost] || '—') : '—'}</td>
+                                <td className="px-3 py-2 text-gray-500">{prodImportMapping.stock ? (row[prodImportMapping.stock] || '—') : '—'}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -11531,7 +11531,7 @@ export default function POSPage() {
 
                   <div className="flex gap-3">
                     <button onClick={() => { setProdImportRows([]); setProdImportHeaders([]); }}
-                      className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium py-3 rounded-xl transition-colors text-sm">
+                      className="flex-1 bg-white hover:bg-gray-100 text-gray-700 font-medium py-3 rounded-xl transition-colors text-sm">
                       ← เลือกไฟล์ใหม่
                     </button>
                     <button onClick={runProdImport}
@@ -11551,54 +11551,54 @@ export default function POSPage() {
       {/* ══ LOAN FORM MODAL ════════════════════════════════════════════════ */}
       {showLoanForm && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-4 border-b border-gray-800">
-              <div className="text-white font-bold">🏷️ บันทึกยืมสินค้า</div>
-              <button onClick={() => setShowLoanForm(false)} className="text-gray-500 hover:text-white text-xl">✕</button>
+          <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-4 border-b border-gray-100">
+              <div className="text-gray-900 font-bold">🏷️ บันทึกยืมสินค้า</div>
+              <button onClick={() => setShowLoanForm(false)} className="text-gray-400 hover:text-gray-900 text-xl">✕</button>
             </div>
             <div className="p-4 space-y-4">
               {/* ผู้ยืม */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">ชื่อผู้ยืม *</label>
+                <label className="block text-gray-500 text-xs mb-1.5">ชื่อผู้ยืม *</label>
                 <input type="text" value={loanContactQ} placeholder="พิมพ์ค้นหาหรือชื่อใหม่..."
                   onChange={e => setLoanContactQ(e.target.value)}
-                  className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500 mb-1"
+                  className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500 mb-1"
                 />
                 {loanContactQ.length > 0 && !loanForm.contact_name && (() => {
                   const q = loanContactQ.toLowerCase();
                   const qDigits = q.replace(/\D/g, '');
                   const matches = (contacts || []).filter(c => (c.name || '').toLowerCase().includes(q) || (qDigits.length > 0 && (c.phone || '').replace(/\D/g, '').includes(qDigits))).slice(0, 4);
                   return matches.length > 0 ? (
-                    <div className="bg-gray-800 rounded-xl overflow-hidden border border-gray-700">
+                    <div className="bg-white rounded-xl overflow-hidden border border-gray-200">
                       {matches.map((c, i) => (
-                        <button key={i} className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 border-b border-gray-700/50 last:border-0"
+                        <button key={i} className="w-full text-left px-3 py-2 text-sm text-gray-800 hover:bg-gray-100 border-b border-gray-200/50 last:border-0"
                           onClick={() => { setLoanForm(f => ({ ...f, contact_id: c.id || '', contact_name: c.name, contact_phone: c.phone || '' })); setLoanContactQ(c.name); }}>
-                          {c.name} {c.phone && <span className="text-gray-500 text-xs">{c.phone}</span>}
+                          {c.name} {c.phone && <span className="text-gray-400 text-xs">{c.phone}</span>}
                         </button>
                       ))}
                     </div>
                   ) : (
-                    <button className="text-xs text-green-400 hover:text-green-300"
+                    <button className="text-xs text-green-600 hover:text-green-700"
                       onClick={() => { setLoanForm(f => ({ ...f, contact_name: loanContactQ, contact_phone: '' })); }}>
                       + ใช้ "{loanContactQ}" เป็นชื่อใหม่
                     </button>
                   );
                 })()}
                 {loanForm.contact_name && (
-                  <div className="flex items-center gap-2 bg-green-900/30 rounded-xl px-3 py-2">
-                    <span className="text-green-300 text-sm font-medium">{loanForm.contact_name}</span>
+                  <div className="flex items-center gap-2 bg-green-50/30 rounded-xl px-3 py-2">
+                    <span className="text-green-700 text-sm font-medium">{loanForm.contact_name}</span>
                     <button onClick={() => { setLoanForm(f => ({ ...f, contact_name: '', contact_id: '' })); setLoanContactQ(''); }}
-                      className="text-gray-500 hover:text-white ml-auto">✕</button>
+                      className="text-gray-400 hover:text-gray-900 ml-auto">✕</button>
                   </div>
                 )}
               </div>
               {/* สินค้า */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">รายการสินค้า *</label>
+                <label className="block text-gray-500 text-xs mb-1.5">รายการสินค้า *</label>
                 <div className="flex gap-2 mb-2">
                   <input type="text" value={loanItemQ} placeholder="ค้นหาสินค้า..."
                     onChange={e => setLoanItemQ(e.target.value)}
-                    className="flex-1 bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                    className="flex-1 bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                   />
                 </div>
                 {loanItemQ.length > 0 && (() => {
@@ -11606,14 +11606,14 @@ export default function POSPage() {
                   // ไม่รวมสินค้าประเภทหมุนเวียน — มีระบบแลกเปลี่ยน/เก็บคืนของตัวเองแยกต่างหากแล้ว (ยืมผ่านหน้านี้จะไม่ตัดสต็อคเลย)
                   const matches = (products || []).filter(p => p.type !== 'หมุนเวียน' && (p.name || '').toLowerCase().includes(q)).slice(0, 5);
                   return matches.length > 0 ? (
-                    <div className="bg-gray-800 rounded-xl overflow-hidden border border-gray-700 mb-2">
+                    <div className="bg-white rounded-xl overflow-hidden border border-gray-200 mb-2">
                       {matches.map((p, i) => (
-                        <button key={i} className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 border-b border-gray-700/50 last:border-0"
+                        <button key={i} className="w-full text-left px-3 py-2 text-sm text-gray-800 hover:bg-gray-100 border-b border-gray-200/50 last:border-0"
                           onClick={() => {
                             setLoanForm(f => ({ ...f, items: [...f.items, { sku: p.sku, name: p.name, qty: 1, unit: p.unit }] }));
                             setLoanItemQ('');
                           }}>
-                          {p.name} <span className="text-gray-500 text-xs">สต็อก {p.stock} {p.unit}</span>
+                          {p.name} <span className="text-gray-400 text-xs">สต็อก {p.stock} {p.unit}</span>
                         </button>
                       ))}
                     </div>
@@ -11622,15 +11622,15 @@ export default function POSPage() {
                 {loanForm.items.length > 0 && (
                   <div className="space-y-2">
                     {loanForm.items.map((item, i) => (
-                      <div key={i} className="flex items-center gap-2 bg-gray-800 rounded-xl px-3 py-2">
-                        <span className="text-gray-300 text-sm flex-1">{item.name}</span>
+                      <div key={i} className="flex items-center gap-2 bg-white rounded-xl px-3 py-2">
+                        <span className="text-gray-700 text-sm flex-1">{item.name}</span>
                         <input type="number" min="1" value={item.qty}
                           onChange={e => setLoanForm(f => ({ ...f, items: f.items.map((it, j) => j === i ? { ...it, qty: parseInt(e.target.value) || 1 } : it) }))}
-                          className="w-16 bg-gray-700 text-white text-sm text-center px-2 py-1 rounded-lg border border-gray-600"
+                          className="w-16 bg-gray-100 text-gray-900 text-sm text-center px-2 py-1 rounded-lg border border-gray-300"
                         />
-                        <span className="text-gray-500 text-xs">{item.unit}</span>
+                        <span className="text-gray-400 text-xs">{item.unit}</span>
                         <button onClick={() => setLoanForm(f => ({ ...f, items: f.items.filter((_, j) => j !== i) }))}
-                          className="text-gray-600 hover:text-red-400 text-sm">✕</button>
+                          className="text-gray-400 hover:text-red-600 text-sm">✕</button>
                       </div>
                     ))}
                   </div>
@@ -11638,32 +11638,32 @@ export default function POSPage() {
               </div>
               {/* วันกำหนดคืน */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">กำหนดคืน</label>
+                <label className="block text-gray-500 text-xs mb-1.5">กำหนดคืน</label>
                 <input type="date" value={loanForm.due_date}
                   onChange={e => setLoanForm(f => ({ ...f, due_date: e.target.value }))}
-                  className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                  className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                 />
               </div>
               {/* หมายเหตุ */}
               <div>
-                <label className="block text-gray-400 text-xs mb-1.5">หมายเหตุ</label>
+                <label className="block text-gray-500 text-xs mb-1.5">หมายเหตุ</label>
                 <input type="text" value={loanForm.notes} placeholder="เช่น ใช้จัดงาน..."
                   onChange={e => setLoanForm(f => ({ ...f, notes: e.target.value }))}
-                  className="w-full bg-gray-800 text-white text-sm px-3 py-2 rounded-xl border border-gray-700 focus:outline-none focus:border-green-500"
+                  className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                 />
               </div>
               {/* ตัดสต็อค */}
               <label className="flex items-center gap-3 cursor-pointer">
-                <div className={`w-10 h-5 rounded-full transition-colors ${loanForm.deduct_stock ? 'bg-green-600' : 'bg-gray-700'}`}
+                <div className={`w-10 h-5 rounded-full transition-colors ${loanForm.deduct_stock ? 'bg-green-600' : 'bg-gray-100'}`}
                   onClick={() => setLoanForm(f => ({ ...f, deduct_stock: !f.deduct_stock }))}>
                   <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${loanForm.deduct_stock ? 'translate-x-5' : 'translate-x-0'}`}/>
                 </div>
-                <span className="text-gray-300 text-sm">ตัดสต็อคสินค้าที่ยืมออก</span>
+                <span className="text-gray-700 text-sm">ตัดสต็อคสินค้าที่ยืมออก</span>
               </label>
             </div>
-            <div className="p-4 border-t border-gray-800 flex gap-3">
+            <div className="p-4 border-t border-gray-100 flex gap-3">
               <button onClick={() => setShowLoanForm(false)}
-                className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium py-3 rounded-xl transition-colors">
+                className="flex-1 bg-white hover:bg-gray-100 text-gray-700 text-sm font-medium py-3 rounded-xl transition-colors">
                 ยกเลิก
               </button>
               <button onClick={saveLoan}
@@ -11679,15 +11679,15 @@ export default function POSPage() {
       {/* ══ EXPORT MODAL ═══════════════════════════════════════════════════ */}
       {showExportModal && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-2xl w-full max-w-sm">
-            <div className="flex items-center justify-between p-4 border-b border-gray-800">
-              <div className="text-white font-bold">📤 Export Excel</div>
-              <button onClick={() => setShowExportModal(false)} className="text-gray-500 hover:text-white text-xl">✕</button>
+          <div className="bg-white rounded-2xl w-full max-w-sm">
+            <div className="flex items-center justify-between p-4 border-b border-gray-100">
+              <div className="text-gray-900 font-bold">📤 Export Excel</div>
+              <button onClick={() => setShowExportModal(false)} className="text-gray-400 hover:text-gray-900 text-xl">✕</button>
             </div>
             <div className="p-4 space-y-3">
-              <div className="text-gray-400 text-xs mb-2">เลือกรายงานที่ต้องการ export:</div>
+              <div className="text-gray-500 text-xs mb-2">เลือกรายงานที่ต้องการ export:</div>
               {posBranches.length > 0 && (
-                <div className="text-blue-400 text-xs -mt-1 mb-2">
+                <div className="text-blue-600 text-xs -mt-1 mb-2">
                   📍 ตามตัวกรองสาขาในหน้ารายงาน: {reportBranch ? (posBranches.find(b => b.branch_name === reportBranch)?.brand_name || reportBranch) : 'ทุกสาขา'}
                 </div>
               )}
@@ -11702,38 +11702,38 @@ export default function POSPage() {
                 { key: 'vat',        label: '📋 ภาษี VAT' },
               ].map(r => (
                 <label key={r.key} className="flex items-center gap-3 cursor-pointer py-1">
-                  <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${exportTypes.includes(r.key) ? 'bg-green-600 border-green-600' : 'border-gray-600'}`}
+                  <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${exportTypes.includes(r.key) ? 'bg-green-600 border-green-600' : 'border-gray-300'}`}
                     onClick={() => setExportTypes(prev => prev.includes(r.key) ? prev.filter(t => t !== r.key) : [...prev, r.key])}>
-                    {exportTypes.includes(r.key) && <span className="text-white text-xs font-bold">✓</span>}
+                    {exportTypes.includes(r.key) && <span className="text-gray-900 text-xs font-bold">✓</span>}
                   </div>
-                  <span className="text-gray-300 text-sm">{r.label}</span>
+                  <span className="text-gray-700 text-sm">{r.label}</span>
                 </label>
               ))}
               {hasFeature(shopInfo?.subscription_tier, 'excel_report_templates') && (
                 <>
-                  <div className="border-t border-gray-800 pt-2 mt-2 text-gray-400 text-xs mb-1">📑 แม่แบบสำเร็จรูป (Business+)</div>
+                  <div className="border-t border-gray-100 pt-2 mt-2 text-gray-500 text-xs mb-1">📑 แม่แบบสำเร็จรูป (Business+)</div>
                   {[
                     { key: 'vat30',              label: '🧾 ภาษีซื้อ-ขาย มาตรฐาน (ภ.พ.30)' },
                     { key: 'sales_by_branch',    label: '🏢 สรุปยอดขายแยกสาขา/วิธีชำระ' },
                     { key: 'cyclical_inventory', label: '🔄 คลังสินค้าหมุนเวียน + มูลค่าสินทรัพย์' },
                   ].map(r => (
                     <label key={r.key} className="flex items-center gap-3 cursor-pointer py-1">
-                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${exportTypes.includes(r.key) ? 'bg-green-600 border-green-600' : 'border-gray-600'}`}
+                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${exportTypes.includes(r.key) ? 'bg-green-600 border-green-600' : 'border-gray-300'}`}
                         onClick={() => setExportTypes(prev => prev.includes(r.key) ? prev.filter(t => t !== r.key) : [...prev, r.key])}>
-                        {exportTypes.includes(r.key) && <span className="text-white text-xs font-bold">✓</span>}
+                        {exportTypes.includes(r.key) && <span className="text-gray-900 text-xs font-bold">✓</span>}
                       </div>
-                      <span className="text-gray-300 text-sm">{r.label}</span>
+                      <span className="text-gray-700 text-sm">{r.label}</span>
                     </label>
                   ))}
                 </>
               )}
-              <div className="border-t border-gray-800 pt-3 space-y-2">
-                <div className="text-gray-400 text-xs">ช่วงเวลา: {reportDateFrom || 'ทั้งหมด'}{reportDateTo && reportDateFrom !== reportDateTo ? ` – ${reportDateTo}` : ''}</div>
+              <div className="border-t border-gray-100 pt-3 space-y-2">
+                <div className="text-gray-500 text-xs">ช่วงเวลา: {reportDateFrom || 'ทั้งหมด'}{reportDateTo && reportDateFrom !== reportDateTo ? ` – ${reportDateTo}` : ''}</div>
               </div>
             </div>
-            <div className="p-4 border-t border-gray-800 flex gap-3">
+            <div className="p-4 border-t border-gray-100 flex gap-3">
               <button onClick={() => setShowExportModal(false)}
-                className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium py-3 rounded-xl transition-colors">
+                className="flex-1 bg-white hover:bg-gray-100 text-gray-700 text-sm font-medium py-3 rounded-xl transition-colors">
                 ยกเลิก
               </button>
               <button onClick={runExport}
