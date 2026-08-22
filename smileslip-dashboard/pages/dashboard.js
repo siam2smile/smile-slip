@@ -50,6 +50,8 @@ export default function Dashboard() {
   const [bankAccounts, setBankAccounts] = useState([]);
   const [googleConfig, setGoogleConfig] = useState(null);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [showOnboardingPopup, setShowOnboardingPopup] = useState(false);
+  const [onboardingStep, setOnboardingStep] = useState(0);
   const [transactions, setTransactions] = useState([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
   const [reconnectGoogle, setReconnectGoogle] = useState(false);
@@ -283,6 +285,22 @@ export default function Dashboard() {
         .catch(() => {});
     }
   }, [shopInfo?.id, isPaidTier]);
+
+  // ─── ป๊อปอัพสอนใช้งานครั้งแรก — โชว์ครั้งเดียวต่อเครื่อง (localStorage) ให้คนใหม่ที่งงตอนเปิดมา
+  // เจอหน้าจอเปล่าๆ ครั้งแรก — ไม่ผูกกับ backend เลย เบาที่สุด กด "ข้าม" ได้ทุกเมื่อ ไม่บล็อกอะไร ───
+  useEffect(() => {
+    if (!isLoaded || !shopInfo?.id) return;
+    try {
+      const seenKey = `onboarding_seen_${shopInfo.id}`;
+      if (!localStorage.getItem(seenKey)) setShowOnboardingPopup(true);
+    } catch { /* localStorage ปิดอยู่ (private mode ฯลฯ) — ไม่ต้องโชว์ป๊อปอัพ ไม่ใช่เรื่องคอขาดบาดตาย */ }
+  }, [isLoaded, shopInfo?.id]);
+
+  const dismissOnboardingPopup = () => {
+    try { if (shopInfo?.id) localStorage.setItem(`onboarding_seen_${shopInfo.id}`, '1'); } catch {}
+    setShowOnboardingPopup(false);
+    setOnboardingStep(0);
+  };
 
   const handleSubmitTestimonial = async (e) => {
     e.preventDefault();
@@ -994,7 +1012,7 @@ export default function Dashboard() {
                 <div className="max-w-5xl space-y-6">
 
                   {/* ════ Onboarding Steps (แสดงเฉพาะตอนยังไม่ครบ) ════ */}
-                  {isLoaded && shopInfo && (!googleConfig || !shopInfo.line_group_id) && (
+                  {isLoaded && shopInfo && (!googleConfig || branches.length === 0) && (
                     <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-5">
                       <div className="flex items-center gap-2 mb-4">
                         <span className="text-lg">🚀</span>
@@ -1031,17 +1049,19 @@ export default function Dashboard() {
                             )}
                           </div>
                         </div>
-                        {/* Step 3: เพิ่มบอทเข้ากลุ่ม */}
-                        <div className={`flex items-start gap-3 rounded-xl p-3 ${shopInfo.line_group_id ? 'bg-white/70' : 'bg-blue-50 border border-blue-200'}`}>
-                          <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black shrink-0 ${shopInfo.line_group_id ? 'bg-emerald-500 text-white' : 'bg-blue-500 text-white'}`}>
-                            {shopInfo.line_group_id ? '✓' : '3'}
+                        {/* Step 3: เพิ่มบอทเข้ากลุ่ม (เช็คจากจำนวนสาขาที่ผูกไว้จริง — ไม่ใช่ shopInfo.line_group_id
+                            ที่เป็น dead column ไม่เคยถูกเขียนค่าเลย ทำให้ step นี้ค้างสถานะ "ยังไม่เสร็จ"
+                            ตลอดกาลมาก่อน แม้ร้านจะผูกกลุ่มสำเร็จผ่าน shop_branches แล้วก็ตาม) */}
+                        <div className={`flex items-start gap-3 rounded-xl p-3 ${branches.length > 0 ? 'bg-white/70' : 'bg-blue-50 border border-blue-200'}`}>
+                          <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black shrink-0 ${branches.length > 0 ? 'bg-emerald-500 text-white' : 'bg-blue-500 text-white'}`}>
+                            {branches.length > 0 ? '✓' : '3'}
                           </span>
                           <div>
-                            <p className={`text-xs font-bold ${shopInfo.line_group_id ? 'text-emerald-700' : 'text-blue-700'}`}>เพิ่มบอทเข้ากลุ่ม LINE</p>
-                            {shopInfo.line_group_id ? (
+                            <p className={`text-xs font-bold ${branches.length > 0 ? 'text-emerald-700' : 'text-blue-700'}`}>เพิ่มบอทเข้ากลุ่ม LINE</p>
+                            {branches.length > 0 ? (
                               <p className="text-[10px] text-slate-500 mt-0.5">พร้อมใช้งาน ✓</p>
                             ) : (
-                              <p className="text-[10px] text-blue-600 mt-0.5">เพิ่ม @574unjqj เข้ากลุ่มร้าน</p>
+                              <p className="text-[10px] text-blue-600 mt-0.5">เพิ่ม @574unjqj เข้ากลุ่ม → พิมพ์ #ยืนยันเพิ่มสาขา</p>
                             )}
                           </div>
                         </div>
@@ -1049,15 +1069,15 @@ export default function Dashboard() {
                     </div>
                   )}
 
-                  {/* ยังไม่ได้เพิ่ม LINE Bot */}
-                  {shopInfo && !shopInfo.line_group_id && (
+                  {/* ยังไม่ได้เพิ่ม LINE Bot (เช็คจาก branches.length เหมือน Step 3 ด้านบน — เหตุผลเดียวกัน) */}
+                  {shopInfo && branches.length === 0 && (
                     <div className="bg-[#06C755]/10 border-2 border-[#06C755]/40 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                       <div className="flex items-start gap-3">
                         <span className="text-2xl shrink-0">🤖</span>
                         <div>
                           <p className="font-bold text-slate-800 text-sm">ยังไม่ได้เพิ่ม LINE Bot เข้ากลุ่ม</p>
                           <p className="text-slate-500 text-xs mt-0.5 leading-relaxed">
-                            เพิ่ม <strong>@574unjqj</strong> เป็นเพื่อน → เชิญเข้ากลุ่ม LINE ของร้าน → พิมพ์ <strong>#ช่วยเหลือ</strong> เพื่อเริ่มต้น
+                            เพิ่ม <strong>@574unjqj</strong> เป็นเพื่อน → เชิญเข้ากลุ่ม LINE ของร้าน → พิมพ์ <strong>#ยืนยันเพิ่มสาขา</strong> ในกลุ่มนั้น (ต้องเป็นบัญชี LINE ของเจ้าของร้านที่สมัครไว้) แล้วตอบชื่อสาขาตามที่บอทถาม — เสร็จทันที ไม่ต้องเข้าเว็บก่อนก็ได้
                           </p>
                         </div>
                       </div>
@@ -1067,9 +1087,9 @@ export default function Dashboard() {
                           <svg width="14" height="14" viewBox="0 0 48 48" fill="currentColor"><path d="M24 4C12.95 4 4 11.86 4 21.5c0 5.5 2.93 10.4 7.52 13.6L9.5 44l9.3-4.64C20.5 39.78 22.22 40 24 40c11.05 0 20-7.86 20-17.5S35.05 4 24 4z"/></svg>
                           เพิ่ม LINE Bot
                         </a>
-                        <button onClick={() => setActiveTab('settings')}
+                        <button onClick={() => setActiveTab('branches')}
                           className="flex-1 sm:flex-none text-xs px-4 py-2 rounded-xl border border-slate-300 text-slate-500 hover:border-slate-500 hover:text-slate-700 transition-all font-medium">
-                          ตั้งค่า Group ID
+                          หรือผูกผ่านเว็บเอง
                         </button>
                       </div>
                     </div>
@@ -2783,6 +2803,12 @@ export default function Dashboard() {
                     แพ็กเกจของคุณรองรับสูงสุด <span className="font-bold text-blue-700">{branchLimit} สาขา</span> (ใช้แล้ว {branches.length})
                   </p>
 
+                  {branches.length < branchLimit && !isAdminMode && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-xs text-blue-700">
+                      💡 <strong>วิธีที่เร็วกว่า:</strong> เพิ่มบอท @574unjqj เข้ากลุ่ม LINE ใหม่ของสาขานั้น แล้วให้เจ้าของร้านพิมพ์ <code className="bg-white/60 px-1.5 py-0.5 rounded font-mono">#ยืนยันเพิ่มสาขา</code> ในกลุ่มนั้นได้เลย บอทจะถามชื่อสาขาแล้วเพิ่มให้ทันที ไม่ต้องคัดลอก Group ID มากรอกเองด้านล่างนี้
+                    </div>
+                  )}
+
                   {branches.length < branchLimit && !isAdminMode ? (
                     <div className="bg-white p-6 rounded-2xl border border-slate-200">
                       <h3 className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
@@ -3172,6 +3198,7 @@ export default function Dashboard() {
                     </h3>
                     <div className="space-y-2">
                       {[
+                        ['#ยืนยันเพิ่มสาขา', 'พิมพ์ในกลุ่ม LINE ใหม่ที่ยังไม่ผูกกับระบบ เพื่อเพิ่มเป็นสาขา (ต้องเป็นบัญชี LINE ของเจ้าของร้านเท่านั้น — บอทจะถามชื่อสาขาต่อทันที)'],
                         ['📸 ส่งรูปสลิป/บิล', 'บอทอ่านและบันทึกอัตโนมัติ (ทุกแพ็กเกจ)'],
                         ['รับ [จำนวน] [หมายเหตุ]', 'คีย์รายรับเอง — ค่าเริ่มต้นเป็นเงินสด เช่น "รับ 500 ค่าแก๊ส"'],
                         ['รับโอน [จำนวน] [หมายเหตุ]', 'คีย์รายรับที่เป็นเงินโอน (ไม่มีสลิป)'],
@@ -3202,11 +3229,11 @@ export default function Dashboard() {
                     </h3>
                     <div className="space-y-2">
                       {[
-                        { q: 'ส่งสลิปแล้วบอทไม่ตอบ/ไม่บันทึก ทำยังไง?', a: 'เช็คก่อนว่า (1) เครดิตยังเหลืออยู่ไหม ดูได้ที่หน้า "ภาพรวม" (2) เชื่อมต่อ Google Drive ไว้แล้วหรือยัง ดูที่ "ตั้งค่า" ถ้ายังไม่เชื่อมต่อ บอทจะไม่บันทึกลง Sheets ให้ ลองส่งสลิปใหม่อีกครั้งหลังแก้ 2 จุดนี้' },
+                        { q: 'ส่งสลิปแล้วบอทไม่ตอบ/ไม่บันทึก ทำยังไง?', a: 'เช็คก่อนว่า (1) กลุ่ม LINE นี้ผูกเป็นสาขาแล้วหรือยัง (ดูที่ "จัดการสาขา" — ถ้ายังไม่มีสักสาขาเลย บอทจะเงียบทุกกลุ่มจนกว่าจะพิมพ์ #ยืนยันเพิ่มสาขา ในกลุ่มนั้นก่อน) (2) เครดิตยังเหลืออยู่ไหม ดูได้ที่หน้า "ภาพรวม" (3) เชื่อมต่อ Google Drive ไว้แล้วหรือยัง (ไม่บังคับ — ไม่เชื่อมก็ยังบันทึกรายการปกติ แค่ไม่สำรองรูปสลิปให้เท่านั้น)' },
                         { q: 'รับ/จ่ายเอง กับ ส่งรูปสลิป ต่างกันยังไง?', a: 'ส่งรูปสลิป = ระบบอ่าน OCR อัตโนมัติ ถือเป็น "โอน" เสมอ ส่วนคีย์เอง (พิมพ์ รับ/จ่าย) ใช้ตอนไม่มีสลิป เช่น รับเงินสดหน้าร้าน — ถ้าพิมพ์ "รับ"/"จ่าย" เปล่าๆ ระบบจะถือเป็นเงินสด ถ้าอยากให้เป็นเงินโอนให้พิมพ์ "รับโอน"/"จ่ายโอน"' },
                         { q: 'แก้ไขรายการที่บันทึกผิดได้ไหม?', a: 'ได้ครับ กดปุ่ม "✏️" ที่แถวรายการในหน้า "บัญชี" หรือกดปุ่ม "แก้ไขข้อมูล" ใต้การ์ดที่บอทตอบกลับมาทาง LINE ได้เลย' },
                         { q: 'เครดิตหมดจะเกิดอะไรขึ้น?', a: 'บอท LINE จะหยุดรับสลิปชั่วคราว แต่ยังเข้าหน้าเว็บมาคีย์รายการเองได้เสมอ พอเติมเครดิตแล้วบอทจะกลับมาทำงานทันที' },
-                        { q: 'มีหลายสาขา ต้องทำยังไง?', a: 'ไปที่ "จัดการสาขา" → เพิ่มชื่อสาขา + ผูก Group LINE ของสาขานั้น แต่ละสาขาส่งสลิปเข้ากลุ่มตัวเอง ข้อมูลจะรวมอยู่ใน Sheets เดียวกัน แยกดูได้ที่หน้า "บัญชี" และ "กราฟวิเคราะห์" (Advance ขึ้นไปดูเปรียบเทียบสาขาได้)' },
+                        { q: 'มีหลายสาขา ต้องทำยังไง?', a: 'วิธีเร็วที่สุด: สร้างกลุ่ม LINE ใหม่ → เพิ่มบอทเข้ากลุ่ม → เจ้าของร้านพิมพ์ #ยืนยันเพิ่มสาขา ในกลุ่มนั้น → พิมพ์ชื่อสาขาตอบกลับ เสร็จทันที ไม่ต้องเข้าเว็บก่อนก็ได้ (หรือจะมาเพิ่มที่ "จัดการสาขา" ในเว็บเองก็ได้เหมือนเดิม) แต่ละสาขาส่งสลิปเข้ากลุ่มตัวเอง ข้อมูลแยกดูได้ที่หน้า "บัญชี" และ "กราฟวิเคราะห์" (Advance ขึ้นไปดูเปรียบเทียบสาขาได้) — จำนวนสาขาสูงสุดขึ้นอยู่กับแพ็กเกจ' },
                         { q: 'ทำไมหมวดหมู่/วิธีรับ-จ่ายไม่โชว์ในรายการเก่า?', a: 'ฟีเจอร์นี้เพิ่มมาทีหลัง รายการที่บันทึกก่อนหน้านี้จะไม่มีข้อมูลนี้ย้อนหลัง แต่รายการใหม่ตั้งแต่นี้ไปจะมีครบ' },
                         { q: 'ต้องการใบกำกับภาษี ทำยังไง?', a: 'ไปที่หน้า "ขอใบแจ้งหนี้" (ลิงก์จากอีเมลหรือแจ้งแอดมิน) กรอกข้อมูล ส่งคำขอ แอดมินจะตรวจสอบและออกใบกำกับภาษีพร้อมส่งอีเมลให้อัตโนมัติ' },
                       ].map((faq, i) => (
@@ -3797,6 +3824,68 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* ─── ป๊อปอัพสอนใช้งานครั้งแรก (โชว์ครั้งเดียวต่อเครื่อง, กด "ข้าม" ได้ทุกเมื่อ) ─── */}
+      {showOnboardingPopup && (() => {
+        const slides = [
+          {
+            emoji: '👋',
+            title: 'ยินดีต้อนรับสู่ Smile Slip Pro!',
+            body: 'ระบบครบวงจรสำหรับร้านค้า — บัญชี + POS + สต็อคสินค้า + จัดส่ง ในที่เดียว จบเรื่องบัญชีผ่านไลน์ ไม่ต้องพิมพ์อะไรเองก็ได้ถ้าไม่อยากพิมพ์ ขอแค่ 4 ขั้นตอนสั้นๆ นี้ก่อนเริ่มใช้งานจริงค่ะ',
+          },
+          {
+            emoji: '🏢',
+            title: 'ขั้นที่ 1 — ผูกร้านกับกลุ่ม LINE',
+            body: <>สร้างกลุ่ม LINE ใหม่สำหรับร้าน (ใช้เป็นสำนักงานใหญ่/สาขาแรกก็ได้) → เพิ่มบอท <strong>@574unjqj</strong> เข้ากลุ่ม → เจ้าของร้านพิมพ์ <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-xs">#ยืนยันเพิ่มสาขา</code> ในกลุ่มนั้น → บอทถามชื่อสาขา พิมพ์ตอบไปได้เลย เสร็จทันที ไม่ต้องกลับมาเว็บก่อนก็ได้</>,
+          },
+          {
+            emoji: '📸',
+            title: 'ขั้นที่ 2 — เริ่มบันทึกรายการ',
+            body: <>ส่งรูปสลิปโอนเงินหรือบิลรายจ่ายเข้ากลุ่มที่ผูกไว้ บอทอ่านและบันทึกให้อัตโนมัติ หรือถ้าไม่มีสลิป พิมพ์ <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-xs">รับ 500 ค่าแก๊ส</code> / <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-xs">จ่าย 300 ค่าน้ำมัน</code> คีย์เองก็ได้เช่นกัน</>,
+          },
+          {
+            emoji: '❓',
+            title: 'ติดตรงไหน ดูได้ตลอด',
+            body: <>พิมพ์ <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-xs">#วิธีใช้งาน</code> ในกลุ่ม LINE เพื่อดูคำสอนละเอียดทีละหัวข้อได้ตลอดเวลา หรือมาที่แท็บ "ช่วยเหลือ" ในเว็บนี้ — พร้อมเริ่มใช้งานได้แล้วค่ะ 🎉</>,
+          },
+        ];
+        const step = slides[onboardingStep];
+        const isLast = onboardingStep === slides.length - 1;
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-md shadow-2xl overflow-hidden">
+              <div className="px-5 pt-4 flex items-center justify-between">
+                <div className="flex gap-1.5">
+                  {slides.map((_, i) => (
+                    <span key={i} className={`h-1.5 rounded-full transition-all ${i === onboardingStep ? 'w-6 bg-blue-600' : 'w-1.5 bg-slate-200'}`} />
+                  ))}
+                </div>
+                <button onClick={dismissOnboardingPopup} className="text-slate-400 hover:text-slate-600 text-xs font-bold">
+                  ข้าม ✕
+                </button>
+              </div>
+              <div className="px-6 py-6 text-center">
+                <div className="text-4xl mb-3">{step.emoji}</div>
+                <h3 className="font-black text-slate-800 text-base mb-2">{step.title}</h3>
+                <div className="text-slate-500 text-sm leading-relaxed">{step.body}</div>
+              </div>
+              <div className="px-5 pb-5 flex gap-2">
+                {onboardingStep > 0 && (
+                  <button onClick={() => setOnboardingStep(s => s - 1)}
+                    className="px-4 py-2.5 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-100 transition-all">
+                    ย้อนกลับ
+                  </button>
+                )}
+                <button
+                  onClick={() => isLast ? dismissOnboardingPopup() : setOnboardingStep(s => s + 1)}
+                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold transition-all">
+                  {isLast ? 'เริ่มใช้งานเลย 🎉' : 'ถัดไป'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

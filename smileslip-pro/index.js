@@ -180,6 +180,42 @@ async function consumeAwaitingExpense(userId) {
   return { shopId: entry.shopId, branchName: entry.branchName };
 }
 
+// Awaiting-branch-name guard: เจ้าของร้านพิมพ์ "#ยืนยันเพิ่มสาขา" ในกลุ่ม LINE ที่ยังไม่ผูกกับระบบเลย
+// แล้วรอชื่อสาขาที่พิมพ์ตามมา (TTL 10 นาที) — ต่างจาก awaitingReceive/awaitingExpense ตรงที่เป็น
+// CONSUME-ONCE (ลบทันทีที่อ่านสำเร็จ) เพราะเป็นการแลกเปลี่ยนข้อความ 1 ครั้งจบ ไม่ใช่อัลบั้มรูปหลายใบที่
+// ต้องรับซ้ำได้แบบ receive/expense — ถ้าเป็น peek แบบนั้นจะเสี่ยงจับข้อความสนทนาปกติถัดไปของเจ้าของใน
+// กลุ่มนั้นมาเป็นชื่อสาขาโดยไม่ตั้งใจ
+const awaitingBranchNameCache = new Map(); // fallback in-memory: userId -> { shopId, groupId, ts }
+async function setAwaitingBranchName(userId, shopId, groupId) {
+  const value = JSON.stringify({ shopId, groupId });
+  if (redis) {
+    try { await redis.set(`awaitbranch:${userId}`, value, { ex: 600 }); return; } catch (e) {
+      console.warn('[Redis] setAwaitingBranchName error:', e.message, '— fallback in-memory');
+    }
+  }
+  awaitingBranchNameCache.set(userId, { shopId, groupId, ts: Date.now() });
+}
+async function consumeAwaitingBranchName(userId) {
+  if (redis) {
+    try {
+      const raw = await redis.get(`awaitbranch:${userId}`);
+      if (!raw) return null;
+      await redis.del(`awaitbranch:${userId}`); // consume-once
+      return typeof raw === 'string' ? JSON.parse(raw) : raw;
+    } catch (e) {
+      console.warn('[Redis] consumeAwaitingBranchName error:', e.message, '— fallback in-memory');
+    }
+  }
+  const now = Date.now();
+  for (const [id, v] of awaitingBranchNameCache) {
+    if (now - v.ts > 10 * 60 * 1000) awaitingBranchNameCache.delete(id);
+  }
+  const entry = awaitingBranchNameCache.get(userId);
+  if (!entry) return null;
+  awaitingBranchNameCache.delete(userId); // consume-once
+  return { shopId: entry.shopId, groupId: entry.groupId };
+}
+
 // ==========================================
 // 2. HELPER FUNCTIONS
 // ==========================================
@@ -228,6 +264,33 @@ async function findShopBySource(sourceId) {
   }
 
   return null;
+}
+
+// สร้างสาขาใหม่จากบอทโดยตรง (ผูกกลุ่ม LINE ที่ยังไม่เคยลิงก์กับระบบเลย) — เจ้าของร้านพิสูจน์ตัวตนแล้ว
+// ผ่าน senderId === shop_profiles.owner_line_id ก่อนเรียกฟังก์ชันนี้เสมอ (เช็คที่ dispatch ไม่ใช่ในนี้)
+// mirror logic เดียวกับ POST /api/shop/branches ของ dashboard (MAX_BRANCHES + insert) แค่เขียนตรงผ่าน
+// service-role client ของบอทเอง แทนที่จะยิง HTTP ข้าม service — กัน line_group_id ผูกซ้ำสองสาขาด้วย
+// (จุดนี้ dashboard's POST เดิมไม่เคยเช็ค เสี่ยงทำให้ findShopBySource().maybeSingle() พังถ้าเกิดซ้ำจริง)
+async function createBranchFromBot(shopId, branchName, groupId) {
+  const trimmedName = (branchName || '').trim().slice(0, 80);
+  if (!trimmedName) return { error: 'EMPTY_NAME' };
+
+  const { data: dupe } = await supabase.from('shop_branches').select('id').eq('line_group_id', groupId).maybeSingle();
+  if (dupe) return { error: 'DUPLICATE' };
+
+  const [{ data: shop }, { count: branchCount }] = await Promise.all([
+    supabase.from('shop_profiles').select('subscription_tier').eq('id', shopId).single(),
+    supabase.from('shop_branches').select('id', { count: 'exact', head: true }).eq('shop_id', shopId),
+  ]);
+  const limit = MAX_BRANCHES[shop?.subscription_tier] ?? MAX_BRANCHES.normal;
+  if ((branchCount ?? 0) >= limit) return { error: 'LIMIT', limit };
+
+  const { data, error } = await supabase
+    .from('shop_branches')
+    .insert({ shop_id: shopId, branch_name: trimmedName, line_group_id: groupId })
+    .select().single();
+  if (error) return { error: 'DB', message: error.message };
+  return { branch: data };
 }
 
 // ขอสิทธิ์ระดับสาขา (พนักงานส่ง / ผู้จัดการสาขา) ผ่านกลุ่ม LINE — มิเรอร์ #สมัครแอดมิน
@@ -1283,6 +1346,57 @@ app.post('/webhook', async (req, res) => {
 
       // ดึงข้อมูลร้านก่อนทุก command (รองรับทั้งกลุ่มหลัก สาขา และ DM เจ้าของ)
       const foundCmd = await findShopBySource(sourceId);
+
+      // ── กลุ่มนี้ยังไม่เคยผูกกับระบบเลย: เปิดทางให้ "เจ้าของร้าน" ผูกเป็นสาขาใหม่ได้เองจากในไลน์
+      // (ครอบคลุมทั้งกลุ่มแรก/สำนักงานใหญ่ และสาขาเพิ่มเติม — ไม่แยกกรณีพิเศษอีกต่อไป) — ครอบด้วย
+      // try/catch เสมอ เพราะ dispatch loop นี้ไม่มี try/catch รอบนอกเลย (handler อื่นในไฟล์นี้ก็ต้อง
+      // กันเองแบบนี้ทุกจุดเช่นกัน) ถ้า replyToLine พังกลางทาง (เช่น replyToken หมดอายุ) ไม่ครอบไว้จะทำให้
+      // exception หลุดเป็น unhandled rejection พัง process ทั้งตัว กระทบทุกร้านที่ใช้บอทอยู่พร้อมกัน ไม่ใช่
+      // แค่ร้านที่ error เกิดขึ้นเท่านั้น ──
+      if (!foundCmd && event.source.groupId && event.source.userId) {
+        const senderId = event.source.userId;
+        const groupId = event.source.groupId;
+
+        try {
+          if (text === '#ยืนยันเพิ่มสาขา') {
+            const { data: ownerShop } = await supabase
+              .from('shop_profiles').select('id, shop_name')
+              .eq('owner_line_id', senderId).is('deleted_at', null).maybeSingle();
+            if (!ownerShop) {
+              await replyToLine(replyToken, [{ type: 'text', text: '⚠️ ไม่พบร้านค้าที่คุณเป็นเจ้าของในระบบ Smile Slip ค่ะ — คำสั่งนี้ใช้ได้เฉพาะบัญชี LINE ของเจ้าของร้านที่สมัครไว้เท่านั้น' }]);
+              continue;
+            }
+            await setAwaitingBranchName(senderId, ownerShop.id, groupId);
+            await replyToLine(replyToken, [{
+              type: 'text',
+              text: `✅ ยืนยันตัวตนเจ้าของร้าน "${ownerShop.shop_name}" แล้วค่ะ!\n\nกรุณาพิมพ์ "ชื่อสาขา" สำหรับกลุ่มนี้ (เช่น สำนักงานใหญ่, สาขาบางนา) ภายใน 10 นาทีค่ะ 😊`
+            }]);
+            continue;
+          }
+
+          const awaitingName = await consumeAwaitingBranchName(senderId);
+          if (awaitingName && awaitingName.groupId === groupId && text) {
+            const result = await createBranchFromBot(awaitingName.shopId, text, groupId);
+            if (result.error === 'DUPLICATE') {
+              await replyToLine(replyToken, [{ type: 'text', text: '⚠️ กลุ่มนี้ถูกผูกเป็นสาขาของระบบไปแล้วค่ะ' }]);
+            } else if (result.error === 'LIMIT') {
+              await replyToLine(replyToken, [{ type: 'text', text: `⚠️ แพ็กเกจปัจจุบันเพิ่มสาขาได้สูงสุด ${result.limit} สาขาแล้วค่ะ กรุณาอัปเกรดแพ็กเกจที่หน้า Dashboard ก่อนเพิ่มสาขาใหม่นะคะ` }]);
+            } else if (result.error) {
+              console.error('[createBranchFromBot] error:', result);
+              await replyToLine(replyToken, [{ type: 'text', text: '❌ เกิดข้อผิดพลาด กรุณาลองใหม่ภายหลังค่ะ' }]);
+            } else {
+              await replyToLine(replyToken, [{
+                type: 'text',
+                text: `🎉 เพิ่มสาขา "${result.branch.branch_name}" เข้าระบบสำเร็จแล้วค่ะ!\n\nตอนนี้ส่งรูปสลิปหรือพิมพ์ #ช่วยเหลือ ในกลุ่มนี้ได้เลย — ไปเติมที่อยู่/เลขบัญชีธนาคารของสาขานี้เพิ่มเติมได้ที่ Dashboard → จัดการสาขา ค่ะ 😊`
+              }]);
+            }
+          }
+        } catch (err) {
+          console.error('[branch-self-service] error:', err.message);
+        }
+        continue; // กลุ่มยังไม่ผูก → ไม่ว่าทำอะไรข้างบนหรือไม่ตรงเงื่อนไขไหนเลย ก็จบที่นี่เสมอ
+      }
+
       if (!foundCmd) { continue; }
       const { shop, branchName: cmdBranchName } = foundCmd;
 
@@ -1545,8 +1659,8 @@ app.post('/webhook', async (req, res) => {
             },
             'สาขา': {
               label: '🏢 จัดการหลายสาขา',
-              brief: '🏢 หลายสาขา\n\nเพิ่มสาขาที่หน้าเว็บ → จัดการสาขา แล้วผูกกลุ่ม LINE ของสาขานั้น ข้อมูลทุกสาขาจะรวมอยู่ที่ Sheets เดียวกัน แยกดูได้ในเว็บ',
-              detail: '🏢 จัดการหลายสาขา (แบบละเอียด)\n\n1. เข้าหน้าเว็บ → จัดการสาขา → เพิ่มชื่อสาขาใหม่\n2. เพิ่มบอทเข้ากลุ่ม LINE ของสาขานั้น แล้วผูกกลุ่มกับสาขาที่สร้างไว้\n3. พนักงานสาขานั้นส่งสลิปเข้ากลุ่มของสาขาตัวเอง บอทจะรู้เองว่าเป็นของสาขาไหน\n4. ข้อมูลทุกสาขาจะถูกบันทึกรวมใน Google Sheets ชุดเดียวกันของร้าน (แยกคอลัมน์ชื่อสาขา)\n5. ดูแยกรายสาขาได้ที่หน้าเว็บ → บัญชี (ตัวกรองสาขา) หรือ → กราฟวิเคราะห์ (Advance ขึ้นไปเปรียบเทียบสาขาได้)\n6. พิมพ์ #สรุปทุกสาขา ในกลุ่มไหนก็ได้เพื่อดูสรุปแยกทุกสาขา (Advance ขึ้นไป)'
+              brief: '🏢 หลายสาขา\n\nสร้างกลุ่ม LINE ใหม่ ดึงบอทเข้ากลุ่ม แล้วพิมพ์ #ยืนยันเพิ่มสาขา (เจ้าของร้านเท่านั้น) บอทจะถามชื่อสาขาแล้วเพิ่มให้ทันที ไม่ต้องเข้าเว็บก็ทำได้',
+              detail: '🏢 จัดการหลายสาขา (แบบละเอียด)\n\nวิธีที่ 1 — ผ่านไลน์ (แนะนำ เร็วที่สุด):\n1. สร้างกลุ่ม LINE ใหม่สำหรับสาขานั้น (ใช้เป็นกลุ่มแรก/สำนักงานใหญ่ก็ได้ ไม่ใช่แค่สาขาเพิ่มเติม)\n2. ดึงบอท Smile Slip เข้ากลุ่ม บอทจะทักทายและบอกให้พิมพ์ #ยืนยันเพิ่มสาขา\n3. เจ้าของร้าน (บัญชี LINE ที่สมัครไว้) พิมพ์ #ยืนยันเพิ่มสาขา ในกลุ่มนั้น — คนอื่นพิมพ์ไม่ได้\n4. บอทจะถามชื่อสาขา พิมพ์ชื่อตอบกลับไปภายใน 10 นาที (เช่น "สำนักงานใหญ่" หรือ "สาขาบางนา")\n5. เสร็จทันที ส่งสลิปเข้ากลุ่มนี้ได้เลย ไม่ต้องเข้าเว็บก่อนก็ใช้งานได้\n6. ไปเติมที่อยู่/เลขบัญชีธนาคารของสาขานี้เพิ่มได้ทีหลังที่ Dashboard → จัดการสาขา\n\nวิธีที่ 2 — ผ่านหน้าเว็บ: เข้า Dashboard → จัดการสาขา → เพิ่มสาขาใหม่ → กรอกชื่อ + วางรหัสกลุ่มที่บอทให้ไว้ตอนดึงเข้ากลุ่ม\n\n7. พนักงานแต่ละสาขาส่งสลิปเข้ากลุ่มของสาขาตัวเอง บอทจะรู้เองว่าเป็นของสาขาไหน\n8. ดูแยกรายสาขาได้ที่หน้าเว็บ → บัญชี (ตัวกรองสาขา) หรือ → กราฟวิเคราะห์ (Advance ขึ้นไปเปรียบเทียบสาขาได้)\n9. พิมพ์ #สรุปทุกสาขา ในกลุ่มไหนก็ได้เพื่อดูสรุปแยกทุกสาขา (Advance ขึ้นไป)\n⚠️ จำนวนสาขาสูงสุดขึ้นอยู่กับแพ็กเกจ ถ้าเต็มโควตาแล้วบอทจะแจ้งให้อัปเกรดแพ็กเกจก่อน'
             },
             'เครดิต': {
               label: '💳 เครดิต/แพ็กเกจ',
@@ -1732,8 +1846,19 @@ app.post('/webhook', async (req, res) => {
     if (event.type === 'join') {
       const groupId = event.source.groupId;
       console.log(`[LOG] 🤖 บอทถูกเชิญเข้ากลุ่ม ID: ${groupId}`);
-      const joinMsg = { type: "text", text: `สวัสดีค่ะ! ขอบคุณที่ดึง Smile Slip เข้ากลุ่มนะคะ\nโปรดคัดลอกรหัสกลุ่มนี้:\n${groupId}\n\nไปผูกในหน้า Dashboard ของร้านค้าเพื่อเริ่มใช้งานสแกนสลิปค่ะ 😊` };
-      await replyToLine(replyToken, [joinMsg]);
+      const joinMsg = {
+        type: "text",
+        text: `สวัสดีค่ะ! ขอบคุณที่ดึง Smile Slip เข้ากลุ่มนะคะ 🎉\n\n📌 ถ้าคุณคือ "เจ้าของร้าน" และต้องการให้กลุ่มนี้เป็นสาขาหนึ่งของร้าน (จะเป็นกลุ่มแรก/สำนักงานใหญ่ หรือสาขาเพิ่มเติมก็ได้) พิมพ์คำว่า:\n#ยืนยันเพิ่มสาขา\n\nแล้วฉันจะช่วยตั้งค่าให้ทันทีค่ะ 😊\n\n(ถ้าไม่ใช่เจ้าของร้าน ให้เจ้าของร้านเป็นคนพิมพ์คำสั่งนี้แทนนะคะ — หรือถ้าอยากผูกผ่านหน้า Dashboard เองแทน รหัสกลุ่มนี้คือ:\n${groupId})`
+      };
+      // ครอบ try/catch (บั๊กเดิมที่ไม่มีมาก่อน เจอระหว่างทดสอบ flow ใหม่นี้ — replyToLine พังจุดไหน
+      // ในไฟล์นี้ที่ไม่ได้ครอบไว้ จะทำให้ unhandled rejection พัง process ทั้งตัว กระทบทุกร้านพร้อมกัน
+      // ไม่ใช่แค่กลุ่มที่ error เกิดขึ้น — จุดนี้อยู่ติดกับ flow ใหม่ #ยืนยันเพิ่มสาขา โดยตรง ถ้า join พัง
+      // ฟีเจอร์ทั้งหมดจะใช้ไม่ได้ไปด้วยจนกว่า process จะรีสตาร์ท จึงแก้พร้อมกันในรอบนี้)
+      try {
+        await replyToLine(replyToken, [joinMsg]);
+      } catch (err) {
+        console.error('[join] replyToLine failed:', err.message);
+      }
       continue;
     }
 
