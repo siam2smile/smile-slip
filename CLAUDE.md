@@ -1069,7 +1069,7 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
       - บอท: signed webhook เข้า bot ที่รันโลคัลจริง ยิงกับร้าน "D Gas" จริง 4 เคสครบ — (1) เจ้าของยืนยัน+ตั้งชื่อ → สร้างสาขาจริงสำเร็จ (D Gas branch count +1 ถูกต้อง) (2) ยืนยันซ้ำกลุ่มเดิม → DUPLICATE ปฏิเสธถูกต้อง ไม่มีแถวใหม่ (3) userId ปลอมที่ไม่ตรงเจ้าของคนไหนเลย → ปฏิเสธถูกต้อง ไม่มีสาขาถูกสร้าง (4) สร้างร้าน throwaway ชั่วคราว tier=normal (limit=1) เติมโควต้าเต็มแล้วลองเพิ่มสาขาที่ 2 ผ่านบอท → ปฏิเสธด้วย LIMIT ถูกต้อง — ลบข้อมูลทดสอบสะอาดหมดทุกจุด (สาขาทดสอบใน D Gas ลบแล้ว ยืนยัน branch count กลับเป็นค่าเดิมเป๊ะ, ร้าน throwaway ลบทั้งร้าน+สาขา) + ยืนยันหลังแก้ try/catch แล้ว process ไม่ crash อีกต่อไปแม้ replyToLine ล้มเหลวซ้ำๆ (log error แทนแค่นั้น)
       - Dashboard: เปิดผ่านเทคนิค owner-session token ที่เซ็นเอง (`router.replace()` trick กัน `router.query` ไม่ hydrate ในเบราว์เซอร์ sandboxed) ยืนยันครบ: checklist ซ่อนถูกต้องสำหรับร้านที่ตั้งค่าครบแล้ว (D Gas), ป๊อปอัพโชว์ถูกต้องตอน localStorage ว่าง คลิกผ่านครบ 4 สไลด์ (เนื้อหาตรงตามที่เขียน รวมคำสั่งใหม่ในสไลด์ 2) ปุ่มข้าม/ย้อนกลับ/ถัดไป/เริ่มใช้งานทำงานถูกต้อง กด finish แล้ว persist localStorage จริง reload ไม่โชว์ซ้ำ, Help tab แสดงคำสั่งใหม่ถูกต้อง, FAQ ที่แก้ไขแสดงถูกต้อง, การ์ดคำแนะนำในแท็บจัดการสาขาแสดงถูกต้อง — สแกน dark-bg/white-text ของ UI ใหม่ทั้งหมด 0 จุดผิดปกติ
     - **ไม่ต้องรัน SQL** — ไม่มีคอลัมน์/ตารางใหม่เลย (`shop_branches` schema เดิมพอแล้ว, ป๊อปอัพใช้ localStorage ล้วนๆ)
-    - **ยังไม่ได้ deploy production** — commit+push แล้ว รอ deploy รอบถัดไป
+    - **Deploy production แล้วทั้ง 2 service (2026-08-22)** — dashboard revision จริง `smileslip-dashboard-00349-9rd` (deploy ผ่าน `gcloud run deploy --source .` แบบ PowerShell ตามธรรมเนียม, ข้อความ deploy โชว์ revision เดิม `00348-mbm` ผิดอีกตามเคย เช็คด้วย `gcloud run revisions list --sort-by=~metadata.creationTimestamp` แล้ว retag `candidate` → health-check ผ่าน (401 ไม่มี token, 200 มี token ถูกต้อง คืนข้อมูล D Gas จริง) ก่อน cutover), บอท revision จริง `smileslip-service-00328-t62` (auto-build จาก CI/CD ที่แก้ไว้ตั้งแต่ข้อ 48 สำเร็จจาก push ตรงเวลา — **traffic ยังต้อง pin เองด้วยมือเหมือนเดิมทุกครั้ง ไม่ auto-shift** — revision ใหม่มี 0% traffic เพราะ scale-to-zero ยังไม่เคยรับ request เลย ไม่มี log ให้เช็ค ต้อง retag `candidate` ก่อนแล้วยิง request ตรงไปกระตุ้น cold boot ถึงจะเห็น log จริง — verified boot สำเร็จ (`[BOOT] ✅ Upstash Redis connected`, `Default STARTUP TCP probe succeeded`, signature verification ปฏิเสธ request ปลอมถูกต้อง) ก่อน cutover จริง
 
 ## Tech Stack
 
@@ -1101,8 +1101,8 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
 
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
-| Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00318-474` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00348-mbm` |
+| Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00328-t62` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00349-9rd` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
