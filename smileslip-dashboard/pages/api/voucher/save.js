@@ -7,7 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 import PDFDocument from 'pdfkit';
 import path from 'path';
 import axios from 'axios';
-import { requireOwnerAuth } from '../../../lib/owner-auth';
+import { requirePermission } from '../../../lib/pos-auth';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -178,16 +178,33 @@ export default async function handler(req, res) {
 
   const { shopId, type, amount, date, time, sender, receiver, note, category, branch } = req.body;
   if (!shopId) return res.status(400).json({ error: 'shopId required' });
-  if (!requireOwnerAuth(req, res, shopId, { enforce: true })) return;
+  // เจ้าของร้าน/แอดมิน ผ่านเสมอ — แคชเชียร์/พนักงานที่มีสิทธิ์ "จัดการรายจ่าย" (staff-session) ก็ออก
+  // ใบสำคัญได้เช่นกัน เพราะเป็นคนกลุ่มเดียวกับที่บันทึกรายจ่ายได้อยู่แล้วใน api/pos/expenses.js
+  if (!(await requirePermission(req, res, shopId, 'perm_manage_expenses'))) return;
 
-  const [{ data: shop }, { data: gc }] = await Promise.all([
+  // ถ้าระบุ branch มาด้วย ลองหาชื่อ/ที่อยู่แบรนด์เฉพาะสาขานั้น (server-side lookup เท่านั้น ไม่เชื่อ
+  // shopName/shopAddress ที่ client อาจส่งมา — เอกสารนี้ใช้เป็นหลักฐานทางบัญชี/ภาษี) ไม่เจอ = fallback
+  // เป็นชื่อ/ที่อยู่หลักของร้าน ตรงกับที่ใบเสร็จ/ใบกำกับภาษีอื่นในระบบ resolve แบรนด์กันอยู่แล้ว
+  const [{ data: shop }, { data: gc }, { data: br }] = await Promise.all([
     supabase.from('shop_profiles').select('shop_name, address, google_folder_id').eq('id', shopId).single(),
-    supabase.from('shop_google_configs').select('google_refresh_token').eq('shop_id', shopId).single(),
+    supabase.from('shop_google_configs').select('google_refresh_token, google_folder_id').eq('shop_id', shopId).single(),
+    branch
+      ? supabase.from('shop_branches').select('brand_name, address').eq('shop_id', shopId).eq('branch_name', branch).maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
 
   if (!shop) return res.status(404).json({ error: 'ไม่พบร้านค้า' });
   if (!gc?.google_refresh_token) return res.status(400).json({ error: 'ยังไม่ได้เชื่อมต่อ Google Drive กรุณาไปที่ตั้งค่า' });
-  if (!shop.google_folder_id) return res.status(400).json({ error: 'ไม่พบโฟลเดอร์ Google Drive ของร้าน' });
+  // shop_google_configs เป็น source of truth หลักของ folder id (upload-photo.js ใช้ pattern
+  // เดียวกันนี้อยู่แล้ว) — shop_profiles.google_folder_id เป็นแค่ fallback เผื่อร้านเก่าที่ยังไม่มี
+  // แถวใน shop_google_configs — เดิมโค้ดนี้เช็คแค่ shop_profiles คอลัมน์เดียว (ว่างเปล่าสำหรับร้านจริง
+  // ส่วนใหญ่ที่เชื่อมผ่านโฟลว์มาตรฐาน) ทำให้ voucher save ล้มเหลวเสมอด้วย error ที่เข้าใจผิดได้ง่ายว่า
+  // "ไม่พบโฟลเดอร์" ทั้งที่เชื่อมต่อ Google ไว้ถูกต้องแล้วจริง — พบระหว่างทดสอบกับร้านจริง
+  const rootFolderIdResolved = gc?.google_folder_id || shop.google_folder_id;
+  if (!rootFolderIdResolved) return res.status(400).json({ error: 'ไม่พบโฟลเดอร์ Google Drive ของร้าน' });
+
+  const displayShopName = br?.brand_name || shop.shop_name;
+  const displayShopAddress = br?.address || shop.address || '';
 
   const isExpense  = type === 'รายจ่าย';
   const prefix     = isExpense ? 'PV' : 'RV';
@@ -198,11 +215,11 @@ export default async function handler(req, res) {
 
   const pdfBuffer = await buildPdfBuffer({
     type, amount, date, time, sender, receiver, note, category, branch,
-    shopName: shop.shop_name, shopAddress: shop.address || '', voucherNo,
+    shopName: displayShopName, shopAddress: displayShopAddress, voucherNo,
   });
 
   const accessToken = await getAccessToken(gc.google_refresh_token);
-  let rootFolderId = shop.google_folder_id;
+  let rootFolderId = rootFolderIdResolved;
   let voucherFolderId, uploaded;
   try {
     voucherFolderId = await findOrCreateFolder(accessToken, rootFolderId, folderName);

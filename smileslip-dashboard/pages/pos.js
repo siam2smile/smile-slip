@@ -737,7 +737,7 @@ export default function POSPage() {
   const [linkedPendingNo, setLinkedPendingNo] = useState(null); // pending_no ที่กำลังแก้ไขอยู่ในฟอร์ม (ลบออกจากคิวหลังยืนยันสำเร็จ)
 
   // รายจ่าย — ค่าใช้จ่ายร้านที่ไม่เกี่ยวกับสต็อคสินค้า
-  const [expenseForm, setExpenseForm] = useState({ label: '', amount: '', vatType: 'ไม่มี VAT', payment_method: 'เงินสด', notes: '', transactionDate: '' });
+  const [expenseForm, setExpenseForm] = useState({ label: '', payee: '', amount: '', vatType: 'ไม่มี VAT', payment_method: 'เงินสด', notes: '', transactionDate: '' });
   const [expensePhotoUrl, setExpensePhotoUrl] = useState('');
   const [expensePhotoUploading, setExpensePhotoUploading] = useState(false);
   const [expenseSaving, setExpenseSaving] = useState(false);
@@ -747,6 +747,11 @@ export default function POSPage() {
   const [pendingExpenses, setPendingExpenses] = useState([]); // มาจากบอท LINE #รายจ่าย รอตรวจสอบ
   const [pendingExpensesLoading, setPendingExpensesLoading] = useState(false);
   const [linkedExpensePendingNo, setLinkedExpensePendingNo] = useState(null);
+
+  // ใบสำคัญจ่าย (voucher) — พิมพ์จากรายจ่ายที่บันทึกไว้แล้ว ทั้งจากประวัติและหน้ารายงาน
+  const [voucherExpense, setVoucherExpense] = useState(null); // รายจ่ายที่กำลังออกใบสำคัญให้ หรือ null = ปิด modal
+  const [voucherStep, setVoucherStep] = useState('preview'); // 'preview' | 'saving' | 'saved'
+  const [voucherResult, setVoucherResult] = useState(null); // { voucherNo, viewUrl, downloadUrl }
 
   // เงินเดือน (Phase 2 ของแผนบัญชีเต็มรูปแบบ) — พนักงานในระบบเงินเดือนแยกจาก pos_staff (คนละแนวคิด
   // ดู scripts/payroll-01-create-tables.sql) — เจ้าของ/แอดมินร้านเท่านั้นที่เข้าถึงได้ (ไม่โชว์ในโหมดแคชเชียร์)
@@ -3281,6 +3286,7 @@ export default function POSPage() {
         body: JSON.stringify({
           shopId,
           label: expenseForm.label.trim(),
+          payee: expenseForm.payee?.trim() || '',
           amount: expenseForm.amount,
           vatType: expenseForm.vatType,
           payment_method: expenseForm.payment_method,
@@ -3295,7 +3301,7 @@ export default function POSPage() {
       const d = await r.json();
       if (d.ok) {
         showToast(`✅ บันทึกรายจ่าย ${d.expenseNo} แล้ว (฿${d.total.toLocaleString()})`);
-        setExpenseForm({ label: '', amount: '', vatType: 'ไม่มี VAT', payment_method: 'เงินสด', notes: '', transactionDate: '' });
+        setExpenseForm({ label: '', payee: '', amount: '', vatType: 'ไม่มี VAT', payment_method: 'เงินสด', notes: '', transactionDate: '' });
         setExpensePhotoUrl('');
         fetchExpenseHistory();
         // ถ้ามาจากรายการรอยืนยันของ LINE — ลบออกจากคิวรอ เพราะบันทึกจริงแล้ว
@@ -3674,6 +3680,50 @@ export default function POSPage() {
       const d = await r.json();
       if (d.ok) { showToast('ลบแล้ว'); fetchExpenseHistory(); } else alert(d.error);
     } catch (err) { alert(err.message); }
+  }
+
+  // ── ใบสำคัญจ่าย (voucher) — ออกจากรายจ่ายที่บันทึกไว้แล้ว ใช้ร่วมกันทั้งประวัติและหน้ารายงาน ──
+  // sender = ร้าน (ผู้จ่ายเงิน), receiver = ผู้รับเงิน (payee ถ้ากรอกไว้ ไม่งั้น fallback เป็นรายการ/
+  // หมวดหมู่) — resolve ชื่อ/ที่อยู่แบรนด์ตามสาขาเดียวกับที่ใบเสร็จ/ใบกำกับภาษีอื่นในระบบใช้ (item 78)
+  function expenseVoucherFields(e) {
+    const sName = selectedBranch?.brand_name || shopInfo?.shop_name || '';
+    const sAddr = selectedBranch?.address || shopInfo?.address || '';
+    return {
+      type: 'รายจ่าย', amount: String(e.total || 0), date: e.created_at || '', time: '',
+      sender: sName, receiver: e.payee || e.label || '-', note: e.notes || e.label || '',
+      category: e.label || '', shopName: sName, shopAddress: sAddr,
+      branch: e.branch || selectedBranch?.branch_name || '',
+    };
+  }
+
+  function openVoucherModal(expense) {
+    setVoucherExpense(expense);
+    setVoucherStep('preview');
+    setVoucherResult(null);
+  }
+
+  function closeVoucherModal() {
+    setVoucherExpense(null);
+  }
+
+  async function saveExpenseVoucher() {
+    if (!voucherExpense) return;
+    setVoucherStep('saving');
+    try {
+      const fields = expenseVoucherFields(voucherExpense);
+      const r = await fetch('/api/voucher/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, ...fields }),
+      });
+      const d = await r.json();
+      if (d.error) { showToast('บันทึกไม่สำเร็จ: ' + d.error); setVoucherStep('preview'); return; }
+      setVoucherResult(d);
+      setVoucherStep('saved');
+    } catch (err) {
+      showToast('เกิดข้อผิดพลาด: ' + err.message);
+      setVoucherStep('preview');
+    }
   }
 
   // รอยืนยันจาก LINE (#รายจ่าย → ถ่ายรูปบิล → OCR)
@@ -6101,6 +6151,14 @@ export default function POSPage() {
                   </div>
 
                   <div>
+                    <label className="block text-gray-500 text-xs mb-1.5">ผู้รับเงิน (ไม่บังคับ — ใช้พิมพ์ใบสำคัญจ่ายให้ตรงคน)</label>
+                    <input type="text" value={expenseForm.payee}
+                      onChange={e => setExpenseForm(f => ({ ...f, payee: e.target.value }))}
+                      placeholder="เช่น ชื่อพนักงาน (จ่ายเงินเดือน), ชื่อร้าน/บริษัทที่จ่ายให้"
+                      className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
+                  </div>
+
+                  <div>
                     <label className="block text-gray-500 text-xs mb-1.5">จำนวนเงิน (฿)</label>
                     <input type="number" value={expenseForm.amount}
                       onChange={e => setExpenseForm(f => ({ ...f, amount: e.target.value }))}
@@ -6199,6 +6257,7 @@ export default function POSPage() {
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             <span className="text-red-600 font-bold text-sm">฿{e.total.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                            <button onClick={() => openVoucherModal(e)} title="ออกใบสำคัญจ่าย" className="text-gray-400 hover:text-blue-600 text-xs">🧾</button>
                             <button onClick={() => deleteExpense(e.expense_no)} className="text-gray-400 hover:text-red-600 text-xs">🗑️</button>
                           </div>
                         </div>
@@ -6590,6 +6649,63 @@ export default function POSPage() {
                       {orderEditSaving ? 'กำลังบันทึก...' : '💾 บันทึก'}
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══ Modal: ใบสำคัญจ่าย ══════════════════════════════════════════ */}
+          {voucherExpense && (
+            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl w-full max-w-md border border-gray-200 shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div className="p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-gray-900 font-bold">🧾 ใบสำคัญจ่าย — {voucherExpense.label}</h3>
+                    <button onClick={closeVoucherModal} className="text-gray-500 hover:text-gray-900 text-2xl leading-none">×</button>
+                  </div>
+
+                  {(voucherStep === 'preview' || voucherStep === 'saving') && (
+                    <div className="space-y-3">
+                      <p className="text-gray-400 text-xs">สร้างเอกสารสำหรับหักภาษีเงินได้และบันทึกบัญชี — ตรวจสอบตัวอย่างก่อนบันทึกจริง</p>
+                      <div className="rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
+                        <iframe
+                          src={`/api/voucher/preview?${new URLSearchParams(expenseVoucherFields(voucherExpense)).toString()}`}
+                          className="w-full border-0"
+                          style={{ height: '420px' }}
+                          title="ตัวอย่างใบสำคัญจ่าย"
+                        />
+                      </div>
+                      <button onClick={saveExpenseVoucher} disabled={voucherStep === 'saving'}
+                        className="w-full bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors text-sm">
+                        {voucherStep === 'saving' ? 'กำลังบันทึกลง Google Drive...' : 'บันทึกลง Google Drive'}
+                      </button>
+                    </div>
+                  )}
+
+                  {voucherStep === 'saved' && voucherResult && (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-green-700 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
+                        <span className="text-lg">✅</span>
+                        <div>
+                          <p className="text-sm font-bold">บันทึกสำเร็จแล้ว</p>
+                          <p className="text-xs text-green-600">{voucherResult.voucherNo} → Google Drive / ใบสำคัญจ่าย</p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <a href={voucherResult.viewUrl} target="_blank" rel="noreferrer"
+                          className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl border-2 border-gray-300 text-gray-600 text-xs font-bold hover:bg-gray-50 transition-colors">
+                          🖨️ ปริ้น
+                        </a>
+                        <a href={voucherResult.downloadUrl} target="_blank" rel="noreferrer"
+                          className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-gray-700 text-white text-xs font-bold hover:bg-gray-600 transition-colors">
+                          ⬇️ ดาวน์โหลด PDF
+                        </a>
+                      </div>
+                      <button onClick={closeVoucherModal} className="w-full bg-gray-100 hover:bg-gray-200 text-gray-900 font-bold py-2.5 rounded-xl transition-colors text-sm">
+                        ปิด
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -8246,7 +8362,10 @@ export default function POSPage() {
                                 <div className="text-gray-900 text-sm truncate">{e.label}</div>
                                 <div className="text-gray-400 text-xs">{e.created_at} · {e.payment_method}{e.vat_amount > 0 ? ` · VAT ฿${e.vat_amount.toLocaleString(undefined,{minimumFractionDigits:2})}` : ''}</div>
                               </div>
-                              <span className="text-red-600 font-bold text-sm shrink-0">฿{e.total.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-red-600 font-bold text-sm">฿{e.total.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+                                <button onClick={() => openVoucherModal(e)} title="ออกใบสำคัญจ่าย" className="text-gray-400 hover:text-blue-600 text-xs">🧾</button>
+                              </div>
                             </div>
                           ))}
                         </div>

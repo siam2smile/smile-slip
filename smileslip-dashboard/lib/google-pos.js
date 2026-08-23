@@ -148,7 +148,7 @@ export function expenseFromRow(r) {
     total: Number(r.total) || 0, vat_type: r.vat_type || 'ไม่มี VAT', subtotal: Number(r.subtotal) || 0,
     vat_amount: Number(r.vat_amount) || 0, payment_method: r.payment_method || '',
     photo_url: r.photo_url || '', notes: r.notes || '', recorded_by: r.recorded_by || '',
-    branch: r.branch_name || '', shift_no: r.shift_no || '',
+    branch: r.branch_name || '', shift_no: r.shift_no || '', payee: r.payee || '',
   };
 }
 

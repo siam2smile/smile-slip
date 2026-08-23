@@ -1,6 +1,6 @@
 /**
  * GET    /api/pos/expenses?shopId&date&dateFrom&dateTo&branch  → ประวัติรายจ่าย
- * POST   /api/pos/expenses { shopId, label, amount, vatType, payment_method, photo_url, notes, recordedBy, branch }
+ * POST   /api/pos/expenses { shopId, label, amount, vatType, payment_method, photo_url, notes, recordedBy, branch, payee }
  *   → บันทึกรายจ่ายของร้านที่ไม่เกี่ยวกับสต็อคสินค้า (ค่าเช่า/ค่าน้ำไฟ/ค่าแรง ฯลฯ) คนละระบบกับ "รับสินค้า"
  *   → amount คือยอดรวมที่จ่ายจริง (ตามที่กรอก) vatType กำหนดว่าจะแยก VAT กลับออกมายังไง
  *     ('รวม VAT แล้ว'/'ไม่รวม VAT'/'ไม่มี VAT' แบบเดียวกับ vat_type สินค้า/รับสินค้า)
@@ -163,6 +163,7 @@ export default async function handler(req, res) {
       const {
         label = '', amount = 0, vatType = 'ไม่มี VAT', payment_method = 'เงินสด',
         photo_url = '', notes = '', recordedBy = '', branch = '', transactionDate = '', shift_no = '',
+        payee = '',
       } = req.body;
 
       if (!label.trim()) return res.status(400).json({ error: 'กรุณาระบุรายการ/หมวดหมู่' });
@@ -181,6 +182,18 @@ export default async function handler(req, res) {
         payment_method, photo_url, notes, recorded_by: recordedBy, branch_name: branch, shift_no,
       });
       if (error) throw error;
+
+      // payee (ผู้รับเงิน — ไม่บังคับ ใช้พิมพ์ใบสำคัญจ่าย) เป็นคอลัมน์ใหม่ — แยกเขียนต่างหาก
+      // กันพังการบันทึกรายจ่ายหลักถ้ายังไม่ได้รัน SQL เพิ่มคอลัมน์ (pattern เดียวกับ shop/branches.js)
+      if (payee?.trim()) {
+        try {
+          const { error: payeeErr } = await supabase.from('pos_expenses')
+            .update({ payee: payee.trim() }).eq('shop_id', shopId).eq('expense_no', expenseNo);
+          if (payeeErr) console.error('[pos/expenses] set payee failed (non-fatal):', payeeErr.message);
+        } catch (payeeErr) {
+          console.error('[pos/expenses] set payee failed (non-fatal):', payeeErr.message);
+        }
+      }
 
       // branch (สาขาที่เลือกไว้ในหน้า POS) ต้องมาก่อน branchName (ค่า default ของร้าน) เสมอ —
       // ไม่งั้นรายจ่ายทุกสาขาจะถูกนับรวมเป็นสาขาเดียวกันหมดในบัญชีหลัก/กราฟวิเคราะห์

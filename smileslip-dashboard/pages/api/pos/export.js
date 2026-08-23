@@ -166,6 +166,7 @@ function expenseFromRow(r) {
     expense_no: r.expense_no || '', created_at: r.transaction_at || '', label: r.label || '',
     total: Number(r.total) || 0, subtotal: Number(r.subtotal) || 0, vat_amount: Number(r.vat_amount) || 0,
     payment_method: r.payment_method || '', notes: r.notes || '', branch: r.branch_name || '',
+    payee: r.payee || '',
   };
 }
 function receiveFromRow(r) {
@@ -487,16 +488,16 @@ export default async function handler(req, res) {
       if (branch) expenses = expenses.filter(e => e.branch === branch);
       expenses = expenses.filter(e => inRange(e.created_at, from, to));
 
-      const headers = ['วันที่', 'รายการ/หมวดหมู่', 'ยอดรวม (฿)', 'ยอดก่อน VAT (฿)', 'VAT (฿)', 'วิธีชำระ', 'สาขา', 'หมายเหตุ'];
+      const headers = ['วันที่', 'รายการ/หมวดหมู่', 'ผู้รับเงิน', 'ยอดรวม (฿)', 'ยอดก่อน VAT (฿)', 'VAT (฿)', 'วิธีชำระ', 'สาขา', 'หมายเหตุ'];
       const data = [
         [shopName], [`สาขา: ${branchLabel}`], [`ช่วงเวลา: ${periodLabel}`], [], headers,
-        ...expenses.map(e => [e.created_at, e.label, fmt(e.total), fmt(e.subtotal), fmt(e.vat_amount), e.payment_method, e.branch, e.notes]),
+        ...expenses.map(e => [e.created_at, e.label, e.payee || '-', fmt(e.total), fmt(e.subtotal), fmt(e.vat_amount), e.payment_method, e.branch, e.notes]),
       ];
       const totalExpense = expenses.reduce((a, e) => a + e.total, 0);
-      data.push([], ['', 'รวมรายจ่าย', fmt(totalExpense), '', '', '', '', '']);
+      data.push([], ['', 'รวมรายจ่าย', '', fmt(totalExpense), '', '', '', '', '']);
 
       const ws = XLSX.utils.aoa_to_sheet(data);
-      ws['!cols'] = [{ wch: 22 }, { wch: 28 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 30 }];
+      ws['!cols'] = [{ wch: 22 }, { wch: 28 }, { wch: 20 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 30 }];
       XLSX.utils.book_append_sheet(wb, ws, 'รายจ่าย');
     }
 
