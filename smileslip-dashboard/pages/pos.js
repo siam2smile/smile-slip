@@ -3908,6 +3908,13 @@ export default function POSPage() {
   // ตัวกรองออเดอร์จัดส่ง — สถานะ (ค้าง/รอยืนยัน/จัดส่งแล้ว) + วันที่ (วันนี้/เดือนนี้) กันหายากตอนออเดอร์เยอะ
   // — "รอยืนยัน" แยกออกมาจาก "จัดส่งแล้ว" เพราะเดิมปนกันหมด ทำให้ต้องเลื่อนหาออเดอร์ที่พนักงานส่งแล้ว
   // แต่แอดมินยังไม่ได้กดรับเงิน/รับของ ท่ามกลางออเดอร์ที่เสร็จสมบูรณ์แล้วจริงๆ (ช้ามากตอนออเดอร์เยอะ)
+  //
+  // บั๊กที่เจอ+แก้: ปุ่ม "📅 ค้างวันนี้/ค้างเดือนนี้" (ตัวกรองวันที่) เดิมทำงานอิสระจากตัวกรองสถานะ
+  // 100% — คำว่า "ค้าง" ในป้ายกำกับไม่เคยมีผลจริงถ้าตัวกรองสถานะยังอยู่ที่ "ทั้งหมด" (ค่าเริ่มต้น) ทำให้
+  // เห็นออเดอร์ที่จัดส่งสำเร็จสมบูรณ์แล้วปนอยู่ด้วย ทั้งที่ป้ายบอกว่า "ค้าง" — แก้โดย: ถ้าผู้ใช้ยังไม่ได้
+  // เลือกตัวกรองสถานะเอง (ยังเป็น 'all') และเลือกช่วงวันที่ไว้ (ไม่ใช่ 'ทุกวันที่') ให้ตัดออเดอร์ที่เสร็จ
+  // สมบูรณ์แล้วออกโดยอัตโนมัติ (ตรงกับความหมายของคำว่า "ค้าง") — แต่ถ้าผู้ใช้เลือกตัวกรองสถานะเองชัดเจน
+  // (เช่น "✅ จัดส่งสำเร็จ") ยังคงรวมกับตัวกรองวันที่ได้ตามเดิม (เช่น ดู "จัดส่งสำเร็จเดือนนี้" ได้ปกติ)
   const displayOrders = useMemo(() => {
     let list = orders;
     if (orderStatusFilter === 'pending') {
@@ -3916,6 +3923,9 @@ export default function POSPage() {
       list = list.filter(o => o.status === 'ส่งแล้ว' && !isOrderFullyConfirmed(o));
     } else if (orderStatusFilter === 'delivered') {
       list = list.filter(o => isOrderFullyConfirmed(o));
+    } else if (orderDateFilter !== 'all') {
+      // orderStatusFilter === 'all' แต่มีตัวกรองวันที่แบบ "ค้าง..." อยู่ — ตัดออเดอร์ที่เสร็จสมบูรณ์แล้วออก
+      list = list.filter(o => !isOrderFullyConfirmed(o));
     }
     if (orderDateFilter !== 'all') {
       const today = new Date();
@@ -9059,43 +9069,70 @@ export default function POSPage() {
                   </div>
                 </div>
 
-                {/* ลิงก์สั่งซื้อสำหรับลูกค้า */}
+                {/* ลิงก์สั่งซื้อสำหรับลูกค้า — ร้านสาขาเดียว (posBranches.length===1) รวมเหลือลิงก์เดียว
+                    (ล็อกสาขานั้นไว้ตรงๆ) แทนที่จะโชว์ลิงก์รวมร้าน (ที่หน้า /order จะมีดรอปดาวน์เลือกสาขา
+                    ทั้งที่มีตัวเลือกเดียว) ซ้ำกับลิงก์เฉพาะสาขาที่เหมือนกันโดยพฤตินัย — เพิ่ม 2026-08-23 */}
                 <div className="bg-white rounded-2xl p-5 border border-gray-100">
                   <h3 className="text-gray-900 font-bold mb-1">🛒 ลิงก์สั่งซื้อสำหรับลูกค้า</h3>
                   <p className="text-gray-500 text-xs mb-3">
                     แชร์ลิงก์นี้ให้ลูกค้าเพื่อสั่งซื้อ/สั่งจัดส่งเองได้ (ไม่ต้อง login) — คำสั่งซื้อที่เข้ามาจะรอให้ร้านตรวจสอบ/ยืนยันในแท็บ "🚚 ออเดอร์" ก่อนเสมอ ไม่กลายเป็นออเดอร์จริงทันที
                   </p>
-                  <div className="flex items-center gap-2">
-                    <input readOnly value={typeof window !== 'undefined' ? `${window.location.origin}/order?shopId=${shopId}` : ''}
-                      className="flex-1 bg-white text-gray-700 text-xs px-3 py-2.5 rounded-xl border border-gray-200 truncate" />
-                    <button onClick={() => {
-                      navigator.clipboard.writeText(`${window.location.origin}/order?shopId=${shopId}`);
-                      showToast('คัดลอกลิงก์แล้ว');
-                    }} className="shrink-0 bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-colors">
-                      📋 คัดลอก
-                    </button>
-                  </div>
 
-                  {posBranches.length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-gray-100 space-y-2">
-                      <p className="text-gray-500 text-xs mb-2">
-                        หรือแยกลิงก์เฉพาะสาขา (ลูกค้าจะเห็นแค่สินค้าของสาขานั้น + ล็อกสาขาไว้อัตโนมัติ ไม่ต้องเลือกเอง)
-                      </p>
-                      {posBranches.map(b => (
-                        <div key={b.id} className="flex items-center gap-2">
-                          <span className="shrink-0 text-gray-700 text-xs w-20 truncate">{b.brand_name || b.branch_name}</span>
-                          <input readOnly value={typeof window !== 'undefined' ? `${window.location.origin}/order?shopId=${shopId}&branch=${encodeURIComponent(b.branch_name)}` : ''}
-                            className="flex-1 bg-white text-gray-700 text-xs px-3 py-2 rounded-xl border border-gray-200 truncate" />
-                          <button onClick={() => {
-                            navigator.clipboard.writeText(`${window.location.origin}/order?shopId=${shopId}&branch=${encodeURIComponent(b.branch_name)}`);
-                            showToast('คัดลอกลิงก์แล้ว');
-                          }} className="shrink-0 bg-gray-100 hover:bg-gray-200 text-gray-900 text-xs font-bold px-3 py-2 rounded-xl transition-colors">
-                            📋
-                          </button>
-                        </div>
-                      ))}
+                  {posBranches.length === 1 ? (
+                    <div className="flex items-center gap-2">
+                      <input readOnly value={typeof window !== 'undefined' ? `${window.location.origin}/order?shopId=${shopId}&branch=${encodeURIComponent(posBranches[0].branch_name)}` : ''}
+                        className="flex-1 bg-white text-gray-700 text-xs px-3 py-2.5 rounded-xl border border-gray-200 truncate" />
+                      <button onClick={() => {
+                        navigator.clipboard.writeText(`${window.location.origin}/order?shopId=${shopId}&branch=${encodeURIComponent(posBranches[0].branch_name)}`);
+                        showToast('คัดลอกลิงก์แล้ว');
+                      }} className="shrink-0 bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-colors">
+                        📋 คัดลอก
+                      </button>
                     </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <input readOnly value={typeof window !== 'undefined' ? `${window.location.origin}/order?shopId=${shopId}` : ''}
+                          className="flex-1 bg-white text-gray-700 text-xs px-3 py-2.5 rounded-xl border border-gray-200 truncate" />
+                        <button onClick={() => {
+                          navigator.clipboard.writeText(`${window.location.origin}/order?shopId=${shopId}`);
+                          showToast('คัดลอกลิงก์แล้ว');
+                        }} className="shrink-0 bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-colors">
+                          📋 คัดลอก
+                        </button>
+                      </div>
+
+                      {posBranches.length > 1 && (
+                        <div className="mt-4 pt-4 border-t border-gray-100 space-y-2">
+                          <p className="text-gray-500 text-xs mb-2">
+                            หรือแยกลิงก์เฉพาะสาขา (ลูกค้าจะเห็นแค่สินค้าของสาขานั้น + ล็อกสาขาไว้อัตโนมัติ ไม่ต้องเลือกเอง)
+                          </p>
+                          {posBranches.map(b => (
+                            <div key={b.id} className="flex items-center gap-2">
+                              <span className="shrink-0 text-gray-700 text-xs w-20 truncate">{b.brand_name || b.branch_name}</span>
+                              <input readOnly value={typeof window !== 'undefined' ? `${window.location.origin}/order?shopId=${shopId}&branch=${encodeURIComponent(b.branch_name)}` : ''}
+                                className="flex-1 bg-white text-gray-700 text-xs px-3 py-2 rounded-xl border border-gray-200 truncate" />
+                              <button onClick={() => {
+                                navigator.clipboard.writeText(`${window.location.origin}/order?shopId=${shopId}&branch=${encodeURIComponent(b.branch_name)}`);
+                                showToast('คัดลอกลิงก์แล้ว');
+                              }} className="shrink-0 bg-gray-100 hover:bg-gray-200 text-gray-900 text-xs font-bold px-3 py-2 rounded-xl transition-colors">
+                                📋
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
+
+                  {/* ทางลัดไปหน้าจัดการว่าสินค้าไหนโชว์ในหน้าสั่งซื้อออนไลน์ — เดิมต้องไปแท็บสินค้าเอง
+                      แล้วกดโหมด "🌐 เมนูออนไลน์" เอง หาไม่เจอง่ายๆ ถ้าไม่เคยใช้มาก่อน — เพิ่ม 2026-08-23 */}
+                  <button
+                    onClick={() => { setTab('products'); setOnlineMenuMode(true); }}
+                    className="mt-4 pt-4 border-t border-gray-100 w-full text-left text-sky-700 hover:text-sky-800 text-xs font-bold underline underline-offset-2"
+                  >
+                    🌐 เลือกสินค้าที่จะแสดงในหน้าสั่งซื้อออนไลน์ →
+                  </button>
                 </div>
 
                 </>)}
