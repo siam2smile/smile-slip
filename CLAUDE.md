@@ -1148,6 +1148,7 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
       (1) โหมดปิด (ค่าเริ่มต้น): บิลที่กด "ใช้โปรนี้" ทั้ง A และ B จริง (ยืนยันด้วยยอดบิลลดลงจริงทุกครั้ง) → พิมพ์ใบเสร็จ → footer มีแค่ "🎉 Promo-A-applied-shown" เท่านั้น — Promo B **ไม่โผล่แม้จะถูกใช้จริง** เพราะ flag เป็น false (พิสูจน์ flag ควบคุมจริง ไม่ใช่แค่ "ไม่เคยถูกใช้") — Promo C ไม่โผล่เพราะไม่เคยถูกใช้เลย (min_total สูงเกิน)
       (2) เปิดโหมดโฆษณาระดับร้าน (`promo_advertise_on_receipt:true`) → เปิดบิลใหม่ไม่แตะโปรใดเลย → พิมพ์ใบเสร็จ → footer มี "🎉 Promo-C-adonly-notapplied" + "🎉 Promo-A-applied-shown" ทั้งคู่ (โปรที่ active + flag=true ทุกตัว ไม่ว่าจะเคยถูกใช้ในบิลนี้หรือไม่) — Promo B ยังคงไม่โผล่แม้เปิดโหมดโฆษณาแล้ว เพราะ flag=false ชนะเสมอไม่ว่าโหมดไหน
       **Cleanup:** ยกเลิกบิลทดสอบทั้ง 4 ใบผ่าน `DELETE /api/pos/sales` (ย้อนสต็อค/ยอดขายอัตโนมัติ แทนคำนวณ offset เอง ปลอดภัยกว่า) → verified สต็อคสินค้าทดสอบ ("เนื้อก๊าซ 15 กก.") กลับตรง baseline เป๊ะ (stock 12/at_customer 16/empty_waiting 42) → ลบโปรทดสอบทั้ง 3 → คืนค่า `promo_advertise_on_receipt` กลับ `false` → ยืนยัน `pos_open_bills` ว่างสะอาด — ไม่มีร่องรอยข้อมูลทดสอบเหลือในระบบจริง
+    - **Deploy production แล้ว (2026-08-23)** — revision จริง `smileslip-dashboard-00355-dvx` (candidate tag เดิมค้างชี้ revision เก่าจากเซสชันก่อน ต้อง `--set-tags` ชี้ใหม่เองก่อน health-check ถึงจะเชื่อ candidate URL ได้) — verified บน production จริง: `/api/shop/data` (401 ไม่มี token, 200 มี token ถูกต้อง), `/api/pos/promotions` (200, ไม่มีโปรทดสอบหลงเหลือ), `/api/pos/pos-config` (200, `promo_advertise_on_receipt:false` ตรงกับที่รีเซ็ตไว้) — **ครบทั้ง 4/4 ข้อที่ผู้ใช้ขอทำทีละข้อ (bill_discount, tiered_pricing, ระบบแต้มสะสม, โฆษณา/แสดงโปรโมชั่นในใบเสร็จ) เสร็จสมบูรณ์แล้วทั้งหมด**
 
 ## Tech Stack
 
@@ -1180,7 +1181,7 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
 | Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00328-t62` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00354-2qq` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00355-dvx` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
