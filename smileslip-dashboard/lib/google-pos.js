@@ -307,6 +307,8 @@ export function productFromRow(r) {
     // เมนูสั่งซื้อออนไลน์ (ข้อ 94) — ค่าเริ่มต้น true เสมอ (ทั้งก่อน/หลังรัน SQL) ให้ตรงกับ
     // พฤติกรรมเดิมที่ order.js เคยดึงสินค้าทุกตัวมาแสดงไม่มีข้อยกเว้น — ต้องติ๊กออกเองถึงจะซ่อน
     online_order_visible: r.online_order_visible !== false,
+    // แต้มสะสม (ข้อ 102) — null = ใช้อัตราเริ่มต้นของร้าน (pos_configs.loyalty_baht_per_point)
+    loyalty_baht_per_point: r.loyalty_baht_per_point != null ? Number(r.loyalty_baht_per_point) : null,
   };
 }
 

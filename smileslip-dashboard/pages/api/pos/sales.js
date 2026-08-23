@@ -21,6 +21,7 @@ import {
 } from '../../../lib/google-pos';
 import { dualWrite, insertRow, LEDGER_TYPE } from '../../../lib/supabase-pos';
 import { getBranchStock, adjustBranchStock } from '../../../lib/pos-stock';
+import { getLoyaltyConfig, redeemPoints, earnPointsFromSale } from '../../../lib/loyalty';
 
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 
@@ -261,6 +262,7 @@ export default async function handler(req, res) {
         customerName = '', customerId = '',
         slipUrl = '', slipSender = '', slipRefNo = '',
         branch = '', transactionDate = '', shift_no = '',
+        loyaltyPointsRedeemed = 0,
       } = req.body;
       if (!items.length) return res.status(400).json({ error: 'ไม่มีรายการสินค้า' });
       // จำนวน/ราคาต้องไม่ติดลบ — จำนวนติดลบเคยทำให้ "ขาย" กลายเป็นวิธีเพิ่มสต็อคฟรีๆ ได้
@@ -277,8 +279,33 @@ export default async function handler(req, res) {
         return res.status(403).json({ error: upgradeMessage('credit_ar'), featureLocked: true });
       }
 
+      // แลกแต้มสะสม (ถ้ามี) — คำนวณมูลค่าส่วนลดฝั่ง server เสมอ (ไม่เชื่อค่าบาทจาก client) จาก
+      // อัตรา "บาท/แต้ม" ระดับร้าน (ใช้ค่าเดียวกับอัตราสะสม — แลก 1 แต้ม = คืนทุนเท่ากับที่ต้องใช้ซื้อ 1
+      // แต้มตอนแรก, โมเดล breakeven มาตรฐาน) กัน client ส่งมูลค่าไม่ตรงกับแต้มที่หักจริง — ทั้ง "แลกเป็น
+      // ส่วนลด" และ "แลกสินค้าเฉพาะ" ใช้ฟิลด์เดียวกันนี้ (จำนวนแต้มรวม) เพราะฝั่งแลกสินค้าจริงๆ คือ
+      // frontend เติมสินค้ารางวัลเข้าตะกร้าที่ราคา ฿0 เอง (ผ่าน updatePrice ปกติ) ไม่ต้องมี logic แยก
+      // ที่นี่เลย — เขียน ledger entry ทันทีที่ตรวจสอบผ่าน (ก่อน insert บิลจริง) ยอมรับความเสี่ยงเล็กน้อย
+      // ที่ถ้า insert ล้มเหลวทีหลังแต้มจะถูกหักไปแล้วไม่มีบิลคู่กัน — เป็น trade-off เดียวกับที่ระบบอื่น
+      // ในไฟล์นี้ (เช่น การตัดสต็อค) ใช้อยู่แล้วทั้งหมด ไม่ทำ transaction เต็มรูปแบบตามธรรมเนียมโปรเจกต์
+      let loyaltyDiscountValue = 0;
+      const redeemPts = Number(loyaltyPointsRedeemed) || 0;
+      if (redeemPts > 0) {
+        if (!customerId) return res.status(400).json({ error: 'ต้องเลือกลูกค้าก่อนถึงจะแลกแต้มสะสมได้' });
+        const loyaltyConfig = await getLoyaltyConfig(shopId);
+        if (!loyaltyConfig.enabled || !loyaltyConfig.bahtPerPoint) {
+          return res.status(400).json({ error: 'ร้านนี้ยังไม่ได้เปิดใช้งานระบบแต้มสะสม' });
+        }
+        loyaltyDiscountValue = redeemPts * loyaltyConfig.bahtPerPoint;
+        const redeemResult = await redeemPoints(shopId, {
+          contactId: customerId, points: redeemPts, entryType: 'redeem',
+          ref: '', note: customerName ? `แลกแต้ม ${redeemPts} แต้ม (${customerName})` : `แลกแต้ม ${redeemPts} แต้ม`,
+          branch,
+        });
+        if (!redeemResult.ok) return res.status(400).json({ error: redeemResult.error });
+      }
+
       const subtotal = items.reduce((sum, i) => sum + i.price * i.qty, 0);
-      const total = Math.max(0, subtotal - discount);
+      const total = Math.max(0, subtotal - discount - loyaltyDiscountValue);
       const change = payment_method === 'เงินสด' ? Math.max(0, cash_received - total) : 0;
       const billNo = makeBillNo();
       const recordDT = resolveRecordDateTime(transactionDate); // วันที่ของบิล — backdate ได้ถ้าระบุ transactionDate
@@ -430,7 +457,17 @@ export default async function handler(req, res) {
         console.error('[pos/sales] stock deduct error:', stockErr.message);
       }
 
-      return res.json({ ok: true, billNo, total, change, vatSubtotal, vatAmount, warnings });
+      // สะสมแต้มให้ลูกค้า (ถ้าผูกลูกค้าไว้) — เฉพาะบิลที่ชำระแล้วจริงเท่านั้น (เงื่อนไขเดียวกับที่ใช้
+      // ตัดสินใจเขียนเข้าบัญชีหลักด้านบน — บิลเชื่อ/รอยืนยันโอนยังไม่ได้เงินจริง ไม่ควรให้แต้มจนกว่าจะ
+      // ชำระสำเร็จ) fail-safe เต็มรูปแบบอยู่แล้วใน earnPointsFromSale เอง ไม่มีทาง throw ออกมาที่นี่
+      const loyaltyPointsEarned = (!isTransferPending && !isCredit)
+        ? await earnPointsFromSale(shopId, { contactId: customerId, contactName: customerName, items, branch, billNo })
+        : 0;
+
+      return res.json({
+        ok: true, billNo, total, change, vatSubtotal, vatAmount, warnings,
+        loyaltyPointsEarned, loyaltyDiscountValue,
+      });
     }
 
     // ── DELETE (ยกเลิกบิล) ───────────────────────────────────────────────────
@@ -438,6 +475,12 @@ export default async function handler(req, res) {
     // Sheets แก้เอง — คืนสต็อค/ถังลูกค้า/ยอดค้างชำระ (ถ้าเป็นบิลเชื่อ) กลับที่เดิม แล้ว soft-delete
     // หมายเหตุ: ถ้าบิลนั้น "ชำระแล้ว" (เขียนเข้าบัญชีหลักไปแล้ว) การยกเลิกจะไม่ลบแถวในบัญชีหลักอัตโนมัติ
     // (หาแถวที่แน่ชัดยากเพราะบัญชีหลักไม่ได้เก็บ reference กลับมาที่ bill_no เสมอไป) ต้องลบเองถ้าจำเป็น
+    // ⚠️ known gap เดียวกันสำหรับแต้มสะสม (ตั้งใจไม่ทำ ไม่ใช่ลืม): ยกเลิกบิลไม่ย้อนแต้มที่ได้/แลกไปคืน
+    // เพราะโมเดล FIFO-consumption ของ loyalty ledger คำนวณ "ถังแต้ม" ตามลำดับเวลาจริงเสมอ — ถ้าบิล A
+    // เคยให้แต้มแล้วลูกค้าแลกแต้มบางส่วนไปแล้ว (อาจดึงจากถังของบิลอื่นปนด้วย) การจะ "ย้อนเฉพาะถังของบิล
+    // A" อย่างถูกต้อง 100% ต้องรื้อ FIFO ใหม่ทั้งสาย ซับซ้อนเกินความคุ้มค่าสำหรับ edge case ที่พบยาก
+    // (ต้องยกเลิกบิลเก่าหลังลูกค้าแลกแต้มไปแล้วพอดี) — ถ้าจำเป็นต้องแก้ยอดแต้ม ให้ปรับด้วยมือผ่าน
+    // pos_loyalty_ledger โดยตรง (entryType: 'adjust')
     if (req.method === 'DELETE') {
       // ยกเลิกบิล = ย้อนกลับสต็อค/ยอดค้างชำระ — เสี่ยงถูกใช้ปิดบังยอดขายจริงถ้าไม่คุมสิทธิ์
       // (พนักงาน/แคชเชียร์ทั่วไปไม่ควรยกเลิกบิลได้เอง ต้องเปิดสิทธิ์ perm_void_sales ให้ชัดเจน)

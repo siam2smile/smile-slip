@@ -1118,6 +1118,19 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
       - **Cleanup แบบเดียวกับข้อ 100** (บิล "cash sale / ขายเงินสด" เป็นบิลเปล่าที่ค้างอยู่จริงใน `pos_open_bills` ไม่ใช่บิลใหม่ที่สร้างเอง) — คืนค่า `items:[]` ตรงผ่าน Supabase กลับสภาพเดิม (ยืนยันก่อน/หลังตรงกันเป๊ะ) + ยืนยันสต็อกสินค้าไม่ถูกแตะเลย (คงเดิม 12 ใบ) — ลบโปรโมชั่นทดสอบทิ้งทั้ง dev/production หลังทดสอบเสร็จ
     - **Deploy production แล้ว (2026-08-23)** — revision จริง `smileslip-dashboard-00353-mfc` (เจอ `429 RESOURCE_EXHAUSTED` จาก Cloud Build API ระหว่าง deploy อีกครั้ง ตรงกับ pattern เดิม — เช็ค `gcloud builds describe` ยืนยัน build สำเร็จเบื้องหลัง แล้วดึง image digest deploy ตรงข้าม rebuild) เช็คด้วย `gcloud run revisions list --sort-by=~metadata.creationTimestamp` แล้ว retag `candidate` → health-check ผ่าน + ทดสอบสร้าง/เช็ค margin/ลบ `tiered_pricing` จริงบน candidate URL สำเร็จ (margin ตรงกับคำนวณมือ) ก่อน cutover — verified บน production จริงว่า `GET /api/pos/promotions` คืน 200 ปกติหลัง cutover
 
+102. **ระบบแต้มสะสม (loyalty points) — ข้อ 3 จาก 4 ข้อที่ผู้ใช้ขอให้ทำทีละข้อจนเสร็จ ต่อจากข้อ 100/101 — คนละระบบจากโปรโมชั่นโดยเจตนา (ผูกกับ "ลูกค้า" ไม่ใช่ตะกร้า) ถามยืนยันสเปกผ่าน AskUserQuestion ก่อนเริ่ม 3 ข้อ (อัตราสะสมต้องตั้งได้ทั้งระดับร้าน+ระดับสินค้า เพราะแต่ละร้าน/สินค้ากำไรไม่เท่ากัน อ้างอิงร้านเดียวไม่ได้, แลกได้ทั้งส่วนลด+สินค้าเฉพาะ, หมดอายุตั้งได้เองต่อร้านหรือไม่หมดอายุเลยก็ได้) — โค้ดเสร็จสมบูรณ์+ทดสอบ fail-safe ครบก่อนรัน SQL แล้ว ยังไม่ได้ deploy (รอ SQL + ทดสอบ end-to-end รอบสุดท้ายก่อน):**
+    - **โมเดลยอดคงเหลือ + หมดอายุ — คำนวณสดจาก ledger ทุกครั้งที่อ่าน ไม่มี cron sweep เลย** (`lib/loyalty.js`'s `computeLoyaltyBalance()`, pure function) — เดินตาม ledger เรียงเก่า→ใหม่ สร้าง "ถัง" ต่อรายการ earn หนึ่งถัง (คะแนน+วันหมดอายุ) แล้วรายการหัก (แลก/ปรับปรุง) หักจากถังเก่าสุดที่ยังมีคะแนนเหลือก่อนเสมอ (FIFO) — ยอดสุดท้าย = ผลรวมคะแนนที่เหลือในถังที่ "ยังไม่หมดอายุ ณ ตอนนี้" เท่านั้น — ข้อดีของ FIFO true-consumption: แต้มที่ถูกแลกไปแล้วไม่มีทาง "หมดอายุซ้ำ" เพราะถูกหักออกจากถังไปแล้วจริงตั้งแต่ตอนแลก ไม่ต้องมีตารางติดตามการบริโภคแยกต่างหากเลย ถูกต้อง 100% โดยไม่ต้องมี cron job ใดๆ — **ทดสอบ unit test แยก 9 เคสด้วยมือ (FIFO ข้ามถัง, ถังหมดอายุถูกตัดออก, แต้มที่แลกไปแล้วก่อนถังหมดอายุไม่ถูกนับซ้ำ, over-consumption ไม่ทำให้ติดลบ, lifetime ไม่หมดอายุเลย) ผ่านครบ 9/9**
+    - **อัตราสะสม — override 2 ชั้นตามที่ผู้ใช้ยืนยัน:** ใช้ per-product override (`pos_products.loyalty_baht_per_point`) ก่อนเสมอถ้าตั้งไว้ ไม่งั้น fallback เป็นอัตราเริ่มต้นของร้าน (`pos_configs.loyalty_baht_per_point`) — สินค้าที่ไม่ได้ตั้งอัตราเลยทั้งคู่ (override+shop default ว่างทั้งคู่) ไม่ได้แต้มจากรายการนั้น (ถือว่าร้านตั้งใจไม่ให้แต้มสำหรับสินค้านั้น) — เขียนแบบ defensive-separate-write เหมือนคอลัมน์ใหม่อื่นๆ ทุกจุด (`pos-config.js`, `products.js` ทั้ง POST/PATCH)
+    - **แลกเป็นส่วนลด — คำนวณมูลค่าฝั่ง server เสมอ ไม่เชื่อ client** (`sales.js`) — รับ `loyaltyPointsRedeemed` (จำนวนแต้ม) จาก client เท่านั้น คูณด้วยอัตรา "บาท/แต้ม" ระดับร้าน (`config.bahtPerPoint`) เป็นโมเดล breakeven มาตรฐาน (แลก 1 แต้ม = คืนทุนเท่ากับที่ต้องใช้ซื้อ 1 แต้มตอนแรก — ไม่เพิ่มฟิลด์ "มูลค่าตอนแลก" แยกต่างหาก กันซับซ้อนเกินสเปกที่ผู้ใช้ขอ) — เขียน ledger entry (`redeemPoints()`, validate ยอดคงเหลือก่อนเสมอ) ก่อน insert บิลจริงเสมอ ถ้า validate ไม่ผ่าน (แต้มไม่พอ/ยังไม่เปิดใช้งาน) ปฏิเสธทั้งบิล 400 ทันที
+    - **แลกเป็นสินค้าเฉพาะ — ไม่ต้องมี logic พิเศษใน sales.js เลย** — ตัดสินใจสำคัญ: ฝั่งหน้าเว็บเติมสินค้ารางวัลเข้าตะกร้าที่ราคา ฿0 เอง (ผ่าน mechanism ปกติ) แล้วส่งจำนวนแต้มรวม (ค่าแลกส่วนลด + ค่าแลกสินค้า) เป็นตัวเลขเดียวกันไปที่ `loyaltyPointsRedeemed` — backend ไม่จำเป็นต้องรู้ว่า "ทำไม" ถึงหักแต้ม (สินค้าฟรีอยู่ในบิลอยู่แล้วผ่านราคา ฿0) — เพิ่ม `pos_loyalty_rewards` (แคตตาล็อกของรางวัล) แยก CRUD (`api/pos/loyalty-rewards.js`, mirror `promotions.js` pattern) พร้อมคำนวณ COGS ที่ร้านต้องจ่ายจริงต่อการแลก 1 ครั้ง (ใช้ต้นทุนสินค้าปัจจุบันเสมอ) ให้เจ้าของร้านเห็นก่อนตั้งของรางวัล
+      - **`redeemReward()` (ฝั่งเว็บ) ไม่ merge เข้ากับ SKU เดียวกันที่อาจมีอยู่แล้วในตะกร้า** (push เป็นบรรทัดแยกต่างหากเสมอ ไม่ผ่าน `addToCart()` ที่ merge-by-sku) — ป้องกันบั๊กที่คิดออกได้ตั้งแต่ตอนออกแบบ: ถ้าลูกค้ากำลังซื้อสินค้าตัวเดียวกับของรางวัลอยู่แล้ว การตั้งราคาทั้งบรรทัดเป็น ฿0 จะทำให้ยูนิตที่ซื้อจริงกลายเป็นฟรีไปด้วย — บล็อกเคสนี้ด้วยข้อความชัดเจนแทน ("เอาออกจากตะกร้าก่อน") ไม่พยายาม split-line ซึ่งจะกระทบสถาปัตยกรรม cart-by-sku ที่ `updatePrice()`/`addToCart()`/promotions engine ทั้งหมดพึ่งพาอยู่
+    - **แยกที่แจ้งแต้มที่ได้จากการขาย (`earnPointsFromSale()`) ออกจากการแลก — เฉพาะบิลที่ชำระแล้วจริงเท่านั้น** (`!isTransferPending && !isCredit`, เงื่อนไขเดียวกับที่ตัดสินใจเขียนเข้าบัญชีหลัก) — บิลเชื่อ/รอยืนยันโอนยังไม่ได้เงินจริง ไม่ควรให้แต้มจนกว่าจะชำระสำเร็จ — fail-safe เต็มรูปแบบ (ห่อ try/catch ทั้งฟังก์ชัน) ไม่มีทาง throw ออกมาทำให้การขายพังตาม
+    - **⚠️ Known gap ที่ตั้งใจไม่ทำ (บันทึกไว้ชัดเจนในโค้ด+ที่นี่ เหมือนที่ `sales.js` DELETE เคยบันทึก known gap เรื่องไม่ลบแถวบัญชีหลักไว้แล้ว):** ยกเลิกบิล (`sales.js` DELETE) **ไม่ย้อนแต้มที่ได้/แลกไปคืนอัตโนมัติ** — เหตุผล: โมเดล FIFO-consumption คำนวณ "ถังแต้ม" ตามลำดับเวลาจริงเสมอ ถ้าบิล A เคยให้แต้มแล้วลูกค้าแลกแต้มบางส่วนไปแล้ว (อาจดึงจากถังของบิลอื่นปนด้วย) การจะ "ย้อนเฉพาะถังของบิล A" อย่างถูกต้อง 100% ต้องรื้อ FIFO ใหม่ทั้งสาย ซับซ้อนเกินความคุ้มค่าสำหรับ edge case ที่พบยาก — ถ้าจำเป็นต้องแก้ยอด มีเครื่องมือปรับด้วยมือให้แล้ว (`POST /api/pos/loyalty` entry_type `'adjust'`, เจ้าของ/แอดมินเท่านั้น)
+    - **API ใหม่ 2 ตัว:** `api/pos/loyalty.js` (GET ยอด+ประวัติต่อลูกค้า — เปิดกว้างไม่ล็อกสิทธิ์พนักงานเหมือน `contacts.js` GET เดิม เพราะต้องใช้ตอนเลือกลูกค้าที่ checkout, POST ปรับยอดด้วยมือ — owner/admin เท่านั้น), `api/pos/loyalty-rewards.js` (CRUD แคตตาล็อกของรางวัล, GET เปิดกว้าง เขียนล็อกเจ้าของ/แอดมิน) — ทั้งคู่ fail-safe คืนค่าว่าง/error สุภาพถ้ายังไม่ได้รัน SQL ไม่ throw 500 ดิบ
+    - **UI ใน `pos.js`:** การ์ดตั้งค่าใหม่ในหมวด "💳 รับเงิน" (เปิด/ปิด+อัตราเริ่มต้น+เดือนหมดอายุ), ช่อง override ในฟอร์มแก้ไขสินค้า (โผล่เฉพาะร้านที่เปิดใช้งาน), แท็บใหม่ "🎁 แต้มสะสม" (จัดการแคตตาล็อกของรางวัล, mirror โครงสร้าง UI ของแท็บโปรโมชั่น), ส่วนแลกแต้มในหน้า checkout (โผล่เฉพาะเลือกลูกค้าไว้แล้ว — ยอดคงเหลือ/ช่องพิมพ์แลกส่วนลด/ลิสต์ของรางวัลที่แลกได้), การ์ดสรุปแต้มที่ได้/ที่แลกในหน้าสรุปหลังชำระเงินสำเร็จ
+    - **ทดสอบยิงจริงกับ dev server ก่อนรัน SQL (fail-safe ครบทุกจุด):** `pos-config.js` GET คืนค่า default ถูกต้อง (`loyalty_enabled:false`), `loyalty.js` GET ไม่มี contactId→400, มี contactId แต่ตารางยังไม่มี→`{balance:0,ledger:[],loyaltyReady:false}` ไม่ error, `loyalty-rewards.js` GET ตารางยังไม่มี→`{rewards:[]}` (เจอบั๊กจริงระหว่างทดสอบ: เดิมไม่มี `tableExists()` guard เลย พัง 500 ดิบ แก้แล้ว), POST/PATCH/DELETE ตารางยังไม่มี→400 สุภาพ, ไม่มี auth→401 — **regression กับ `sales.js` ด้วยข้อมูลจริงของร้าน D Gas** (สินค้า "เนื้อก๊าซ 15 กก.", ลูกค้า "พี่นาย"): ขายปกติพร้อม `loyaltyPointsRedeemed:0` (loyalty ปิดอยู่) → สำเร็จเหมือนเดิมทุกประการ (`loyaltyPointsEarned:0`), พยายามแลก 5 แต้มทั้งที่ปิดใช้งาน → ปฏิเสธ 400 ก่อน insert บิลใดๆ ถูกต้อง → cancel บิลทดสอบผ่าน DELETE คืนสต็อค/ลูกค้ากลับตรงกับ baseline เป๊ะทุกตัวเลข (stock/at_customer/empty_waiting/debt/cylinders)
+    - **ยังไม่ได้ทำ:** deploy production, ทดสอบ end-to-end เต็มรูปแบบ (earn จริง/redeem จริง/reward catalog CRUD จริง/UI ผ่านเบราว์เซอร์) — ต้องรอผู้ใช้รัน SQL ก่อนถึงจะทดสอบ loop จริงได้ (ตารางยังไม่มีอยู่จริงตอนนี้)
+
 ## Tech Stack
 
 ### Bot (`smileslip-pro/`)
@@ -2150,6 +2163,50 @@ ALTER TABLE pos_products ADD COLUMN IF NOT EXISTS online_order_visible boolean N
 ตรงกันเป๊ะ (`payee:"ทดสอบ ผู้รับเงินจริง"`) ไม่ fallback เป็นค่าว่างอีกต่อไป ลบข้อมูลทดสอบสะอาดหลังทดสอบ):**
 ```sql
 ALTER TABLE pos_expenses ADD COLUMN IF NOT EXISTS payee text;
+```
+
+**สร้างตาราง/คอลัมน์สำหรับระบบแต้มสะสม (loyalty points — ข้อ 102, เพิ่ม 2026-08-23, ยังไม่ได้รัน):**
+ก่อนรัน SQL นี้ ระบบยังทำงานปกติทุกอย่าง (ทดสอบแล้วจริงบน dev server) — ทุก endpoint ที่เกี่ยวข้อง
+(`api/pos/loyalty.js`, `api/pos/loyalty-rewards.js`, `sales.js`'s earn/redeem hook) fail-safe คืนค่า
+ว่าง/error สุภาพถ้าตารางยังไม่มี ไม่ throw 500 ดิบ ไม่กระทบการขายปกติเลย — **แต่ระบบแต้มสะสมทั้งหมด
+(สะสม/แลก/จัดการของรางวัล) จะยังใช้งานจริงไม่ได้จนกว่าจะรัน SQL นี้ก่อน**
+```sql
+ALTER TABLE pos_configs
+  ADD COLUMN IF NOT EXISTS loyalty_enabled boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS loyalty_baht_per_point numeric,
+  ADD COLUMN IF NOT EXISTS loyalty_expiry_months integer;
+
+ALTER TABLE pos_products
+  ADD COLUMN IF NOT EXISTS loyalty_baht_per_point numeric;
+
+CREATE TABLE IF NOT EXISTS pos_loyalty_ledger (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  shop_id     uuid NOT NULL REFERENCES shop_profiles(id) ON DELETE CASCADE,
+  contact_id  text NOT NULL,
+  entry_type  text NOT NULL CHECK (entry_type IN ('earn','redeem','adjust')),
+  points      numeric NOT NULL,
+  ref         text,
+  note        text,
+  branch_name text,
+  expires_at  timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_pos_loyalty_ledger_contact ON pos_loyalty_ledger (shop_id, contact_id);
+
+CREATE TABLE IF NOT EXISTS pos_loyalty_rewards (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  shop_id      uuid NOT NULL REFERENCES shop_profiles(id) ON DELETE CASCADE,
+  reward_no    text NOT NULL,
+  name         text NOT NULL,
+  points_cost  numeric NOT NULL,
+  product_sku  text NOT NULL,
+  product_qty  integer NOT NULL DEFAULT 1,
+  is_active    boolean NOT NULL DEFAULT true,
+  branch_name  text,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  deleted_at   timestamptz,
+  UNIQUE (shop_id, reward_no)
+);
 ```
 
 ### ต้องทำด้วยมือ (ไม่ใช่โค้ด)

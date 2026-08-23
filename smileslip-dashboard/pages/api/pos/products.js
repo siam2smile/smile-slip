@@ -135,6 +135,7 @@ export default async function handler(req, res) {
         product_code = '', barcode = '', description = '',
         vat_type = 'ไม่มี VAT', is_active = true, empty_ceiling = 0, branches = [],
         branch = '', // สาขาที่กำลังทำงานอยู่ตอนสร้างสินค้า (selectedBranch) — ใช้ seed สต็อกเริ่มต้นเท่านั้น
+        loyalty_baht_per_point,
       } = req.body;
       if (!name) return res.status(400).json({ error: 'ต้องระบุชื่อสินค้า' });
       // ราคา/ทุน/สต็อคติดลบตั้งแต่สร้างสินค้าจะไหลไปกระทบทุกจุดที่ใช้ข้อมูลนี้ต่อ (ขาย/รายงาน/VAT)
@@ -157,6 +158,16 @@ export default async function handler(req, res) {
         empty_ceiling: empty_ceiling || 0, branches: branchesStr,
       });
       if (error) throw error;
+
+      // loyalty_baht_per_point — คอลัมน์ใหม่ (ข้อ 102) แยกเขียนต่างหากกันพังการสร้างสินค้าหลัก
+      // ถ้ายังไม่ได้รัน SQL เพิ่มคอลัมน์
+      if (loyalty_baht_per_point !== undefined && loyalty_baht_per_point !== null && loyalty_baht_per_point !== '') {
+        try {
+          await supabase.from('pos_products').update({ loyalty_baht_per_point: parseFloat(loyalty_baht_per_point) || null }).eq('shop_id', shopId).eq('sku', sku);
+        } catch (lpErr) {
+          console.error('[pos/products] set loyalty_baht_per_point on create failed (non-fatal):', lpErr.message);
+        }
+      }
 
       // โอนย้ายสต็อกข้ามสาขา Phase 1: seed pos_product_stock ให้สินค้าใหม่ทันที (กันเหตุผลเดียวกับ
       // bulk import ด้านบน — ไม่งั้น cache จะถูกรีเซ็ตเป็น 0 เงียบๆ ตอนมีการเขียนสต็อกแบบแยกสาขาครั้งแรก)
@@ -261,6 +272,17 @@ export default async function handler(req, res) {
       const { error } = await supabase.from('pos_products').update(supaUpdates)
         .eq('shop_id', shopId).eq('sku', sku);
       if (error) throw error;
+
+      // loyalty_baht_per_point — คอลัมน์ใหม่ (ข้อ 102) แยกเขียนต่างหากกันพังการแก้ไขสินค้าหลัก
+      // ถ้ายังไม่ได้รัน SQL เพิ่มคอลัมน์ — ส่ง '' หรือ null = ล้างค่ากลับไปใช้อัตราเริ่มต้นของร้าน
+      if (updates.loyalty_baht_per_point !== undefined) {
+        try {
+          const v = updates.loyalty_baht_per_point;
+          await supabase.from('pos_products').update({ loyalty_baht_per_point: (v !== null && v !== '') ? (parseFloat(v) || null) : null }).eq('shop_id', shopId).eq('sku', sku);
+        } catch (lpErr) {
+          console.error('[pos/products] update loyalty_baht_per_point failed (non-fatal):', lpErr.message);
+        }
+      }
 
       // โอนย้ายสต็อกข้ามสาขา Phase 1: stock/stockDelta/at_customer/empty_waiting แก้ผ่าน
       // adjustBranchStock() แยกตามสาขา (branch จาก request — ใน pos.js คือ selectedBranch ที่กำลัง

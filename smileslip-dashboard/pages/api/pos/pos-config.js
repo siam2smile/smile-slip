@@ -1,6 +1,6 @@
 /**
  * GET  /api/pos/pos-config?shopId=xxx  → อ่านการตั้งค่า POS
- * PATCH /api/pos/pos-config { shopId, promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, receipt_paper_size, vat_registered, receipt_footer_message, receipt_line_url, receipt_logo_data }
+ * PATCH /api/pos/pos-config { shopId, promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, receipt_paper_size, vat_registered, receipt_footer_message, receipt_line_url, receipt_logo_data, loyalty_enabled, loyalty_baht_per_point, loyalty_expiry_months }
  * (staff_pin ร้านเดียวใช้ร่วมกันแบบเดิมยกเลิกไปแล้ว — ดู api/pos/staff.js + staff-setpin.js สำหรับ PIN รายบุคคล)
  */
 import { createClient } from '@supabase/supabase-js';
@@ -66,9 +66,15 @@ export default async function handler(req, res) {
     let receipt_footer_message = '';
     let receipt_line_url = '';
     let receipt_logo_data = '';
+    // แต้มสะสม — เพิ่ม 2026-08-23 (ข้อ 102): loyalty_baht_per_point คืออัตราเริ่มต้นของร้าน
+    // (กี่บาทต่อ 1 แต้ม) แยกจากอัตราต่อสินค้า (pos_products.loyalty_baht_per_point) ที่ override
+    // เฉพาะรายตัวได้ — loyalty_expiry_months null/0 = ไม่หมดอายุ
+    let loyalty_enabled = false;
+    let loyalty_baht_per_point = null;
+    let loyalty_expiry_months = null;
     try {
       const { data: rd } = await supabase
-        .from('pos_configs').select('receipt_paper_size, vat_registered, scb_biller_ref1, payroll_days_off_per_month, receipt_footer_message, receipt_line_url, receipt_logo_data').eq('shop_id', shopId).single();
+        .from('pos_configs').select('receipt_paper_size, vat_registered, scb_biller_ref1, payroll_days_off_per_month, receipt_footer_message, receipt_line_url, receipt_logo_data, loyalty_enabled, loyalty_baht_per_point, loyalty_expiry_months').eq('shop_id', shopId).single();
       if (rd?.receipt_paper_size) receipt_paper_size = rd.receipt_paper_size;
       vat_registered = !!rd?.vat_registered;
       scb_biller_ref1 = rd?.scb_biller_ref1 || '';
@@ -78,6 +84,9 @@ export default async function handler(req, res) {
       receipt_footer_message = rd?.receipt_footer_message || '';
       receipt_line_url = rd?.receipt_line_url || '';
       receipt_logo_data = rd?.receipt_logo_data || '';
+      loyalty_enabled = !!rd?.loyalty_enabled;
+      loyalty_baht_per_point = rd?.loyalty_baht_per_point != null ? Number(rd.loyalty_baht_per_point) : null;
+      loyalty_expiry_months = rd?.loyalty_expiry_months != null ? Number(rd.loyalty_expiry_months) : null;
     } catch {}
 
     return res.json({
@@ -93,6 +102,9 @@ export default async function handler(req, res) {
       receipt_footer_message,
       receipt_line_url,
       receipt_logo_data,
+      loyalty_enabled,
+      loyalty_baht_per_point,
+      loyalty_expiry_months,
     });
   }
 
@@ -101,7 +113,14 @@ export default async function handler(req, res) {
     // ไม่ว่าจะเปิดสิทธิ์อะไรก็ตาม (เจ้าของ/แอดมินเท่านั้น ต้องพิสูจน์ owner-session จริง)
     if (!blockAllStaffSessions(req, res, shopId)) return;
 
-    const { promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, scb_biller_ref1, receipt_paper_size, vat_registered, payroll_days_off_per_month, receipt_footer_message, receipt_line_url, receipt_logo_data } = req.body;
+    const { promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, scb_biller_ref1, receipt_paper_size, vat_registered, payroll_days_off_per_month, receipt_footer_message, receipt_line_url, receipt_logo_data, loyalty_enabled, loyalty_baht_per_point, loyalty_expiry_months } = req.body;
+
+    if (loyalty_baht_per_point !== undefined && loyalty_baht_per_point !== null && loyalty_baht_per_point !== '' && !(parseFloat(loyalty_baht_per_point) > 0)) {
+      return res.status(400).json({ error: 'อัตราแต้มสะสม (บาทต่อแต้ม) ต้องมากกว่า 0' });
+    }
+    if (loyalty_expiry_months !== undefined && loyalty_expiry_months !== null && loyalty_expiry_months !== '' && !(parseInt(loyalty_expiry_months) >= 0)) {
+      return res.status(400).json({ error: 'จำนวนเดือนหมดอายุแต้มไม่ถูกต้อง' });
+    }
 
     if (receipt_logo_data && receipt_logo_data.length > MAX_LOGO_DATA_LENGTH) {
       return res.status(400).json({ error: 'ไฟล์โลโก้ใหญ่เกินไป กรุณาใช้รูปที่มีขนาดเล็กลง' });
@@ -185,6 +204,21 @@ export default async function handler(req, res) {
     if (receipt_logo_data !== undefined) {
       try {
         await supabase.from('pos_configs').update({ receipt_logo_data: receipt_logo_data || null }).eq('shop_id', shopId);
+      } catch {}
+    }
+    if (loyalty_enabled !== undefined) {
+      try {
+        await supabase.from('pos_configs').update({ loyalty_enabled: !!loyalty_enabled }).eq('shop_id', shopId);
+      } catch {}
+    }
+    if (loyalty_baht_per_point !== undefined) {
+      try {
+        await supabase.from('pos_configs').update({ loyalty_baht_per_point: loyalty_baht_per_point ? parseFloat(loyalty_baht_per_point) : null }).eq('shop_id', shopId);
+      } catch {}
+    }
+    if (loyalty_expiry_months !== undefined) {
+      try {
+        await supabase.from('pos_configs').update({ loyalty_expiry_months: loyalty_expiry_months !== '' && loyalty_expiry_months !== null ? parseInt(loyalty_expiry_months) : null }).eq('shop_id', shopId);
       } catch {}
     }
 

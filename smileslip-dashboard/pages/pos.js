@@ -67,7 +67,7 @@ function emptyStaffPerms() {
 }
 
 function emptyProdForm() {
-  return { name: '', category: '', price: '', stock: '', unit: 'ชิ้น', aliases: '', notes: '', type: 'นับสต็อค', product_code: '', barcode: '', description: '', vat_type: 'ไม่มี VAT', is_active: true, empty_ceiling: '', branches: [], at_customer: '', empty_waiting: '' };
+  return { name: '', category: '', price: '', stock: '', unit: 'ชิ้น', aliases: '', notes: '', type: 'นับสต็อค', product_code: '', barcode: '', description: '', vat_type: 'ไม่มี VAT', is_active: true, empty_ceiling: '', branches: [], at_customer: '', empty_waiting: '', loyalty_baht_per_point: '' };
 }
 
 // Biller ID (Thai QR Bill Payment, Tag 30) ต้องเป็นตัวเลขล้วน 15 หลักเสมอตามมาตรฐาน ITMX — สาเหตุ
@@ -592,8 +592,8 @@ export default function POSPage() {
   const [qrLoading, setQrLoading] = useState(false);
 
   // POS settings (PromptPay + Biller ID) — Staff PIN เปลี่ยนเป็นรายบุคคลแล้ว ไม่มี PIN ร้านรวมอีกต่อไป
-  const [posConfig, setPosConfig] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', receipt_paper_size: '80mm', vat_registered: false, payroll_days_off_per_month: 6, receipt_footer_message: '', receipt_line_url: '', receipt_logo_data: '' });
-  const [posSettingsForm, setPosSettingsForm] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', vat_registered: false, payroll_days_off_per_month: 6, receipt_footer_message: '', receipt_line_url: '', receipt_logo_data: '' });
+  const [posConfig, setPosConfig] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', receipt_paper_size: '80mm', vat_registered: false, payroll_days_off_per_month: 6, receipt_footer_message: '', receipt_line_url: '', receipt_logo_data: '', loyalty_enabled: false, loyalty_baht_per_point: null, loyalty_expiry_months: null });
+  const [posSettingsForm, setPosSettingsForm] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', vat_registered: false, payroll_days_off_per_month: 6, receipt_footer_message: '', receipt_line_url: '', receipt_logo_data: '', loyalty_enabled: false, loyalty_baht_per_point: '', loyalty_expiry_months: '' });
   const [settingsCategory, setSettingsCategory] = useState('links');
   const [settingsSaving, setSettingsSaving] = useState(false);
 
@@ -799,6 +799,21 @@ export default function POSPage() {
   const [promoForm, setPromoForm] = useState(emptyPromoForm());
   // โปรที่ active ตอนนี้ (ทุก tab/ทุกโหมดรวมแคชเชียร์ต้องเห็นได้ — ใช้แนะนำในตะกร้าตอนขาย)
   const [activePromotions, setActivePromotions] = useState([]);
+
+  // ระบบแต้มสะสม (ข้อ 102) — แยกจากโปรโมชั่นโดยเจตนา ผูกกับ "ลูกค้า" (contact) ไม่ใช่ตะกร้า/สินค้า
+  const [loyaltyRewards, setLoyaltyRewards] = useState([]); // catalog เต็ม (จัดการ)
+  const [activeLoyaltyRewards, setActiveLoyaltyRewards] = useState([]); // active เท่านั้น (ใช้ตอนขาย)
+  const [loyaltyRewardsLoading, setLoyaltyRewardsLoading] = useState(false);
+  const [showRewardForm, setShowRewardForm] = useState(false);
+  const [editingRewardId, setEditingRewardId] = useState(null);
+  const [rewardSaving, setRewardSaving] = useState(false);
+  const emptyRewardForm = () => ({ name: '', points_cost: '', product_sku: '', product_qty: '1', branch: '' });
+  const [rewardForm, setRewardForm] = useState(emptyRewardForm());
+  // ยอดแต้ม/ประวัติของลูกค้าที่เลือกอยู่ตอนนี้ในหน้า checkout — โหลดใหม่ทุกครั้งที่เปลี่ยนลูกค้า
+  const [loyaltyBalance, setLoyaltyBalance] = useState(0);
+  const [loyaltyReady, setLoyaltyReady] = useState(true); // false = ยังไม่ได้รัน SQL/ตารางยังไม่มี
+  const [loyaltyRedeemInput, setLoyaltyRedeemInput] = useState(''); // แต้มที่จะแลกเป็นส่วนลด (พิมพ์เอง)
+  const [redeemedRewards, setRedeemedRewards] = useState([]); // ของรางวัลที่เพิ่มเข้าตะกร้าแล้วในบิลนี้
 
   // contacts (ลูกค้า / ผู้จำหน่าย)
   const [contacts, setContacts] = useState([]);
@@ -1363,7 +1378,7 @@ export default function POSPage() {
       const d = await r.json();
       if (d.ok !== false) {
         setPosConfig(d);
-        setPosSettingsForm({ promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '', scb_biller_ref1: d.scb_biller_ref1 || '', receipt_paper_size: d.receipt_paper_size || '80mm', vat_registered: !!d.vat_registered, payroll_days_off_per_month: d.payroll_days_off_per_month ?? 6, receipt_footer_message: d.receipt_footer_message || '', receipt_line_url: d.receipt_line_url || '', receipt_logo_data: d.receipt_logo_data || '' });
+        setPosSettingsForm({ promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '', scb_biller_ref1: d.scb_biller_ref1 || '', receipt_paper_size: d.receipt_paper_size || '80mm', vat_registered: !!d.vat_registered, payroll_days_off_per_month: d.payroll_days_off_per_month ?? 6, receipt_footer_message: d.receipt_footer_message || '', receipt_line_url: d.receipt_line_url || '', receipt_logo_data: d.receipt_logo_data || '', loyalty_enabled: !!d.loyalty_enabled, loyalty_baht_per_point: d.loyalty_baht_per_point ?? '', loyalty_expiry_months: d.loyalty_expiry_months ?? '' });
       }
     } catch {}
   }
@@ -1382,6 +1397,9 @@ export default function POSPage() {
       body.receipt_footer_message = posSettingsForm.receipt_footer_message || '';
       body.receipt_line_url = posSettingsForm.receipt_line_url || '';
       body.receipt_logo_data = posSettingsForm.receipt_logo_data || '';
+      body.loyalty_enabled = !!posSettingsForm.loyalty_enabled;
+      body.loyalty_baht_per_point = posSettingsForm.loyalty_baht_per_point;
+      body.loyalty_expiry_months = posSettingsForm.loyalty_expiry_months;
       const r = await fetch('/api/pos/pos-config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -2303,6 +2321,23 @@ export default function POSPage() {
     if (shopId) fetchActivePromotions();
   }, [shopId, selectedBranch]);
 
+  useEffect(() => {
+    if (tab === 'loyalty' && shopId) fetchLoyaltyRewards();
+  }, [tab, shopId]);
+
+  useEffect(() => {
+    if (shopId) fetchActiveLoyaltyRewards();
+  }, [shopId, selectedBranch]);
+
+  // ยอดแต้มของลูกค้าในหน้า checkout — โหลดใหม่/ล้างค่าทุกครั้งที่เปลี่ยนลูกค้า (กันยอดของคนก่อนหน้า
+  // ค้างข้ามลูกค้า) + ล้างของรางวัลที่แลกไว้ในบิลนี้ด้วย (ผูกกับลูกค้าคนเดิมเท่านั้น)
+  useEffect(() => {
+    setRedeemedRewards([]);
+    setLoyaltyRedeemInput('');
+    if (creditCustomer?.contact_id) fetchLoyaltyBalance(creditCustomer.contact_id);
+    else setLoyaltyBalance(0);
+  }, [creditCustomer?.contact_id]);
+
   // โอนย้ายสต็อกข้ามสาขา Phase 5 — sync สต็อกเฉพาะสาขาที่กำลังขายทุกครั้งที่เปลี่ยนสาขา/ร้าน หรือ
   // สินค้าเปลี่ยน (ขายไปแล้วต้องอัปเดตตัวเลขทันที ไม่ใช่แค่ตอนสลับสาขา)
   useEffect(() => {
@@ -2514,7 +2549,12 @@ export default function POSPage() {
   const cartDiscount = discountType === 'percent'
     ? cartSubtotal * (parseFloat(discount) || 0) / 100
     : (parseFloat(discount) || 0);
-  const cartTotal = Math.max(0, cartSubtotal - cartDiscount);
+  // แต้มสะสมที่แลกเป็นส่วนลด (พิมพ์เอง) — clamp ไม่ให้เกินยอดที่เหลือหลังหักของรางวัลที่แลกไปแล้วในบิลนี้
+  const redeemedRewardPoints = redeemedRewards.reduce((sum, r) => sum + r.points_cost, 0);
+  const loyaltyRedeemableMax = Math.max(0, Math.floor(loyaltyBalance - redeemedRewardPoints));
+  const loyaltyRedeemPointsClamped = Math.min(Math.max(0, parseInt(loyaltyRedeemInput) || 0), loyaltyRedeemableMax);
+  const loyaltyDiscountPreview = loyaltyRedeemPointsClamped * (posConfig.loyalty_baht_per_point || 0);
+  const cartTotal = Math.max(0, cartSubtotal - cartDiscount - loyaltyDiscountPreview);
   const cartChange = payMethod === 'เงินสด' ? Math.max(0, (parseFloat(cashReceived) || 0) - cartTotal) : 0;
 
   // โหลด QR เมื่อเปลี่ยนวิธีชำระเป็น "โอน" ใน checkout
@@ -2599,6 +2639,7 @@ export default function POSPage() {
           branch: selectedBranch?.branch_name || '',
           transactionDate: saleDate || '',
           shift_no: payMethod === 'เงินสด' ? (activeShift?.shift_no || '') : '',
+          loyaltyPointsRedeemed: loyaltyRedeemPointsClamped + redeemedRewardPoints,
         }),
       });
       const d = await r.json();
@@ -2619,6 +2660,8 @@ export default function POSPage() {
           billName: openBills.find(b => b.id === activeBillId)?.name || '',
           vatSubtotal: d.vatSubtotal || 0,
           vatAmount: d.vatAmount || 0,
+          loyaltyPointsEarned: d.loyaltyPointsEarned || 0,
+          loyaltyDiscountValue: d.loyaltyDiscountValue || 0,
         });
         // ปิดบิลที่ checkout เสร็จ + สลับไปบิลถัดไป (ถ้ามี)
         const remaining = openBills.filter(b => b.id !== activeBillId);
@@ -2640,11 +2683,15 @@ export default function POSPage() {
         setCreditCustomerQ('');
         setBorrowingSku({});
         setBorrowedQty({});
+        setLoyaltyRedeemInput('');
+        setRedeemedRewards([]);
+        setLoyaltyBalance(0);
         setShowCheckout(false);
         setShowCartDrawer(false);
         setShowBill(true);
         fetchProducts();
         if (d.warnings?.length) showToast(d.warnings.join(' / '));
+        if (d.loyaltyPointsEarned > 0) showToast(`🎁 ลูกค้าได้แต้มสะสม +${d.loyaltyPointsEarned} แต้ม`);
       } else {
         alert(d.error || 'เกิดข้อผิดพลาด');
       }
@@ -2926,6 +2973,7 @@ export default function POSPage() {
       branches: prod.branches || [],
       at_customer: String(atCustomerForBranch),
       empty_waiting: String(emptyWaitingForBranch),
+      loyalty_baht_per_point: prod.loyalty_baht_per_point != null ? String(prod.loyalty_baht_per_point) : '',
     });
     setShowProdForm(true);
   }
@@ -3378,6 +3426,110 @@ export default function POSPage() {
       const d = await r.json();
       setActivePromotions(d.promotions || []);
     } catch {}
+  }
+
+  // ── ระบบแต้มสะสม ─────────────────────────────────────────────────────────
+  async function fetchLoyaltyRewards() {
+    if (!shopId) return;
+    setLoyaltyRewardsLoading(true);
+    try {
+      const r = await fetch(`/api/pos/loyalty-rewards?shopId=${shopId}`);
+      const d = await r.json();
+      setLoyaltyRewards(d.rewards || []);
+    } catch {}
+    setLoyaltyRewardsLoading(false);
+  }
+
+  // ของรางวัลที่ active — เรียกทุกโหมด (เจ้าของ/แคชเชียร์) เหมือน fetchActivePromotions
+  async function fetchActiveLoyaltyRewards() {
+    if (!shopId) return;
+    try {
+      const params = new URLSearchParams({ shopId, activeOnly: '1' });
+      if (selectedBranch?.branch_name) params.set('branch', selectedBranch.branch_name);
+      const r = await fetch(`/api/pos/loyalty-rewards?${params.toString()}`);
+      const d = await r.json();
+      setActiveLoyaltyRewards(d.rewards || []);
+    } catch {}
+  }
+
+  // ยอดแต้มคงเหลือของลูกค้า — เรียกใหม่ทุกครั้งที่เปลี่ยนลูกค้าในหน้า checkout
+  async function fetchLoyaltyBalance(contactId) {
+    if (!shopId || !contactId) { setLoyaltyBalance(0); return; }
+    try {
+      const r = await fetch(`/api/pos/loyalty?shopId=${shopId}&contactId=${contactId}`);
+      const d = await r.json();
+      setLoyaltyBalance(d.balance || 0);
+      setLoyaltyReady(d.loyaltyReady !== false);
+    } catch { setLoyaltyBalance(0); }
+  }
+
+  // แลกของรางวัลจากแคตตาล็อก — เพิ่มเป็นบรรทัดใหม่แยกต่างหากเสมอ (ไม่ merge เข้ากับ SKU เดียวกัน
+  // ที่อาจมีอยู่แล้วในตะกร้า) กันราคาที่ลูกค้าซื้อจริงกลายเป็นฟรีไปด้วยถ้าซื้อสินค้าตัวเดียวกันอยู่แล้ว
+  function redeemReward(reward) {
+    if (!creditCustomer?.contact_id) { showToast('เลือกลูกค้าก่อนถึงจะแลกของรางวัลได้'); return; }
+    const alreadyUsed = redeemedRewards.reduce((s, r) => s + r.points_cost, 0) + (parseInt(loyaltyRedeemInput) || 0);
+    if (loyaltyBalance - alreadyUsed < reward.points_cost) { showToast('แต้มไม่พอสำหรับของรางวัลนี้'); return; }
+    if (cart.some(i => i.sku === reward.product_sku)) {
+      showToast('สินค้านี้อยู่ในตะกร้าอยู่แล้ว — เอาออกจากตะกร้าก่อนถึงจะแลกเป็นของรางวัลได้ (กันราคาที่ซื้อจริงกลายเป็นฟรีไปด้วย)');
+      return;
+    }
+    const prod = products.find(p => p.sku === reward.product_sku);
+    if (!prod) { showToast('ไม่พบสินค้าของรางวัลนี้ในระบบ (อาจถูกลบไปแล้ว)'); return; }
+    setCart(prev => [...prev, { sku: prod.sku, name: `🎁 ${prod.name} (ของรางวัล)`, price: 0, qty: reward.product_qty, unit: prod.unit }]);
+    setRedeemedRewards(prev => [...prev, reward]);
+    showToast(`🎁 แลก "${reward.name}" แล้ว (-${reward.points_cost} แต้ม)`);
+  }
+
+  function undoRedeemReward(reward) {
+    setCart(prev => prev.filter(i => i.sku !== reward.product_sku));
+    setRedeemedRewards(prev => prev.filter(r => r !== reward));
+  }
+
+  async function saveReward() {
+    if (!rewardForm.name.trim()) { showToast('กรุณาระบุชื่อของรางวัล'); return; }
+    setRewardSaving(true);
+    try {
+      const body = {
+        shopId, name: rewardForm.name.trim(),
+        points_cost: parseFloat(rewardForm.points_cost) || 0,
+        product_sku: rewardForm.product_sku, product_qty: parseInt(rewardForm.product_qty) || 1,
+        branch: rewardForm.branch,
+      };
+      const url = '/api/pos/loyalty-rewards';
+      const r = editingRewardId
+        ? await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, reward_id: editingRewardId }) })
+        : await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const d = await r.json();
+      if (d.ok !== false) {
+        showToast(editingRewardId ? 'แก้ไขของรางวัลแล้ว' : 'สร้างของรางวัลแล้ว');
+        setShowRewardForm(false); setEditingRewardId(null); setRewardForm(emptyRewardForm());
+        fetchLoyaltyRewards(); fetchActiveLoyaltyRewards();
+      } else {
+        alert(d.error || 'เกิดข้อผิดพลาด');
+      }
+    } catch (err) { alert(err.message); }
+    setRewardSaving(false);
+  }
+
+  async function toggleReward(reward) {
+    try {
+      await fetch('/api/pos/loyalty-rewards', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, reward_id: reward.reward_id, is_active: !reward.is_active }),
+      });
+      fetchLoyaltyRewards(); fetchActiveLoyaltyRewards();
+    } catch (err) { alert(err.message); }
+  }
+
+  async function deleteReward(reward) {
+    if (!confirm(`ลบของรางวัล "${reward.name}"?`)) return;
+    try {
+      await fetch('/api/pos/loyalty-rewards', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, reward_id: reward.reward_id }),
+      });
+      fetchLoyaltyRewards(); fetchActiveLoyaltyRewards();
+    } catch (err) { alert(err.message); }
   }
 
   function buildPromoConfig(form) {
@@ -5210,6 +5362,7 @@ export default function POSPage() {
             // promotions.js อยู่แล้ว) — แคชเชียร์เห็นโปรที่ active ผ่านแท็บ "ขาย" ตรงๆ ไม่ต้องเข้าแท็บนี้
             ...(cashierMode ? [] : [{ key: 'payroll', label: '💰 เงินเดือน' }]),
             ...(cashierMode ? [] : [{ key: 'promotions', label: '🎉 โปรโมชั่น' }]),
+            ...(cashierMode ? [] : [{ key: 'loyalty', label: '🎁 แต้มสะสม' }]),
             ...(cashierMode ? [] : [{ key: 'settings', label: '⚙️ ตั้งค่า' }]),
           ];
           const isMoreActive = moreTabs.some(t => t.key === tab);
@@ -5258,6 +5411,7 @@ export default function POSPage() {
                   { key: 'report',   label: '📊 รายงาน' },
                   ...(cashierMode ? [] : [{ key: 'payroll', label: '💰 เงินเดือน' }]),
                   ...(cashierMode ? [] : [{ key: 'promotions', label: '🎉 โปรโมชั่น' }]),
+            ...(cashierMode ? [] : [{ key: 'loyalty', label: '🎁 แต้มสะสม' }]),
                   ...(cashierMode ? [] : [{ key: 'settings', label: '⚙️ ตั้งค่า' }]),
                 ].map(t => (
                   <button key={t.key}
@@ -8817,6 +8971,125 @@ export default function POSPage() {
             );
           })()}
 
+          {/* ══ TAB: แต้มสะสม ═══════════════════════════════════════════════ */}
+          {/* กันไว้อีกชั้นเหมือน promotions/payroll — ไม่โชว์ในโหมดแคชเชียร์แม้จะเผลอตั้ง tab นี้ทางอ้อม */}
+          {tab === 'loyalty' && !cashierMode && (() => {
+            const activeProducts = products.filter(p => p.is_active !== false);
+            return (
+            <div className="h-full overflow-y-auto">
+              <div className="p-4 max-w-2xl mx-auto space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-gray-900 font-bold">🎁 แต้มสะสม</h3>
+                  {!showRewardForm && (
+                    <button onClick={() => { setRewardForm(emptyRewardForm()); setEditingRewardId(null); setShowRewardForm(true); }}
+                      className="text-xs bg-green-700 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg font-medium">
+                      + สร้างของรางวัล
+                    </button>
+                  )}
+                </div>
+
+                {!posConfig.loyalty_enabled && (
+                  <div className="bg-amber-50/30 border border-amber-200 rounded-xl p-3 text-amber-700 text-xs">
+                    ⚠️ ยังไม่ได้เปิดใช้งานระบบแต้มสะสม — ไปที่ ⋯ เพิ่มเติม → ⚙️ ตั้งค่า → 💳 รับเงิน เพื่อเปิดใช้งานและตั้งอัตราสะสมก่อน
+                  </div>
+                )}
+
+                {!showRewardForm && (
+                  <>
+                    {loyaltyRewardsLoading ? (
+                      <div className="text-center text-gray-400 py-12 animate-pulse">กำลังโหลด...</div>
+                    ) : loyaltyRewards.length === 0 ? (
+                      <div className="text-center text-gray-400 py-12 text-sm">ยังไม่มีของรางวัล</div>
+                    ) : (
+                      <div className="space-y-3">
+                        {loyaltyRewards.map(rw => (
+                          <div key={rw.reward_id} className={`bg-white rounded-2xl border p-4 ${rw.is_active ? 'border-green-200' : 'border-gray-100 opacity-60'}`}>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="text-gray-900 font-bold text-sm truncate">{rw.name}</p>
+                                <p className="text-gray-400 text-[11px] mt-0.5">{rw.points_cost.toLocaleString()} แต้ม · {rw.product_name} ×{rw.product_qty}{rw.branch ? ` · ${rw.branch}` : ' · ทุกสาขา'}</p>
+                              </div>
+                              <button onClick={() => toggleReward(rw)}
+                                className={`shrink-0 text-[10px] font-bold px-2.5 py-1 rounded-full ${rw.is_active ? 'bg-green-100 text-green-700' : 'bg-white text-gray-500'}`}>
+                                {rw.is_active ? '🟢 เปิดใช้งาน' : '⚪ ปิดอยู่'}
+                              </button>
+                            </div>
+                            {rw.cogs_per_redemption != null ? (
+                              <p className="text-gray-400 text-[11px] mt-2">💸 ต้นทุนที่ร้านต้องจ่ายต่อการแลก 1 ครั้ง: ฿{rw.cogs_per_redemption.toLocaleString()}</p>
+                            ) : (
+                              <p className="text-amber-500 text-[11px] mt-2">⚠️ คำนวณต้นทุนไม่ได้ (สินค้าที่อ้างอิงอาจถูกลบไปแล้ว)</p>
+                            )}
+                            <div className="flex gap-2 mt-3">
+                              <button onClick={() => { setRewardForm({ name: rw.name, points_cost: String(rw.points_cost), product_sku: rw.product_sku, product_qty: String(rw.product_qty), branch: rw.branch }); setEditingRewardId(rw.reward_id); setShowRewardForm(true); }}
+                                className="flex-1 bg-white hover:bg-gray-100 text-gray-800 text-xs font-bold py-2 rounded-lg transition-colors">
+                                ✏️ แก้ไข
+                              </button>
+                              <button onClick={() => deleteReward(rw)}
+                                className="flex-1 bg-red-50 hover:bg-red-50 text-red-700 text-xs font-bold py-2 rounded-lg transition-colors">
+                                🗑️ ลบ
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {showRewardForm && (
+                  <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3">
+                    <div>
+                      <label className="text-gray-500 text-xs font-bold mb-1.5 block">ชื่อของรางวัล</label>
+                      <input value={rewardForm.name} onChange={e => setRewardForm(f => ({ ...f, name: e.target.value }))}
+                        placeholder="เช่น แก้วน้ำฟรี 1 ใบ"
+                        className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
+                    </div>
+                    <div>
+                      <label className="text-gray-500 text-xs font-bold mb-1.5 block">จำนวนแต้มที่ใช้แลก</label>
+                      <input type="number" min="1" value={rewardForm.points_cost} onChange={e => setRewardForm(f => ({ ...f, points_cost: e.target.value }))}
+                        placeholder="เช่น 100"
+                        className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
+                    </div>
+                    <div>
+                      <label className="text-gray-500 text-xs font-bold mb-1.5 block">สินค้าที่จะให้เป็นของรางวัล</label>
+                      <select value={rewardForm.product_sku} onChange={e => setRewardForm(f => ({ ...f, product_sku: e.target.value }))}
+                        className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500">
+                        <option value="">— เลือกสินค้า —</option>
+                        {activeProducts.map(p => <option key={p.sku} value={p.sku}>{p.name} (฿{p.price})</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-gray-500 text-xs font-bold mb-1.5 block">จำนวนสินค้าต่อการแลก 1 ครั้ง</label>
+                      <input type="number" min="1" value={rewardForm.product_qty} onChange={e => setRewardForm(f => ({ ...f, product_qty: e.target.value }))}
+                        className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
+                    </div>
+                    {posBranches.length > 0 && (
+                      <div>
+                        <label className="text-gray-500 text-xs font-bold mb-1.5 block">สาขา (เว้นว่าง = ทุกสาขา)</label>
+                        <select value={rewardForm.branch} onChange={e => setRewardForm(f => ({ ...f, branch: e.target.value }))}
+                          className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500">
+                          <option value="">ทุกสาขา</option>
+                          {posBranches.map(b => <option key={b.branch_name} value={b.branch_name}>{b.branch_name}</option>)}
+                        </select>
+                      </div>
+                    )}
+                    <div className="flex gap-2 pt-2">
+                      <button onClick={() => { setShowRewardForm(false); setEditingRewardId(null); }}
+                        className="flex-1 bg-white hover:bg-gray-100 text-gray-700 font-bold py-3 rounded-xl transition-colors">
+                        ยกเลิก
+                      </button>
+                      <button onClick={saveReward} disabled={rewardSaving}
+                        className="flex-1 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-colors">
+                        {rewardSaving ? 'กำลังบันทึก...' : editingRewardId ? '💾 บันทึกการแก้ไข' : '💾 สร้างของรางวัล'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            );
+          })()}
+
           {/* ══ TAB: เงินเดือน ══════════════════════════════════════════════ */}
           {/* กันไว้อีกชั้นเหมือน settings — ไม่โชว์ในโหมดแคชเชียร์แม้จะเผลอตั้ง tab นี้ทางอ้อม */}
           {tab === 'payroll' && !cashierMode && (
@@ -9592,6 +9865,41 @@ export default function POSPage() {
                   );
                 })()}
 
+                {/* แต้มสะสม — อัตราสะสม/หมดอายุตั้งได้เองต่อร้าน (ผู้ใช้ยืนยันแล้วว่าแต่ละร้านกำไร
+                    ไม่เท่ากัน อ้างอิงร้านเดียวไม่ได้) — อัตรานี้เป็นค่าเริ่มต้นเท่านั้น แก้ต่อสินค้าได้
+                    ในฟอร์มแก้ไขสินค้าแต่ละตัว (ดูแท็บสินค้า) — มูลค่าตอนแลกเป็นส่วนลดใช้อัตราเดียวกันนี้
+                    (โมเดล breakeven: แลก 1 แต้ม = คืนทุนเท่ากับที่ต้องใช้ซื้อ 1 แต้มตอนแรก) */}
+                <div className="bg-white rounded-2xl p-5 border border-gray-100">
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-gray-900 font-bold">🎁 ระบบแต้มสะสม</h3>
+                    <button type="button"
+                      onClick={() => setPosSettingsForm(f => ({ ...f, loyalty_enabled: !f.loyalty_enabled }))}
+                      className={`relative w-11 h-6 rounded-full transition-colors ${posSettingsForm.loyalty_enabled ? 'bg-green-600' : 'bg-gray-300'}`}>
+                      <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${posSettingsForm.loyalty_enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                    </button>
+                  </div>
+                  <p className="text-gray-500 text-xs mb-4">ลูกค้าสมาชิก (ที่ผูกในตะกร้าตอนขาย) สะสมแต้มจากยอดซื้อ แลกเป็นส่วนลดหรือของรางวัลได้ — จัดการของรางวัลที่แท็บ "🎁 แต้มสะสม"</p>
+                  {posSettingsForm.loyalty_enabled && (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-gray-500 text-xs mb-1.5">อัตราสะสม — กี่บาทต่อ 1 แต้ม (ค่าเริ่มต้นทั้งร้าน)</label>
+                        <input type="number" min="0.01" step="0.01" value={posSettingsForm.loyalty_baht_per_point}
+                          onChange={e => setPosSettingsForm(f => ({ ...f, loyalty_baht_per_point: e.target.value }))}
+                          placeholder="เช่น 20 (ซื้อครบ 20 บาท = ได้ 1 แต้ม)"
+                          className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
+                        <p className="text-gray-400 text-[11px] mt-1">ยิ่งตัวเลขน้อย ลูกค้ายิ่งได้แต้มเร็ว — แก้เฉพาะบางสินค้าได้ที่ฟอร์มแก้ไขสินค้า (แท็บสินค้า)</p>
+                      </div>
+                      <div>
+                        <label className="block text-gray-500 text-xs mb-1.5">แต้มหมดอายุใน (เดือน) — เว้นว่าง = ไม่หมดอายุ</label>
+                        <input type="number" min="0" step="1" value={posSettingsForm.loyalty_expiry_months}
+                          onChange={e => setPosSettingsForm(f => ({ ...f, loyalty_expiry_months: e.target.value }))}
+                          placeholder="เว้นว่าง = ตลอดชีพ"
+                          className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 </>)}
 
                 {settingsCategory === 'accounting' && (<>
@@ -9946,6 +10254,62 @@ export default function POSPage() {
                 )}
               </div>
 
+              {/* แต้มสะสม — โชว์เฉพาะร้านที่เปิดใช้ + เลือกลูกค้าไว้แล้วเท่านั้น (แลกแต้มไม่ได้ถ้าไม่รู้
+                  ว่าเป็นแต้มของใคร) — แลกได้ทั้งเป็นส่วนลด (พิมพ์จำนวนแต้ม) และแลกสินค้าเฉพาะจากแคตตาล็อก
+                  (เพิ่มเข้าตะกร้าที่ราคา ฿0 ทันที) */}
+              {posConfig.loyalty_enabled && creditCustomer?.contact_id && (
+                <div className="bg-amber-50/40 border border-amber-200/60 rounded-xl p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-amber-700 text-xs font-bold">🎁 แต้มสะสมของลูกค้า</span>
+                    <span className="text-amber-800 text-sm font-bold">
+                      {loyaltyReady ? `${(loyaltyBalance - redeemedRewardPoints).toLocaleString()} แต้ม` : 'ยังไม่พร้อมใช้งาน'}
+                    </span>
+                  </div>
+
+                  {loyaltyReady && loyaltyRedeemableMax > 0 && (
+                    <div>
+                      <label className="block text-amber-700 text-xs mb-1">แลกเป็นส่วนลด (แต้ม)</label>
+                      <div className="flex items-center gap-2">
+                        <input type="number" min="0" max={loyaltyRedeemableMax} value={loyaltyRedeemInput}
+                          onChange={e => setLoyaltyRedeemInput(e.target.value)}
+                          placeholder="0"
+                          className="flex-1 bg-white text-gray-900 text-sm px-3 py-2 rounded-lg border border-amber-300/60 focus:outline-none focus:border-amber-500" />
+                        <button type="button" onClick={() => setLoyaltyRedeemInput(String(loyaltyRedeemableMax))}
+                          className="text-xs px-2.5 py-2 rounded-lg bg-amber-100 text-amber-700 hover:bg-amber-200 shrink-0">แลกทั้งหมด</button>
+                      </div>
+                      {loyaltyRedeemPointsClamped > 0 && (
+                        <div className="text-amber-700 text-xs mt-1">= ส่วนลด ฿{loyaltyDiscountPreview.toLocaleString()}</div>
+                      )}
+                    </div>
+                  )}
+
+                  {activeLoyaltyRewards.length > 0 && (
+                    <div className="space-y-1.5">
+                      <label className="block text-amber-700 text-xs">แลกของรางวัล</label>
+                      {activeLoyaltyRewards.map(rw => {
+                        const alreadyRedeemed = redeemedRewards.includes(rw);
+                        const affordable = (loyaltyBalance - redeemedRewardPoints - loyaltyRedeemPointsClamped) >= rw.points_cost;
+                        return (
+                          <div key={rw.reward_id} className="flex items-center justify-between gap-2 bg-white rounded-lg px-3 py-2 border border-amber-200/40">
+                            <div className="min-w-0">
+                              <div className="text-gray-800 text-xs font-medium truncate">{rw.name}</div>
+                              <div className="text-gray-400 text-[11px]">{rw.points_cost.toLocaleString()} แต้ม · {rw.product_name} ×{rw.product_qty}</div>
+                            </div>
+                            {alreadyRedeemed ? (
+                              <button type="button" onClick={() => undoRedeemReward(rw)}
+                                className="text-xs px-2.5 py-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 shrink-0">✕ ยกเลิก</button>
+                            ) : (
+                              <button type="button" disabled={!affordable} onClick={() => redeemReward(rw)}
+                                className="text-xs px-2.5 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-500 disabled:opacity-40 shrink-0">แลก</button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* ส่วนลด — เลือกได้ทั้ง บาท / เปอร์เซ็นต์ */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
@@ -10114,6 +10478,12 @@ export default function POSPage() {
                   <span>−฿{lastBill.discount.toLocaleString()}</span>
                 </div>
               )}
+              {lastBill.loyaltyDiscountValue > 0 && (
+                <div className="flex justify-between text-amber-600">
+                  <span>🎁 แลกแต้มสะสม</span>
+                  <span>−฿{lastBill.loyaltyDiscountValue.toLocaleString()}</span>
+                </div>
+              )}
               <div className="border-t border-gray-200 pt-1 flex justify-between font-bold">
                 <span>ยอดสุทธิ</span>
                 <span className="text-green-600">฿{lastBill.total.toLocaleString()}</span>
@@ -10122,6 +10492,12 @@ export default function POSPage() {
                 <div className="flex justify-between text-orange-500">
                   <span>เงินทอน</span>
                   <span>฿{lastBill.change.toLocaleString()}</span>
+                </div>
+              )}
+              {lastBill.loyaltyPointsEarned > 0 && (
+                <div className="flex justify-between text-amber-600 font-bold border-t border-gray-200 pt-1">
+                  <span>🎁 ได้แต้มสะสม</span>
+                  <span>+{lastBill.loyaltyPointsEarned.toLocaleString()} แต้ม</span>
                 </div>
               )}
             </div>
@@ -10345,6 +10721,18 @@ export default function POSPage() {
                   <input type="number" value={prodForm.stock} onChange={e => setProdForm(f => ({...f, stock: e.target.value}))}
                     className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
                     placeholder="0" min="0" />
+                </div>
+              )}
+
+              {/* ── อัตราสะสมแต้ม override เฉพาะสินค้านี้ (เฉพาะร้านที่เปิดระบบแต้มสะสม) ──
+                  เว้นว่าง = ใช้อัตราเริ่มต้นของร้าน (ตั้งในหน้าตั้งค่า → รับเงิน) */}
+              {posConfig.loyalty_enabled && (
+                <div>
+                  <label className="block text-gray-500 text-xs mb-1.5">อัตราแต้มสะสมเฉพาะสินค้านี้ (บาท/แต้ม) — เว้นว่าง = ใช้ค่าเริ่มต้นร้าน{posConfig.loyalty_baht_per_point ? ` (${posConfig.loyalty_baht_per_point} บาท/แต้ม)` : ''}</label>
+                  <input type="number" min="0.01" step="0.01" value={prodForm.loyalty_baht_per_point}
+                    onChange={e => setProdForm(f => ({...f, loyalty_baht_per_point: e.target.value}))}
+                    className="w-full bg-white text-gray-900 text-sm px-4 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500"
+                    placeholder="เว้นว่าง = ใช้ค่าเริ่มต้นร้าน" />
                 </div>
               )}
 
