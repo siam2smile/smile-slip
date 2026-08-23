@@ -5,12 +5,16 @@
  * PATCH  /api/pos/promotions { shopId, promo_id, ...fields, is_active }
  * DELETE /api/pos/promotions { shopId, promo_id } → soft-delete
  *
- * promo_type 5 แบบ (config shape ต่างกันตาม type):
+ * promo_type 6 แบบ (config shape ต่างกันตาม type):
  *   product_discount  { sku, discount_type:'percent'|'amount', discount_value }
  *   quantity_discount { sku, min_qty, discount_type, discount_value }
  *   buy_x_get_y       { buySku, buyQty, getSku, getQty, get_discount_type:'free'|'percent', get_discount_value }
  *   bundle            { items:[{sku,qty}], bundle_price }
  *   free_gift         { triggerSku, triggerQty, giftSku, giftQty }
+ *   bill_discount     { min_total, discount_type:'percent'|'amount', discount_value, max_discount? }
+ *     — ต่างจาก 5 แบบข้างบนตรงที่ไม่ผูกกับ SKU ไหนเลย เช็คจากยอดรวมทั้งบิล ไม่มี margin preview
+ *       ล่วงหน้าได้ (ไม่รู้ว่าบิลจริงจะมีสินค้าอะไรบ้าง) ตอนใช้จริงกระจายส่วนลดตามสัดส่วนราคาเดิมของ
+ *       ทุกชิ้นในตะกร้า (ratio เดียวกับที่ bundle ใช้)
  *
  * งานกลยุทธ์ "Promotions Engine" — ผู้ใช้อนุมัติ 2026-08-16 พร้อมขอเพิ่มคำนวณกำไรคงเหลือต่อโปร
  * ไม่แตะ sales.js/checkout เลย — เป็นแค่เครื่องมือคำนวณ/จัดการ ฝั่งหน้าขาย (pos.js) นำราคาที่คำนวณ
@@ -26,7 +30,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
-const PROMO_TYPES = new Set(['product_discount', 'quantity_discount', 'buy_x_get_y', 'bundle', 'free_gift']);
+const PROMO_TYPES = new Set(['product_discount', 'quantity_discount', 'buy_x_get_y', 'bundle', 'free_gift', 'bill_discount']);
 
 async function fetchProductsBySku(shopId) {
   const PAGE = 1000;
@@ -122,6 +126,10 @@ function validateConfig(promoType, config) {
     if (!(parseFloat(c.bundle_price) > 0)) return 'กรุณาระบุราคาชุด';
   } else if (promoType === 'free_gift') {
     if (!c.triggerSku || !c.giftSku || !(parseInt(c.triggerQty) > 0) || !(parseInt(c.giftQty) > 0)) return 'ข้อมูลไม่ครบ (สินค้าที่ต้องซื้อ/ของแถม/จำนวน)';
+  } else if (promoType === 'bill_discount') {
+    if (!(parseFloat(c.min_total) > 0) || !['percent', 'amount'].includes(c.discount_type) || !(parseFloat(c.discount_value) > 0)) return 'ข้อมูลไม่ครบ (ยอดขั้นต่ำ/ประเภท/มูลค่าส่วนลด)';
+    if (c.discount_type === 'percent' && parseFloat(c.discount_value) > 100) return 'ส่วนลด % ต้องไม่เกิน 100';
+    if (c.max_discount !== undefined && c.max_discount !== null && c.max_discount !== '' && !(parseFloat(c.max_discount) >= 0)) return 'ยอดลดสูงสุดไม่ถูกต้อง';
   }
   return null;
 }

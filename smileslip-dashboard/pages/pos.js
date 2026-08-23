@@ -793,6 +793,7 @@ export default function POSPage() {
     buySku: '', buyQty: '1', getSku: '', getQty: '1', get_discount_type: 'free', get_discount_value: '',
     items: [{ sku: '', qty: '1' }, { sku: '', qty: '1' }], bundle_price: '',
     triggerSku: '', triggerQty: '1', giftSku: '', giftQty: '1',
+    min_total: '', max_discount: '',
   });
   const [promoForm, setPromoForm] = useState(emptyPromoForm());
   // โปรที่ active ตอนนี้ (ทุก tab/ทุกโหมดรวมแคชเชียร์ต้องเห็นได้ — ใช้แนะนำในตะกร้าตอนขาย)
@@ -2416,6 +2417,13 @@ export default function POSPage() {
           if (!trig || trig.qty < c.triggerQty || !gift || gift.qty < c.giftQty) return null;
           return { promo, label: `ซื้อ ${trig.name} ครบแล้ว — ${gift.name} ฟรี ${c.giftQty} ชิ้น` };
         }
+        if (promo.promo_type === 'bill_discount') {
+          if (!cart.length) return null;
+          const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
+          if (subtotal < c.min_total) return null;
+          const capTxt = c.max_discount ? ` (สูงสุด ฿${c.max_discount})` : '';
+          return { promo, label: `ยอดครบ ฿${c.min_total} — ลด${c.discount_type === 'percent' ? `${c.discount_value}%${capTxt}` : `฿${c.discount_value}`}` };
+        }
       } catch {}
       return null;
     }).filter(Boolean);
@@ -2443,6 +2451,14 @@ export default function POSPage() {
       });
     } else if (promo.promo_type === 'free_gift') {
       updatePrice(c.giftSku, '0');
+    } else if (promo.promo_type === 'bill_discount') {
+      const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
+      if (subtotal <= 0) return;
+      let discountAmt = c.discount_type === 'amount' ? c.discount_value : subtotal * (c.discount_value / 100);
+      if (c.max_discount && discountAmt > c.max_discount) discountAmt = c.max_discount;
+      discountAmt = Math.min(discountAmt, subtotal);
+      const ratio = (subtotal - discountAmt) / subtotal;
+      cart.forEach(it => updatePrice(it.sku, (it.price * ratio).toFixed(2)));
     }
     showToast(`✅ ใช้โปร "${promo.name}" แล้ว`);
   }
@@ -3367,6 +3383,12 @@ export default function POSPage() {
     if (form.promo_type === 'free_gift') {
       return { triggerSku: form.triggerSku, triggerQty: parseInt(form.triggerQty) || 1, giftSku: form.giftSku, giftQty: parseInt(form.giftQty) || 1 };
     }
+    if (form.promo_type === 'bill_discount') {
+      return {
+        min_total: parseFloat(form.min_total) || 0, discount_type: form.discount_type, discount_value: parseFloat(form.discount_value) || 0,
+        max_discount: form.max_discount !== '' ? (parseFloat(form.max_discount) || 0) : null,
+      };
+    }
     return {};
   }
 
@@ -3429,6 +3451,7 @@ export default function POSPage() {
       items: (c.items && c.items.length ? c.items.map(it => ({ sku: it.sku, qty: String(it.qty) })) : [{ sku: '', qty: '1' }, { sku: '', qty: '1' }]),
       bundle_price: c.bundle_price ?? '',
       triggerSku: c.triggerSku || '', triggerQty: c.triggerQty ?? '1', giftSku: c.giftSku || '', giftQty: c.giftQty ?? '1',
+      min_total: c.min_total ?? '', max_discount: c.max_discount ?? '',
     });
     setEditingPromoId(promo.promo_id);
     setShowPromoForm(true);
@@ -8443,6 +8466,7 @@ export default function POSPage() {
               buy_x_get_y: { label: '🎁 ซื้อ X แถม Y', desc: 'ซื้อสินค้าหนึ่งครบจำนวน แถม/ลดราคาสินค้าอีกชิ้น (จะเป็นตัวเดียวกันหรือคนละตัวก็ได้)' },
               bundle: { label: '🛍️ ชุดราคาพิเศษ', desc: 'ซื้อสินค้าหลายอย่างพร้อมกันในราคาชุดคงที่' },
               free_gift: { label: '🎀 ซื้อแล้วแถมของกำนัล', desc: 'ซื้อสินค้าครบจำนวน แถมของกำนัลฟรี' },
+              bill_discount: { label: '🧾 ลดเมื่อยอดครบ', desc: 'ลดราคาทั้งบิลเมื่อยอดซื้อถึงขั้นต่ำที่กำหนด ไม่ผูกกับสินค้าตัวใดตัวหนึ่ง' },
             };
             const activeProducts = products.filter(p => p.is_active !== false);
             const ProductSelect = ({ value, onChange, placeholder }) => (
@@ -8503,6 +8527,8 @@ export default function POSPage() {
                                   </p>
                                 </div>
                               </div>
+                            ) : promo.promo_type === 'bill_discount' ? (
+                              <p className="text-gray-400 text-[11px] mt-2">ℹ️ กำไรขึ้นกับสินค้าที่ซื้อจริงในบิล ไม่มีตัวอย่างล่วงหน้าให้ดู</p>
                             ) : (
                               <p className="text-amber-500 text-[11px] mt-2">⚠️ คำนวณกำไรไม่ได้ (สินค้าที่อ้างอิงอาจถูกลบไปแล้ว)</p>
                             )}
@@ -8663,6 +8689,34 @@ export default function POSPage() {
                               className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                           </div>
                         </div>
+                      </div>
+                    )}
+
+                    {promoForm.promo_type === 'bill_discount' && (
+                      <div className="space-y-2.5">
+                        <div>
+                          <label className="text-gray-500 text-xs font-bold mb-1.5 block">ยอดซื้อขั้นต่ำ (บาท) — นับจากยอดรวมทั้งบิล ไม่ผูกกับสินค้าตัวใดตัวหนึ่ง</label>
+                          <input type="number" min="0" value={promoForm.min_total} onChange={e => setPromoForm(f => ({ ...f, min_total: e.target.value }))}
+                            placeholder="เช่น 500 (=ซื้อครบ 500 บาทขึ้นไป)"
+                            className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
+                        </div>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => setPromoForm(f => ({ ...f, discount_type: 'percent' }))}
+                            className={`flex-1 text-xs font-bold py-2 rounded-xl ${promoForm.discount_type === 'percent' ? 'bg-green-700 text-white' : 'bg-white text-gray-500'}`}>ลด %</button>
+                          <button type="button" onClick={() => setPromoForm(f => ({ ...f, discount_type: 'amount' }))}
+                            className={`flex-1 text-xs font-bold py-2 rounded-xl ${promoForm.discount_type === 'amount' ? 'bg-green-700 text-white' : 'bg-white text-gray-500'}`}>ลด ฿</button>
+                        </div>
+                        <input type="number" min="0" value={promoForm.discount_value} onChange={e => setPromoForm(f => ({ ...f, discount_value: e.target.value }))}
+                          placeholder={promoForm.discount_type === 'percent' ? 'เช่น 10 (=10%)' : 'เช่น 50 (=ลด 50 บาท)'}
+                          className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
+                        {promoForm.discount_type === 'percent' && (
+                          <div>
+                            <label className="text-gray-500 text-xs font-bold mb-1.5 block">ลดสูงสุดไม่เกิน (บาท) — ไม่บังคับ กันส่วนลดบานปลายตอนบิลใหญ่มาก</label>
+                            <input type="number" min="0" value={promoForm.max_discount} onChange={e => setPromoForm(f => ({ ...f, max_discount: e.target.value }))}
+                              placeholder="เว้นว่าง = ไม่จำกัด"
+                              className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
+                          </div>
+                        )}
                       </div>
                     )}
 
