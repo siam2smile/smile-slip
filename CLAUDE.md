@@ -1093,7 +1093,7 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
       - Browser test (owner-session token + `router.replace()` trick): ฟอร์มรายจ่ายมีช่อง "ผู้รับเงิน" ถูกต้อง, ประวัติรายจ่ายจริงของ D Gas โชว์ปุ่ม "🧾" ทุกแถว, กดแล้ว modal เปิดพร้อม preview iframe โหลด PDF จริงสำเร็จ (ไม่ได้กด "บันทึกลง Google Drive" ระหว่างเทสต์ UI กันสร้างไฟล์ทดสอบซ้ำซ้อน — ยืนยัน backend flow ผ่าน API โดยตรงแล้วครบถ้วน), สลับไปหน้ารายงาน → แท็บ "💸 รายจ่าย" → เห็นปุ่ม "🧾" เดียวกันในทุกแถวเช่นกัน
     - **ยังไม่ได้เพิ่ม "ผู้รับเงิน" เข้ารายงาน VAT30/ภาษีปลายปี** (แค่ history/reports/Excel export ของ "รายจ่าย" ธรรมดา) — นอกสโคปของงานที่ขอ ไม่ได้กระทบอะไรเพราะฟิลด์นี้เป็นแค่ metadata เสริมสำหรับพิมพ์เอกสาร ไม่ใช่ข้อมูลที่รายงานภาษีต้องใช้คำนวณ
     - **Deploy production แล้ว (2026-08-23)** — revision จริง `smileslip-dashboard-00351-kxp` (เจอ `429 RESOURCE_EXHAUSTED` จาก Cloud Build API ระหว่าง deploy อีกครั้ง ตรงกับ pattern เดิม — เช็ค `gcloud builds describe` ยืนยัน build สำเร็จเบื้องหลัง แล้วดึง image digest deploy ตรงข้าม rebuild) เช็คด้วย `gcloud run revisions list --sort-by=~metadata.creationTimestamp` แล้ว retag `candidate` → health-check ผ่าน (401 ไม่มี token, 200 มี token ถูกต้อง) ก่อน cutover — **verified บน production จริงด้วยการยิง `voucher/save` แบบ end-to-end จริง** (owner token, branch-aware) ได้ PDF จริงสำเร็จ ยืนยันบั๊ก folder-id ปิดสนิทบน production ด้วย แล้วลบไฟล์ทดสอบออกจาก Drive จริงทันที
-    - **ต้องทำด้วยมือ:** รัน SQL เพิ่มคอลัมน์ `pos_expenses.payee` (ดูหัวข้อ "ต้องทำด้วยมือ — Supabase SQL" ด้านล่าง) — ก่อนรัน ทุกอย่างยังทำงานปกติทุกประการ (ทดสอบแล้วจริง) แค่ยังบันทึกชื่อผู้รับเงินจริงไม่ได้ (voucher จะ fallback ไปใช้ชื่อรายการ/หมวดหมู่แทนจนกว่าจะรัน)
+    - **ผู้ใช้รัน SQL คอลัมน์ `pos_expenses.payee` แล้ว (2026-08-23) — ✅ verified บน production จริง:** ยิง `POST`/`GET` `/api/pos/expenses` ตรงกับ production URL ด้วยค่าทดสอบ (`payee:"ทดสอบ ผู้รับเงินจริง"`) ยืนยันบันทึก+อ่านกลับถูกต้องตรงกันเป๊ะ (ไม่ fallback เป็นค่าว่างอีกต่อไป) แล้วลบข้อมูลทดสอบทันที — ฟีเจอร์ผู้รับเงิน/ใบสำคัญจ่ายใช้งานได้เต็มรูปแบบแล้วตอนนี้
 
 ## Tech Stack
 
@@ -2123,11 +2123,8 @@ ALTER TABLE pos_products ADD COLUMN IF NOT EXISTS online_order_visible boolean N
 ```
 
 **เพิ่มคอลัมน์ payee ใน pos_expenses (ผู้รับเงิน — ไม่บังคับ ใช้พิมพ์ใบสำคัญจ่ายให้ตรงคน — ข้อ 99, เพิ่ม
-2026-08-23, ยังไม่ได้รัน):**
-ก่อนรัน SQL นี้ การบันทึกรายจ่ายยังทำงานปกติทุกอย่าง (ทดสอบแล้วจริง) — `api/pos/expenses.js` แยกเขียน
-`payee` เป็น query ต่างหากเสมอ (เหมือน `shop_branches.address`/`shop_branches.phone`) ถ้าคอลัมน์ยังไม่มี
-จะแค่บันทึกชื่อผู้รับเงินไม่ได้จริง ไม่ error/ไม่พังการบันทึกรายจ่ายหลัก — ใบสำคัญจ่ายที่พิมพ์จะ fallback
-ไปใช้ชื่อรายการ/หมวดหมู่แทนชื่อผู้รับเงินจนกว่าจะรัน SQL นี้แล้วกรอกใหม่
+2026-08-23, ✅ รันแล้ว 2026-08-23 — verified บน production จริง: POST รายจ่ายพร้อม `payee` แล้ว GET กลับมา
+ตรงกันเป๊ะ (`payee:"ทดสอบ ผู้รับเงินจริง"`) ไม่ fallback เป็นค่าว่างอีกต่อไป ลบข้อมูลทดสอบสะอาดหลังทดสอบ):**
 ```sql
 ALTER TABLE pos_expenses ADD COLUMN IF NOT EXISTS payee text;
 ```
