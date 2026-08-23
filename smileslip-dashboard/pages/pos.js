@@ -794,6 +794,7 @@ export default function POSPage() {
     items: [{ sku: '', qty: '1' }, { sku: '', qty: '1' }], bundle_price: '',
     triggerSku: '', triggerQty: '1', giftSku: '', giftQty: '1',
     min_total: '', max_discount: '',
+    tiers: [{ min_qty: '', unit_price: '' }, { min_qty: '', unit_price: '' }],
   });
   const [promoForm, setPromoForm] = useState(emptyPromoForm());
   // โปรที่ active ตอนนี้ (ทุก tab/ทุกโหมดรวมแคชเชียร์ต้องเห็นได้ — ใช้แนะนำในตะกร้าตอนขาย)
@@ -2424,6 +2425,14 @@ export default function POSPage() {
           const capTxt = c.max_discount ? ` (สูงสุด ฿${c.max_discount})` : '';
           return { promo, label: `ยอดครบ ฿${c.min_total} — ลด${c.discount_type === 'percent' ? `${c.discount_value}%${capTxt}` : `฿${c.discount_value}`}` };
         }
+        if (promo.promo_type === 'tiered_pricing') {
+          const item = cart.find(i => i.sku === c.sku);
+          if (!item) return null;
+          const tiers = (c.tiers || []).slice().sort((a, b) => a.min_qty - b.min_qty);
+          const applicable = tiers.filter(t => item.qty >= t.min_qty).pop();
+          if (!applicable) return null;
+          return { promo, label: `${item.name} ซื้อ ${item.qty} ชิ้น — ราคา ฿${applicable.unit_price}/ชิ้น` };
+        }
       } catch {}
       return null;
     }).filter(Boolean);
@@ -2459,6 +2468,13 @@ export default function POSPage() {
       discountAmt = Math.min(discountAmt, subtotal);
       const ratio = (subtotal - discountAmt) / subtotal;
       cart.forEach(it => updatePrice(it.sku, (it.price * ratio).toFixed(2)));
+    } else if (promo.promo_type === 'tiered_pricing') {
+      const item = cart.find(i => i.sku === c.sku);
+      if (!item) return;
+      const tiers = (c.tiers || []).slice().sort((a, b) => a.min_qty - b.min_qty);
+      const applicable = tiers.filter(t => item.qty >= t.min_qty).pop();
+      if (!applicable) return;
+      updatePrice(c.sku, applicable.unit_price.toFixed(2));
     }
     showToast(`✅ ใช้โปร "${promo.name}" แล้ว`);
   }
@@ -3389,6 +3405,12 @@ export default function POSPage() {
         max_discount: form.max_discount !== '' ? (parseFloat(form.max_discount) || 0) : null,
       };
     }
+    if (form.promo_type === 'tiered_pricing') {
+      return {
+        sku: form.sku,
+        tiers: form.tiers.filter(t => t.min_qty !== '' && t.unit_price !== '').map(t => ({ min_qty: parseInt(t.min_qty) || 1, unit_price: parseFloat(t.unit_price) || 0 })),
+      };
+    }
     return {};
   }
 
@@ -3452,6 +3474,7 @@ export default function POSPage() {
       bundle_price: c.bundle_price ?? '',
       triggerSku: c.triggerSku || '', triggerQty: c.triggerQty ?? '1', giftSku: c.giftSku || '', giftQty: c.giftQty ?? '1',
       min_total: c.min_total ?? '', max_discount: c.max_discount ?? '',
+      tiers: (c.tiers && c.tiers.length ? c.tiers.map(t => ({ min_qty: String(t.min_qty), unit_price: String(t.unit_price) })) : [{ min_qty: '', unit_price: '' }, { min_qty: '', unit_price: '' }]),
     });
     setEditingPromoId(promo.promo_id);
     setShowPromoForm(true);
@@ -8467,6 +8490,7 @@ export default function POSPage() {
               bundle: { label: '🛍️ ชุดราคาพิเศษ', desc: 'ซื้อสินค้าหลายอย่างพร้อมกันในราคาชุดคงที่' },
               free_gift: { label: '🎀 ซื้อแล้วแถมของกำนัล', desc: 'ซื้อสินค้าครบจำนวน แถมของกำนัลฟรี' },
               bill_discount: { label: '🧾 ลดเมื่อยอดครบ', desc: 'ลดราคาทั้งบิลเมื่อยอดซื้อถึงขั้นต่ำที่กำหนด ไม่ผูกกับสินค้าตัวใดตัวหนึ่ง' },
+              tiered_pricing: { label: '📶 ราคาขั้นบันได', desc: 'ยิ่งซื้อเยอะ ราคาต่อชิ้นยิ่งถูกลง ตั้งได้หลายระดับ (เช่น 1-2 ชิ้น ฿100, 3-5 ชิ้น ฿90, 6+ ฿80)' },
             };
             const activeProducts = products.filter(p => p.is_active !== false);
             const ProductSelect = ({ value, onChange, placeholder }) => (
@@ -8717,6 +8741,38 @@ export default function POSPage() {
                               className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                           </div>
                         )}
+                      </div>
+                    )}
+
+                    {promoForm.promo_type === 'tiered_pricing' && (
+                      <div className="space-y-2.5">
+                        <div>
+                          <label className="text-gray-500 text-xs font-bold mb-1.5 block">สินค้า</label>
+                          <ProductSelect value={promoForm.sku} onChange={v => setPromoForm(f => ({ ...f, sku: v }))} />
+                        </div>
+                        <label className="text-gray-500 text-xs font-bold block">ระดับราคา (เรียงจากซื้อน้อยไปมาก)</label>
+                        {promoForm.tiers.map((t, idx) => (
+                          <div key={idx} className="grid grid-cols-[1fr,1fr,32px] gap-2 items-center">
+                            <div>
+                              {idx === 0 && <label className="text-gray-400 text-[10px] block mb-0.5">ซื้อตั้งแต่ (ชิ้น)</label>}
+                              <input type="number" min="1" value={t.min_qty} onChange={e => setPromoForm(f => ({ ...f, tiers: f.tiers.map((x, i) => i === idx ? { ...x, min_qty: e.target.value } : x) }))}
+                                placeholder="เช่น 1"
+                                className="w-full bg-white text-gray-900 text-sm px-2 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
+                            </div>
+                            <div>
+                              {idx === 0 && <label className="text-gray-400 text-[10px] block mb-0.5">ราคาต่อชิ้น (฿)</label>}
+                              <input type="number" min="0" value={t.unit_price} onChange={e => setPromoForm(f => ({ ...f, tiers: f.tiers.map((x, i) => i === idx ? { ...x, unit_price: e.target.value } : x) }))}
+                                placeholder="เช่น 100"
+                                className="w-full bg-white text-gray-900 text-sm px-2 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
+                            </div>
+                            {promoForm.tiers.length > 2 && (
+                              <button type="button" onClick={() => setPromoForm(f => ({ ...f, tiers: f.tiers.filter((_, i) => i !== idx) }))}
+                                className={`text-red-600 hover:text-red-700 text-lg leading-none ${idx === 0 ? 'mt-4' : ''}`}>✕</button>
+                            )}
+                          </div>
+                        ))}
+                        <button type="button" onClick={() => setPromoForm(f => ({ ...f, tiers: [...f.tiers, { min_qty: '', unit_price: '' }] }))}
+                          className="text-green-600 hover:text-green-700 text-xs font-bold">+ เพิ่มระดับราคา</button>
                       </div>
                     )}
 

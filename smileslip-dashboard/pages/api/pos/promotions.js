@@ -5,7 +5,7 @@
  * PATCH  /api/pos/promotions { shopId, promo_id, ...fields, is_active }
  * DELETE /api/pos/promotions { shopId, promo_id } → soft-delete
  *
- * promo_type 6 แบบ (config shape ต่างกันตาม type):
+ * promo_type 7 แบบ (config shape ต่างกันตาม type):
  *   product_discount  { sku, discount_type:'percent'|'amount', discount_value }
  *   quantity_discount { sku, min_qty, discount_type, discount_value }
  *   buy_x_get_y       { buySku, buyQty, getSku, getQty, get_discount_type:'free'|'percent', get_discount_value }
@@ -15,6 +15,9 @@
  *     — ต่างจาก 5 แบบข้างบนตรงที่ไม่ผูกกับ SKU ไหนเลย เช็คจากยอดรวมทั้งบิล ไม่มี margin preview
  *       ล่วงหน้าได้ (ไม่รู้ว่าบิลจริงจะมีสินค้าอะไรบ้าง) ตอนใช้จริงกระจายส่วนลดตามสัดส่วนราคาเดิมของ
  *       ทุกชิ้นในตะกร้า (ratio เดียวกับที่ bundle ใช้)
+ *   tiered_pricing    { sku, tiers:[{min_qty, unit_price}, ...] } — ราคาขั้นบันได (Shopee/Lazada style)
+ *     ต่างจาก quantity_discount (มีขั้นเดียว) ตรงที่ตั้งได้หลายระดับ ตั้งเป็น "ราคาต่อชิ้นที่ระดับนั้น"
+ *     ตรงๆ (ไม่ใช่ % ส่วนลด) — เลือกใช้ระดับที่ min_qty สูงสุดที่จำนวนในตะกร้าถึง
  *
  * งานกลยุทธ์ "Promotions Engine" — ผู้ใช้อนุมัติ 2026-08-16 พร้อมขอเพิ่มคำนวณกำไรคงเหลือต่อโปร
  * ไม่แตะ sales.js/checkout เลย — เป็นแค่เครื่องมือคำนวณ/จัดการ ฝั่งหน้าขาย (pos.js) นำราคาที่คำนวณ
@@ -30,7 +33,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
-const PROMO_TYPES = new Set(['product_discount', 'quantity_discount', 'buy_x_get_y', 'bundle', 'free_gift', 'bill_discount']);
+const PROMO_TYPES = new Set(['product_discount', 'quantity_discount', 'buy_x_get_y', 'bundle', 'free_gift', 'bill_discount', 'tiered_pricing']);
 
 async function fetchProductsBySku(shopId) {
   const PAGE = 1000;
@@ -100,6 +103,18 @@ function computePromoMargin(promo, productsBySku) {
       const profit = round2(revenue - cost);
       return { revenue, cost, profit, margin_pct: revenue > 0 ? round2(profit / revenue * 100) : 0, per: `ซื้อ ${triggerQty} แถม ${giftQty}` };
     }
+    if (promo.promo_type === 'tiered_pricing') {
+      const p = productsBySku[c.sku];
+      const tiers = Array.isArray(c.tiers) ? c.tiers.slice().sort((a, b) => a.min_qty - b.min_qty) : [];
+      const topTier = tiers[tiers.length - 1];
+      if (!p || !topTier) return null;
+      // โชว์ margin ของระดับสูงสุด (ซื้อเยอะสุด = ราคาต่อชิ้นถูกสุด = margin แย่สุด) เป็นเคส
+      // "แย่ที่สุดที่จะเกิดได้จริง" ให้เจ้าของร้านเห็นก่อนตัดสินใจ ไม่ใช่ระดับฐาน (min_qty ต่ำสุด)
+      const revenue = round2(topTier.unit_price);
+      const cost = round2(p.cost || 0);
+      const profit = round2(revenue - cost);
+      return { revenue, cost, profit, margin_pct: revenue > 0 ? round2(profit / revenue * 100) : 0, per: `1 ชิ้น (ระดับสูงสุด ซื้อ ${topTier.min_qty}+)` };
+    }
     return null;
   } catch { return null; }
 }
@@ -130,6 +145,12 @@ function validateConfig(promoType, config) {
     if (!(parseFloat(c.min_total) > 0) || !['percent', 'amount'].includes(c.discount_type) || !(parseFloat(c.discount_value) > 0)) return 'ข้อมูลไม่ครบ (ยอดขั้นต่ำ/ประเภท/มูลค่าส่วนลด)';
     if (c.discount_type === 'percent' && parseFloat(c.discount_value) > 100) return 'ส่วนลด % ต้องไม่เกิน 100';
     if (c.max_discount !== undefined && c.max_discount !== null && c.max_discount !== '' && !(parseFloat(c.max_discount) >= 0)) return 'ยอดลดสูงสุดไม่ถูกต้อง';
+  } else if (promoType === 'tiered_pricing') {
+    if (!c.sku) return 'กรุณาเลือกสินค้า';
+    if (!Array.isArray(c.tiers) || c.tiers.length < 2) return 'ต้องมีอย่างน้อย 2 ระดับราคา';
+    if (c.tiers.some(t => !(parseInt(t.min_qty) >= 1) || !(parseFloat(t.unit_price) >= 0))) return 'ข้อมูลระดับราคาไม่ถูกต้อง (จำนวนขั้นต่ำ≥1/ราคาต่อชิ้น)';
+    const qtys = c.tiers.map(t => parseInt(t.min_qty));
+    if (new Set(qtys).size !== qtys.length) return 'จำนวนขั้นต่ำของแต่ละระดับต้องไม่ซ้ำกัน';
   }
   return null;
 }
