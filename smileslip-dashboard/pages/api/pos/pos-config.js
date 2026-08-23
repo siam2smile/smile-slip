@@ -1,6 +1,6 @@
 /**
  * GET  /api/pos/pos-config?shopId=xxx  → อ่านการตั้งค่า POS
- * PATCH /api/pos/pos-config { shopId, promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, receipt_paper_size, vat_registered, receipt_footer_message, receipt_line_url, receipt_logo_data, loyalty_enabled, loyalty_baht_per_point, loyalty_expiry_months }
+ * PATCH /api/pos/pos-config { shopId, promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, receipt_paper_size, vat_registered, receipt_footer_message, receipt_line_url, receipt_logo_data, loyalty_enabled, loyalty_baht_per_point, loyalty_expiry_months, promo_advertise_on_receipt }
  * (staff_pin ร้านเดียวใช้ร่วมกันแบบเดิมยกเลิกไปแล้ว — ดู api/pos/staff.js + staff-setpin.js สำหรับ PIN รายบุคคล)
  */
 import { createClient } from '@supabase/supabase-js';
@@ -72,9 +72,13 @@ export default async function handler(req, res) {
     let loyalty_enabled = false;
     let loyalty_baht_per_point = null;
     let loyalty_expiry_months = null;
+    // ข้อ 4/4 (โฆษณาโปรโมชั่นในใบเสร็จ) — เปิดไว้ = ทุกใบเสร็จที่พิมพ์แสดงลิสต์โปรที่ active อยู่ตอนนี้
+    // (เฉพาะโปรที่ติ๊ก show_on_receipt ในตัวโปรเอง — ดู promotions.js) ไม่ว่าบิลนั้นจะใช้โปรหรือไม่ —
+    // ปิดไว้ = โชว์เฉพาะโปรที่ใช้จริงในบิลนั้นเท่านั้น (default false กันใบเสร็จรกถ้าไม่ได้ตั้งใจเปิด)
+    let promo_advertise_on_receipt = false;
     try {
       const { data: rd } = await supabase
-        .from('pos_configs').select('receipt_paper_size, vat_registered, scb_biller_ref1, payroll_days_off_per_month, receipt_footer_message, receipt_line_url, receipt_logo_data, loyalty_enabled, loyalty_baht_per_point, loyalty_expiry_months').eq('shop_id', shopId).single();
+        .from('pos_configs').select('receipt_paper_size, vat_registered, scb_biller_ref1, payroll_days_off_per_month, receipt_footer_message, receipt_line_url, receipt_logo_data, loyalty_enabled, loyalty_baht_per_point, loyalty_expiry_months, promo_advertise_on_receipt').eq('shop_id', shopId).single();
       if (rd?.receipt_paper_size) receipt_paper_size = rd.receipt_paper_size;
       vat_registered = !!rd?.vat_registered;
       scb_biller_ref1 = rd?.scb_biller_ref1 || '';
@@ -87,6 +91,7 @@ export default async function handler(req, res) {
       loyalty_enabled = !!rd?.loyalty_enabled;
       loyalty_baht_per_point = rd?.loyalty_baht_per_point != null ? Number(rd.loyalty_baht_per_point) : null;
       loyalty_expiry_months = rd?.loyalty_expiry_months != null ? Number(rd.loyalty_expiry_months) : null;
+      promo_advertise_on_receipt = !!rd?.promo_advertise_on_receipt;
     } catch {}
 
     return res.json({
@@ -105,6 +110,7 @@ export default async function handler(req, res) {
       loyalty_enabled,
       loyalty_baht_per_point,
       loyalty_expiry_months,
+      promo_advertise_on_receipt,
     });
   }
 
@@ -113,7 +119,7 @@ export default async function handler(req, res) {
     // ไม่ว่าจะเปิดสิทธิ์อะไรก็ตาม (เจ้าของ/แอดมินเท่านั้น ต้องพิสูจน์ owner-session จริง)
     if (!blockAllStaffSessions(req, res, shopId)) return;
 
-    const { promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, scb_biller_ref1, receipt_paper_size, vat_registered, payroll_days_off_per_month, receipt_footer_message, receipt_line_url, receipt_logo_data, loyalty_enabled, loyalty_baht_per_point, loyalty_expiry_months } = req.body;
+    const { promptpay_id, kbank_api_key, scb_api_key, scb_biller_id, scb_biller_ref1, receipt_paper_size, vat_registered, payroll_days_off_per_month, receipt_footer_message, receipt_line_url, receipt_logo_data, loyalty_enabled, loyalty_baht_per_point, loyalty_expiry_months, promo_advertise_on_receipt } = req.body;
 
     if (loyalty_baht_per_point !== undefined && loyalty_baht_per_point !== null && loyalty_baht_per_point !== '' && !(parseFloat(loyalty_baht_per_point) > 0)) {
       return res.status(400).json({ error: 'อัตราแต้มสะสม (บาทต่อแต้ม) ต้องมากกว่า 0' });
@@ -219,6 +225,11 @@ export default async function handler(req, res) {
     if (loyalty_expiry_months !== undefined) {
       try {
         await supabase.from('pos_configs').update({ loyalty_expiry_months: loyalty_expiry_months !== '' && loyalty_expiry_months !== null ? parseInt(loyalty_expiry_months) : null }).eq('shop_id', shopId);
+      } catch {}
+    }
+    if (promo_advertise_on_receipt !== undefined) {
+      try {
+        await supabase.from('pos_configs').update({ promo_advertise_on_receipt: !!promo_advertise_on_receipt }).eq('shop_id', shopId);
       } catch {}
     }
 

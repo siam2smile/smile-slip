@@ -592,8 +592,8 @@ export default function POSPage() {
   const [qrLoading, setQrLoading] = useState(false);
 
   // POS settings (PromptPay + Biller ID) — Staff PIN เปลี่ยนเป็นรายบุคคลแล้ว ไม่มี PIN ร้านรวมอีกต่อไป
-  const [posConfig, setPosConfig] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', receipt_paper_size: '80mm', vat_registered: false, payroll_days_off_per_month: 6, receipt_footer_message: '', receipt_line_url: '', receipt_logo_data: '', loyalty_enabled: false, loyalty_baht_per_point: null, loyalty_expiry_months: null });
-  const [posSettingsForm, setPosSettingsForm] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', vat_registered: false, payroll_days_off_per_month: 6, receipt_footer_message: '', receipt_line_url: '', receipt_logo_data: '', loyalty_enabled: false, loyalty_baht_per_point: '', loyalty_expiry_months: '' });
+  const [posConfig, setPosConfig] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', receipt_paper_size: '80mm', vat_registered: false, payroll_days_off_per_month: 6, receipt_footer_message: '', receipt_line_url: '', receipt_logo_data: '', loyalty_enabled: false, loyalty_baht_per_point: null, loyalty_expiry_months: null, promo_advertise_on_receipt: false });
+  const [posSettingsForm, setPosSettingsForm] = useState({ promptpay_id: '', scb_biller_id: '', scb_biller_ref1: '', vat_registered: false, payroll_days_off_per_month: 6, receipt_footer_message: '', receipt_line_url: '', receipt_logo_data: '', loyalty_enabled: false, loyalty_baht_per_point: '', loyalty_expiry_months: '', promo_advertise_on_receipt: false });
   const [settingsCategory, setSettingsCategory] = useState('links');
   const [settingsSaving, setSettingsSaving] = useState(false);
 
@@ -795,10 +795,15 @@ export default function POSPage() {
     triggerSku: '', triggerQty: '1', giftSku: '', giftQty: '1',
     min_total: '', max_discount: '',
     tiers: [{ min_qty: '', unit_price: '' }, { min_qty: '', unit_price: '' }],
+    show_on_receipt: false,
   });
   const [promoForm, setPromoForm] = useState(emptyPromoForm());
   // โปรที่ active ตอนนี้ (ทุก tab/ทุกโหมดรวมแคชเชียร์ต้องเห็นได้ — ใช้แนะนำในตะกร้าตอนขาย)
   const [activePromotions, setActivePromotions] = useState([]);
+  // โปรที่กด "ใช้โปรนี้" จริงในบิลปัจจุบัน (ข้อ 4/4) — ใช้ตอนพิมพ์ใบเสร็จ: ถ้าโปรนั้นติ๊ก
+  // show_on_receipt ไว้ จะโชว์ชื่อโปรในท้ายใบเสร็จของบิลนี้ (reset ตอน checkout สำเร็จ เหมือน
+  // redeemedRewards — ไม่ reset ตอนสลับบิลเพื่อความสม่ำเสมอกับ pattern เดิมของ loyalty)
+  const [appliedPromotions, setAppliedPromotions] = useState([]);
 
   // ระบบแต้มสะสม (ข้อ 102) — แยกจากโปรโมชั่นโดยเจตนา ผูกกับ "ลูกค้า" (contact) ไม่ใช่ตะกร้า/สินค้า
   const [loyaltyRewards, setLoyaltyRewards] = useState([]); // catalog เต็ม (จัดการ)
@@ -1378,7 +1383,7 @@ export default function POSPage() {
       const d = await r.json();
       if (d.ok !== false) {
         setPosConfig(d);
-        setPosSettingsForm({ promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '', scb_biller_ref1: d.scb_biller_ref1 || '', receipt_paper_size: d.receipt_paper_size || '80mm', vat_registered: !!d.vat_registered, payroll_days_off_per_month: d.payroll_days_off_per_month ?? 6, receipt_footer_message: d.receipt_footer_message || '', receipt_line_url: d.receipt_line_url || '', receipt_logo_data: d.receipt_logo_data || '', loyalty_enabled: !!d.loyalty_enabled, loyalty_baht_per_point: d.loyalty_baht_per_point ?? '', loyalty_expiry_months: d.loyalty_expiry_months ?? '' });
+        setPosSettingsForm({ promptpay_id: d.promptpay_id || '', scb_biller_id: d.scb_biller_id || '', scb_biller_ref1: d.scb_biller_ref1 || '', receipt_paper_size: d.receipt_paper_size || '80mm', vat_registered: !!d.vat_registered, payroll_days_off_per_month: d.payroll_days_off_per_month ?? 6, receipt_footer_message: d.receipt_footer_message || '', receipt_line_url: d.receipt_line_url || '', receipt_logo_data: d.receipt_logo_data || '', loyalty_enabled: !!d.loyalty_enabled, loyalty_baht_per_point: d.loyalty_baht_per_point ?? '', loyalty_expiry_months: d.loyalty_expiry_months ?? '', promo_advertise_on_receipt: !!d.promo_advertise_on_receipt });
       }
     } catch {}
   }
@@ -1400,6 +1405,7 @@ export default function POSPage() {
       body.loyalty_enabled = !!posSettingsForm.loyalty_enabled;
       body.loyalty_baht_per_point = posSettingsForm.loyalty_baht_per_point;
       body.loyalty_expiry_months = posSettingsForm.loyalty_expiry_months;
+      body.promo_advertise_on_receipt = !!posSettingsForm.promo_advertise_on_receipt;
       const r = await fetch('/api/pos/pos-config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -2511,6 +2517,7 @@ export default function POSPage() {
       if (!applicable) return;
       updatePrice(c.sku, applicable.unit_price.toFixed(2));
     }
+    setAppliedPromotions(prev => prev.some(p => p.promo_id === promo.promo_id) ? prev : [...prev, promo]);
     showToast(`✅ ใช้โปร "${promo.name}" แล้ว`);
   }
 
@@ -2662,6 +2669,7 @@ export default function POSPage() {
           vatAmount: d.vatAmount || 0,
           loyaltyPointsEarned: d.loyaltyPointsEarned || 0,
           loyaltyDiscountValue: d.loyaltyDiscountValue || 0,
+          appliedPromotions,
         });
         // ปิดบิลที่ checkout เสร็จ + สลับไปบิลถัดไป (ถ้ามี)
         const remaining = openBills.filter(b => b.id !== activeBillId);
@@ -2686,6 +2694,7 @@ export default function POSPage() {
         setLoyaltyRedeemInput('');
         setRedeemedRewards([]);
         setLoyaltyBalance(0);
+        setAppliedPromotions([]);
         setShowCheckout(false);
         setShowCartDrawer(false);
         setShowBill(true);
@@ -2719,6 +2728,21 @@ export default function POSPage() {
     } catch (err) { alert(err.message); }
   }
 
+  // ข้อ 4/4 (โฆษณาโปรโมชั่นในใบเสร็จ) — 2 โหมดตามที่ผู้ใช้ยืนยัน (ทำทั้งคู่พร้อมกัน):
+  //  1. ต่อโปรโมชั่น (promo.show_on_receipt) — ถ้าโปรนั้นถูก "ใช้โปรนี้" จริงในบิลนี้ (ติดตามผ่าน
+  //     appliedPromotions ที่ carry เข้า lastBill.appliedPromotions ตอน checkout สำเร็จ) จะโชว์ชื่อ
+  //     โปรในท้ายใบเสร็จของบิลนั้นเสมอไม่ว่าจะเปิดโหมดโฆษณาระดับร้านหรือไม่
+  //  2. ระดับร้าน (posConfig.promo_advertise_on_receipt) — เปิดไว้ = ทุกใบเสร็จที่พิมพ์ (ไม่ว่าบิล
+  //     นั้นจะใช้โปรหรือไม่) โชว์ลิสต์โปรที่ active อยู่ตอนนี้ทั้งหมด (เฉพาะที่ติ๊ก show_on_receipt)
+  //     เป็นการโฆษณาให้ลูกค้าเห็น — ปิดไว้ = โชว์เฉพาะโปรที่ใช้จริงในบิลนั้นตามข้อ 1 เท่านั้น
+  function getPromoReceiptLines(bill) {
+    const source = posConfig.promo_advertise_on_receipt ? activePromotions : (bill.appliedPromotions || []);
+    const seen = new Set();
+    return source
+      .filter(p => p.show_on_receipt && !seen.has(p.promo_id) && seen.add(p.promo_id))
+      .map(p => `🎉 ${p.name}`);
+  }
+
   // ── พิมพ์ใบเสร็จ / ใบกำกับภาษี ───────────────────────────────────────────────
   async function printReceipt(bill) {
     // ถ้าสาขาที่เลือกอยู่ตั้งชื่อแบรนด์/ที่อยู่แยกไว้ (หน้าตั้งค่า → จัดการสาขา) ใบเสร็จแสดงของสาขานั้นแทน
@@ -2726,6 +2750,7 @@ export default function POSPage() {
       ? { ...shopInfo, shop_name: selectedBranch.brand_name || shopInfo?.shop_name, address: selectedBranch.address || shopInfo?.address }
       : shopInfo;
     const lineQrDataUrl = await generateLineQrDataUrl(posConfig.receipt_line_url);
+    const combinedFooter = [posConfig.receipt_footer_message, ...getPromoReceiptLines(bill)].filter(Boolean).join('\n');
     const html = buildReceiptHtml({
       paperSize: posConfig.receipt_paper_size || '80mm',
       shopInfo: receiptShopInfo,
@@ -2741,7 +2766,7 @@ export default function POSPage() {
       payMethod: bill.payMethod,
       cashReceived: bill.payMethod === 'เงินสด' ? bill.cashReceived : 0,
       change: bill.change,
-      footer: posConfig.receipt_footer_message || undefined,
+      footer: combinedFooter || undefined,
       lineQrDataUrl,
       logoDataUrl: posConfig.receipt_logo_data || undefined,
       isWhiteLabel: hasFeature(shopInfo?.subscription_tier, 'white_label'),
@@ -2824,7 +2849,10 @@ export default function POSPage() {
       payMethod: bill.payMethod,
       cashReceived: bill.payMethod === 'เงินสด' ? bill.cashReceived : 0,
       change: bill.change,
-      footerLines: withBrandFooter(posConfig.receipt_footer_message || 'ขอบคุณที่ใช้บริการ', hasFeature(shopInfo?.subscription_tier, 'white_label')).split('\n'),
+      footerLines: withBrandFooter(
+        [posConfig.receipt_footer_message || 'ขอบคุณที่ใช้บริการ', ...getPromoReceiptLines(bill)].filter(Boolean).join('\n'),
+        hasFeature(shopInfo?.subscription_tier, 'white_label')
+      ).split('\n'),
       qrDataUrl,
       logoDataUrl: posConfig.receipt_logo_data || undefined,
     };
@@ -3574,6 +3602,7 @@ export default function POSPage() {
         shopId, name: promoForm.name.trim(), promo_type: promoForm.promo_type,
         config: buildPromoConfig(promoForm), branch: promoForm.branch,
         valid_from: promoForm.valid_from || null, valid_until: promoForm.valid_until || null,
+        show_on_receipt: !!promoForm.show_on_receipt,
       };
       const url = '/api/pos/promotions';
       const method = editingPromoId ? 'PATCH' : 'POST';
@@ -3627,6 +3656,7 @@ export default function POSPage() {
       triggerSku: c.triggerSku || '', triggerQty: c.triggerQty ?? '1', giftSku: c.giftSku || '', giftQty: c.giftQty ?? '1',
       min_total: c.min_total ?? '', max_discount: c.max_discount ?? '',
       tiers: (c.tiers && c.tiers.length ? c.tiers.map(t => ({ min_qty: String(t.min_qty), unit_price: String(t.unit_price) })) : [{ min_qty: '', unit_price: '' }, { min_qty: '', unit_price: '' }]),
+      show_on_receipt: !!promo.show_on_receipt,
     });
     setEditingPromoId(promo.promo_id);
     setShowPromoForm(true);
@@ -8680,7 +8710,7 @@ export default function POSPage() {
                             <div className="flex items-start justify-between gap-2">
                               <div>
                                 <p className="text-gray-900 font-bold text-sm">{promo.name}</p>
-                                <p className="text-gray-400 text-[11px] mt-0.5">{PROMO_TYPE_META[promo.promo_type]?.label}{promo.branch ? ` · ${promo.branch}` : ' · ทุกสาขา'}</p>
+                                <p className="text-gray-400 text-[11px] mt-0.5">{PROMO_TYPE_META[promo.promo_type]?.label}{promo.branch ? ` · ${promo.branch}` : ' · ทุกสาขา'}{promo.show_on_receipt ? ' · 📋 บนใบเสร็จ' : ''}</p>
                               </div>
                               <button onClick={() => togglePromoActive(promo)}
                                 className={`shrink-0 text-[10px] font-bold px-2.5 py-1 rounded-full ${promo.is_active ? 'bg-green-100 text-green-700' : 'bg-white text-gray-500'}`}>
@@ -8953,6 +8983,16 @@ export default function POSPage() {
                           className="w-full bg-white text-gray-900 text-sm px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:border-green-500" />
                       </div>
                     </div>
+
+                    {/* ข้อ 4/4 — แสดงชื่อโปรนี้ท้ายใบเสร็จเมื่อลูกค้าใช้จริง (แยกจากโหมดโฆษณาระดับร้าน
+                        ที่ตั้งในหน้าตั้งค่า → 🖨️ ใบเสร็จ — เปิดโหมดนั้นแล้วโปรที่ติ๊กนี้จะโชว์ทุกใบเสร็จเลย
+                        ไม่ว่าบิลนั้นจะใช้โปรหรือไม่) */}
+                    <label className="flex items-center gap-2 bg-white rounded-xl px-3 py-2.5 border border-gray-200 cursor-pointer">
+                      <input type="checkbox" checked={!!promoForm.show_on_receipt}
+                        onChange={e => setPromoForm(f => ({ ...f, show_on_receipt: e.target.checked }))}
+                        className="w-4 h-4 accent-green-600" />
+                      <span className="text-gray-700 text-xs">📋 แสดงชื่อโปรนี้ท้ายใบเสร็จเมื่อลูกค้าใช้โปรนี้จริง</span>
+                    </label>
 
                     <div className="flex gap-2 pt-2">
                       <button onClick={() => { setShowPromoForm(false); setEditingPromoId(null); }}
@@ -10021,6 +10061,17 @@ export default function POSPage() {
                   {footerQrPreviewUrl && (
                     <img src={footerQrPreviewUrl} alt="ตัวอย่าง QR ท้ายใบเสร็จ" className="w-32 h-32 bg-white p-2 rounded-xl mx-auto" />
                   )}
+
+                  {/* ข้อ 4/4 — โฆษณาโปรโมชั่นท้ายใบเสร็จ (คนละกลไกจากช่องข้อความด้านบน) เปิดไว้ =
+                      ทุกใบเสร็จที่พิมพ์แสดงลิสต์โปรที่ active อยู่ตอนนี้ต่อท้าย (เฉพาะโปรที่ติ๊ก
+                      "แสดงบนใบเสร็จ" ไว้ในตัวโปรเอง — ตั้งในแท็บ 🎉 โปรโมชั่น) ไม่ว่าบิลนั้นจะใช้โปร
+                      หรือไม่ — ปิดไว้ = โชว์เฉพาะโปรที่ใช้จริงในบิลนั้นเท่านั้น */}
+                  <label className="flex items-center gap-2 bg-white rounded-xl px-3 py-2.5 border border-gray-200 mt-4 cursor-pointer">
+                    <input type="checkbox" checked={!!posSettingsForm.promo_advertise_on_receipt}
+                      onChange={e => setPosSettingsForm(f => ({ ...f, promo_advertise_on_receipt: e.target.checked }))}
+                      className="w-4 h-4 accent-green-600" />
+                    <span className="text-gray-700 text-xs">📣 โฆษณาโปรโมชั่นที่กำลังเปิดใช้งานท้ายใบเสร็จทุกใบ (ไม่ว่าบิลนั้นจะใช้โปรหรือไม่ — ตั้งโปรที่จะโชว์ได้ที่แท็บ "🎉 โปรโมชั่น")</span>
+                  </label>
                 </div>
 
                 {/* เครื่องพิมพ์ Bluetooth (พิมพ์ตรง + เปิดลิ้นชัก) — เฉพาะ Chrome บน Android เท่านั้น

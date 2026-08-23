@@ -22,6 +22,12 @@
  * งานกลยุทธ์ "Promotions Engine" — ผู้ใช้อนุมัติ 2026-08-16 พร้อมขอเพิ่มคำนวณกำไรคงเหลือต่อโปร
  * ไม่แตะ sales.js/checkout เลย — เป็นแค่เครื่องมือคำนวณ/จัดการ ฝั่งหน้าขาย (pos.js) นำราคาที่คำนวณ
  * ได้ไปปรับในตะกร้าผ่านกลไกแก้ราคาที่มีอยู่แล้ว (updatePrice) ความเสี่ยงต่ำสุดต่อ core checkout flow
+ *
+ * show_on_receipt (ข้อ 4/4 "checkbox แสดงโปรในใบเสร็จ") — เปิดไว้ = พิมพ์ชื่อโปรนี้ท้ายใบเสร็จของบิล
+ * ที่กด "ใช้โปรนี้" จริง เสมอ ไม่ว่าร้านจะเปิดโหมดโฆษณาระดับร้านหรือไม่ (ดู pos_configs.
+ * promo_advertise_on_receipt ที่ pos-config.js — เปิดแยกต่างหากเพื่อโฆษณาโปรที่ active ทุกใบเสร็จ
+ * แม้บิลนั้นไม่ได้ใช้โปรก็ตาม) — logic ประกอบร่างข้อความจริงอยู่ที่ pos.js's getPromoReceiptLines()
+ * ไม่ใช่ที่นี่ (endpoint นี้แค่เก็บ flag ไว้เฉยๆ)
  */
 import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
@@ -124,6 +130,7 @@ function promoFromRow(r) {
     promo_id: r.id, promo_no: r.promo_no, name: r.name, promo_type: r.promo_type,
     config: r.config || {}, is_active: r.is_active, branch: r.branch_name || '',
     valid_from: r.valid_from, valid_until: r.valid_until, created_at: r.created_at,
+    show_on_receipt: !!r.show_on_receipt,
   };
 }
 
@@ -187,7 +194,7 @@ export default async function handler(req, res) {
 
     // ── POST (สร้างโปรใหม่) ──────────────────────────────────────────────────
     if (req.method === 'POST') {
-      const { name, promo_type, config, branch = '', valid_from = null, valid_until = null } = req.body || {};
+      const { name, promo_type, config, branch = '', valid_from = null, valid_until = null, show_on_receipt } = req.body || {};
       if (!name?.trim()) return res.status(400).json({ error: 'กรุณาระบุชื่อโปรโมชั่น' });
       if (!PROMO_TYPES.has(promo_type)) return res.status(400).json({ error: 'ประเภทโปรโมชั่นไม่ถูกต้อง' });
       const configErr = validateConfig(promo_type, config);
@@ -199,12 +206,22 @@ export default async function handler(req, res) {
         branch_name: branch, valid_from, valid_until, is_active: true,
       }).select('*').single();
       if (error) throw error;
+
+      // show_on_receipt — คอลัมน์ใหม่ (ข้อ 4/4 โฆษณาโปรในใบเสร็จ) แยกเขียนต่างหากกันพังการสร้างโปรหลัก
+      // — ต้องเช็ค error ที่คืนมาจริง ไม่ใช่แค่ห่อ try/catch เฉยๆ เพราะ supabase-js ไม่ throw
+      // exception ตอนคอลัมน์ไม่มีจริง (คืนเป็น {error:{code:'42703',...}} เงียบๆ แทน) — ถ้าไม่เช็ค
+      // error field ตรงๆ จะเผลอ echo กลับว่า show_on_receipt:true ทั้งที่ไม่ได้ถูกบันทึกจริงเลย
+      if (show_on_receipt !== undefined) {
+        const { error: srErr } = await supabase.from('pos_promotions').update({ show_on_receipt: !!show_on_receipt }).eq('id', inserted.id);
+        if (!srErr) inserted.show_on_receipt = !!show_on_receipt;
+        else console.error('[pos/promotions] set show_on_receipt on create failed (non-fatal):', srErr.message);
+      }
       return res.json({ ok: true, promo: promoFromRow(inserted) });
     }
 
     // ── PATCH (แก้ไข/เปิด-ปิด) ────────────────────────────────────────────────
     if (req.method === 'PATCH') {
-      const { promo_id, name, promo_type, config, branch, valid_from, valid_until, is_active } = req.body || {};
+      const { promo_id, name, promo_type, config, branch, valid_from, valid_until, is_active, show_on_receipt } = req.body || {};
       if (!promo_id) return res.status(400).json({ error: 'Missing promo_id' });
 
       const updates = {};
@@ -223,6 +240,15 @@ export default async function handler(req, res) {
 
       const { error } = await supabase.from('pos_promotions').update(updates).eq('shop_id', shopId).eq('id', promo_id);
       if (error) throw error;
+
+      // show_on_receipt — คอลัมน์ใหม่ (ข้อ 4/4) แยกเขียนต่างหากกันพังการแก้ไขโปรหลัก
+      if (show_on_receipt !== undefined) {
+        try {
+          await supabase.from('pos_promotions').update({ show_on_receipt: !!show_on_receipt }).eq('shop_id', shopId).eq('id', promo_id);
+        } catch (err) {
+          console.error('[pos/promotions] update show_on_receipt failed (non-fatal):', err.message);
+        }
+      }
       return res.json({ ok: true });
     }
 
