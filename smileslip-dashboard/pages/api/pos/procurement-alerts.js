@@ -9,6 +9,7 @@ import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
 import { blockAllStaffSessions } from '../../../lib/pos-auth';
 import { requireOwnerAuth } from '../../../lib/owner-auth';
+import { riskBandFromDeviation } from '../../../lib/market-price';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -36,7 +37,14 @@ export default async function handler(req, res) {
       if (req.query.status && req.query.status !== 'ทั้งหมด') query = query.eq('status', req.query.status);
       const { data, error } = await query;
       if (error) throw error;
-      return res.json({ alerts: data || [] });
+      // มาตรการลดความเสี่ยง price-signaling (ดูหัวไฟล์ lib/market-price.js): ไม่ส่ง market_median_price/
+      // deviation_percentage ดิบออกไปให้ฝั่งเว็บอ่านเลย — ส่งแค่ระดับความเสี่ยงที่คำนวณแล้วแทน (ค่าดิบ
+      // ยังอยู่ครบใน DB เป็น audit trail ภายใน แค่ไม่ผ่าน API นี้ออกไป)
+      const alerts = (data || []).map(({ market_median_price, deviation_percentage, ...rest }) => ({
+        ...rest,
+        risk_band: riskBandFromDeviation(deviation_percentage),
+      }));
+      return res.json({ alerts });
     }
 
     if (req.method === 'PATCH') {

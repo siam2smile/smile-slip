@@ -8636,8 +8636,9 @@ export default function POSPage() {
                                 {a.branch_name ? `${a.branch_name} · ` : ''}{a.receive_doc_no} · {new Date(a.created_at).toLocaleDateString('th-TH')}
                               </div>
                               <div className="text-xs text-gray-700 mb-2">
-                                ซื้อ ฿{a.submitted_price.toLocaleString()} เทียบราคากลาง ฿{a.market_median_price.toLocaleString()}
-                                <span className="text-red-600 font-bold"> (+{a.deviation_percentage}%)</span>
+                                ซื้อ ฿{a.submitted_price.toLocaleString()} —{' '}
+                                <span className="text-red-600 font-bold">{a.risk_band?.emoji} {a.risk_band?.label}</span>{' '}
+                                เทียบร้านอื่นในจังหวัดเดียวกัน
                               </div>
                               {a.status === 'pending' && (
                                 <div className="flex gap-2">
