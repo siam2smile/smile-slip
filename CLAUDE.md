@@ -1163,6 +1163,7 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
       2. **ขยายพื้นที่เป็นจังหวัดเป็นค่าเริ่มต้น** — ตัดระดับอำเภอออกจาก `getMarketMedian()` เต็มรูปแบบ (ไม่มี fallback สองชั้นอีกต่อไป) ใช้ province-only เสมอ (`MIN_SHOPS_FOR_PROVINCE=5`) — ยังคงเก็บคอลัมน์ `district` ไว้ในตาราง (ไม่ backfill/ลบข้อมูลเก่า) เผื่อใช้อนาคต แค่เลิกใช้เป็นเกณฑ์กลุ่มคำนวณ — **ตัดสินใจไม่เพิ่มระดับ "ภูมิภาค" ตามที่ผู้ใช้เสนอ** เพราะ `data/thailand-address.js` ไม่มี mapping จังหวัด→ภาคอยู่แล้ว (grep ยืนยันแล้ว) ต้องสร้าง mapping ใหม่ 77 จังหวัด ซึ่งเป็นงานแยกที่ยังไม่ได้รับการอนุมัติ — จังหวัดอย่างเดียวถือว่าตอบโจทย์ข้อเสนอ "ขยายพื้นที่เป็นจังหวัด/ภูมิภาค" ได้เพียงพอแล้วในตอนนี้
       3. **หน่วงเวลาข้อมูล 30 วัน** — เพิ่ม `MARKET_DATA_LAG_DAYS=30` (เลือกปลายช่วงที่ผู้ใช้เสนอ 15-30 วัน เพราะเป็นมาตรการลดความเสี่ยง ยังไม่มีคำตอบทางการจากที่ปรึกษากฎหมาย เลือกฝั่งระวังไว้ก่อน) — `getMarketMedian()` กรอง `created_at <= now() - 30 วัน` ก่อนคำนวณค่ากลางเสมอ (ยืนยันคอลัมน์ `created_at timestamptz DEFAULT now()` มีอยู่แล้วจริงในตารางตั้งแต่สร้างครั้งแรกในข้อ 30 ไม่ต้องรัน SQL เพิ่ม)
     - **ทดสอบยิงจริงกับ dev server + ข้อมูลจริงของร้าน D Gas ครบ 19 assertions:** `riskBandFromDeviation()` 6 threshold boundary ถูกต้องครบ (20/34.9/35/59.9/60/200%), seed ข้อมูลเก่า 40 วัน (5 แถว ระดับจังหวัด) + ข้อมูลใหม่ 5 วัน (ราคาสูงผิดปกติ ฿99999) ยืนยัน filter `created_at<=cutoff` ตัดแถวใหม่ออกถูกต้อง (คืนแค่ 5 แถวเก่า) + median คำนวณถูกต้อง (102 จาก 100-104) ไม่ปนแถว 99999 เข้ามาเลย, ยิง `GET /api/pos/procurement-alerts` ผ่าน owner-session token ที่เซ็นเองยืนยัน response **ไม่มี** `market_median_price`/`deviation_percentage` เลยสักฟิลด์ แต่ยังมี `submitted_price` (ข้อมูลของร้านเอง) + `risk_band` คำนวณถูกต้องจาก deviation 150% → 🔴 แดง — ลบข้อมูลทดสอบสะอาดหมดทุกจุด (`anonymous_market_prices`/`procurement_alerts`) — build ผ่านสะอาดทุก route
+    - **Deploy production แล้ว (2026-08-24)** — เจอ `429 RESOURCE_EXHAUSTED` จาก Cloud Build API ระหว่าง deploy อีกครั้ง (pattern เดิมที่เจอซ้ำหลายรอบในโปรเจกต์นี้) — เช็คด้วย `gcloud builds describe` ยืนยันว่า build จริงสำเร็จเบื้องหลัง แล้วดึง image digest deploy ตรงข้าม rebuild — revision จริง `smileslip-dashboard-00356-j7q` เช็คด้วย `gcloud run revisions list` แล้ว `--set-tags` ชี้ `candidate` ใหม่เอง (tag เดิมค้างชี้ revision เก่าจากเซสชันก่อน) — **verified บน production จริงด้วยการยิงตรงกับฐานข้อมูลจริง** (ไม่ใช่แค่เช็คว่า endpoint ไม่ error): insert แถวทดสอบเข้า `procurement_alerts` ตรงผ่าน Supabase → ยิง `GET /api/pos/procurement-alerts` กับ candidate URL ยืนยัน response ไม่มี `market_median_price`/`deviation_percentage` จริง มีแค่ `submitted_price`+`risk_band` ถูกต้อง (150% → 🔴) → ลบข้อมูลทดสอบสะอาด → cutover 100% → verified ซ้ำกับ URL หลักของ production
 
 ## Tech Stack
 
@@ -1195,7 +1196,7 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
 | Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00328-t62` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00355-dvx` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00356-j7q` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
