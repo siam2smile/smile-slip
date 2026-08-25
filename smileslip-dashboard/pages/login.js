@@ -22,9 +22,17 @@ export default function LoginPage() {
   const handledPickerQuery = useRef(false);
   const liffInitStarted = useRef(false);
 
-  // ไปหน้าที่ถูกต้องตามบทบาทที่เลือก (เจ้าของ → dashboard ตรงๆ, แอดมิน → dashboard+adminId)
+  // ไปหน้าที่ถูกต้องตามบทบาทที่เลือก (เจ้าของ → dashboard ตรงๆ, แอดมิน → dashboard+adminId,
+  // พนักงาน → /pos-staff ให้ใส่ PIN เอง — คนละระบบ auth จาก owner-session เสมอ)
   // แยกออกมาให้ทั้ง proceedWithProfile (กรณีมีร้านเดียว) และตัวเลือกร้านในหน้า picker เรียกใช้ร่วมกัน
   const goToRole = (roleEntry, lineUserId) => {
+    // พนักงาน: ไม่มี owner-session ให้เก็บ (คนละระบบ) — รู้ตัวตนอยู่แล้วจากการล็อกอินไลน์ตรงนี้
+    // (check-user.js resolve staffId/staffName มาให้แล้ว) ส่งต่อผ่าน query ให้ /pos-staff ข้าม
+    // หน้าเลือกชื่อไปเข้าหน้าใส่ PIN ตรงเลย (ดู pos-staff.js's useEffect คู่กับ setupStaffId)
+    if (roleEntry.role === 'staff') {
+      router.push(`/pos-staff?shopId=${roleEntry.shopId}&staff_id=${encodeURIComponent(roleEntry.staffId || '')}&name=${encodeURIComponent(roleEntry.staffName || '')}`);
+      return;
+    }
     // roleEntry.ownerSession มาจาก check-user.js (ออก token ให้ทุก role ที่เจอตอนเรียก) —
     // เก็บลง localStorage ก่อน navigate เสมอ ไม่มีก็แค่ข้าม (เช่น OWNER_SESSION_SECRET ยังไม่ตั้ง
     // ค่าใน env — fail-safe ไม่บล็อก login เดิม เพราะ endpoint ส่วนใหญ่ยัง non-breaking อยู่)
@@ -264,9 +272,12 @@ export default function LoginPage() {
                 <button key={`${r.shopId}-${r.role}`}
                   onClick={() => goToRole(r, pendingProfile.userId)}
                   className="w-full flex items-center justify-between gap-3 py-3.5 px-4 bg-slate-50 hover:bg-blue-50 border-2 border-transparent hover:border-blue-200 rounded-xl transition-all text-left">
-                  <span className="font-black text-slate-900 text-sm">{r.shopName || 'ร้านค้า'}</span>
-                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${r.role === 'owner' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
-                    {r.role === 'owner' ? '👑 เจ้าของร้าน' : '🛡️ แอดมิน'}
+                  <span className="font-black text-slate-900 text-sm">
+                    {r.shopName || 'ร้านค้า'}
+                    {r.role === 'staff' && r.staffName && <span className="block text-[11px] font-medium text-slate-400 mt-0.5">{r.staffName}{r.branchName ? ` · ${r.branchName}` : ''}</span>}
+                  </span>
+                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full whitespace-nowrap ${r.role === 'owner' ? 'bg-blue-100 text-blue-700' : r.role === 'staff' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                    {r.role === 'owner' ? '👑 เจ้าของร้าน' : r.role === 'staff' ? '🛵 พนักงาน' : '🛡️ แอดมิน'}
                   </span>
                 </button>
               ))}

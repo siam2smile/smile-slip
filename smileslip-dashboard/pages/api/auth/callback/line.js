@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
-import { getRolesForLineId } from '../../../../lib/identity';
+import { getRolesForLineId, getStaffShopsForLineId } from '../../../../lib/identity';
 import { issueOwnerSession } from '../../../../lib/owner-session';
 
 export default async function handler(req, res) {
@@ -50,19 +50,28 @@ export default async function handler(req, res) {
     // 3. ตรวจสอบว่าไลไอดีนี้ผูกกับร้านไหนบ้าง (เจ้าของ/แอดมิน) — ใช้ helper กลางแทน
     //    .maybeSingle() เดิม ที่เช็คแค่ owner_line_id ทำให้แอดมิน-ล้วน (ไม่ใช่เจ้าของที่ไหนเลย)
     //    ถูกเด้งไปหน้าสมัครสมาชิกใหม่ผิดๆ ทั้งที่มีบัญชีอยู่แล้ว
+    // + เช็คว่าเป็น "พนักงาน" (มี PIN ตั้งไว้แล้ว) ร้านไหนบ้างด้วย — คนที่เป็นทั้งเจ้าของร้านหนึ่ง
+    //   และพนักงานอีกร้านหนึ่งพร้อมกันได้ (ดู lib/identity.js's getStaffShopsForLineId)
     const trimmedId = lineUserId.trim();
     const roles = await getRolesForLineId(trimmedId);
+    const staffShops = await getStaffShopsForLineId(trimmedId);
+    const totalEntries = roles.length + staffShops.length;
 
-    if (roles.length === 0) {
-      // ยังไม่มีบทบาทใดๆ เลย → ไปหน้าสมัครสมาชิกใหม่
+    if (totalEntries === 0) {
+      // ยังไม่มีบทบาทใดๆ เลย (ทั้งเจ้าของ/แอดมิน/พนักงาน) → ไปหน้าสมัครสมาชิกใหม่
       return res.redirect(`/register?userId=${trimmedId}&name=${encodeURIComponent(lineName)}`);
-    } else if (roles.length === 1 && intent === 'register') {
-      // มีบทบาทอยู่แล้วพอดี 1 ร้าน แต่ตั้งใจกดปุ่ม "สมัครสมาชิก" (ไม่ใช่ "เข้าสู่ระบบ") — ส่งไปหน้า
-      // /register ให้เจอหน้าตัดสินใจ (เข้าร้านเดิม/สมัครร้านใหม่แยกต่างหาก/ลบร้านเดิม) แทนที่จะ
-      // auto เข้าร้านเดิมทันทีแบบเงียบๆ (บั๊กเดิม — ผู้ใช้กด "สมัครสมาชิก" ไม่มีทางสมัครร้านใหม่ได้เลย
-      // ถ้ามีบทบาทอยู่แล้วแม้แค่ 1 ร้าน เพราะ endpoint นี้ไม่เคยรู้เจตนาที่แท้จริงมาก่อน)
+    } else if (intent === 'register') {
+      // มีบทบาทอยู่แล้ว (ไม่ว่าแบบไหน) แต่ตั้งใจกดปุ่ม "สมัครสมาชิก" (ไม่ใช่ "เข้าสู่ระบบ") — ส่งไปหน้า
+      // /register ให้เจอหน้าตัดสินใจแทนที่จะ auto เข้าบัญชีเดิมทันทีแบบเงียบๆ (บั๊กเดิม — ผู้ใช้กด
+      // "สมัครสมาชิก" ไม่มีทางสมัครร้านใหม่ได้เลยถ้ามีบทบาทอยู่แล้ว เพราะ endpoint นี้ไม่เคยรู้เจตนาจริงมาก่อน)
       return res.redirect(`/register?userId=${trimmedId}&name=${encodeURIComponent(lineName)}`);
-    } else if (roles.length === 1) {
+    } else if (totalEntries === 1 && staffShops.length === 1) {
+      // พนักงานล้วนๆ ร้านเดียว (ไม่ได้เป็นเจ้าของ/แอดมินที่ไหนเลย) — เข้าตรง /pos-staff ให้ใส่ PIN
+      // (ไม่มี owner-session ให้ออก — คนละระบบ auth เสมอ) แนบ staff_id/name ไปด้วยให้ข้ามหน้า
+      // เลือกชื่อ (เหมือน login.js's goToRole() ทำ — ดู pos-staff.js's useEffect คู่กับ setupStaffId)
+      const s = staffShops[0];
+      return res.redirect(`/pos-staff?shopId=${s.shopId}&staff_id=${encodeURIComponent(s.staffId)}&name=${encodeURIComponent(s.staffName || '')}`);
+    } else if (totalEntries === 1) {
       const r = roles[0];
       // แนบ owner-session token ไปกับ redirect (เป็น HTTP redirect ล้วนๆ ไม่มี XHR response
       // ให้แนบ token ได้ตรงๆ แบบ check-user.js/email-login.js — ownerId ของ token ต้องเป็น
@@ -75,9 +84,9 @@ export default async function handler(req, res) {
       }
       return res.redirect(`/dashboard?userId=${r.ownerId}${sessionQS}`);
     } else {
-      // ผูกกับหลายร้าน (เจ้าของร้านตัวเอง + แอดมินร้านอื่นพร้อมกัน) — ส่งต่อไปหน้า /login
-      // ให้แสดงตัวเลือกร้าน (login.js อ่าน query นี้แล้วเรียก check-user ซ้ำเพื่อโชว์ picker —
-      // check-user.js ออก owner-session token ให้ทุก role อยู่แล้ว ไม่ต้องแนบมาเองตรงนี้)
+      // ผูกกับหลายบทบาท (เจ้าของ/แอดมิน/พนักงาน ผสมกันได้) — ส่งต่อไปหน้า /login ให้แสดงตัวเลือก
+      // (login.js อ่าน query นี้แล้วเรียก check-user ซ้ำเพื่อโชว์ picker ที่รวมทุกบทบาทแล้ว —
+      // check-user.js ออก owner-session token ให้ role ที่เกี่ยวข้องอยู่แล้ว ไม่ต้องแนบมาเองตรงนี้)
       return res.redirect(`/login?picker=1&userId=${trimmedId}&name=${encodeURIComponent(lineName)}`);
     }
 

@@ -150,7 +150,7 @@ export default function PosStaffPage() {
   const router = useRouter();
   const {
     shopId, order_no: deepLinkOrderNo, collection_no: deepLinkCollectionNo,
-    staff_id: setupStaffId, setpin: setupMode, token: setupToken,
+    staff_id: setupStaffId, setpin: setupMode, token: setupToken, name: knownStaffName,
   } = router.query;
 
   // 'loading' | 'name' | 'pin' | 'setpin' | 'menu' | 'bills' | 'confirm' | 'deliveries' |
@@ -294,6 +294,18 @@ export default function PosStaffPage() {
   useEffect(() => {
     if (setupMode && setupStaffId) { authResolvedRef.current = true; setStep('setpin'); }
   }, [setupMode, setupStaffId]);
+
+  // มาจากหน้า /login โดยตรง (พนักงานที่ล็อกอินด้วยไลน์แล้วระบบรู้อยู่แล้วว่าเป็นใคร — ดู
+  // login.js's goToRole()) — คนละเคสจาก setup-mode ด้านบน (ไม่มี setpin=1) และไม่ได้พึ่ง
+  // liff.isInClient() (ซึ่งเป็น false เสมอถ้าเปิดผ่าน TWA/เบราว์เซอร์ทั่วไป ไม่ใช่ในแอปไลน์ตรงๆ)
+  // — ข้ามหน้าเลือกชื่อไปเข้าหน้าใส่ PIN ตรงเหมือนกับตอน LIFF auto-identify สำเร็จ
+  useEffect(() => {
+    if (!setupMode && setupStaffId && !authResolvedRef.current) {
+      authResolvedRef.current = true;
+      setSelectedPicker({ staff_id: setupStaffId, name: knownStaffName || '' });
+      setStep('pin');
+    }
+  }, [setupMode, setupStaffId, knownStaffName]);
 
   // ดึงรายชื่อพนักงานให้เลือกก่อนใส่ PIN (ใช้ตอน fallback — ไม่ได้เปิดจากในแอปไลน์)
   async function fetchPickerList() {

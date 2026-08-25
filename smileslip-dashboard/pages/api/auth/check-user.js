@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { getRolesForLineId } from '../../../lib/identity';
+import { getRolesForLineId, getStaffShopsForLineId } from '../../../lib/identity';
 import { issueOwnerSession } from '../../../lib/owner-session';
 import { RETENTION_MONTHS } from '../../../lib/shop-deletion';
 
@@ -29,12 +29,15 @@ export default async function handler(req, res) {
   if (!userId) return res.status(400).json({ error: 'Missing userId' });
 
   const roles = await getRolesForLineId(userId);
+  // พนักงาน (มี PIN ตั้งไว้แล้ว) อยู่ร้านไหนบ้าง — คนละระบบ auth จาก roles (owner-session)
+  // แต่ต้องรวมกันในหน้า login ให้คนที่เป็นทั้งเจ้าของร้านหนึ่ง+พนักงานอีกร้านหนึ่งเลือกได้
+  const staffShops = await getStaffShopsForLineId(userId);
 
-  // ไม่มีบทบาทที่ active เลย — เช็คต่อว่ามีร้านที่เจ้าของ LINE ID นี้เคย "ลบ" ไว้ (soft-delete, ข้อ 91)
-  // แล้วยังอยู่ในช่วงเก็บข้อมูล (RETENTION_MONTHS เดือน) อยู่ไหม เพื่อให้ register.js เสนอกู้คืนได้
-  // (แยก query ต่างหากจาก getRolesForLineId() โดยเจตนา เพราะที่นั่นต้องกรอง deleted_at ออกเสมอ
-  // สำหรับ login ปกติ — จุดนี้จุดเดียวที่ต้องมองเห็นร้านที่ลบไปแล้ว)
-  if (!roles.length) {
+  // ไม่มีบทบาทที่ active เลย (ทั้งเจ้าของ/แอดมิน/พนักงาน) — เช็คต่อว่ามีร้านที่เจ้าของ LINE ID นี้
+  // เคย "ลบ" ไว้ (soft-delete, ข้อ 91) แล้วยังอยู่ในช่วงเก็บข้อมูล (RETENTION_MONTHS เดือน) อยู่ไหม
+  // เพื่อให้ register.js เสนอกู้คืนได้ (แยก query ต่างหากจาก getRolesForLineId() โดยเจตนา เพราะที่นั่น
+  // ต้องกรอง deleted_at ออกเสมอสำหรับ login ปกติ — จุดนี้จุดเดียวที่ต้องมองเห็นร้านที่ลบไปแล้ว)
+  if (!roles.length && !staffShops.length) {
     let deletedShop = null;
     try {
       const cutoffIso = new Date(Date.now() - RETENTION_MONTHS * 30 * 24 * 3600 * 1000).toISOString();
@@ -57,5 +60,12 @@ export default async function handler(req, res) {
     ownerSession: issueOwnerSession({ shopId: r.shopId, ownerId: userId, role: r.role }),
   }));
 
-  return res.status(200).json({ exists: true, roles: rolesWithSession });
+  // staff entry ไม่มี owner-session (คนละระบบ auth — ต้องพิสูจน์ตัวตนด้วย PIN ที่ /pos-staff เสมอ
+  // แค่รู้ LINE ID ไม่พอ) แค่พอให้ login.js รู้ว่ามีตัวเลือกนี้อยู่ + จะพาไปหน้าไหน
+  const staffRoles = staffShops.map(s => ({
+    shopId: s.shopId, shopName: s.shopName, role: 'staff',
+    staffId: s.staffId, staffName: s.staffName, branchName: s.branchName,
+  }));
+
+  return res.status(200).json({ exists: true, roles: [...rolesWithSession, ...staffRoles] });
 }

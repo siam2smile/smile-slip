@@ -60,3 +60,42 @@ export async function getRolesForLineId(lineUserId) {
 
   return roles;
 }
+
+/**
+ * ตรวจว่าไลไอดีหนึ่งๆ เป็น "พนักงาน" (มี PIN ตั้งไว้แล้ว) อยู่ร้านไหนบ้าง — ใช้คู่กับ
+ * getRolesForLineId() ตอน login เพื่อรองรับคนที่เป็นทั้งเจ้าของร้านหนึ่ง + พนักงานอีกร้านหนึ่ง
+ * พร้อมกัน (คนละบทบาทกัน คนละระบบ auth กัน: owner-session vs staff PIN — ฟังก์ชันนี้แค่บอกว่า
+ * "มีตัวตนพนักงานอยู่ร้านไหนบ้าง" ไม่ได้ authenticate อะไรเลย การพิสูจน์ตัวตนจริงยังต้องผ่าน PIN
+ * ที่ /pos-staff เสมอ)
+ *
+ * กรองเฉพาะพนักงานที่ตั้ง PIN ไว้แล้ว (เหมือน staff-picker.js) เพราะถ้ายังไม่ตั้ง PIN ก็ล็อกอิน
+ * ไม่ได้อยู่ดี ไม่ควรถูกนับเป็น "บทบาทที่เลือกได้" ในหน้า login
+ */
+export async function getStaffShopsForLineId(lineUserId) {
+  if (!lineUserId) return [];
+  try {
+    const { data, error } = await supabase
+      .from('pos_staff')
+      .select('shop_id, staff_id, name, branch_name, pin, shop_profiles!inner(shop_name, deleted_at)')
+      .eq('line_id', lineUserId)
+      .is('deleted_at', null);
+
+    if (error) {
+      console.error('[identity] getStaffShopsForLineId query error:', error.message);
+      return [];
+    }
+
+    return (data || [])
+      .filter(row => row.pin && String(row.pin).trim() && !row.shop_profiles?.deleted_at)
+      .map(row => ({
+        shopId: row.shop_id,
+        shopName: row.shop_profiles?.shop_name || 'ร้านค้า',
+        staffId: row.staff_id,
+        staffName: row.name,
+        branchName: row.branch_name || '',
+      }));
+  } catch (err) {
+    console.error('[identity] getStaffShopsForLineId failed:', err.message);
+    return [];
+  }
+}

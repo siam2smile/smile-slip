@@ -79,6 +79,13 @@ export default function Register() {
   }, [isReady, userId]);
 
   const goToExistingShop = (roleEntry) => {
+    // พนักงาน: คนละระบบ auth จาก owner-session เสมอ (ต้องพิสูจน์ตัวตนด้วย PIN ที่ /pos-staff)
+    // — เกิดได้จริงถ้ากด "สมัครสมาชิก" ทั้งที่ไลไอดีนี้เป็นพนักงานร้านอื่นอยู่แล้ว (ดู
+    // callback/line.js's intent==='register' branch ที่ส่งมาหน้านี้ไม่ว่าบทบาทเดิมจะเป็นอะไร)
+    if (roleEntry.role === 'staff') {
+      router.push(`/pos-staff?shopId=${roleEntry.shopId}&staff_id=${encodeURIComponent(roleEntry.staffId || '')}&name=${encodeURIComponent(roleEntry.staffName || '')}`);
+      return;
+    }
     // เก็บ owner-session token ก่อน navigate เสมอ (ได้มาจาก check-user.js) — เดิมข้ามขั้นตอนนี้ไป
     // ทำให้เข้า dashboard แบบไม่มี token เลย ต่างจาก login.js's goToRole() ที่ทำถูกต้องอยู่แล้ว
     if (roleEntry.ownerSession) setOwnerSessionToken(roleEntry.shopId, roleEntry.ownerSession);
@@ -255,7 +262,7 @@ export default function Register() {
                 {existingRoles.map((r) => (
                   <button key={`goto-${r.shopId}-${r.role}`} onClick={() => goToExistingShop(r)}
                     className="w-full flex items-center justify-center gap-2 py-3.5 bg-blue-900 hover:bg-blue-700 text-white rounded-xl font-black text-sm transition-all shadow-lg">
-                    <LogIn size={16}/> เข้าร้าน "{r.shopName}"
+                    <LogIn size={16}/> เข้าร้าน "{r.shopName}"{r.role === 'staff' ? ' (พนักงาน)' : ''}
                   </button>
                 ))}
 
