@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { Calendar, Clock, User, CheckCircle2, Loader2, ChevronLeft } from 'lucide-react';
+import { Calendar, Clock, User, CheckCircle2, Loader2, ChevronLeft, QrCode, Upload } from 'lucide-react';
 
 // หน้าจองคิว/นัดหมายสำหรับลูกค้า — สาธารณะ ไม่ต้อง login (ร้านแชร์ลิงก์ /booking-request?shopId=xxx
 // ให้ลูกค้าเอง — คัดลอกได้จากหน้า /booking ของเจ้าของร้าน) ส่งเข้าเป็นแถว booking_reservations
@@ -25,6 +25,13 @@ export default function BookingRequestPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [doneInfo, setDoneInfo] = useState(null);
+
+  // ── ขั้นมัดจำ (Phase 3) — โผล่ในหน้าสรุปหลังจองสำเร็จ เฉพาะบริการที่ต้องมัดจำ ──
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [qrLoading, setQrLoading] = useState(false);
+  const [depositUploading, setDepositUploading] = useState(false);
+  const [depositResult, setDepositResult] = useState(null);
+  const [depositError, setDepositError] = useState('');
 
   useEffect(() => {
     if (!shopId) return;
@@ -109,6 +116,46 @@ export default function BookingRequestPage() {
       setSubmitError('เกิดข้อผิดพลาด กรุณาลองใหม่');
     }
     setSubmitting(false);
+  }
+
+  useEffect(() => {
+    if (step !== 'done' || !doneInfo?.deposit_required_amount) return;
+    (async () => {
+      setQrLoading(true);
+      try {
+        const r = await fetch(`/api/pos/promptpay-qr?shopId=${shopId}&amount=${doneInfo.deposit_required_amount}`);
+        const d = await r.json();
+        if (d.ok) setQrDataUrl(d.qr);
+      } catch {}
+      setQrLoading(false);
+    })();
+  }, [step, doneInfo, shopId]);
+
+  async function handleDepositSlipUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file || !doneInfo) return;
+    setDepositUploading(true);
+    setDepositError('');
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const r = await fetch('/api/booking/deposit-slip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId, booking_no: doneInfo.booking_no, imageBase64: base64, mimeType: file.type }),
+      });
+      const d = await r.json();
+      if (d.ok) setDepositResult(d);
+      else setDepositError(d.error || 'อัปโหลดสลิปไม่สำเร็จ กรุณาลองใหม่');
+    } catch {
+      setDepositError('เกิดข้อผิดพลาด กรุณาลองใหม่');
+    }
+    setDepositUploading(false);
+    e.target.value = '';
   }
 
   if (!shopId) return null;
@@ -322,9 +369,42 @@ export default function BookingRequestPage() {
                 <div className="text-slate-500 text-xs">ยอดบริการ ฿{doneInfo.price.toLocaleString()}</div>
               </div>
               {doneInfo.deposit_required_amount > 0 ? (
-                <p className="text-amber-600 text-xs bg-amber-50 rounded-xl p-3">
-                  บริการนี้ต้องมัดจำ ฿{doneInfo.deposit_required_amount.toLocaleString()} — ทางร้านจะติดต่อกลับเพื่อแจ้งช่องทางชำระมัดจำและยืนยันคิวให้เร็วที่สุด
-                </p>
+                depositResult?.confirmed ? (
+                  <div className="bg-green-50 border border-green-200 rounded-2xl p-4 text-left space-y-1">
+                    <div className="text-green-700 font-bold text-sm flex items-center gap-1.5"><CheckCircle2 size={16} /> ยืนยันคิวสำเร็จแล้ว!</div>
+                    <p className="text-green-600 text-xs">{depositResult.message}</p>
+                  </div>
+                ) : (
+                  <div className="bg-white border border-slate-200 rounded-2xl p-4 text-left space-y-3">
+                    <div className="flex items-center gap-1.5 text-amber-600 font-bold text-sm">
+                      <QrCode size={16} /> ชำระมัดจำ ฿{doneInfo.deposit_required_amount.toLocaleString()}
+                    </div>
+                    <p className="text-slate-400 text-xs">สแกน QR เพื่อโอนมัดจำ แล้วแนบรูปสลิปด้านล่าง — ระบบจะตรวจสอบและยืนยันคิวให้อัตโนมัติทันทีถ้ายอดตรงกัน</p>
+
+                    <div className="flex justify-center py-2">
+                      {qrLoading ? (
+                        <Loader2 className="animate-spin text-violet-600" size={28} />
+                      ) : qrDataUrl ? (
+                        <img src={qrDataUrl} alt="QR ชำระเงิน" className="w-48 h-48 rounded-xl border border-slate-100" />
+                      ) : (
+                        <p className="text-slate-400 text-xs py-6">ร้านยังไม่ได้ตั้งค่าช่องทางรับเงิน — กรุณาติดต่อร้านโดยตรงเพื่อแจ้งโอนมัดจำ</p>
+                      )}
+                    </div>
+
+                    {depositResult && !depositResult.confirmed && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-amber-700 text-xs">{depositResult.message}</div>
+                    )}
+                    {depositError && <div className="text-red-500 text-xs text-center">{depositError}</div>}
+
+                    <label className={`w-full flex items-center justify-center gap-2 font-bold py-3 rounded-xl text-sm cursor-pointer transition-colors ${
+                      depositUploading ? 'bg-slate-100 text-slate-400' : 'bg-violet-700 hover:bg-violet-800 text-white'
+                    }`}>
+                      {depositUploading ? <Loader2 className="animate-spin" size={16} /> : <Upload size={16} />}
+                      {depositUploading ? 'กำลังตรวจสอบสลิป...' : (depositResult ? 'แนบสลิปใหม่อีกครั้ง' : 'แนบรูปสลิปโอนเงิน')}
+                      <input type="file" accept="image/*" capture="environment" className="hidden" disabled={depositUploading} onChange={handleDepositSlipUpload} />
+                    </label>
+                  </div>
+                )
               ) : (
                 <p className="text-slate-500 text-xs bg-slate-50 rounded-xl p-3">
                   ทางร้านจะติดต่อกลับเพื่อยืนยันคิวเร็วๆ นี้
