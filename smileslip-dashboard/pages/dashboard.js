@@ -1357,6 +1357,27 @@ export default function Dashboard() {
                     </div>
                   </div>
 
+                  {/* ─── Booking Add-on (Advance ขึ้นไป) ─── */}
+                  {['advance', 'business', 'enterprise', 'super'].includes(tierKey) && (
+                    <div className="bg-gradient-to-r from-violet-900 to-violet-700 rounded-2xl p-5 text-white">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <span className="text-3xl">📅</span>
+                          <div>
+                            <h3 className="font-bold text-sm">ระบบจองคิว/นัดหมาย</h3>
+                            <p className="text-violet-200 text-xs mt-0.5">สำหรับร้านนวด/คอร์สเรียน · จองล่วงหน้า+มัดจำ</p>
+                          </div>
+                        </div>
+                        <a
+                          href={`/booking?userId=${shopInfo?.owner_line_id}`}
+                          className="shrink-0 bg-white text-violet-800 hover:bg-violet-50 font-bold text-xs px-4 py-2.5 rounded-xl transition-colors shadow-md"
+                        >
+                          เปิดระบบ →
+                        </a>
+                      </div>
+                    </div>
+                  )}
+
                   {/* LINE Commands */}
                   {tierKey !== 'normal' && (
                     <div className="bg-blue-800 rounded-2xl p-6 text-white">

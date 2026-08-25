@@ -38,6 +38,11 @@ export function hasFeature(tier, feature) {
   // ระบบเงินเดือน — ล็อก Business ขึ้นไป ตามที่ผู้ใช้ยืนยัน (2026-08-16) — กะเงินสด (cash-shifts.js)
   // ตั้งใจไม่ล็อก คงฟรีทุก tier ตลอดไป (เป็นฟีเจอร์จัดการเงินสดพื้นฐาน ไม่ใช่ตัว upsell)
   if (feature === 'payroll') return level >= TIER_LEVEL.business;
+  // ระบบจองคิว/นัดหมาย (ร้านนวด/คอร์สเรียน ฯลฯ) — ล็อก Advance ขึ้นไป ตามที่ผู้ใช้ยืนยัน
+  // (2026-08-25) — ไม่ล็อกถึง Enterprise เพราะร้านบริการรายเล็ก (เป้าหมายหลักของฟีเจอร์นี้)
+  // มักจ่ายไหวระดับกลางมากกว่า ไม่ใช่ Starter เพราะเป็นฟีเจอร์สร้างมูลค่าเพิ่มชัดเจน เหมาะเป็น
+  // จุดขายให้อัปเกรด
+  if (feature === 'booking') return level >= TIER_LEVEL.advance;
 
   if (GATED_AT_PRO_ONLY.has(feature)) {
     // Shop Pro (pro) ล็อกเฉพาะ 3 ฟีเจอร์นี้ — ส่วน normal (trial/ร้านเก่า grandfather) และ advance ขึ้นไปผ่านหมด
@@ -60,6 +65,7 @@ export const FEATURE_LABEL = {
   strategy_analytics: 'วิเคราะห์เชิงกลยุทธ์ (ช่วงราคา/สินค้าคู่กัน/ชั่วโมงขายดี/สรุปยอด AI)',
   daily_staff_log: 'บันทึกประจำวันของพนักงาน',
   payroll: 'ระบบเงินเดือน (คำนวณเงินเดือน/ประกันสังคม/ภาษีหัก ณ ที่จ่าย)',
+  booking: 'ระบบจองคิว/นัดหมาย (ร้านนวด/คอร์สเรียน ฯลฯ)',
 };
 
 const TIER_LABEL = { normal: 'Starter', pro: 'Shop Pro', advance: 'Advance', business: 'Business', enterprise: 'Enterprise' };
