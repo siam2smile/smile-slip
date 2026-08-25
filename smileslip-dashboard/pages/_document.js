@@ -12,6 +12,13 @@ export default function Document() {
         <meta name="theme-color" content="#14345a" />
         <link rel="icon" href="/icons/favicon-32.png" sizes="32x32" />
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+        {/* iOS Safari ไม่อ่าน manifest.json ("display":"standalone" ฯลฯ) ได้สมบูรณ์เท่า Android
+            เสมอไป — ต้องมี meta tag เฉพาะของ Apple เพิ่มด้วยเพื่อให้ "เพิ่มลงหน้าจอโฮม" เปิดแบบ
+            เต็มจอไม่มี Safari UI + ตั้งชื่อใต้ไอคอนให้ถูกต้อง (ไม่งั้นจะใช้ <title> ของหน้านั้นๆ
+            ซึ่งยาวเกินไปสำหรับพื้นที่ใต้ไอคอน) */}
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="Smile Slip" />
       </Head>
       <body>
         <Main />

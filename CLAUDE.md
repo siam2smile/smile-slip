@@ -1210,6 +1210,12 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
       - **ทดสอบยิงจริงกับ dev server ก่อน แล้ว re-verify กับ production candidate หลัง deploy (ร้านจริง "บริษัท สยาม โกลบอล เน็ทเวิร์ค เอ็นเตอร์ไพรส์ จำกัด" / D Gas) — สร้างแถวพนักงานทดสอบชั่วคราวผูก `line_id` เดียวกับเจ้าของร้านจริง (จำลอง "เป็นทั้งเจ้าของ+พนักงาน") ผ่าน API ตรง แล้วลบทิ้งหลังทดสอบทุกรอบ:** merge owner+staff ถูกต้อง (`roles.length===2`, staff entry ไม่มี `ownerSession`), staff ไม่มี PIN ถูกกรองออกจาก roles ถูกต้อง (`0` ไม่ใช่ `1`), user ที่ไม่มีบัญชีเลยยัง `exists:false` ถูกต้อง (regression), ร้านปกติไม่มีพนักงานเลยยังคง `roles.length===1` เป๊ะ (regression) — `npx next build` ผ่านทุก route
       - **🐛 เจอปัญหา deploy tag ค้างจากเซสชันเดิมระหว่าง verify (ตรงกับข้อควรระวังเดิม):** ยิง candidate URL รอบแรกหลัง deploy `--no-traffic` ได้ผลลัพธ์ว่าไม่เจอ staff entry เลย ทั้งที่ insert สำเร็จจริง (ยืนยันด้วย query ตรง) — พบว่า `candidate` traffic tag ยังค้างชี้ revision เก่าจาก deploy รอบก่อนหน้าของเซสชันนี้ (Phase B ของ Android) ไม่ได้ขยับตามอัตโนมัติ — แก้ด้วย `--set-tags=candidate=<revision-ใหม่>` ก่อนเสมอ แล้ว verify ซ้ำผ่านจริง (`hasOwner:true, hasStaff:true, total:2`) ก่อนถึง cutover 100%
       - **Deploy production แล้ว (2026-08-25)** — revision จริง `smileslip-dashboard-00360-mdk` — verified ผ่าน candidate URL ก่อน cutover (ตามที่อธิบายข้างบน) แล้ว cutover 100% สำเร็จ
+    - **ผู้ใช้ทดสอบ `.apk` เบื้องต้นแล้ว (2026-08-25) — ใช้งานได้ปกติ ไม่มีปัญหา** ("ตอนนี้เท่าที่ลองกดใช้แผ่น application ดูไม่มีปัญหา") จะทดสอบใช้งานจริงต่อเนื่องสักอาทิตย์แล้วค่อยรายงานผล/ขอเพิ่มอะไรทีหลัง
+    - **เพิ่ม iOS PWA meta tags ใน `_document.js`** (`apple-mobile-web-app-capable`, `apple-mobile-web-app-status-bar-style`, `apple-mobile-web-app-title`) — `manifest.json` เดิม (Phase A) อ่านได้ไม่สมบูรณ์เท่า Android เสมอไปบน iOS Safari ต้องมี meta tag เฉพาะของ Apple เพิ่มด้วยให้ "เพิ่มลงหน้าจอโฮม" เปิดแบบเต็มจอ (ไม่มี Safari UI) + ตั้งชื่อใต้ไอคอนถูกต้อง — Deploy production แล้ว revision จริง `smileslip-dashboard-00361-zvc` verified ผ่าน candidate URL (grep เจอทั้ง 3 tag ตรงกับที่เขียนจริง) ก่อน cutover 100%
+    - **เริ่มคุยเรื่อง iPhone/iOS (2026-08-25) — ยังไม่ได้ตัดสินใจ/ทำอะไรต่อ นอกจาก iOS PWA meta tags ด้านบน:** อธิบายให้ผู้ใช้ฟังว่าเส้นทางเดียวกับ Android (TWA) **ใช้กับ iOS ไม่ได้เลย** — Apple ไม่มีแนวคิด TWA และการ build แอป iOS จริง (`.ipa`) ต้องผ่าน Xcode ซึ่ง **รันได้บน macOS เท่านั้น** (ข้อจำกัดจาก Apple โดยตรง ไม่ใช่ปัญหาเครื่องมือที่แก้ได้แบบที่เจอกับ bubblewrap บน Windows) เครื่อง dev ปัจจุบันเป็น Windows จึง build/เซ็นแอป iOS เองไม่ได้เลยไม่ว่าวิธีไหน — เสนอ 3 ทางเลือกให้ผู้ใช้ตัดสินใจ (ยังไม่ได้เลือก):
+      1. **PWA "เพิ่มลงหน้าจอโฮม" เท่านั้น** — ฟรี ใช้ได้ทันทีวันนี้เลย (ไม่ต้องทำอะไรเพิ่มนอกจาก meta tags ที่เพิ่งเพิ่มไป) ไม่มีหน้า App Store แต่ผู้ใช้ iPhone เปิด Safari → เพิ่มไอคอนหน้าจอโฮมได้ เปิดแบบเต็มจอเหมือนแอปจริง
+      2. **จ้าง Mac-cloud CI/CD build service** (เช่น Codemagic, Bitrise, GitHub Actions macOS runner) ให้ build+sign `.ipa` แทนโดยไม่ต้องซื้อ Mac จริง — มีค่าใช้จ่ายเพิ่ม (ส่วนใหญ่มี free tier จำกัด, แพ็กเกจจ่ายจริงอยู่ที่ประมาณ $30-100+/เดือน) บวก Apple Developer Program $99/ปีที่ต้องจ่ายอยู่แล้วไม่ว่าจะเลือกทางไหนถ้าต้องการขึ้น App Store จริง
+      3. **ถ้าผู้ใช้มี/หา Mac จริงได้** — แนะนำ/เขียนโค้ดให้ได้ แต่ต้องรันคำสั่ง Xcode เองบนเครื่องนั้น (ไม่สามารถควบคุมจากเซสชันนี้)
 
 ## Tech Stack
 
@@ -1242,7 +1248,7 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
 | Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00328-t62` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00360-mdk` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00361-zvc` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
