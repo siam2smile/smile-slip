@@ -9,6 +9,39 @@ import { findOwnerSessionTokenForOwnerId, getOwnerSessionToken } from '../lib/cl
 
 const DAYS = [['mon','จันทร์'],['tue','อังคาร'],['wed','พุธ'],['thu','พฤหัสบดี'],['fri','ศุกร์'],['sat','เสาร์'],['sun','อาทิตย์']];
 
+function todayBangkokStr() {
+  const d = new Date(Date.now() + 7 * 3600 * 1000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+function formatBangkokTime(iso) {
+  const d = new Date(new Date(iso).getTime() + 7 * 3600 * 1000);
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+}
+function formatBangkokDateShort(iso) {
+  const d = new Date(new Date(iso).getTime() + 7 * 3600 * 1000);
+  return `${d.getUTCDate()}/${d.getUTCMonth() + 1}/${d.getUTCFullYear() + 543}`;
+}
+function shiftDateStr(dateStr, deltaDays) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dd = new Date(Date.UTC(y, m - 1, d + deltaDays));
+  return `${dd.getUTCFullYear()}-${String(dd.getUTCMonth() + 1).padStart(2, '0')}-${String(dd.getUTCDate()).padStart(2, '0')}`;
+}
+
+const STATUS_META = {
+  pending:   { label: '🕐 รอยืนยัน',  cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  confirmed: { label: '✅ ยืนยันแล้ว', cls: 'bg-green-50 text-green-700 border-green-200' },
+  cancelled: { label: '❌ ยกเลิก',    cls: 'bg-gray-100 text-gray-500 border-gray-200' },
+  no_show:   { label: '🚫 เบี้ยวนัด',  cls: 'bg-red-50 text-red-600 border-red-200' },
+  completed: { label: '🏁 เสร็จสิ้น', cls: 'bg-blue-50 text-blue-600 border-blue-200' },
+};
+const DEPOSIT_META = {
+  pending:          { label: '💰 รอมัดจำ',         cls: 'bg-gray-100 text-gray-500' },
+  not_required:     null,
+  auto_confirmed:   { label: '🤖 มัดจำอัตโนมัติ',   cls: 'bg-green-50 text-green-600' },
+  manual_confirmed: { label: '✋ ยืนยันมัดจำเอง',    cls: 'bg-green-50 text-green-600' },
+  mismatch:         { label: '⚠️ ยอดมัดจำไม่ตรง',   cls: 'bg-red-50 text-red-600' },
+};
+
 export default function BookingPage() {
   const router = useRouter();
   const { userId } = router.query;
@@ -17,7 +50,7 @@ export default function BookingPage() {
   const [shopName, setShopName] = useState('');
   const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState('config');
+  const [tab, setTab] = useState('calendar');
 
   const [configured, setConfigured] = useState(false);
   const [settingUp, setSettingUp] = useState(false);
@@ -43,6 +76,13 @@ export default function BookingPage() {
   const [newProviderName, setNewProviderName] = useState('');
   const [newProviderBranch, setNewProviderBranch] = useState('');
   const [savingProvider, setSavingProvider] = useState(false);
+
+  // ── ปฏิทิน/จัดการคิว (Phase 4) ──
+  const [calendarView, setCalendarView] = useState('day'); // day | mismatch
+  const [calendarDate, setCalendarDate] = useState(todayBangkokStr());
+  const [reservations, setReservations] = useState([]);
+  const [reservationsLoading, setReservationsLoading] = useState(false);
+  const [actingBookingNo, setActingBookingNo] = useState(null);
 
   function authHeaders() {
     const token = getOwnerSessionToken(shopId);
@@ -244,6 +284,46 @@ export default function BookingPage() {
     else showToast('❌ ' + (r.error || 'ลบไม่สำเร็จ'));
   };
 
+  // ── โหลด/จัดการคิว (Phase 4) ──
+  const loadReservations = useCallback(async () => {
+    if (!shopId || !configured) return;
+    setReservationsLoading(true);
+    const params = new URLSearchParams({ shopId });
+    if (calendarView === 'mismatch') params.set('depositStatus', 'mismatch');
+    else params.set('date', calendarDate);
+    const r = await fetch(`/api/booking/reservations?${params}`, { headers: authHeaders() }).then(r => r.json()).catch(() => ({}));
+    setReservations(r.reservations || []);
+    setReservationsLoading(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shopId, configured, calendarView, calendarDate]);
+
+  useEffect(() => { if (tab === 'calendar') loadReservations(); }, [tab, loadReservations]);
+
+  const ACTION_LABEL = { confirm: '✅ ยืนยันแล้ว', cancel: '❌ ยกเลิกแล้ว', no_show: '🚫 บันทึกเบี้ยวนัดแล้ว', complete: '🏁 บันทึกเสร็จสิ้นแล้ว' };
+  const ACTION_CONFIRM_MSG = {
+    confirm: null,
+    cancel: 'ยืนยันยกเลิกรายการนี้? ระบบจะคำนวณ % คืนเงินมัดจำตามนโยบายที่ตั้งไว้ให้อัตโนมัติ',
+    no_show: 'บันทึกว่าลูกค้ารายนี้เบี้ยวนัด (ไม่มาตามนัด)? ระบบจะคำนวณ % คืนเงินมัดจำตามนโยบายเบี้ยวนัดที่ตั้งไว้',
+    complete: null,
+  };
+  async function doReservationAction(booking_no, action) {
+    const confirmMsg = ACTION_CONFIRM_MSG[action];
+    if (confirmMsg && !confirm(confirmMsg)) return;
+    setActingBookingNo(booking_no);
+    const r = await fetch('/api/booking/reservations', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ shopId, booking_no, action }),
+    }).then(r => r.json()).catch(e => ({ error: e.message }));
+    setActingBookingNo(null);
+    if (r.ok) {
+      let msg = ACTION_LABEL[action] || '✅ ทำรายการแล้ว';
+      if (r.cancel_refund_pct != null) msg += ` (คืนเงินมัดจำ ${r.cancel_refund_pct}%)`;
+      showToast(msg);
+      loadReservations();
+    } else showToast('❌ ' + (r.error || 'ทำรายการไม่สำเร็จ'));
+  }
+
   if (loading) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
       <p className="text-gray-400 text-sm">กำลังโหลด...</p>
@@ -299,7 +379,7 @@ export default function BookingPage() {
         </div>
 
         <div className="bg-white border-b flex sticky top-14 z-30 shadow-sm">
-          {[['config','⚙️ ตั้งค่าทั่วไป'],['services','🧾 บริการ'],['providers','🧑‍💼 พนักงาน']].map(([k, l]) => (
+          {[['calendar','📅 ปฏิทิน'],['config','⚙️ ตั้งค่าทั่วไป'],['services','🧾 บริการ'],['providers','🧑‍💼 พนักงาน']].map(([k, l]) => (
             <button key={k} onClick={() => setTab(k)}
               className={`flex-1 px-2 sm:px-5 py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 tab === k ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -310,6 +390,101 @@ export default function BookingPage() {
         </div>
 
         <div className="flex-1 max-w-2xl mx-auto w-full p-4 pb-16">
+
+          {/* ═══ ปฏิทิน/จัดการคิว (Phase 4) ═══ */}
+          {tab === 'calendar' && (
+            <div className="space-y-4">
+              <div className="flex gap-2">
+                <button onClick={() => setCalendarView('day')}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-colors ${
+                    calendarView === 'day' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-200 text-gray-600'
+                  }`}>
+                  📅 รายวัน
+                </button>
+                <button onClick={() => setCalendarView('mismatch')}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-colors ${
+                    calendarView === 'mismatch' ? 'bg-red-600 border-red-600 text-white' : 'bg-white border-gray-200 text-gray-600'
+                  }`}>
+                  🚩 รอตรวจสอบมัดจำ
+                </button>
+              </div>
+
+              {calendarView === 'day' && (
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setCalendarDate(d => shiftDateStr(d, -1))} className="w-9 h-9 rounded-xl bg-white border border-gray-200 text-gray-500 flex items-center justify-center shrink-0">‹</button>
+                  <input type="date" value={calendarDate} onChange={e => setCalendarDate(e.target.value)}
+                    className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" />
+                  <button onClick={() => setCalendarDate(d => shiftDateStr(d, 1))} className="w-9 h-9 rounded-xl bg-white border border-gray-200 text-gray-500 flex items-center justify-center shrink-0">›</button>
+                  <button onClick={() => setCalendarDate(todayBangkokStr())} className="shrink-0 text-xs font-bold text-blue-600 px-2">วันนี้</button>
+                </div>
+              )}
+
+              {reservationsLoading ? (
+                <p className="text-center text-gray-400 text-sm py-10">กำลังโหลด...</p>
+              ) : !reservations.length ? (
+                <p className="text-center text-gray-400 text-sm py-10">
+                  {calendarView === 'mismatch' ? 'ไม่มีรายการรอตรวจสอบมัดจำ 🎉' : 'ไม่มีการจองในวันนี้'}
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {reservations.map(res => {
+                    const hasStarted = new Date(res.start_at) <= new Date();
+                    const statusMeta = STATUS_META[res.status] || STATUS_META.pending;
+                    const depositMeta = res.deposit_required_amount > 0 ? DEPOSIT_META[res.deposit_status] : null;
+                    const acting = actingBookingNo === res.booking_no;
+                    return (
+                      <div key={res.booking_no} className="bg-white rounded-2xl border p-4 space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="font-bold text-gray-900 text-sm">
+                              {calendarView === 'mismatch' ? formatBangkokDateShort(res.start_at) + ' · ' : ''}{formatBangkokTime(res.start_at)} น. — {res.service_name}{res.provider_name ? ` · ${res.provider_name}` : ''}
+                            </div>
+                            <div className="text-gray-500 text-xs mt-0.5">{res.customer_name} · {res.customer_phone}</div>
+                          </div>
+                          <span className={`shrink-0 text-[10px] font-bold px-2 py-1 rounded-full border ${statusMeta.cls}`}>{statusMeta.label}</span>
+                        </div>
+
+                        <div className="flex items-center gap-2 flex-wrap text-xs">
+                          <span className="text-gray-400">฿{res.price.toLocaleString()}</span>
+                          {depositMeta && (
+                            <span className={`font-bold px-2 py-0.5 rounded-full ${depositMeta.cls}`}>
+                              {depositMeta.label}{res.deposit_status === 'mismatch' ? ` (อ่านได้ ฿${res.deposit_verified_amount ?? '-'} / ต้อง ฿${res.deposit_required_amount})` : ''}
+                            </span>
+                          )}
+                          {res.deposit_slip_url && (
+                            <a href={res.deposit_slip_url} target="_blank" rel="noreferrer" className="text-blue-600 font-bold underline">🖼️ ดูสลิป</a>
+                          )}
+                          {res.cancel_refund_pct != null && (
+                            <span className="text-gray-400">คืนเงินมัดจำ {res.cancel_refund_pct}%</span>
+                          )}
+                        </div>
+                        {res.notes && <div className="text-gray-400 text-xs">📝 {res.notes}</div>}
+
+                        {['pending', 'confirmed'].includes(res.status) && (
+                          <div className="flex gap-2 pt-1 flex-wrap">
+                            {res.status === 'pending' && (
+                              <button disabled={acting} onClick={() => doReservationAction(res.booking_no, 'confirm')}
+                                className="text-xs font-bold px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white">✅ ยืนยัน</button>
+                            )}
+                            {res.status === 'confirmed' && hasStarted && (
+                              <button disabled={acting} onClick={() => doReservationAction(res.booking_no, 'complete')}
+                                className="text-xs font-bold px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white">🏁 เสร็จสิ้น</button>
+                            )}
+                            {res.status === 'confirmed' && hasStarted && (
+                              <button disabled={acting} onClick={() => doReservationAction(res.booking_no, 'no_show')}
+                                className="text-xs font-bold px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 disabled:opacity-50 text-red-600 border border-red-200">🚫 ไม่มาตามนัด</button>
+                            )}
+                            <button disabled={acting} onClick={() => doReservationAction(res.booking_no, 'cancel')}
+                              className="text-xs font-bold px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 disabled:opacity-50 text-gray-600">❌ ยกเลิก</button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ═══ ตั้งค่าทั่วไป ═══ */}
           {tab === 'config' && config && (

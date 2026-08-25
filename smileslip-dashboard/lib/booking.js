@@ -153,3 +153,48 @@ export async function getAvailableSlots(supabase, { shopId, service, config, dat
   }
   return { slots };
 }
+
+export function reservationFromRow(r) {
+  return {
+    booking_no: r.booking_no,
+    service_name: r.service_name || '',
+    provider_name: r.provider_name || '',
+    customer_name: r.customer_name || '',
+    customer_phone: r.customer_phone || '',
+    branch_name: r.branch_name || '',
+    start_at: r.start_at,
+    end_at: r.end_at,
+    price: Number(r.price) || 0,
+    deposit_required_amount: Number(r.deposit_required_amount) || 0,
+    deposit_status: r.deposit_status || 'not_required',
+    deposit_verified_amount: r.deposit_verified_amount != null ? Number(r.deposit_verified_amount) : null,
+    deposit_slip_url: r.deposit_slip_url || '',
+    status: r.status || 'pending',
+    cancel_refund_pct: r.cancel_refund_pct != null ? Number(r.cancel_refund_pct) : null,
+    notes: r.notes || '',
+    created_at: r.created_at,
+    confirmed_at: r.confirmed_at || null,
+    cancelled_at: r.cancelled_at || null,
+  };
+}
+
+/**
+ * คำนวณ % คืนเงินมัดจำตอนยกเลิก/เบี้ยวนัดจริง (Phase 4, เรียกตอน admin กด action เท่านั้น
+ * ไม่ใช่ตอนแสดงผล) — คำนวณ "จำนวนวันก่อนถึงนัด" แบบปฏิทิน (เทียบวันที่ ไม่ใช่ชม.ดิบ) ตรงกับที่คน
+ * ทั่วไปเข้าใจคำว่า "ยกเลิกก่อน N วัน" — เบี้ยวนัด (isNoShow) ใช้ no_show_refund_pct ตรงๆ ไม่ผ่าน
+ * ตารางขั้นบันได เพราะเป็นคนละนโยบายกันตามที่ตั้งค่าไว้ (schema comment ของ booking_configs)
+ */
+export function computeCancelRefundPct(config, startAtISO, isNoShow) {
+  const clamp = (v) => Math.max(0, Math.min(100, Number(v) || 0));
+  if (isNoShow) return clamp(config?.no_show_refund_pct);
+
+  const tiers = (config?.cancellation_tiers || []).slice().sort((a, b) => b.min_days_before - a.min_days_before);
+  if (!tiers.length) return 0;
+
+  const today = bangkokTodayParts();
+  const apptBkk = new Date(new Date(startAtISO).getTime() + 7 * 3600 * 1000);
+  const daysBefore = daysBetween(today.year, today.month, today.day, apptBkk.getUTCFullYear(), apptBkk.getUTCMonth() + 1, apptBkk.getUTCDate());
+
+  const matched = tiers.find(t => daysBefore >= Number(t.min_days_before));
+  return matched ? clamp(matched.refund_pct) : 0;
+}
