@@ -315,6 +315,23 @@ export default function BookingPage() {
           {tab === 'config' && config && (
             <div className="space-y-5">
               <div className="bg-white rounded-2xl border p-5">
+                <h3 className="font-bold text-sm text-gray-900 mb-1">🔗 ลิงก์จองสำหรับลูกค้า</h3>
+                <p className="text-gray-500 text-xs mb-3">
+                  แชร์ลิงก์นี้ให้ลูกค้าเพื่อเลือกบริการ/วันเวลาจองเองได้ (ไม่ต้อง login) — การจองที่เข้ามาจะรอให้ร้านยืนยันก่อนเสมอ ไม่กลายเป็นคิวจริงทันที
+                </p>
+                <div className="flex items-center gap-2">
+                  <input readOnly value={typeof window !== 'undefined' ? `${window.location.origin}/booking-request?shopId=${shopId}` : ''}
+                    className="flex-1 bg-white text-gray-700 text-xs px-3 py-2.5 rounded-xl border border-gray-200 truncate" />
+                  <button onClick={() => {
+                    navigator.clipboard.writeText(`${window.location.origin}/booking-request?shopId=${shopId}`);
+                    showToast('คัดลอกลิงก์แล้ว');
+                  }} className="shrink-0 bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-colors">
+                    📋 คัดลอก
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl border p-5">
                 <h2 className="font-bold text-sm text-gray-900 mb-4">🕐 เวลาเปิด-ปิดรับจอง</h2>
                 <div className="space-y-2.5">
                   {DAYS.map(([key, label]) => {
