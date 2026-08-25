@@ -1,0 +1,13 @@
+# ห้าม commit signing key เด็ดขาด — เสียแล้วอัปเดตแอปเดิมไม่ได้อีกเลย
+*.keystore
+*.jks
+keystore-password.txt
+
+# Build output
+build/
+.gradle/
+app/build/
+*.apk
+*.apk.idsig
+*.aab
+local.properties

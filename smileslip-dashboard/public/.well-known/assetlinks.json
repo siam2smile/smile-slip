@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.smileslip.pro",
+      "sha256_cert_fingerprints": [
+        "5E:3C:6A:B5:4A:D4:1D:B3:45:73:64:E9:BD:FD:2F:F7:86:6A:C1:3F:1F:7B:61:31:68:5B:F1:F7:85:C9:43:F7"
+      ]
+    }
+  }
+]
