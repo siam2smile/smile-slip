@@ -89,14 +89,30 @@ export default async function handler(req, res) {
     // ถ้าเจอไลไอดีที่มีบทบาทอยู่แล้วพอดี 1 ร้าน (ปัญหาเดิม: ปุ่ม "สมัครสมาชิก" จาก register.js
     // กับปุ่ม "เข้าสู่ระบบ" จาก login.js ยิงไป endpoint เดียวกันนี้ทั้งคู่ callback แยกไม่ออกว่า
     // ใครตั้งใจจะสมัครร้านใหม่ ใครแค่จะ login ร้านเดิม เลยพา auto เข้าร้านเดิมเสมอไม่ว่าใครก็ตาม)
-    const intent = req.query.intent === 'register' ? 'register' : 'login';
-    const randomSuffix = Math.random().toString(36).substring(7);
-    const state = `${intent}:${randomSuffix}`;
+    //
+    // ระบบจองคิว Phase 5 — เพิ่ม intent ที่ 3 'booking_link' ให้ลูกค้า (ไม่ใช่เจ้าของร้าน) ใช้ผูก
+    // LINE userId ของตัวเองเข้ากับการจองที่เพิ่งทำไว้ (booking-request.js) — ต่างจาก register/login
+    // ตรงที่ไม่ได้ยืนยันตัวตน "เจ้าของร้าน" เลย เป็นแค่วิธีรู้ userId ที่แน่นอนของลูกค้าคนนั้นแบบ
+    // deterministic (ดีกว่าให้พิมพ์รหัสในแชทที่เสี่ยงพิมพ์ผิด/ลืมพิมพ์) พก shopId+bookingNo ไปด้วยใน
+    // state (คั่นด้วย ':' ปลอดภัยเพราะทั้ง UUID และ booking_no จาก makeBookingNo() ไม่มี ':' ปนอยู่แน่)
+    // reuse redirect_uri/channel เดิมที่ลงทะเบียนไว้แล้วใน LINE Developers Console — ไม่ต้องเพิ่ม
+    // callback URL ใหม่เลย (callback/line.js แยกสาขาเองจาก prefix ของ state)
+    let state;
+    if (req.query.intent === 'booking_link') {
+      const { shopId, bookingNo } = req.query;
+      if (!shopId || !bookingNo) return res.status(400).json({ error: 'Missing shopId or bookingNo' });
+      const randomSuffix = Math.random().toString(36).substring(7);
+      state = `booking:${shopId}:${bookingNo}:${randomSuffix}`;
+    } else {
+      const intent = req.query.intent === 'register' ? 'register' : 'login';
+      const randomSuffix = Math.random().toString(36).substring(7);
+      state = `${intent}:${randomSuffix}`;
+    }
     const lineAuthUrl = `https://access.line.me/oauth2/v2.1/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&state=${state}&scope=profile%20openid`;
-    
+
     // เด้งไปหน้า LINE ยืนยันตัวตนสีเขียวๆ
     return res.redirect(lineAuthUrl);
-  } 
+  }
   
   else {
     return res.status(405).json({ error: 'Method Not Allowed' });

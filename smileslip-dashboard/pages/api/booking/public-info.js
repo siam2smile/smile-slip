@@ -39,6 +39,7 @@ export default async function handler(req, res) {
     no_show_refund_pct: config.no_show_refund_pct,
     cancellation_tiers: config.cancellation_tiers,
     cancellation_policy_text: config.cancellation_policy_text,
+    line_reminder_enabled: config.line_reminder_enabled,
     services,
     providers,
   });

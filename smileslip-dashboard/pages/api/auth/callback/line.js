@@ -40,6 +40,29 @@ export default async function handler(req, res) {
     const lineUserId = profileResponse.data.userId;
     const lineName = profileResponse.data.displayName;
 
+    // ระบบจองคิว Phase 5 — state ขึ้นต้นด้วย 'booking:' แปลว่าเป็นลูกค้าที่กำลังผูก LINE userId
+    // ของตัวเองเข้ากับการจอง (booking-request.js ปุ่ม "🔔 รับการแจ้งเตือนก่อนถึงนัด") — คนละเรื่อง
+    // จาก register/login ของเจ้าของร้านโดยสิ้นเชิง ต้อง return ก่อนถึง logic ด้านล่างเสมอ (ไม่งั้น
+    // จะพยายามหาบทบาทเจ้าของร้าน/พาลูกค้าไปหน้าสมัครสมาชิกร้านค้าโดยไม่ตั้งใจ)
+    if (typeof req.query.state === 'string' && req.query.state.startsWith('booking:')) {
+      const parts = req.query.state.split(':'); // ['booking', shopId, bookingNo, randomSuffix]
+      const shopId = parts[1], bookingNo = parts[2];
+      const base = `/booking-request?shopId=${encodeURIComponent(shopId || '')}`;
+      if (!shopId || !bookingNo) return res.redirect(`${base}&lineLinkStatus=error`);
+
+      const { data: reservation } = await supabase.from('booking_reservations')
+        .select('booking_no').eq('shop_id', shopId).eq('booking_no', bookingNo).maybeSingle();
+      if (!reservation) return res.redirect(`${base}&lineLinkStatus=notfound`);
+
+      const { error: updateErr } = await supabase.from('booking_reservations')
+        .update({ customer_line_id: lineUserId.trim() }).eq('shop_id', shopId).eq('booking_no', bookingNo);
+      if (updateErr) {
+        console.error('[callback/line booking_link]', updateErr.message);
+        return res.redirect(`${base}&lineLinkStatus=error`);
+      }
+      return res.redirect(`${base}&lineLinkStatus=ok&bookingNo=${encodeURIComponent(bookingNo)}`);
+    }
+
     // state พก "เจตนา" มาจาก api/auth/line.js (register/login) — ปุ่ม "สมัครสมาชิก" (register.js)
     // กับปุ่ม "เข้าสู่ระบบ" (login.js) ยิงเข้า /api/auth/line ตัวเดียวกันทั้งคู่ ถ้าไม่รู้เจตนา
     // จะแยกไม่ออกว่าไลไอดีที่มีบทบาทอยู่แล้วพอดี 1 ร้าน ตั้งใจจะ "เข้าร้านเดิม" (login) หรือ

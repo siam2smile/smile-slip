@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
-import { findOwnerSessionTokenForOwnerId, getOwnerSessionToken } from '../lib/client-owner-session';
+import { findOwnerSessionTokenForOwnerId, getOwnerSessionToken, setOwnerSessionToken } from '../lib/client-owner-session';
 
 const DAYS = [['mon','จันทร์'],['tue','อังคาร'],['wed','พุธ'],['thu','พฤหัสบดี'],['fri','ศุกร์'],['sat','เสาร์'],['sun','อาทิตย์']];
 
@@ -93,7 +93,11 @@ export default function BookingPage() {
   useEffect(() => {
     if (!userId) return;
     (async () => {
-      const dataToken = findOwnerSessionTokenForOwnerId(userId);
+      // ownerSession อาจมากับ query (deep-link จาก push แจ้งเตือนจองใหม่ — reserve.js's
+      // notifyOwnerNewBooking() — เปิดจากอุปกรณ์ที่ไม่เคย login มาก่อนก็ใช้งานได้ทันที) — ใช้ค่านี้
+      // ก่อนเสมอถ้ามี ไม่งั้น fallback ไปหาใน localStorage ตามปกติ (pattern เดียวกับ dashboard.js)
+      const queryToken = router.query.ownerSession;
+      const dataToken = queryToken || findOwnerSessionTokenForOwnerId(userId);
       const shopRes = await fetch(`/api/shop/data?userId=${userId}`,
         dataToken ? { headers: { 'x-owner-session': dataToken } } : undefined
       ).then(r => r.json()).catch(() => ({}));
@@ -102,16 +106,23 @@ export default function BookingPage() {
         setShopId(sid);
         setShopName(shopRes.profile.shop_name);
 
+        if (queryToken) {
+          setOwnerSessionToken(sid, queryToken);
+          const { ownerSession, ...restQuery } = router.query;
+          router.replace({ pathname: router.pathname, query: restQuery }, undefined, { shallow: true });
+        }
+
         const branchRes = await fetch(`/api/shop/branches?shopId=${sid}`).then(r => r.json()).catch(() => ({}));
         if (branchRes.branches) setBranches(branchRes.branches.filter(b => b.is_active));
 
-        const token = getOwnerSessionToken(sid);
+        const token = queryToken || getOwnerSessionToken(sid);
         const s = await fetch(`/api/booking/setup?shopId=${sid}`, { headers: token ? { 'x-owner-session': token } : {} })
           .then(r => r.json()).catch(() => ({}));
         setConfigured(!!s.configured);
       }
       setLoading(false);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   const runSetup = async () => {

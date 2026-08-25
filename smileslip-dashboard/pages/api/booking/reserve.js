@@ -9,12 +9,45 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { hasFeature } from '../../../lib/tier-features';
-import { configFromRow, serviceFromRow, providerFromRow, makeBookingNo, computeDepositAmount, getAvailableSlots } from '../../../lib/booking';
+import { configFromRow, serviceFromRow, providerFromRow, makeBookingNo, computeDepositAmount, getAvailableSlots, formatBangkokHM } from '../../../lib/booking';
+import { issueOwnerSession } from '../../../lib/owner-session';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
+
+// แจ้งเจ้าของร้านทันทีที่มีการจองใหม่เข้ามา — ไม่มีปัญหาเชื่อมโยงตัวตนแบบฝั่งลูกค้า เพราะรู้
+// owner_line_id อยู่แล้วจาก shop_profiles เสมอ (คนละเรื่องจาก customer_line_id ที่ต้องผูกผ่าน
+// LINE Login เพราะลูกค้าไม่เคย login อะไรกับระบบนี้เลยมาก่อน) — fail-safe เสมอ ไม่ throw
+async function notifyOwnerNewBooking(shop, shopId, booking) {
+  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  if (!token || !shop.owner_line_id) return;
+  try {
+    const ownerSession = issueOwnerSession({ shopId, ownerId: shop.owner_line_id, role: 'owner' });
+    const base = process.env.NEXT_PUBLIC_BASE_URL || process.env.FRONTEND_URL || '';
+    const link = `${base}/booking?userId=${encodeURIComponent(shop.owner_line_id)}${ownerSession ? `&ownerSession=${encodeURIComponent(ownerSession)}` : ''}`;
+    const bkk = new Date(new Date(booking.start_at).getTime() + 7 * 3600 * 1000);
+    const dateLabel = `${bkk.getUTCDate()}/${bkk.getUTCMonth() + 1}/${bkk.getUTCFullYear() + 543}`;
+    const timeLabel = formatBangkokHM(new Date(booking.start_at));
+    const lines = [
+      `📅 มีการจองใหม่!`,
+      `${booking.service_name}${booking.provider_name ? ` · ${booking.provider_name}` : ''}`,
+      `${dateLabel} เวลา ${timeLabel} น.`,
+      `ลูกค้า: ${booking.customer_name} (${booking.customer_phone})`,
+      `ยอด ฿${booking.price.toLocaleString()}${booking.deposit_required_amount > 0 ? ` (มัดจำ ฿${booking.deposit_required_amount.toLocaleString()})` : ''}`,
+      ``,
+      `ดู/จัดการ: ${link}`,
+    ];
+    await fetch('https://api.line.me/v2/bot/message/push', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to: shop.owner_line_id, messages: [{ type: 'text', text: lines.join('\n') }] }),
+    });
+  } catch (err) {
+    console.error('[booking/reserve] notifyOwnerNewBooking error:', err.message);
+  }
+}
 
 // กันสแปม/ยิงรัวจากหน้าเว็บสาธารณะ — pattern เดียวกับ customer-orders.js เป๊ะ
 const attempts = new Map(); // `${shopId}:${ip}` -> { count, windowStart }
@@ -49,7 +82,7 @@ export default async function handler(req, res) {
 
   try {
     const [{ data: shop }, { data: configRow }, { data: serviceRow }] = await Promise.all([
-      supabase.from('shop_profiles').select('shop_name, subscription_tier, status').eq('id', shopId).maybeSingle(),
+      supabase.from('shop_profiles').select('shop_name, subscription_tier, status, owner_line_id').eq('id', shopId).maybeSingle(),
       supabase.from('booking_configs').select('*').eq('shop_id', shopId).maybeSingle(),
       supabase.from('booking_services').select('*').eq('id', serviceId).eq('shop_id', shopId).is('deleted_at', null).maybeSingle(),
     ]);
@@ -103,6 +136,12 @@ export default async function handler(req, res) {
       status: 'pending', notes: notes ? String(notes).trim().slice(0, 1000) : null,
     });
     if (insertErr) throw insertErr;
+
+    await notifyOwnerNewBooking(shop, shopId, {
+      service_name: service.name, provider_name: provider?.name || '',
+      start_at: requestedDate.toISOString(), customer_name: customer_name.trim(), customer_phone: customer_phone.trim(),
+      price: service.price, deposit_required_amount: depositAmount,
+    });
 
     recordAttempt(rlKey);
     return res.json({

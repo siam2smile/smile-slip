@@ -168,6 +168,37 @@ export default function BookingRequestPage() {
     );
   }
 
+  // กลับมาจาก LINE Login (ปุ่ม "🔔 รับการแจ้งเตือนก่อนถึงนัด" ในขั้นตอน done ด้านล่าง) — เป็นการ
+  // redirect ทั้งหน้าไป LINE แล้วเด้งกลับมา (OAuth ทำในหน้าต่างเดียวไม่ได้) ทำให้ React state เดิม
+  // (step/doneInfo ฯลฯ) หายไปหมด — แสดงหน้าผลลัพธ์แยกต่างหากง่ายๆ แทนที่จะพยายามสร้างสรุปเดิมกลับมาใหม่
+  if (router.query.lineLinkStatus) {
+    const ok = router.query.lineLinkStatus === 'ok';
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="bg-white rounded-3xl border border-slate-200 p-8 max-w-sm w-full text-center space-y-3">
+          <div className="text-5xl">{ok ? '✅' : '⚠️'}</div>
+          <h1 className="font-black text-slate-800 text-lg">
+            {ok ? 'เชื่อมต่อไลน์สำเร็จ!' : 'เชื่อมต่อไลน์ไม่สำเร็จ'}
+          </h1>
+          {ok ? (
+            <>
+              <p className="text-slate-500 text-sm">
+                {router.query.bookingNo && <>รหัสการจอง <span className="font-bold text-slate-700">{router.query.bookingNo}</span><br /></>}
+                เหลืออีกขั้นตอนเดียว — กดเพิ่มเพื่อนไลน์ Smile Slip เพื่อให้ระบบส่งข้อความแจ้งเตือนถึงคุณได้จริง
+              </p>
+              <a href="https://lin.ee/wdnoEN5" target="_blank" rel="noreferrer"
+                className="block w-full bg-green-600 hover:bg-green-700 text-white font-black py-3 rounded-2xl transition-colors">
+                💬 เพิ่มเพื่อนไลน์ Smile Slip
+              </a>
+            </>
+          ) : (
+            <p className="text-slate-500 text-sm">ไม่พบรายการจองนี้ หรือลิงก์อาจหมดอายุ กรุณาติดต่อร้านค้าโดยตรง</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (!info?.accepting_bookings) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
@@ -409,6 +440,19 @@ export default function BookingRequestPage() {
                 <p className="text-slate-500 text-xs bg-slate-50 rounded-xl p-3">
                   ทางร้านจะติดต่อกลับเพื่อยืนยันคิวเร็วๆ นี้
                 </p>
+              )}
+
+              {info.line_reminder_enabled !== false && (
+                <div className="bg-green-50 border border-green-200 rounded-2xl p-4 text-left space-y-2">
+                  <div className="text-green-700 font-bold text-sm">🔔 รับการแจ้งเตือนก่อนถึงนัด</div>
+                  <p className="text-green-600 text-xs">
+                    เชื่อมต่อไลน์เพื่อให้ระบบแจ้งเตือนคุณล่วงหน้าก่อนถึงเวลานัด — ไม่บังคับ แต่แนะนำ
+                  </p>
+                  <a href={`/api/auth/line?intent=booking_link&shopId=${shopId}&bookingNo=${encodeURIComponent(doneInfo.booking_no)}`}
+                    className="block w-full text-center bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 rounded-xl text-sm transition-colors">
+                    🔗 เชื่อมต่อไลน์เพื่อรับการแจ้งเตือน
+                  </a>
+                </div>
               )}
             </div>
           )}
