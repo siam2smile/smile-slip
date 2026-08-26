@@ -28,6 +28,10 @@
  * promo_advertise_on_receipt ที่ pos-config.js — เปิดแยกต่างหากเพื่อโฆษณาโปรที่ active ทุกใบเสร็จ
  * แม้บิลนั้นไม่ได้ใช้โปรก็ตาม) — logic ประกอบร่างข้อความจริงอยู่ที่ pos.js's getPromoReceiptLines()
  * ไม่ใช่ที่นี่ (endpoint นี้แค่เก็บ flag ไว้เฉยๆ)
+ *
+ * image_data — รูปโปรโมชั่นแนบใบเสร็จ (data URL, base64) ไม่บังคับ ร้านค้าเลือกอัปโหลดเองหรือไม่ก็ได้
+ * ต่อโปรโมชั่นแยกกัน (ต่างจาก receipt_logo_data ที่เป็นโลโก้ร้านตายตัวใน pos_configs) — แสดงคู่กับ
+ * ข้อความโปรในท้ายใบเสร็จตามเงื่อนไข show_on_receipt เดียวกัน
  */
 import { createClient } from '@supabase/supabase-js';
 import { blockIfTrialExpired } from '../../../lib/shop-access';
@@ -39,7 +43,12 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
 
+// รับ payload รูปภาพ (data URL) ต้องขยาย body size limit เกิน default 1MB ของ Next.js — pattern
+// เดียวกับ pos-config.js's receipt_logo_data
+export const config = { api: { bodyParser: { sizeLimit: '2mb' } } };
+
 const PROMO_TYPES = new Set(['product_discount', 'quantity_discount', 'buy_x_get_y', 'bundle', 'free_gift', 'bill_discount', 'tiered_pricing']);
+const MAX_IMAGE_DATA_LENGTH = 1_500_000; // ~1.5MB base64 — เผื่อ overhead ของ encoding เอง
 
 async function fetchProductsBySku(shopId) {
   const PAGE = 1000;
@@ -130,7 +139,7 @@ function promoFromRow(r) {
     promo_id: r.id, promo_no: r.promo_no, name: r.name, promo_type: r.promo_type,
     config: r.config || {}, is_active: r.is_active, branch: r.branch_name || '',
     valid_from: r.valid_from, valid_until: r.valid_until, created_at: r.created_at,
-    show_on_receipt: !!r.show_on_receipt,
+    show_on_receipt: !!r.show_on_receipt, image_data: r.image_data || '',
   };
 }
 
@@ -166,6 +175,13 @@ function makePromoNo() {
   return 'PROMO' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase();
 }
 
+function validateImageData(image_data) {
+  if (!image_data) return null;
+  if (image_data.length > MAX_IMAGE_DATA_LENGTH) return 'ไฟล์รูปโปรโมชั่นใหญ่เกินไป กรุณาใช้รูปที่มีขนาดเล็กลง';
+  if (!/^data:image\/(png|jpeg|jpg|webp);base64,/.test(image_data)) return 'รูปแบบไฟล์รูปโปรโมชั่นไม่ถูกต้อง';
+  return null;
+}
+
 export default async function handler(req, res) {
   const shopId = req.query.shopId || req.body?.shopId;
   if (!shopId) return res.status(400).json({ error: 'Missing shopId' });
@@ -194,11 +210,13 @@ export default async function handler(req, res) {
 
     // ── POST (สร้างโปรใหม่) ──────────────────────────────────────────────────
     if (req.method === 'POST') {
-      const { name, promo_type, config, branch = '', valid_from = null, valid_until = null, show_on_receipt } = req.body || {};
+      const { name, promo_type, config, branch = '', valid_from = null, valid_until = null, show_on_receipt, image_data } = req.body || {};
       if (!name?.trim()) return res.status(400).json({ error: 'กรุณาระบุชื่อโปรโมชั่น' });
       if (!PROMO_TYPES.has(promo_type)) return res.status(400).json({ error: 'ประเภทโปรโมชั่นไม่ถูกต้อง' });
       const configErr = validateConfig(promo_type, config);
       if (configErr) return res.status(400).json({ error: configErr });
+      const imageErr = validateImageData(image_data);
+      if (imageErr) return res.status(400).json({ error: imageErr });
 
       const promo_no = makePromoNo();
       const { data: inserted, error } = await supabase.from('pos_promotions').insert({
@@ -207,22 +225,29 @@ export default async function handler(req, res) {
       }).select('*').single();
       if (error) throw error;
 
-      // show_on_receipt — คอลัมน์ใหม่ (ข้อ 4/4 โฆษณาโปรในใบเสร็จ) แยกเขียนต่างหากกันพังการสร้างโปรหลัก
-      // — ต้องเช็ค error ที่คืนมาจริง ไม่ใช่แค่ห่อ try/catch เฉยๆ เพราะ supabase-js ไม่ throw
-      // exception ตอนคอลัมน์ไม่มีจริง (คืนเป็น {error:{code:'42703',...}} เงียบๆ แทน) — ถ้าไม่เช็ค
-      // error field ตรงๆ จะเผลอ echo กลับว่า show_on_receipt:true ทั้งที่ไม่ได้ถูกบันทึกจริงเลย
+      // show_on_receipt/image_data — คอลัมน์ใหม่กว่า (ข้อ 4/4 โฆษณาโปรในใบเสร็จ) แยกเขียนต่างหาก
+      // กันพังการสร้างโปรหลัก — ต้องเช็ค error ที่คืนมาจริง ไม่ใช่แค่ห่อ try/catch เฉยๆ เพราะ
+      // supabase-js ไม่ throw exception ตอนคอลัมน์ไม่มีจริง (คืนเป็น {error:{code:'42703',...}}
+      // เงียบๆ แทน) — ถ้าไม่เช็ค error field ตรงๆ จะเผลอ echo กลับว่าบันทึกสำเร็จทั้งที่ไม่จริง
       if (show_on_receipt !== undefined) {
         const { error: srErr } = await supabase.from('pos_promotions').update({ show_on_receipt: !!show_on_receipt }).eq('id', inserted.id);
         if (!srErr) inserted.show_on_receipt = !!show_on_receipt;
         else console.error('[pos/promotions] set show_on_receipt on create failed (non-fatal):', srErr.message);
+      }
+      if (image_data !== undefined) {
+        const { error: imgErr } = await supabase.from('pos_promotions').update({ image_data: image_data || null }).eq('id', inserted.id);
+        if (!imgErr) inserted.image_data = image_data || '';
+        else console.error('[pos/promotions] set image_data on create failed (non-fatal):', imgErr.message);
       }
       return res.json({ ok: true, promo: promoFromRow(inserted) });
     }
 
     // ── PATCH (แก้ไข/เปิด-ปิด) ────────────────────────────────────────────────
     if (req.method === 'PATCH') {
-      const { promo_id, name, promo_type, config, branch, valid_from, valid_until, is_active, show_on_receipt } = req.body || {};
+      const { promo_id, name, promo_type, config, branch, valid_from, valid_until, is_active, show_on_receipt, image_data } = req.body || {};
       if (!promo_id) return res.status(400).json({ error: 'Missing promo_id' });
+      const imageErr = validateImageData(image_data);
+      if (imageErr) return res.status(400).json({ error: imageErr });
 
       const updates = {};
       if (name !== undefined) updates.name = name.trim();
@@ -241,13 +266,16 @@ export default async function handler(req, res) {
       const { error } = await supabase.from('pos_promotions').update(updates).eq('shop_id', shopId).eq('id', promo_id);
       if (error) throw error;
 
-      // show_on_receipt — คอลัมน์ใหม่ (ข้อ 4/4) แยกเขียนต่างหากกันพังการแก้ไขโปรหลัก
+      // show_on_receipt/image_data — คอลัมน์ใหม่กว่า (ข้อ 4/4) แยกเขียนต่างหากกันพังการแก้ไขโปรหลัก
+      // — เช็ค error field ที่คืนมาจริงเสมอ (แก้บั๊กเดิมที่ใช้ try/catch เฉยๆ: supabase-js ไม่ throw
+      // exception ตอนคอลัมน์ไม่มีจริง จึงไม่เคยเข้า catch เลยสักครั้ง แม้จะเขียนไม่สำเร็จก็ตาม)
       if (show_on_receipt !== undefined) {
-        try {
-          await supabase.from('pos_promotions').update({ show_on_receipt: !!show_on_receipt }).eq('shop_id', shopId).eq('id', promo_id);
-        } catch (err) {
-          console.error('[pos/promotions] update show_on_receipt failed (non-fatal):', err.message);
-        }
+        const { error: srErr } = await supabase.from('pos_promotions').update({ show_on_receipt: !!show_on_receipt }).eq('shop_id', shopId).eq('id', promo_id);
+        if (srErr) console.error('[pos/promotions] update show_on_receipt failed (non-fatal):', srErr.message);
+      }
+      if (image_data !== undefined) {
+        const { error: imgErr } = await supabase.from('pos_promotions').update({ image_data: image_data || null }).eq('shop_id', shopId).eq('id', promo_id);
+        if (imgErr) console.error('[pos/promotions] update image_data failed (non-fatal):', imgErr.message);
       }
       return res.json({ ok: true });
     }

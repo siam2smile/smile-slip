@@ -214,7 +214,7 @@ export default function LoginPage() {
 
       {/* Logo */}
       <div className="text-center mb-8">
-        <div className="text-5xl mb-3">😊</div>
+        <img src="/iconPng.png" alt="Smile Slip Pro" className="h-16 w-auto mx-auto mb-3" />
         <h1 className="text-white font-black text-2xl">Smile Slip <span className="text-blue-300 font-medium">Pro</span></h1>
         <p className="text-blue-400 text-sm mt-1">ระบบจัดการสลิปอัจฉริยะสำหรับธุรกิจไทย</p>
       </div>
@@ -224,7 +224,7 @@ export default function LoginPage() {
         {/* ─── Loading ─── */}
         {view === 'loading' && (
           <div className="text-center py-6">
-            <div className="text-4xl mb-4 animate-bounce">😊</div>
+            <img src="/iconPng.png" alt="Smile Slip Pro" className="h-14 w-auto mx-auto mb-4 animate-bounce" />
             <h2 className="text-lg font-black text-slate-900 mb-1">กำลังโหลด...</h2>
             <p className="text-slate-400 text-sm mb-6">กรุณารอสักครู่</p>
             <div className="flex gap-1.5 justify-center">

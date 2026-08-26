@@ -187,10 +187,13 @@ function loadImage(src) {
  * แทน HTML) — คืน canvas ที่ตัดความสูงพอดีกับเนื้อหาจริงแล้ว (ไม่เหลือพื้นที่ขาวเปล่าด้านล่าง)
  * logoDataUrl (ถ้ามี — โลโก้ร้านค้าที่อัปโหลดไว้ในหน้าตั้งค่า) วาดที่หัวใบเสร็จก่อนชื่อร้าน
  * qrDataUrl (ถ้ามี — QR ไลน์ร้านค้าที่ปรับแต่งไว้ในหน้าตั้งค่า) วาดคั่นก่อนข้อความท้ายใบเสร็จ
- * ทั้งสองตัวต้องเป็น data URL (base64) เท่านั้น ไม่ใช่ลิงก์ข้าม origin — กันปัญหา canvas ถูก
+ * promoDiscounts (ถ้ามี — [{name, detailLabel, amount}]) วาดเป็นเส้นแยกในตารางยอดรวมก่อนส่วนลด
+ * เพิ่มเติม เพื่อให้เห็นชัดว่าลดเพราะโปรอะไรบ้าง promoImages (ถ้ามี — data URL[], จำกัดแค่ 1 รูป
+ * จาก pos.js เพราะ thermal receipt แคบ/ช้ากว่าพิมพ์ปกติ) วาดต่อจากข้อความท้ายใบเสร็จ
+ * ทุกตัวที่เป็นรูปภาพต้องเป็น data URL (base64) เท่านั้น ไม่ใช่ลิงก์ข้าม origin — กันปัญหา canvas ถูก
  * "tainted" ตอนแปลงเป็น raster (ดูเหตุผลเต็มใน pos-config.js ที่เลือกเก็บโลโก้เป็น data URL)
  */
-async function renderReceiptCanvas({ widthDots, shopInfo, docNo, dateStr, items, subtotal, vat, discount, total, payMethod, cashReceived, change, showVat, footerLines, qrDataUrl, logoDataUrl }) {
+async function renderReceiptCanvas({ widthDots, shopInfo, docNo, dateStr, items, subtotal, vat, discount, promoDiscounts, total, payMethod, cashReceived, change, showVat, footerLines, promoImages, qrDataUrl, logoDataUrl }) {
   const MAX_HEIGHT = 4000; // ผืนผ้าใบชั่วคราวสูงพอสำหรับบิลยาวๆ — ตัดเหลือแค่ส่วนที่ใช้จริงตอนท้าย
   const draft = document.createElement('canvas');
   draft.width = widthDots;
@@ -291,7 +294,11 @@ async function renderReceiptCanvas({ widthDots, shopInfo, docNo, dateStr, items,
   }
   dashedLine();
 
-  if (discount > 0) row('ส่วนลด', '-' + money(discount));
+  for (const p of (promoDiscounts || [])) {
+    left(`🎉 ${p.name}${p.detailLabel ? ` — ${p.detailLabel}` : ''}`, baseSize - 2, false, 2);
+    row('', '-' + money(p.amount), baseSize - 2, false, 3);
+  }
+  if (discount > 0) row((promoDiscounts || []).length ? 'ส่วนลดเพิ่มเติม' : 'ส่วนลด', '-' + money(discount));
   if (showVat && vat > 0) {
     row('ยอดก่อน VAT', money(subtotal));
     row('ภาษีมูลค่าเพิ่ม 7%', money(vat));
@@ -315,6 +322,23 @@ async function renderReceiptCanvas({ widthDots, shopInfo, docNo, dateStr, items,
   }
 
   for (const line of footerLines || []) center(line, baseSize - 6, false, 2);
+
+  for (const src of (promoImages || [])) {
+    try {
+      const promoImg = await loadImage(src);
+      const maxW = widthDots * 0.85;
+      const maxH = widthDots * 0.6;
+      let w = promoImg.naturalWidth || promoImg.width || 1;
+      let h = promoImg.naturalHeight || promoImg.height || 1;
+      const scale = Math.min(maxW / w, maxH / h, 1);
+      w *= scale; h *= scale;
+      y += 6;
+      ctx.drawImage(promoImg, (widthDots - w) / 2, y, w, h);
+      y += h + 6;
+    } catch {
+      // โหลดรูปโปรโมชั่นไม่สำเร็จ — ข้ามไปพิมพ์ต่อโดยไม่มีรูปแทนที่จะทำให้พิมพ์ทั้งใบไม่ได้เลย
+    }
+  }
   y += 30; // เผื่อพื้นที่ก่อนดึงกระดาษ (ไม่มีคำสั่งตัดกระดาษ — ดูเหตุผลบนสุดของไฟล์)
 
   const finalHeight = Math.min(MAX_HEIGHT, Math.ceil(y));

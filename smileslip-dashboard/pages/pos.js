@@ -211,7 +211,7 @@ function resizeImageToDataUrl(file, maxDim = 300) {
   });
 }
 
-function buildReceiptHtml({ paperSize = '80mm', shopInfo, isTaxInvoice, showVat, docNo, dateStr, buyer, items, subtotal, vat, discount, total, payMethod, cashReceived, change, footer, isWhiteLabel, lineQrDataUrl, logoDataUrl }) {
+function buildReceiptHtml({ paperSize = '80mm', shopInfo, isTaxInvoice, showVat, docNo, dateStr, buyer, items, subtotal, vat, discount, promoDiscounts, total, payMethod, cashReceived, change, footer, promoImages, isWhiteLabel, lineQrDataUrl, logoDataUrl }) {
   const widthMm = paperSize === '58mm' ? 58 : 80;
   const title = isTaxInvoice ? 'ใบกำกับภาษี / ใบเสร็จรับเงิน' : 'ใบเสร็จรับเงิน';
   const itemRows = (items || []).map(i => {
@@ -275,7 +275,8 @@ function buildReceiptHtml({ paperSize = '80mm', shopInfo, isTaxInvoice, showVat,
   <table>${itemRows}</table>
   <div class="line"></div>
   <table class="totals">
-    ${discount > 0 ? `<tr><td>ส่วนลด</td><td style="text-align:right">-${discount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>` : ''}
+    ${(promoDiscounts || []).map(p => `<tr><td style="font-size:0.9em;color:#444">🎉 ${escapeHtml(p.name)}${p.detailLabel ? `<br><span style="font-size:0.85em;color:#888">${escapeHtml(p.detailLabel)}</span>` : ''}</td><td style="text-align:right;font-size:0.9em">-${(p.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>`).join('')}
+    ${discount > 0 ? `<tr><td>${(promoDiscounts || []).length ? 'ส่วนลดเพิ่มเติม' : 'ส่วนลด'}</td><td style="text-align:right">-${discount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>` : ''}
     ${(isTaxInvoice || (showVat && vat > 0)) ? `
       <tr><td>ยอดก่อน VAT</td><td style="text-align:right">${(subtotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
       <tr><td>ภาษีมูลค่าเพิ่ม 7%</td><td style="text-align:right">${(vat || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
@@ -289,6 +290,7 @@ function buildReceiptHtml({ paperSize = '80mm', shopInfo, isTaxInvoice, showVat,
   <div class="line"></div>
   ${lineQrDataUrl ? `<div class="center" style="margin:4mm 0"><img src="${lineQrDataUrl}" style="width:${Math.round(widthMm * 0.42)}mm;height:${Math.round(widthMm * 0.42)}mm"/></div>` : ''}
   <div class="foot">${withBrandFooter(footer || 'ขอบคุณที่ใช้บริการ', isWhiteLabel).split('\n').map(escapeHtml).join('<br>')}</div>
+  ${(promoImages || []).map(src => `<div class="center" style="margin:3mm 0"><img src="${src}" style="max-width:${Math.round(widthMm * 0.85)}mm;max-height:35mm"/></div>`).join('')}
 </body></html>`;
 }
 
@@ -795,7 +797,7 @@ export default function POSPage() {
     triggerSku: '', triggerQty: '1', giftSku: '', giftQty: '1',
     min_total: '', max_discount: '',
     tiers: [{ min_qty: '', unit_price: '' }, { min_qty: '', unit_price: '' }],
-    show_on_receipt: false,
+    show_on_receipt: false, image_data: '',
   });
   const [promoForm, setPromoForm] = useState(emptyPromoForm());
   // โปรที่ active ตอนนี้ (ทุก tab/ทุกโหมดรวมแคชเชียร์ต้องเห็นได้ — ใช้แนะนำในตะกร้าตอนขาย)
@@ -2479,27 +2481,46 @@ export default function POSPage() {
     }).filter(Boolean);
   }
 
+  // คำนวณ+เก็บ "ส่วนลดที่เกิดขึ้นจริง" ไว้ตอนที่กดใช้โปร (จุดเดียวที่รู้ราคา before/after แบบไม่กำกวม
+  // — ถ้ารอคำนวณย้อนหลังตอนเช็คเอาท์/พิมพ์ใบเสร็จ จะแยกไม่ออกว่าราคาที่เปลี่ยนไปมาจากโปรหรือจากการ
+  // แก้ราคาต่อรายการเอง ถ้ามีโปรมากกว่า 1 ตัวซ้อนกันด้วย) — เก็บ appliedDiscountAmount/
+  // appliedDetailLabel แนบไปกับ promo object ที่ push เข้า appliedPromotions ให้หน้าต่างยืนยันก่อน
+  // ชำระเงิน/หน้าสรุปหลังชำระ/ใบเสร็จ ใช้แสดง "ใช้ส่วนลดอะไรบ้าง" ได้ตรงๆ ไม่ต้องเดา
   function applyPromotion(promo) {
     const c = promo.config || {};
+    let discountAmount = 0;
+    let detailLabel = '';
     if (promo.promo_type === 'product_discount' || promo.promo_type === 'quantity_discount') {
       const prod = products.find(p => p.sku === c.sku);
       if (!prod) return;
       const newPrice = c.discount_type === 'amount' ? Math.max(0, prod.price - c.discount_value) : prod.price * (1 - c.discount_value / 100);
+      const qty = cart.find(i => i.sku === c.sku)?.qty || 1;
+      discountAmount = (prod.price - newPrice) * qty;
+      detailLabel = `${prod.name}: ${c.discount_type === 'amount' ? `ลด ฿${c.discount_value}/ชิ้น` : `ลด ${c.discount_value}%`}`;
       updatePrice(c.sku, newPrice.toFixed(2));
     } else if (promo.promo_type === 'buy_x_get_y') {
       const getProd = products.find(p => p.sku === c.getSku);
       if (!getProd) return;
       const newPrice = c.get_discount_type === 'free' ? 0 : getProd.price * (1 - c.get_discount_value / 100);
+      const qty = cart.find(i => i.sku === c.getSku)?.qty || 1;
+      discountAmount = (getProd.price - newPrice) * qty;
+      detailLabel = `${getProd.name}: ${c.get_discount_type === 'free' ? 'ฟรี' : `ลด ${c.get_discount_value}%`}`;
       updatePrice(c.getSku, newPrice.toFixed(2));
     } else if (promo.promo_type === 'bundle') {
       const items = c.items || [];
       const originalTotal = items.reduce((s, it) => { const p = products.find(pp => pp.sku === it.sku); return s + (p?.price || 0) * it.qty; }, 0);
+      discountAmount = Math.max(0, originalTotal - c.bundle_price);
+      detailLabel = `ราคาชุดพิเศษ ฿${c.bundle_price} (ปกติ ฿${originalTotal.toLocaleString()})`;
       const ratio = originalTotal > 0 ? (c.bundle_price / originalTotal) : 1;
       items.forEach(it => {
         const p = products.find(pp => pp.sku === it.sku);
         if (p) updatePrice(it.sku, (p.price * ratio).toFixed(2));
       });
     } else if (promo.promo_type === 'free_gift') {
+      const giftProd = products.find(p => p.sku === c.giftSku);
+      const qty = cart.find(i => i.sku === c.giftSku)?.qty || c.giftQty || 1;
+      discountAmount = (giftProd?.price || 0) * qty;
+      detailLabel = `${giftProd?.name || ''} ฟรี ${qty} ชิ้น`;
       updatePrice(c.giftSku, '0');
     } else if (promo.promo_type === 'bill_discount') {
       const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
@@ -2507,17 +2528,24 @@ export default function POSPage() {
       let discountAmt = c.discount_type === 'amount' ? c.discount_value : subtotal * (c.discount_value / 100);
       if (c.max_discount && discountAmt > c.max_discount) discountAmt = c.max_discount;
       discountAmt = Math.min(discountAmt, subtotal);
+      discountAmount = discountAmt;
+      detailLabel = c.discount_type === 'amount' ? `ลดทั้งบิล ฿${c.discount_value}` : `ลดทั้งบิล ${c.discount_value}%${c.max_discount ? ` (สูงสุด ฿${c.max_discount})` : ''}`;
       const ratio = (subtotal - discountAmt) / subtotal;
       cart.forEach(it => updatePrice(it.sku, (it.price * ratio).toFixed(2)));
     } else if (promo.promo_type === 'tiered_pricing') {
       const item = cart.find(i => i.sku === c.sku);
       if (!item) return;
+      const prod = products.find(p => p.sku === c.sku);
       const tiers = (c.tiers || []).slice().sort((a, b) => a.min_qty - b.min_qty);
       const applicable = tiers.filter(t => item.qty >= t.min_qty).pop();
       if (!applicable) return;
+      discountAmount = Math.max(0, ((prod?.price ?? item.price) - applicable.unit_price) * item.qty);
+      detailLabel = `${item.name}: ราคาขั้นบันได ฿${applicable.unit_price}/ชิ้น (ซื้อ ${item.qty} ชิ้น)`;
       updatePrice(c.sku, applicable.unit_price.toFixed(2));
     }
-    setAppliedPromotions(prev => prev.some(p => p.promo_id === promo.promo_id) ? prev : [...prev, promo]);
+    setAppliedPromotions(prev => prev.some(p => p.promo_id === promo.promo_id)
+      ? prev
+      : [...prev, { ...promo, appliedDiscountAmount: Math.round(discountAmount * 100) / 100, appliedDetailLabel: detailLabel }]);
     showToast(`✅ ใช้โปร "${promo.name}" แล้ว`);
   }
 
@@ -2728,6 +2756,38 @@ export default function POSPage() {
     } catch (err) { alert(err.message); }
   }
 
+  // อธิบายโปรแบบทั่วไปจาก config (ไม่ผูกกับบิลไหน) — ใช้ตอนโหมดโฆษณาระดับร้าน (advertise-all-active)
+  // ที่โปรนั้นอาจไม่เคยถูก "ใช้" ในบิลนี้เลย จึงไม่มี appliedDetailLabel (ที่คำนวณตอน applyPromotion
+  // เท่านั้น) ให้ใช้ — คืนสตริงว่างถ้าคำนวณไม่ได้ (เช่น สินค้าที่อ้างอิงถูกลบไปแล้ว) กันพังทั้งบรรทัด
+  function describePromoConfig(promo) {
+    const c = promo.config || {};
+    try {
+      if (promo.promo_type === 'product_discount') {
+        const p = products.find(x => x.sku === c.sku);
+        return `${p?.name || ''} ลด${c.discount_type === 'amount' ? `฿${c.discount_value}` : `${c.discount_value}%`}`;
+      }
+      if (promo.promo_type === 'quantity_discount') {
+        const p = products.find(x => x.sku === c.sku);
+        return `${p?.name || ''} ครบ ${c.min_qty} ชิ้น ลด${c.discount_type === 'amount' ? `฿${c.discount_value}` : `${c.discount_value}%`}`;
+      }
+      if (promo.promo_type === 'buy_x_get_y') {
+        const buy = products.find(x => x.sku === c.buySku), get = products.find(x => x.sku === c.getSku);
+        return `ซื้อ ${buy?.name || ''} ครบ ${c.buyQty} รับ ${get?.name || ''} ${c.get_discount_type === 'free' ? 'ฟรี' : `ลด ${c.get_discount_value}%`}`;
+      }
+      if (promo.promo_type === 'bundle') return `ราคาชุดพิเศษ ฿${c.bundle_price}`;
+      if (promo.promo_type === 'free_gift') {
+        const trig = products.find(x => x.sku === c.triggerSku), gift = products.find(x => x.sku === c.giftSku);
+        return `ซื้อ ${trig?.name || ''} ครบ ${c.triggerQty} รับ ${gift?.name || ''} ฟรี ${c.giftQty} ชิ้น`;
+      }
+      if (promo.promo_type === 'bill_discount') return `ยอดครบ ฿${c.min_total} ลด${c.discount_type === 'amount' ? `฿${c.discount_value}` : `${c.discount_value}%`}`;
+      if (promo.promo_type === 'tiered_pricing') {
+        const p = products.find(x => x.sku === c.sku);
+        return `${p?.name || ''} ราคาขั้นบันไดตามจำนวนซื้อ`;
+      }
+    } catch {}
+    return '';
+  }
+
   // ข้อ 4/4 (โฆษณาโปรโมชั่นในใบเสร็จ) — 2 โหมดตามที่ผู้ใช้ยืนยัน (ทำทั้งคู่พร้อมกัน):
   //  1. ต่อโปรโมชั่น (promo.show_on_receipt) — ถ้าโปรนั้นถูก "ใช้โปรนี้" จริงในบิลนี้ (ติดตามผ่าน
   //     appliedPromotions ที่ carry เข้า lastBill.appliedPromotions ตอน checkout สำเร็จ) จะโชว์ชื่อ
@@ -2735,12 +2795,21 @@ export default function POSPage() {
   //  2. ระดับร้าน (posConfig.promo_advertise_on_receipt) — เปิดไว้ = ทุกใบเสร็จที่พิมพ์ (ไม่ว่าบิล
   //     นั้นจะใช้โปรหรือไม่) โชว์ลิสต์โปรที่ active อยู่ตอนนี้ทั้งหมด (เฉพาะที่ติ๊ก show_on_receipt)
   //     เป็นการโฆษณาให้ลูกค้าเห็น — ปิดไว้ = โชว์เฉพาะโปรที่ใช้จริงในบิลนั้นตามข้อ 1 เท่านั้น
-  function getPromoReceiptLines(bill) {
+  // คืนรายการแบบเต็ม {name, detail, imageDataUrl} — ให้ทั้งข้อความท้ายใบเสร็จ (getPromoReceiptLines)
+  // และรูปภาพ (promoImages ใน printReceipt/buildBtReceiptPayload) ใช้จุดเดียวกัน ไม่ต้อง filter ซ้ำ
+  function getPromoReceiptItems(bill) {
     const source = posConfig.promo_advertise_on_receipt ? activePromotions : (bill.appliedPromotions || []);
     const seen = new Set();
     return source
       .filter(p => p.show_on_receipt && !seen.has(p.promo_id) && seen.add(p.promo_id))
-      .map(p => `🎉 ${p.name}`);
+      .map(p => ({
+        promo_id: p.promo_id, name: p.name,
+        detail: p.appliedDetailLabel || describePromoConfig(p),
+        imageDataUrl: p.image_data || '',
+      }));
+  }
+  function getPromoReceiptLines(bill) {
+    return getPromoReceiptItems(bill).map(p => p.detail ? `🎉 ${p.name} — ${p.detail}` : `🎉 ${p.name}`);
   }
 
   // ── พิมพ์ใบเสร็จ / ใบกำกับภาษี ───────────────────────────────────────────────
@@ -2750,7 +2819,13 @@ export default function POSPage() {
       ? { ...shopInfo, shop_name: selectedBranch.brand_name || shopInfo?.shop_name, address: selectedBranch.address || shopInfo?.address }
       : shopInfo;
     const lineQrDataUrl = await generateLineQrDataUrl(posConfig.receipt_line_url);
+    const promoItems = getPromoReceiptItems(bill);
     const combinedFooter = [posConfig.receipt_footer_message, ...getPromoReceiptLines(bill)].filter(Boolean).join('\n');
+    // ส่วนลดต่อโปรที่ "ใช้จริง" ในบิลนี้เท่านั้น (ไม่ใช่รายการโฆษณาทุกโปร active) แสดงเป็นเส้นแยกใน
+    // ตารางยอดรวม ให้เห็นชัดว่าลดเพราะโปรอะไร — คนละส่วนจาก getPromoReceiptLines ที่เป็นข้อความท้ายบิล
+    const promoDiscounts = (bill.appliedPromotions || [])
+      .filter(p => p.appliedDiscountAmount > 0)
+      .map(p => ({ name: p.name, detailLabel: p.appliedDetailLabel, amount: p.appliedDiscountAmount }));
     const html = buildReceiptHtml({
       paperSize: posConfig.receipt_paper_size || '80mm',
       shopInfo: receiptShopInfo,
@@ -2762,11 +2837,13 @@ export default function POSPage() {
       subtotal: bill.vatSubtotal || bill.subtotal,
       vat: bill.vatAmount || 0,
       discount: bill.discount,
+      promoDiscounts,
       total: bill.total,
       payMethod: bill.payMethod,
       cashReceived: bill.payMethod === 'เงินสด' ? bill.cashReceived : 0,
       change: bill.change,
       footer: combinedFooter || undefined,
+      promoImages: promoItems.map(p => p.imageDataUrl).filter(Boolean).slice(0, 2),
       lineQrDataUrl,
       logoDataUrl: posConfig.receipt_logo_data || undefined,
       isWhiteLabel: hasFeature(shopInfo?.subscription_tier, 'white_label'),
@@ -2822,6 +2899,23 @@ export default function POSPage() {
     }
     setLogoUploading(false);
   }
+  // รูปโปรโมชั่นแนบใบเสร็จ — ไม่บังคับ ร้านค้าเลือกเองว่าจะใส่หรือไม่ (ต่อยอดข้อ 103 ตามคำขอเพิ่มเติม)
+  const [promoImageUploading, setPromoImageUploading] = useState(false);
+  async function handlePromoImageUpload(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showToast('กรุณาเลือกไฟล์รูปภาพ'); return; }
+    setPromoImageUploading(true);
+    try {
+      const dataUrl = await resizeImageToDataUrl(file, 480);
+      setPromoForm(f => ({ ...f, image_data: dataUrl }));
+      showToast('📎 เลือกรูปโปรโมชั่นแล้ว — กด "บันทึก" เพื่อยืนยัน');
+    } catch (err) {
+      showToast('❌ ' + err.message);
+    }
+    setPromoImageUploading(false);
+  }
   async function previewFooterQr() {
     if (!posSettingsForm.receipt_line_url?.trim()) { showToast('กรอกลิงก์ไลน์ก่อน'); return; }
     setFooterQrPreviewBusy(true);
@@ -2835,6 +2929,10 @@ export default function POSPage() {
       ? { ...shopInfo, shop_name: selectedBranch.brand_name || shopInfo?.shop_name, address: selectedBranch.address || shopInfo?.address }
       : shopInfo;
     const qrDataUrl = await generateLineQrDataUrl(posConfig.receipt_line_url);
+    const promoItems = getPromoReceiptItems(bill);
+    const promoDiscounts = (bill.appliedPromotions || [])
+      .filter(p => p.appliedDiscountAmount > 0)
+      .map(p => ({ name: p.name, detailLabel: p.appliedDetailLabel, amount: p.appliedDiscountAmount }));
     return {
       paperSize: posConfig.receipt_paper_size || '80mm',
       shopInfo: receiptShopInfo,
@@ -2845,6 +2943,7 @@ export default function POSPage() {
       subtotal: bill.vatSubtotal || bill.subtotal,
       vat: bill.vatAmount || 0,
       discount: bill.discount,
+      promoDiscounts,
       total: bill.total,
       payMethod: bill.payMethod,
       cashReceived: bill.payMethod === 'เงินสด' ? bill.cashReceived : 0,
@@ -2853,6 +2952,9 @@ export default function POSPage() {
         [posConfig.receipt_footer_message || 'ขอบคุณที่ใช้บริการ', ...getPromoReceiptLines(bill)].filter(Boolean).join('\n'),
         hasFeature(shopInfo?.subscription_tier, 'white_label')
       ).split('\n'),
+      // thermal receipt แคบ/ช้ากว่าพิมพ์ปกติมาก — จำกัดแค่ 1 รูปกันบิลยาวเกินไป (window.print ไม่จำกัด
+      // เพราะพิมพ์ผ่านเครื่องพิมพ์ทั่วไป/A4 ได้ ไม่ได้ถูกจำกัดด้วยความเร็ว BLE เหมือนกัน)
+      promoImages: promoItems.map(p => p.imageDataUrl).filter(Boolean).slice(0, 1),
       qrDataUrl,
       logoDataUrl: posConfig.receipt_logo_data || undefined,
     };
@@ -3602,7 +3704,7 @@ export default function POSPage() {
         shopId, name: promoForm.name.trim(), promo_type: promoForm.promo_type,
         config: buildPromoConfig(promoForm), branch: promoForm.branch,
         valid_from: promoForm.valid_from || null, valid_until: promoForm.valid_until || null,
-        show_on_receipt: !!promoForm.show_on_receipt,
+        show_on_receipt: !!promoForm.show_on_receipt, image_data: promoForm.image_data || '',
       };
       const url = '/api/pos/promotions';
       const method = editingPromoId ? 'PATCH' : 'POST';
@@ -3656,7 +3758,7 @@ export default function POSPage() {
       triggerSku: c.triggerSku || '', triggerQty: c.triggerQty ?? '1', giftSku: c.giftSku || '', giftQty: c.giftQty ?? '1',
       min_total: c.min_total ?? '', max_discount: c.max_discount ?? '',
       tiers: (c.tiers && c.tiers.length ? c.tiers.map(t => ({ min_qty: String(t.min_qty), unit_price: String(t.unit_price) })) : [{ min_qty: '', unit_price: '' }, { min_qty: '', unit_price: '' }]),
-      show_on_receipt: !!promo.show_on_receipt,
+      show_on_receipt: !!promo.show_on_receipt, image_data: promo.image_data || '',
     });
     setEditingPromoId(promo.promo_id);
     setShowPromoForm(true);
@@ -8709,9 +8811,12 @@ export default function POSPage() {
                         {promotions.map(promo => (
                           <div key={promo.promo_id} className={`bg-white rounded-2xl border p-4 ${promo.is_active ? 'border-green-200' : 'border-gray-100 opacity-60'}`}>
                             <div className="flex items-start justify-between gap-2">
-                              <div>
-                                <p className="text-gray-900 font-bold text-sm">{promo.name}</p>
-                                <p className="text-gray-400 text-[11px] mt-0.5">{PROMO_TYPE_META[promo.promo_type]?.label}{promo.branch ? ` · ${promo.branch}` : ' · ทุกสาขา'}{promo.show_on_receipt ? ' · 📋 บนใบเสร็จ' : ''}</p>
+                              <div className="flex items-center gap-2 min-w-0">
+                                {promo.image_data && <img src={promo.image_data} alt="" className="w-9 h-9 object-contain rounded-lg border border-gray-100 shrink-0" />}
+                                <div className="min-w-0">
+                                  <p className="text-gray-900 font-bold text-sm truncate">{promo.name}</p>
+                                  <p className="text-gray-400 text-[11px] mt-0.5">{PROMO_TYPE_META[promo.promo_type]?.label}{promo.branch ? ` · ${promo.branch}` : ' · ทุกสาขา'}{promo.show_on_receipt ? ' · 📋 บนใบเสร็จ' : ''}</p>
+                                </div>
                               </div>
                               <button onClick={() => togglePromoActive(promo)}
                                 className={`shrink-0 text-[10px] font-bold px-2.5 py-1 rounded-full ${promo.is_active ? 'bg-green-100 text-green-700' : 'bg-white text-gray-500'}`}>
@@ -8994,6 +9099,26 @@ export default function POSPage() {
                         className="w-4 h-4 accent-green-600" />
                       <span className="text-gray-700 text-xs">📋 แสดงชื่อโปรนี้ท้ายใบเสร็จเมื่อลูกค้าใช้โปรนี้จริง</span>
                     </label>
+
+                    {/* รูปโปรโมชั่นแนบใบเสร็จ — ไม่บังคับ ร้านค้าเลือกใส่เองได้ (แสดงคู่กับข้อความ
+                        ท้ายใบเสร็จตามเงื่อนไข show_on_receipt เดียวกันด้านบน) */}
+                    <div className="bg-white rounded-xl p-3 border border-gray-200 space-y-2">
+                      <div className="text-gray-500 text-xs font-bold">🖼️ รูปโปรโมชั่นแนบท้ายใบเสร็จ (ไม่บังคับ)</div>
+                      {promoForm.image_data ? (
+                        <div className="flex items-center gap-3">
+                          <img src={promoForm.image_data} alt="รูปโปรโมชั่น" className="w-16 h-16 object-contain rounded-lg border border-gray-200" />
+                          <button type="button" onClick={() => setPromoForm(f => ({ ...f, image_data: '' }))}
+                            className="text-red-500 hover:text-red-600 text-xs font-bold">✕ ลบรูปนี้</button>
+                        </div>
+                      ) : (
+                        <label className={`flex items-center justify-center gap-2 text-xs font-bold py-2.5 rounded-lg cursor-pointer transition-colors ${
+                          promoImageUploading ? 'bg-gray-100 text-gray-400' : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
+                        }`}>
+                          {promoImageUploading ? 'กำลังประมวลผล...' : '📎 เลือกรูป'}
+                          <input type="file" accept="image/*" className="hidden" disabled={promoImageUploading} onChange={handlePromoImageUpload} />
+                        </label>
+                      )}
+                    </div>
 
                     <div className="flex gap-2 pt-2">
                       <button onClick={() => { setShowPromoForm(false); setEditingPromoId(null); }}
@@ -10215,6 +10340,25 @@ export default function POSPage() {
                 </div>
               </div>
 
+              {/* โปรโมชั่นที่ใช้ในบิลนี้ — ตอบคำถาม "ใช้ส่วนลดอะไรบ้าง" ก่อนกดยืนยันชำระเงิน (ยอด
+                  ในตะกร้าด้านบนเป็นราคาหลังหักโปรแล้วเงียบๆ ถ้าไม่มีส่วนนี้จะไม่รู้เลยว่าลดเพราะอะไร) */}
+              {appliedPromotions.length > 0 && (
+                <div className="bg-emerald-50/40 border border-emerald-200/60 rounded-xl p-3 space-y-1.5">
+                  <div className="text-emerald-700 text-xs font-bold">🎉 โปรโมชั่นที่ใช้ในบิลนี้</div>
+                  {appliedPromotions.map(p => (
+                    <div key={p.promo_id} className="flex justify-between items-start gap-2 text-xs">
+                      <div className="min-w-0">
+                        <div className="text-emerald-800 font-medium truncate">{p.name}</div>
+                        {p.appliedDetailLabel && <div className="text-emerald-600 text-[11px]">{p.appliedDetailLabel}</div>}
+                      </div>
+                      {p.appliedDiscountAmount > 0 && (
+                        <span className="text-emerald-700 font-bold shrink-0">−฿{p.appliedDiscountAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {/* สินค้าหมุนเวียน (เช่น ถังแก๊ส/ขวดน้ำ/ถังออกซิเจน) — ค่าเริ่มต้นถือว่าลูกค้านำของเก่ามาแลกครบทุกชิ้น
                   กดปุ่ม "ยืม" เฉพาะรายการที่ลูกค้าไม่ได้เอาของเก่ามาคืน (ยืมไปก่อน) */}
               {cyclicalCartItems.length > 0 && (
@@ -10524,6 +10668,16 @@ export default function POSPage() {
                   <span className="text-gray-800">฿{(item.price * item.qty).toLocaleString()}</span>
                 </div>
               ))}
+              {(lastBill.appliedPromotions || []).filter(p => p.appliedDiscountAmount > 0).length > 0 && (
+                <div className="space-y-0.5 border-t border-gray-200 pt-1">
+                  {lastBill.appliedPromotions.filter(p => p.appliedDiscountAmount > 0).map(p => (
+                    <div key={p.promo_id} className="flex justify-between text-emerald-600 gap-2">
+                      <span className="truncate">🎉 {p.name}{p.appliedDetailLabel ? ` (${p.appliedDetailLabel})` : ''}</span>
+                      <span className="shrink-0">−฿{p.appliedDiscountAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {lastBill.discount > 0 && (
                 <div className="flex justify-between text-red-500">
                   <span>ส่วนลด</span>
