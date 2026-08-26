@@ -1178,7 +1178,7 @@ export default function Dashboard() {
                         <span className="text-xl">⚠️</span>
                         <div>
                           <p className="font-bold text-amber-700 text-sm">Google Drive ขาดการเชื่อมต่อ</p>
-                          <p className="text-amber-500 text-xs mt-0.5">สลิปล่าสุดไม่ถูกบันทึกลง Google Sheets</p>
+                          <p className="text-amber-500 text-xs mt-0.5">รูปสลิปล่าสุดไม่ถูกอัปโหลดเข้า Google Drive</p>
                         </div>
                       </div>
                       <a href={`/api/auth/google/connect?shopId=${shopInfo?.id}`}
@@ -1308,7 +1308,7 @@ export default function Dashboard() {
                             <a href={`https://docs.google.com/spreadsheets/d/${googleConfig.google_sheet_id}`}
                               target="_blank" rel="noreferrer"
                               className="flex items-center gap-2 text-blue-600 font-medium hover:bg-blue-50 px-3 py-2 rounded-xl transition-all text-sm">
-                              <ExternalLink size={13}/> เปิด Google Sheet
+                              <ExternalLink size={13}/> เปิด Google Sheet (ข้อมูลเก่าก่อนย้ายระบบ)
                             </a>
                             <a href={`https://drive.google.com/drive/folders/${googleConfig.google_folder_id}`}
                               target="_blank" rel="noreferrer"
@@ -1519,7 +1519,7 @@ export default function Dashboard() {
 
                   {/* Loading */}
                   {analyticsLoading && (
-                    <div className="text-center py-16 text-slate-400 animate-pulse">กำลังโหลดข้อมูลจาก Google Sheets...</div>
+                    <div className="text-center py-16 text-slate-400 animate-pulse">กำลังโหลดข้อมูล...</div>
                   )}
 
                   {/* Require upgrade */}
@@ -1535,17 +1535,9 @@ export default function Dashboard() {
                     </div>
                   )}
 
-                  {/* Not connected */}
-                  {!analyticsLoading && analyticsData?.notConnected && (
-                    <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center">
-                      <p className="text-3xl mb-3">📁</p>
-                      <p className="font-bold text-slate-700 text-lg mb-2">ยังไม่ได้เชื่อมต่อ Google Sheets</p>
-                      <a href={`/api/auth/google/connect?shopId=${shopInfo?.id}`}
-                        className="inline-flex items-center gap-2 bg-blue-800 text-white px-6 py-3 rounded-xl font-medium hover:bg-blue-700 transition-all mt-3">
-                        <RefreshCcw size={15}/> เชื่อมต่อ Google Drive (+30 เครดิต)
-                      </a>
-                    </div>
-                  )}
+                  {/* หมายเหตุ: เดิมมีบล็อก "ยังไม่ได้เชื่อมต่อ Google Sheets" ตรงนี้ — ลบออกแล้ว เพราะ
+                      /api/shop/analytics.js ย้ายมาอ่านจาก ledger_transactions ตั้งแต่ข้อ 75 ไม่ต้องพึ่ง
+                      Google เลย ไม่มีทาง set notConnected อีกต่อไป (dead code ที่ไม่มีทาง render จริง) */}
 
                   {/* Charts */}
                   {!analyticsLoading && analyticsData?.summary && (
@@ -2563,15 +2555,7 @@ export default function Dashboard() {
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {loadingTransactions ? (
-                          <tr><td colSpan="7" className="py-20 text-center text-slate-300 text-sm animate-pulse">กำลังดึงข้อมูลจาก Google Sheets...</td></tr>
-                        ) : !ledgerConnected ? (
-                          <tr><td colSpan="7" className="py-16 text-center">
-                            <p className="text-slate-400 text-sm mb-3">⚠️ ยังไม่ได้เชื่อมต่อ Google Sheets</p>
-                            <a href={`/api/auth/google/connect?shopId=${shopInfo?.id}`}
-                              className="inline-flex items-center gap-2 bg-blue-800 text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 transition-all">
-                              เชื่อมต่อ Google Drive & Sheets
-                            </a>
-                          </td></tr>
+                          <tr><td colSpan="7" className="py-20 text-center text-slate-300 text-sm animate-pulse">กำลังโหลดข้อมูล...</td></tr>
                         ) : (() => {
                           const filteredTx = filteredLedgerTx;
                           const totalPages = Math.ceil(filteredTx.length / LEDGER_PAGE_SIZE);
