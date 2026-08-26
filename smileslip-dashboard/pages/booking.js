@@ -662,20 +662,51 @@ export default function BookingPage() {
                     <input value={editingService.description || ''} onChange={e => setEditingService(s => ({ ...s, description: e.target.value }))}
                       className="w-full border rounded-xl px-3 py-2.5 text-sm mb-3" />
 
-                    <div className="grid grid-cols-2 gap-3 mb-3">
-                      <div>
-                        <label className="text-xs font-bold text-gray-500 block mb-1">ระยะเวลา (นาที) *</label>
-                        <input type="number" min="1" value={editingService.duration_minutes}
-                          onChange={e => setEditingService(s => ({ ...s, duration_minutes: e.target.value }))}
-                          className="w-full border rounded-xl px-3 py-2.5 text-sm" />
+                    {/* ระยะเวลา — เก็บเป็น duration_minutes (นาทีล้วน) ในฐานข้อมูลเหมือนเดิมทุกประการ
+                        แค่ให้กรอกเป็นชั่วโมง+นาทีแยกกันได้สะดวกขึ้น (ธุรกิจที่จองเป็นครึ่งวัน/หลาย
+                        ชั่วโมง ไม่ต้องมานั่งคูณเลขเอง เช่น ครึ่งวัน = 4 ชม. พิมพ์ "4" ช่องชั่วโมงตรงๆ) */}
+                    <label className="text-xs font-bold text-gray-500 block mb-1">ระยะเวลา *</label>
+                    <div className="flex gap-2 mb-2">
+                      <div className="flex-1">
+                        <input type="number" min="0" placeholder="0"
+                          value={Math.floor((Number(editingService.duration_minutes) || 0) / 60)}
+                          onChange={e => {
+                            const h = Math.max(0, parseInt(e.target.value, 10) || 0);
+                            const m = (Number(editingService.duration_minutes) || 0) % 60;
+                            setEditingService(s => ({ ...s, duration_minutes: h * 60 + m }));
+                          }}
+                          className="w-full border rounded-xl px-3 py-2.5 text-sm text-center" />
+                        <span className="text-[10px] text-gray-400 block text-center mt-0.5">ชั่วโมง</span>
                       </div>
-                      <div>
-                        <label className="text-xs font-bold text-gray-500 block mb-1">ราคา (บาท) *</label>
-                        <input type="number" min="0" value={editingService.price}
-                          onChange={e => setEditingService(s => ({ ...s, price: e.target.value }))}
-                          className="w-full border rounded-xl px-3 py-2.5 text-sm" />
+                      <div className="flex-1">
+                        <input type="number" min="0" max="59" placeholder="0"
+                          value={(Number(editingService.duration_minutes) || 0) % 60}
+                          onChange={e => {
+                            const m = Math.min(59, Math.max(0, parseInt(e.target.value, 10) || 0));
+                            const h = Math.floor((Number(editingService.duration_minutes) || 0) / 60);
+                            setEditingService(s => ({ ...s, duration_minutes: h * 60 + m }));
+                          }}
+                          className="w-full border rounded-xl px-3 py-2.5 text-sm text-center" />
+                        <span className="text-[10px] text-gray-400 block text-center mt-0.5">นาที</span>
                       </div>
                     </div>
+                    <div className="flex flex-wrap gap-1.5 mb-3">
+                      {[30, 60, 90, 120, 240, 480].map(mins => (
+                        <button key={mins} type="button"
+                          onClick={() => setEditingService(s => ({ ...s, duration_minutes: mins }))}
+                          className={`text-[10px] px-2.5 py-1 rounded-lg border transition-all ${
+                            Number(editingService.duration_minutes) === mins
+                              ? 'bg-purple-600 text-white border-purple-600'
+                              : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}>
+                          {mins < 60 ? `${mins} นาที` : mins % 60 === 0 ? `${mins / 60} ชม.` : `${Math.floor(mins / 60)} ชม. ${mins % 60} น.`}
+                        </button>
+                      ))}
+                    </div>
+
+                    <label className="text-xs font-bold text-gray-500 block mb-1">ราคา (บาท) *</label>
+                    <input type="number" min="0" value={editingService.price}
+                      onChange={e => setEditingService(s => ({ ...s, price: e.target.value }))}
+                      className="w-full border rounded-xl px-3 py-2.5 text-sm mb-3" />
 
                     <label className="text-xs font-bold text-gray-500 block mb-1">รับกี่คิวพร้อมกัน (เช่น จำนวนเตียง/เลน)</label>
                     <input type="number" min="1" value={editingService.max_concurrent}
