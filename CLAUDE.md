@@ -1305,7 +1305,7 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
       - **พบเพิ่มเติมแต่ไม่ได้แก้ (นอกสโคปที่ขอ):** grep เจอ 😊 อีก 9 ไฟล์ทั่วโปรเจกต์ (`dashboard.js`/`register.js`/`pos-staff.js`/`transaction/edit.js`/`index.js`/`pricing.js`/`privacy.js`/`terms.js`/`logout.js`) — ผู้ใช้ระบุแค่ "หน้าลงชื่อเข้าใช้" จึงไม่ได้แตะไฟล์อื่น เก็บไว้บอกผู้ใช้ว่ามีจุดอื่นที่ใช้อิโมจิเดียวกันอยู่ ถ้าต้องการเปลี่ยนด้วยแจ้งเพิ่มได้
       - **ทดสอบผ่านเบราว์เซอร์จริง:** ยืนยัน `<img src="/iconPng.png">` ทั้ง 2 จุดโหลดสำเร็จ (`complete:true`, `naturalWidth/Height` ตรงกับไฟล์จริง) + ยืนยัน `animate-bounce` ยังทำงาน (`computed animationName:'bounce', duration:'1s'`) + ยืนยันไฟล์ไอคอนแอปทั้ง 6 ไฟล์โหลดผ่าน `/icons/*.png`/`/manifest.json` สำเร็จ (200) ด้วยขนาดไฟล์ที่ตรงกับที่สร้างใหม่จริง
 
-    - **Deploy production:** ยังไม่ได้ deploy (โค้ด+ไอคอนใหม่ commit+push ขึ้น GitHub แล้วเท่านั้น) — รอผู้ใช้ยืนยันก่อน deploy จริง เพราะมี SQL migration ใหม่ (`scripts/promo-receipt-02-add-image.sql`) ที่ต้องรันคู่กันถึงจะเห็นรูปโปรจริงในใบเสร็จ (โค้ดส่วนอื่นทั้งหมด — breakdown ราคาที่ใช้ไป/หน้าไอคอนใหม่ — ทำงานได้ทันทีไม่ต้องรอ SQL)
+    - **Deploy production แล้ว (2026-08-26)** — revision จริง `smileslip-dashboard-00368-j2w` (เจอ `429 RESOURCE_EXHAUSTED` จาก Cloud Build API ระหว่าง deploy อีกครั้ง ตรงกับ pattern ที่เจอซ้ำหลายรอบในโปรเจกต์นี้ — เช็ค `gcloud builds describe` ยืนยัน build สำเร็จเบื้องหลัง แล้วดึง image digest deploy ตรงข้าม rebuild) — **verified ผ่าน candidate URL ด้วยข้อมูลจริงของร้าน D Gas ก่อน cutover** (`shop/data`→401 ไม่ crash, `promotions?shopId=...`→200 คืน `image_data` field จริงสำหรับโปรที่มีอยู่แล้วในร้าน, `/login`→200) แล้ว cutover 100% สำเร็จ + ยิงซ้ำกับ URL หลักของ production ยืนยันทุกจุดถูกต้องรวม `/iconPng.png` โหลดได้ (200) — **ยังรอ SQL** (`scripts/promo-receipt-02-add-image.sql`) ก่อนรูปโปรโมชั่นจะแสดงจริงในใบเสร็จได้ — ทุกอย่างอื่น (breakdown ราคาที่ใช้ไป/ไอคอนแอปใหม่/หน้า login) ใช้งานได้เต็มรูปแบบแล้วตอนนี้
 
 ## Tech Stack
 
@@ -1338,7 +1338,7 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
 | Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00328-t62` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00367-l7l` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00368-j2w` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
