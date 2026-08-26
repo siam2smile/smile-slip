@@ -7,7 +7,7 @@ import {
   ExternalLink, Edit3, Landmark, Receipt, Wallet,
   PlusCircle, Trash2, Clock, Download, AlertTriangle,
   Menu, ChevronLeft, ChevronRight, BarChart2, Copy, Share2, Users,
-  Shield, UserPlus, UserX, HelpCircle, X, ClipboardList, Bell
+  Shield, UserPlus, UserX, HelpCircle, X, ClipboardList, Bell, Lock
 } from 'lucide-react';
 import Link from 'next/link';
 import { getOwnerSessionToken, setOwnerSessionToken, findOwnerSessionTokenForOwnerId } from '../lib/client-owner-session';
@@ -75,6 +75,10 @@ export default function Dashboard() {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editForm, setEditForm] = useState({ shopName: '', email: '', phone: '', taxId: '', userType: 'individual', address: '', branchName: '' });
   const [savingProfile, setSavingProfile] = useState(false);
+  const [isEditingPassword, setIsEditingPassword] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
 
   // Sidebar
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -615,6 +619,27 @@ export default function Dashboard() {
       setIsEditingProfile(false);
     } catch { alert('เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง'); }
     finally { setSavingProfile(false); }
+  };
+
+  const handleSavePassword = async () => {
+    setPasswordError('');
+    if (passwordForm.newPassword.length < 6) return setPasswordError('รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร');
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) return setPasswordError('รหัสผ่านใหม่ทั้งสองช่องไม่ตรงกัน');
+    setSavingPassword(true);
+    try {
+      const res = await fetch('/api/shop/set-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId: shopInfo.id, currentPassword: passwordForm.currentPassword, newPassword: passwordForm.newPassword }),
+      });
+      const data = await res.json();
+      if (data.error) { setPasswordError(data.error); return; }
+      setShopInfo(prev => ({ ...prev, has_password: true }));
+      setIsEditingPassword(false);
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      alert('ตั้งรหัสผ่านสำเร็จ ใช้เข้าสู่ระบบผ่าน "เข้าสู่ระบบด้วยอีเมล" ได้แล้ว');
+    } catch { setPasswordError('เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง'); }
+    finally { setSavingPassword(false); }
   };
 
   const fetchTransactions = async (shopId, year, month) => {
@@ -3352,6 +3377,68 @@ export default function Dashboard() {
                         <div className="md:col-span-2 bg-slate-50 rounded-xl p-3.5 border border-slate-100">
                           <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">ที่อยู่</p>
                           <p className="font-medium text-slate-700 text-sm">{shopInfo?.address || '—'}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* รหัสผ่านสำหรับ "เข้าสู่ระบบด้วยอีเมล" — แยกจากบัญชี LINE โดยสิ้นเชิง ใช้เป็น
+                      ทางสำรองเวลาเข้าไม่ได้ทาง LINE (เครื่องหาย/เปลี่ยนเบอร์) หรือให้คนอื่นที่ไม่มี
+                      บัญชี LINE เข้าดูได้ (เช่น ผู้ตรวจสอบ Google Play) */}
+                  <div className="bg-white p-6 rounded-2xl border border-slate-200">
+                    <div className="flex items-center justify-between mb-5">
+                      <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                        <Lock size={16} className="text-blue-600"/> รหัสผ่านเข้าสู่ระบบด้วยอีเมล
+                      </h3>
+                      {!isEditingPassword && (
+                        <button onClick={() => { setIsEditingPassword(true); setPasswordError(''); }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl transition-all">
+                          <Edit3 size={12}/> {shopInfo?.has_password ? 'เปลี่ยนรหัสผ่าน' : 'ตั้งรหัสผ่าน'}
+                        </button>
+                      )}
+                    </div>
+
+                    {!isEditingPassword ? (
+                      <p className="text-xs text-slate-500">
+                        {shopInfo?.has_password
+                          ? 'ตั้งรหัสผ่านไว้แล้ว — ใช้คู่กับอีเมลด้านบนเข้าสู่ระบบผ่านปุ่ม "เข้าสู่ระบบด้วยอีเมล" ที่หน้า Login ได้โดยไม่ต้องพึ่ง LINE'
+                          : 'ยังไม่เคยตั้งรหัสผ่าน — ตอนนี้เข้าสู่ระบบได้ทาง LINE เท่านั้น ตั้งรหัสผ่านไว้เป็นทางสำรอง หรือให้คนอื่นที่ไม่มีบัญชี LINE เข้าดูได้ (เช่น ผู้ตรวจสอบ Google Play)'}
+                      </p>
+                    ) : (
+                      <div className="space-y-3 max-w-sm">
+                        {passwordError && (
+                          <div className="bg-red-50 border border-red-200 text-red-600 text-xs font-bold px-3 py-2.5 rounded-xl">{passwordError}</div>
+                        )}
+                        {!shopInfo?.email && (
+                          <div className="bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold px-3 py-2.5 rounded-xl">⚠️ ยังไม่ได้ใส่อีเมลไว้ในข้อมูลร้านค้าด้านบน — ต้องกรอกอีเมลก่อนถึงจะใช้ "เข้าสู่ระบบด้วยอีเมล" ได้จริง</div>
+                        )}
+                        {shopInfo?.has_password && (
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">รหัสผ่านเดิม</label>
+                            <input type="password" value={passwordForm.currentPassword}
+                              onChange={e => setPasswordForm(prev => ({ ...prev, currentPassword: e.target.value }))}
+                              className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-400 transition-colors"/>
+                          </div>
+                        )}
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">รหัสผ่านใหม่ (อย่างน้อย 6 ตัวอักษร)</label>
+                          <input type="password" value={passwordForm.newPassword}
+                            onChange={e => setPasswordForm(prev => ({ ...prev, newPassword: e.target.value }))}
+                            className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-400 transition-colors"/>
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">ยืนยันรหัสผ่านใหม่</label>
+                          <input type="password" value={passwordForm.confirmPassword}
+                            onChange={e => setPasswordForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                            className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-400 transition-colors"/>
+                        </div>
+                        <div className="flex gap-2 pt-1">
+                          <button onClick={() => { setIsEditingPassword(false); setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' }); setPasswordError(''); }}
+                            className="px-3 py-1.5 text-xs font-medium text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all">ยกเลิก</button>
+                          <button onClick={handleSavePassword} disabled={savingPassword}
+                            className="px-3 py-1.5 text-xs font-medium text-white bg-blue-700 hover:bg-blue-800 rounded-xl transition-all disabled:opacity-50">
+                            {savingPassword ? 'กำลังบันทึก...' : 'บันทึก'}
+                          </button>
                         </div>
                       </div>
                     )}

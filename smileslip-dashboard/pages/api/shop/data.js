@@ -14,7 +14,7 @@ export default async function handler(req, res) {
 
   const { data: profile, error } = await supabase
     .from('shop_profiles')
-    .select('id, shop_name, tax_id, branch_name, address, email, phone, user_type, subscription_tier, owner_line_id, stripe_subscription_id')
+    .select('id, shop_name, tax_id, branch_name, address, email, phone, user_type, subscription_tier, owner_line_id, stripe_subscription_id, password_hash')
     .eq('owner_line_id', userId)
     .maybeSingle();
 
@@ -45,6 +45,12 @@ export default async function handler(req, res) {
       .maybeSingle();
     if (!trialErr && trialInfo) Object.assign(profile, trialInfo);
   } catch { /* ตารางยังไม่มีคอลัมน์นี้ — ถือว่าไม่มี trial lock เลย (ปลอดภัยกว่า) */ }
+
+  // ไม่ส่ง password_hash ดิบออกไปให้ client เด็ดขาด — แปลงเป็น flag บอกแค่ว่า "ตั้งไว้แล้วหรือยัง"
+  // (ให้หน้าตั้งค่ารู้ว่าต้องขอ "รหัสผ่านเดิม" ก่อนเปลี่ยนไหม หรือแค่ตั้งใหม่ได้เลยเพราะไม่เคยมีมาก่อน)
+  const hasPassword = !!profile.password_hash;
+  delete profile.password_hash;
+  profile.has_password = hasPassword;
 
   return res.status(200).json({
     profile,
