@@ -1345,6 +1345,9 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
     - **ทดสอบยิงจริง 2 ชั้น:** (1) verify ตรรกะแยกส่วนด้วยสคริปต์คำนวณอิสระ (decompose/recompose/edit-hour-only/edit-minute-only) ยืนยันไม่มี edge case พัง (2) **สร้างร้านทดสอบทิ้งได้จริง ยิง `POST /api/booking/services` ตรงกับ candidate revision บน production** (ไม่ใช่ dev server เพราะเจอปัญหา `.next` directory เสียซ้ำ 2 รอบระหว่างพยายามรัน local dev server — ข้าม local test ไปทดสอบกับ candidate URL ที่ deploy จริงแทน) ครบ 4 เคส: พรีเซ็ต 4 ชม.→240 นาทีถูกต้อง, 1 ชม. 30 นาที (เลขคี่ไม่ใช่พรีเซ็ต)→90 นาทีถูกต้อง, 30 นาทีล้วน (ไม่มีชั่วโมงเลย)→30 นาทีถูกต้อง, 0 นาที→ยังถูกปฏิเสธ 400 เหมือนเดิม (ยืนยัน backend validation ไม่เปลี่ยน) — ลบร้านทดสอบทิ้งสะอาดหลังทดสอบ
     - **บทเรียนใหม่จากรอบนี้:** เมื่อ local dev server เสียซ้ำๆ (ปัญหา `.next` directory เดิมที่เจอมาหลายรอบในโปรเจกต์นี้) และ backend endpoint ที่ต้องทดสอบไม่ได้ถูกแก้เลย ให้ deploy ด้วย `--no-traffic` ก่อนแล้วทดสอบยิงจริงกับ **candidate URL** ที่ได้จาก deploy แทนได้เลย (เป็น live server จริงบน infra เดียวกับ production ทุกประการ แค่ยังไม่รับ traffic) — เร็วกว่าและเชื่อถือได้กว่าการพยายามซ่อม local dev server ที่ไม่จำเป็นสำหรับงานที่ไม่แตะ backend
     - **Deploy production แล้ว (2026-08-26)** — revision จริง `smileslip-dashboard-00372-88m` — verified ผ่าน candidate URL ครบ 4/4 เคสก่อน cutover (ตามที่อธิบายด้านบน) แล้ว cutover 100% สำเร็จ + verified ซ้ำผ่าน URL หลักของ production (`smileslippro.com`)
+    - **ต่อยอดทันที (คำถามเดียวกัน):** ผู้ใช้ถามต่อว่าร้านที่เปิดครึ่งเช้า/ครึ่งบ่าย (เช่น 8-12 และ 13-16) จะตั้งยังไง — ตรวจโค้ดพบว่า **backend (`lib/booking.js`'s `getAvailableSlots()`) รองรับหลายช่วงเวลาต่อวันอยู่แล้วตั้งแต่สร้างระบบ** (วนลูป `for (const range of ranges)` ต่อวัน ไม่มี hardcode index `[0]`) และ `api/booking/config.js`'s PATCH ก็ไม่ validate shape ของ `business_hours` เลย (ผ่านตรงๆ) — **มีแค่ UI (`pages/booking.js`) ที่จำกัดไว้แค่ 1 ช่วง/วัน** (`setDayTime()` เดิม overwrite `hours[dayKey] = [{...range, [field]:value}]` เสมอ, การ์อ่านแค่ `[0]`) — แก้แค่ UI: เพิ่ม `setRangeTime(dayKey,idx,...)`/`addRange()`/`removeRange()` แทนที่ `setDayTime()` เดิม + render เป็น list ของช่วงเวลาต่อวันพร้อมปุ่ม "+ เพิ่มช่วงเวลา"/ปุ่มลบต่อช่วง (โผล่เฉพาะเมื่อมีมากกว่า 1 ช่วง กันลบช่วงสุดท้ายเหลือ 0 โดยไม่ได้ตั้งใจ — ลบช่วงสุดท้ายจริงๆ ให้ทำผ่าน checkbox "ปิดวันนี้" แทน) — ไม่แตะ backend/schema เลยสักบรรทัด
+    - **ทดสอบยิงจริงกับ candidate revision บน production ก่อน cutover:** PATCH 2 ช่วง (08:00-12:00, 13:00-16:00) ของวันจันทร์ → GET กลับมาตรงทั้ง 2 ช่วง → สร้างบริการ 60 นาที → เรียก `/api/booking/availability` จริงกับวันจันทร์ถัดไป → ยืนยันสล็อตที่ได้ครบถูกต้อง (`08:00,09:00,10:00,11:00,13:00,14:00,15:00`) **ไม่มีสล็อตไหนเริ่มในช่วงพักเที่ยง 12:00-13:00 เลย และไม่มีสล็อตล้ำออกนอกทั้งสองช่วง** (11:30/15:30 ไม่โผล่) — พิสูจน์ logic ข้ามช่วงพักถูกต้อง 100% — ลบร้านทดสอบทิ้งสะอาดหลังทดสอบ
+    - **Deploy production แล้ว (2026-08-26)** — revision จริง `smileslip-dashboard-00373-hdr` — verified ผ่าน candidate URL ครบก่อน cutover (ตามที่อธิบายข้างบน) แล้ว cutover 100% สำเร็จ
 
 ## Tech Stack
 
@@ -1377,7 +1380,7 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
 | Service | URL | Revision ล่าสุด |
 |---------|-----|----------------|
 | Bot | `https://smileslip-service-832247688217.asia-southeast1.run.app` | `smileslip-service-00328-t62` |
-| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00372-88m` |
+| Dashboard | `https://smileslip-dashboard-832247688217.asia-southeast1.run.app` | `smileslip-dashboard-00373-hdr` |
 | Project | `smileslip-accounting-pro` | region: `asia-southeast1` |
 
 ---
