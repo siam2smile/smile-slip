@@ -168,11 +168,35 @@ export default function BookingPage() {
       return { ...c, business_hours: hours };
     });
   }
-  function setDayTime(dayKey, field, value) {
+  // แก้เวลาช่วงที่ idx ของวันนั้น — เดิมมีแค่ช่วงเดียวแก้ตรงๆ index 0 เสมอ ตอนนี้รองรับหลายช่วง/วัน
+  // (เช่น ร้านเปิดครึ่งเช้า 8-12 ปิดพักเที่ยง แล้วเปิดครึ่งบ่าย 13-16 อีกที) — เก็บใน business_hours
+  // เป็น array ของ {start,end} ต่อวันอยู่แล้วตั้งแต่แรก (getAvailableSlots() วนลูปทุกช่วงอยู่แล้ว
+  // ไม่ต้องแก้ backend เลย มีแค่ UI เดิมที่จำกัดไว้แค่ช่วงเดียว)
+  function setRangeTime(dayKey, idx, field, value) {
     setConfig(c => {
       const hours = { ...(c.business_hours || {}) };
-      const range = hours[dayKey]?.[0] || { start: '09:00', end: '18:00' };
-      hours[dayKey] = [{ ...range, [field]: value }];
+      const ranges = [...(hours[dayKey] || [])];
+      ranges[idx] = { ...ranges[idx], [field]: value };
+      hours[dayKey] = ranges;
+      return { ...c, business_hours: hours };
+    });
+  }
+  function addRange(dayKey) {
+    setConfig(c => {
+      const hours = { ...(c.business_hours || {}) };
+      const ranges = [...(hours[dayKey] || [])];
+      const lastEnd = ranges[ranges.length - 1]?.end || '12:00';
+      ranges.push({ start: lastEnd, end: '18:00' });
+      hours[dayKey] = ranges;
+      return { ...c, business_hours: hours };
+    });
+  }
+  function removeRange(dayKey, idx) {
+    setConfig(c => {
+      const hours = { ...(c.business_hours || {}) };
+      const ranges = (hours[dayKey] || []).filter((_, i) => i !== idx);
+      if (ranges.length) hours[dayKey] = ranges;
+      else delete hours[dayKey]; // ลบช่วงสุดท้าย = ปิดวันนั้นไปเลย (checkbox จะขึ้น "ปิด" อัตโนมัติ)
       return { ...c, business_hours: hours };
     });
   }
@@ -518,26 +542,37 @@ export default function BookingPage() {
               </div>
 
               <div className="bg-white rounded-2xl border p-5">
-                <h2 className="font-bold text-sm text-gray-900 mb-4">🕐 เวลาเปิด-ปิดรับจอง</h2>
+                <h2 className="font-bold text-sm text-gray-900 mb-1">🕐 เวลาเปิด-ปิดรับจอง</h2>
+                <p className="text-xs text-gray-400 mb-4">เพิ่มได้หลายช่วงต่อวัน เช่น ร้านเปิดครึ่งเช้า 08:00-12:00 ปิดพักเที่ยง แล้วเปิดครึ่งบ่าย 13:00-16:00 อีกที</p>
                 <div className="space-y-2.5">
                   {DAYS.map(([key, label]) => {
-                    const range = config.business_hours?.[key]?.[0];
-                    const open = !!range;
+                    const ranges = config.business_hours?.[key] || [];
+                    const open = ranges.length > 0;
                     return (
-                      <div key={key} className="flex items-center gap-2.5">
-                        <label className="flex items-center gap-2 w-24 shrink-0 cursor-pointer">
+                      <div key={key} className="flex items-start gap-2.5">
+                        <label className="flex items-center gap-2 w-24 shrink-0 cursor-pointer pt-1.5">
                           <input type="checkbox" checked={open} onChange={e => setDayOpen(key, e.target.checked)} className="w-4 h-4" />
                           <span className="text-sm text-gray-700">{label}</span>
                         </label>
                         {open ? (
-                          <div className="flex items-center gap-1.5 text-sm">
-                            <input type="time" value={range.start} onChange={e => setDayTime(key, 'start', e.target.value)}
-                              className="border rounded-lg px-2 py-1 text-xs" />
-                            <span className="text-gray-400">-</span>
-                            <input type="time" value={range.end} onChange={e => setDayTime(key, 'end', e.target.value)}
-                              className="border rounded-lg px-2 py-1 text-xs" />
+                          <div className="flex-1 space-y-1.5">
+                            {ranges.map((range, idx) => (
+                              <div key={idx} className="flex items-center gap-1.5 text-sm">
+                                <input type="time" value={range.start} onChange={e => setRangeTime(key, idx, 'start', e.target.value)}
+                                  className="border rounded-lg px-2 py-1 text-xs" />
+                                <span className="text-gray-400">-</span>
+                                <input type="time" value={range.end} onChange={e => setRangeTime(key, idx, 'end', e.target.value)}
+                                  className="border rounded-lg px-2 py-1 text-xs" />
+                                {ranges.length > 1 && (
+                                  <button type="button" onClick={() => removeRange(key, idx)}
+                                    className="text-gray-400 hover:text-red-500 text-xs px-1.5" title="ลบช่วงเวลานี้">✕</button>
+                                )}
+                              </div>
+                            ))}
+                            <button type="button" onClick={() => addRange(key)}
+                              className="text-[11px] text-blue-600 hover:text-blue-700 font-medium">+ เพิ่มช่วงเวลา</button>
                           </div>
-                        ) : <span className="text-xs text-gray-400">ปิด</span>}
+                        ) : <span className="text-xs text-gray-400 pt-1.5">ปิด</span>}
                       </div>
                     );
                   })}
