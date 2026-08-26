@@ -26,6 +26,37 @@ function shiftDateStr(dateStr, deltaDays) {
   const dd = new Date(Date.UTC(y, m - 1, d + deltaDays));
   return `${dd.getUTCFullYear()}-${String(dd.getUTCMonth() + 1).padStart(2, '0')}-${String(dd.getUTCDate()).padStart(2, '0')}`;
 }
+// วันที่ (Bangkok) ของ timestamptz ดิบ — ใช้จัดกลุ่มรายการจองเข้าช่องปฏิทินแต่ละวันให้ถูกต้อง
+// (start_at เป็น UTC เสมอ ถ้าใช้ .getDate() ตรงๆ จะเพี้ยนได้ช่วงใกล้เที่ยงคืน)
+function bangkokDateKey(iso) {
+  const d = new Date(new Date(iso).getTime() + 7 * 3600 * 1000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+function todayBangkokMonthStr() { return todayBangkokStr().slice(0, 7); }
+function shiftMonthStr(monthStr, delta) {
+  const [y, m] = monthStr.split('-').map(Number);
+  const total = y * 12 + (m - 1) + delta;
+  return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, '0')}`;
+}
+const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+function monthLabelTh(monthStr) {
+  const [y, m] = monthStr.split('-').map(Number);
+  return `${THAI_MONTHS[m - 1]} ${y + 543}`;
+}
+// สร้าง grid ของเดือนนั้น (จันทร์เป็นวันแรกของสัปดาห์ ตรงกับลำดับ DAYS/business_hours ที่ใช้ทั้งระบบ)
+// คืน array ของ {dateStr, dayNum} หรือ null (ช่องเปล่านำหน้า/ตามหลังให้ grid ครบสี่เหลี่ยม)
+function buildMonthGrid(monthStr) {
+  const [y, m] = monthStr.split('-').map(Number);
+  const firstWeekday = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 6) % 7; // 0=จันทร์
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const cells = [];
+  for (let i = 0; i < firstWeekday; i++) cells.push(null);
+  for (let day = 1; day <= daysInMonth; day++) {
+    cells.push({ dateStr: `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`, dayNum: day });
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
 
 const STATUS_META = {
   pending:   { label: '🕐 รอยืนยัน',  cls: 'bg-amber-50 text-amber-700 border-amber-200' },
@@ -77,11 +108,14 @@ export default function BookingPage() {
   const [newProviderBranch, setNewProviderBranch] = useState('');
   const [savingProvider, setSavingProvider] = useState(false);
 
-  // ── ปฏิทิน/จัดการคิว (Phase 4) ──
-  const [calendarView, setCalendarView] = useState('day'); // day | mismatch
+  // ── ปฏิทิน/จัดการคิว (Phase 4 + ปฏิทินตาราง) ──
+  const [calendarView, setCalendarView] = useState('month'); // month | day | mismatch — เข้ามาเจอภาพรวมทั้งเดือนก่อนเสมอ
   const [calendarDate, setCalendarDate] = useState(todayBangkokStr());
+  const [calendarMonth, setCalendarMonth] = useState(todayBangkokMonthStr());
   const [reservations, setReservations] = useState([]);
   const [reservationsLoading, setReservationsLoading] = useState(false);
+  const [monthReservations, setMonthReservations] = useState([]);
+  const [monthLoading, setMonthLoading] = useState(false);
   const [actingBookingNo, setActingBookingNo] = useState(null);
 
   function authHeaders() {
@@ -332,7 +366,25 @@ export default function BookingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shopId, configured, calendarView, calendarDate]);
 
-  useEffect(() => { if (tab === 'calendar') loadReservations(); }, [tab, loadReservations]);
+  useEffect(() => { if (tab === 'calendar' && calendarView !== 'month') loadReservations(); }, [tab, calendarView, loadReservations]);
+
+  // ── โหลดปฏิทินตาราง (ทั้งเดือน) ──
+  const loadMonthReservations = useCallback(async () => {
+    if (!shopId || !configured) return;
+    setMonthLoading(true);
+    const r = await fetch(`/api/booking/reservations?shopId=${shopId}&month=${calendarMonth}`, { headers: authHeaders() })
+      .then(r => r.json()).catch(() => ({}));
+    setMonthReservations(r.reservations || []);
+    setMonthLoading(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shopId, configured, calendarMonth]);
+
+  useEffect(() => { if (tab === 'calendar' && calendarView === 'month') loadMonthReservations(); }, [tab, calendarView, loadMonthReservations]);
+
+  function goToDay(dateStr) {
+    setCalendarDate(dateStr);
+    setCalendarView('day');
+  }
 
   const ACTION_LABEL = { confirm: '✅ ยืนยันแล้ว', cancel: '❌ ยกเลิกแล้ว', no_show: '🚫 บันทึกเบี้ยวนัดแล้ว', complete: '🏁 บันทึกเสร็จสิ้นแล้ว' };
   const ACTION_CONFIRM_MSG = {
@@ -426,10 +478,16 @@ export default function BookingPage() {
 
         <div className="flex-1 max-w-2xl mx-auto w-full p-4 pb-16">
 
-          {/* ═══ ปฏิทิน/จัดการคิว (Phase 4) ═══ */}
+          {/* ═══ ปฏิทิน/จัดการคิว (Phase 4 + ปฏิทินตาราง) ═══ */}
           {tab === 'calendar' && (
             <div className="space-y-4">
               <div className="flex gap-2">
+                <button onClick={() => setCalendarView('month')}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-colors ${
+                    calendarView === 'month' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-200 text-gray-600'
+                  }`}>
+                  🗓️ เดือน
+                </button>
                 <button onClick={() => setCalendarView('day')}
                   className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-colors ${
                     calendarView === 'day' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-200 text-gray-600'
@@ -444,8 +502,19 @@ export default function BookingPage() {
                 </button>
               </div>
 
+              {calendarView === 'month' && (
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setCalendarMonth(m => shiftMonthStr(m, -1))} className="w-9 h-9 rounded-xl bg-white border border-gray-200 text-gray-500 flex items-center justify-center shrink-0">‹</button>
+                  <div className="flex-1 text-center font-bold text-sm text-gray-900 bg-white border border-gray-200 rounded-xl py-2">{monthLabelTh(calendarMonth)}</div>
+                  <button onClick={() => setCalendarMonth(m => shiftMonthStr(m, 1))} className="w-9 h-9 rounded-xl bg-white border border-gray-200 text-gray-500 flex items-center justify-center shrink-0">›</button>
+                  <button onClick={() => setCalendarMonth(todayBangkokMonthStr())} className="shrink-0 text-xs font-bold text-blue-600 px-2">เดือนนี้</button>
+                </div>
+              )}
+
               {calendarView === 'day' && (
                 <div className="flex items-center gap-2">
+                  <button onClick={() => { setCalendarMonth(calendarDate.slice(0, 7)); setCalendarView('month'); }}
+                    className="w-9 h-9 rounded-xl bg-white border border-gray-200 text-gray-500 flex items-center justify-center shrink-0" title="กลับไปมุมมองเดือน">🗓️</button>
                   <button onClick={() => setCalendarDate(d => shiftDateStr(d, -1))} className="w-9 h-9 rounded-xl bg-white border border-gray-200 text-gray-500 flex items-center justify-center shrink-0">‹</button>
                   <input type="date" value={calendarDate} onChange={e => setCalendarDate(e.target.value)}
                     className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" />
@@ -454,7 +523,54 @@ export default function BookingPage() {
                 </div>
               )}
 
-              {reservationsLoading ? (
+              {calendarView === 'month' && (
+                monthLoading ? (
+                  <p className="text-center text-gray-400 text-sm py-10">กำลังโหลด...</p>
+                ) : (() => {
+                  const grid = buildMonthGrid(calendarMonth);
+                  const byDay = {};
+                  for (const res of monthReservations) {
+                    const key = bangkokDateKey(res.start_at);
+                    (byDay[key] = byDay[key] || []).push(res);
+                  }
+                  const today = todayBangkokStr();
+                  return (
+                    <div className="bg-white rounded-2xl border p-3">
+                      <div className="grid grid-cols-7 gap-1 mb-1.5">
+                        {DAYS.map(([key, label]) => (
+                          <div key={key} className="text-center text-[10px] font-bold text-gray-400 py-1">{label.slice(0, 2)}</div>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-7 gap-1">
+                        {grid.map((cell, i) => {
+                          if (!cell) return <div key={i} />;
+                          const dayRes = byDay[cell.dateStr] || [];
+                          const activeCount = dayRes.filter(r => !['cancelled', 'no_show'].includes(r.status)).length;
+                          const hasMismatch = dayRes.some(r => r.deposit_status === 'mismatch');
+                          const isToday = cell.dateStr === today;
+                          return (
+                            <button key={i} onClick={() => goToDay(cell.dateStr)}
+                              className={`aspect-square rounded-xl border flex flex-col items-center justify-center gap-0.5 transition-colors relative ${
+                                isToday ? 'border-blue-500 bg-blue-50' : 'border-gray-100 hover:bg-gray-50'
+                              }`}>
+                              <span className={`text-xs ${isToday ? 'font-bold text-blue-700' : 'text-gray-700'}`}>{cell.dayNum}</span>
+                              {activeCount > 0 && (
+                                <span className="text-[10px] font-bold bg-blue-600 text-white rounded-full min-w-[16px] px-1 leading-4">{activeCount}</span>
+                              )}
+                              {hasMismatch && <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-red-500" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-[11px] text-gray-400 mt-3">
+                        ตัวเลข = จำนวนรายการจอง (ไม่รวมที่ยกเลิก/เบี้ยวนัด) · <span className="text-red-500">●</span> = มีรายการรอตรวจสอบมัดจำ · แตะวันที่เพื่อดูรายละเอียด
+                      </p>
+                    </div>
+                  );
+                })()
+              )}
+
+              {calendarView !== 'month' && (reservationsLoading ? (
                 <p className="text-center text-gray-400 text-sm py-10">กำลังโหลด...</p>
               ) : !reservations.length ? (
                 <p className="text-center text-gray-400 text-sm py-10">
@@ -517,7 +633,7 @@ export default function BookingPage() {
                     );
                   })}
                 </div>
-              )}
+              ))}
             </div>
           )}
 

@@ -1,9 +1,12 @@
 /**
- * GET   /api/booking/reservations?shopId&date=YYYY-MM-DD | depositStatus=mismatch — เจ้าของ/แอดมิน
+ * GET   /api/booking/reservations?shopId&date=YYYY-MM-DD | month=YYYY-MM | depositStatus=mismatch — เจ้าของ/แอดมิน
  *   date  → รายการทั้งวัน (ทุกสถานะ) เรียงตามเวลานัด — ใช้กับมุมมองปฏิทินรายวัน
+ *   month → รายการทั้งเดือน (ทุกสถานะ) เรียงตามเวลานัด — ใช้กับมุมมองปฏิทินตาราง (คำนวณจำนวน
+ *           รายการต่อวันฝั่งเว็บเองจากผลลัพธ์นี้ ไม่มีตารางสรุปแยกเก็บไว้ล่วงหน้า — pattern เดียวกับ
+ *           ทุก report ในระบบที่คำนวณสดเสมอ ไม่ cache)
  *   depositStatus → รายการข้ามวันที่ที่ deposit_status ตรงกับที่ระบุ (ไม่กรองวัน) — ใช้กับคิว
  *                    "รอตรวจสอบมัดจำ" (deposit_status='mismatch') ที่ Phase 3 ทิ้งไว้ให้แอดมินตรวจ
- *   ระบุทั้งคู่ได้ (AND) แต่ปกติฝั่งเว็บจะเรียกแยกกันตามมุมมองที่ใช้อยู่
+ *   ระบุได้หลายตัวพร้อมกัน (AND) แต่ปกติฝั่งเว็บจะเรียกแยกกันตามมุมมองที่ใช้อยู่
  * PATCH /api/booking/reservations { shopId, booking_no, action } — เจ้าของ/แอดมิน
  *   action: 'confirm' | 'cancel' | 'no_show' | 'complete'
  *   - confirm: pending → confirmed (ยืนยันมือ — ใช้กับบริการไม่มัดจำ หรือ mismatch ที่ตรวจสลิปเองแล้ว
@@ -30,7 +33,7 @@ export default async function handler(req, res) {
   if (!requireOwnerAuth(req, res, shopId, { enforce: true })) return;
 
   if (req.method === 'GET') {
-    const { date, depositStatus } = req.query;
+    const { date, month, depositStatus } = req.query;
     let query = supabase.from('booking_reservations').select('*').eq('shop_id', shopId);
 
     if (date) {
@@ -40,8 +43,18 @@ export default async function handler(req, res) {
       const dayEnd = new Date(dayStart.getTime() + 24 * 3600 * 1000);
       query = query.gte('start_at', dayStart.toISOString()).lt('start_at', dayEnd.toISOString());
     }
+    if (month) {
+      const mm = /^(\d{4})-(\d{2})$/.exec(String(month));
+      if (!mm) return res.status(400).json({ error: 'รูปแบบเดือนไม่ถูกต้อง' });
+      const y = parseInt(mm[1], 10), mo = parseInt(mm[2], 10);
+      const monthStart = bangkokMidnightUTC(y, mo, 1);
+      const nextY = mo === 12 ? y + 1 : y;
+      const nextMo = mo === 12 ? 1 : mo + 1;
+      const monthEnd = bangkokMidnightUTC(nextY, nextMo, 1);
+      query = query.gte('start_at', monthStart.toISOString()).lt('start_at', monthEnd.toISOString());
+    }
     if (depositStatus) query = query.eq('deposit_status', depositStatus);
-    if (!date && !depositStatus) {
+    if (!date && !month && !depositStatus) {
       // ไม่ระบุตัวกรองเลย — จำกัดไว้แค่ตั้งแต่วันนี้เป็นต้นไป กันดึงประวัติทั้งหมดมาทีเดียวถ้าเผลอลืมใส่ตัวกรอง
       const t = bangkokTodayParts();
       query = query.gte('start_at', bangkokMidnightUTC(t.year, t.month, t.day).toISOString());
