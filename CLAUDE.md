@@ -1325,6 +1325,12 @@ Smile Slip Pro คือ B2B SaaS **ครบวงจร**สำหรับร
     - **ทดสอบยิงจริงกับ dev server ครบ 8 assertions ด้วยข้อมูลจริงของ D Gas:** login ด้วยรหัสที่รีเซ็ต→200, รหัสผิด→401, set-password ไม่มี owner-session→401, currentPassword ผิด→401, currentPassword ถูก→200 สำเร็จ, รหัสเก่าใช้ไม่ได้อีกหลังเปลี่ยน→401, รหัสใหม่ใช้ได้→200, `shop/data` ไม่รั่ว `password_hash` ออกไปเลย
     - **Deploy production แล้ว (2026-08-26)** — revision จริง `smileslip-dashboard-00369-tcl` — deploy แบบ `--no-traffic` ก่อน แล้ว `--set-tags=candidate=...` เอง (CLI สร้าง candidate URL ให้อัตโนมัติตอน deploy รอบนี้ แต่ยัง set tag explicit อีกรอบเพื่อความชัวร์ตามธรรมเนียม) → **verified ผ่าน candidate URL ด้วยข้อมูลจริงของ D Gas ก่อน cutover** (login ด้วยรหัสจริง→200, `shop/data` ไม่รั่ว hash+มี `has_password:true` ถูกต้อง, ทดสอบ change→revert กลับผ่าน candidate จริงแล้วยืนยัน login ด้วยรหัสเดิมยังผ่าน) แล้ว cutover 100% สำเร็จ + verified ซ้ำผ่าน URL หลักของ production (`smileslippro.com`)
 
+110. **เพิ่มปุ่ม "ลบร้านค้า" จริงในหน้าตั้งค่า — ผู้ใช้ถามระหว่างกรอกฟอร์ม Data Safety ของ Play Console (item 109) ว่า "ปุ่มลบบัญชีของเราอยู่ตรงไหน" เพราะเพิ่งบอกไปว่าใช้ `/privacy` เป็นลิงก์ลบบัญชี:**
+    - **พบช่องว่างจริง:** `privacy.js` เขียนไว้ว่ากด "ลบร้าน" ผ่าน "เมนูตั้งค่า" ได้ — แต่ grep `dashboard.js` ไม่เจอ `delete-shop`/`ลบร้าน`/`Trash2` เลยสักจุด — ทางเดียวที่มีจริงคือย้อนกลับไปหน้า `/register` ตอนมีบัญชีอยู่แล้ว (หน้า "พบข้อมูลร้านเดิม" จาก item 44 Phase 2 — เข้าถึงได้แค่ทางนี้ทางเดียว ซ่อนมาก ไม่มีทางเจอเองถ้าไม่รู้มาก่อน) — คำอธิบายใน privacy.js ไม่ตรงกับความจริง
+    - **แก้:** เพิ่มการ์ด "🗑️ ลบร้านค้า" (พื้นแดง, เขตอันตราย) เป็นการ์ดสุดท้ายในแท็บตั้งค่าของ `dashboard.js` — เรียก `DELETE /api/shop/delete-shop` เดิม (soft-delete, เก็บ 6 เดือน, ไม่ต้องแก้ backend เลย) ด้วย payload เดียวกับที่ `register.js` ใช้อยู่แล้ว (`shopId`, `lineUserId: shopInfo.owner_line_id`, `confirmShopName`) — บังคับพิมพ์ชื่อร้านให้ตรงเป๊ะก่อนลบ (mirror UX ของ register.js) — ลบสำเร็จแล้ว redirect ไป `/logout`
+    - **ทดสอบยิงจริงกับ dev server ด้วยร้านทดสอบทิ้งได้** (สร้าง+ลบเองใน `shop_profiles` ตรง ไม่แตะ D Gas เพราะ endpoint นี้ทำลายล้างจริง แม้จะ soft-delete ก็ตาม) — ยิง payload รูปแบบเดียวกับปุ่มใหม่ส่งจริง → 200 สำเร็จ, `deleted_at` ถูกตั้งจริง — cleanup ร้านทดสอบสะอาดหลังทดสอบ
+    - **Deploy production แล้ว (2026-08-26)** — revision จริง `smileslip-dashboard-00370-8xf` — verified ผ่าน candidate URL (`/api/shop/delete-shop` GET→405 ยืนยัน route มีจริง, `/api/shop/data`→404 ปกติ) ก่อน cutover 100% สำเร็จ
+
 ## Tech Stack
 
 ### Bot (`smileslip-pro/`)
