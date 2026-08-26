@@ -15,9 +15,22 @@
  */
 
 import groovy.xml.MarkupBuilder
+import java.util.Properties
 
 plugins {
     id 'com.android.application'
+}
+
+// เดิม build.gradle ไฟล์นี้ (สร้างจาก bubblewrap-cli) ไม่เคยมี signingConfigs เลย —
+// bubblewrap ตั้งใจให้เซ็นลายเซ็นแยกทีหลังด้วยมือผ่าน zipalign+apksigner (ใช้ได้กับ .apk
+// เท่านั้น) ทำให้ `gradlew bundleRelease` ที่รันตรงๆ (ไม่ผ่าน `bubblewrap build`) ได้ไฟล์
+// .aab ที่ "signReleaseBundle" รันผ่านแต่ไม่มีลายเซ็นจริงติดไปด้วยเลย (apksigner เซ็น .aab
+// ไม่ได้ ต้องเป็น jar-signing ผ่าน keystore ตรงๆ) — เพิ่ม signingConfigs อ่านรหัสผ่านจาก
+// keystore.properties (gitignored, ห้าม commit) แทนการฝังรหัสผ่านลงไฟล์นี้ตรงๆ
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystoreProps.load(new FileInputStream(keystorePropsFile))
 }
 
 def twaManifest = [
@@ -150,6 +163,16 @@ android {
 
         
     }
+    signingConfigs {
+        release {
+            if (keystorePropsFile.exists()) {
+                storeFile rootProject.file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
     buildTypes {
         release {
             // ปิด R8 minification — โค้ด Java/Kotlin ของ TWA เองมีน้อยมาก (แค่เปลือกเปิด
@@ -157,6 +180,9 @@ android {
             // R8 บนเครื่องนี้พังเพราะ path ของ JDK มีช่องว่าง ("C:\Program Files\...")
             // ทำให้ argfile ที่ AGP เขียนพัง (Windows-only AGP/R8 bug ที่รู้จักกันอยู่แล้ว)
             minifyEnabled false
+            if (keystorePropsFile.exists()) {
+                signingConfig signingConfigs.release
+            }
         }
     }
     compileOptions {
