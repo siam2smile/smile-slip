@@ -49,6 +49,10 @@ async function notifyOwnerNewBooking(shop, shopId, booking) {
   }
 }
 
+function normalizePhone(p) {
+  return String(p || '').replace(/\D/g, '');
+}
+
 // กันสแปม/ยิงรัวจากหน้าเว็บสาธารณะ — pattern เดียวกับ customer-orders.js เป๊ะ
 const attempts = new Map(); // `${shopId}:${ip}` -> { count, windowStart }
 const MAX_PER_WINDOW = 10;
@@ -119,6 +123,22 @@ export default async function handler(req, res) {
     const stillAvailable = (slots || []).some(s => new Date(s.start_at).getTime() === requestedMs);
     if (!stillAvailable) return res.status(409).json({ error: 'ช่วงเวลานี้เพิ่งถูกจองไปหรือไม่ว่างแล้ว กรุณาเลือกเวลาอื่น' });
 
+    // จำ LINE ID ของลูกค้าเดิมด้วยเบอร์โทร (normalize ตัดขีด/วรรคออกก่อนเทียบ) — กันต้องกดปุ่ม
+    // "เชื่อมต่อไลน์" ซ้ำทุกครั้งที่จองใหม่ ถ้าเคยเชื่อมไว้แล้วครั้งก่อนด้วยเบอร์เดียวกัน — ไม่สนใจ
+    // สถานะของการจองเก่า (แม้ยกเลิก/เบี้ยวนัด ไลน์ไอดีที่เคยผูกไว้ก็ยังใช้ได้จริงเหมือนเดิม เพราะ
+    // LINE Login ยืนยันตัวตนไปแล้วตอนนั้น ไม่ได้ผูกกับผลลัพธ์ของการจองครั้งนั้น)
+    let finalLineId = customer_line_id ? String(customer_line_id).trim() : '';
+    if (!finalLineId) {
+      const normPhone = normalizePhone(customer_phone);
+      if (normPhone) {
+        const { data: pastLinked } = await supabase.from('booking_reservations')
+          .select('customer_phone, customer_line_id').eq('shop_id', shopId)
+          .not('customer_line_id', 'is', null).order('created_at', { ascending: false }).limit(300);
+        const match = (pastLinked || []).find(r => normalizePhone(r.customer_phone) === normPhone);
+        if (match) finalLineId = match.customer_line_id;
+      }
+    }
+
     const endAt = new Date(requestedMs + service.duration_minutes * 60000);
     const depositAmount = computeDepositAmount(service);
     const booking_no = makeBookingNo();
@@ -128,7 +148,7 @@ export default async function handler(req, res) {
       service_id: service.id, service_name: service.name,
       provider_id: provider?.id || null, provider_name: provider?.name || null,
       customer_name: String(customer_name).trim(), customer_phone: String(customer_phone).trim(),
-      customer_line_id: customer_line_id || null,
+      customer_line_id: finalLineId || null,
       branch_name: service.branch_name || null,
       start_at: requestedDate.toISOString(), end_at: endAt.toISOString(),
       price: service.price, deposit_required_amount: depositAmount,
@@ -152,6 +172,7 @@ export default async function handler(req, res) {
       cancellation_policy_text: config.cancellation_policy_text,
       no_show_refund_pct: config.no_show_refund_pct,
       cancellation_tiers: config.cancellation_tiers,
+      line_linked: !!finalLineId,
     });
   } catch (err) {
     console.error('[booking/reserve]', err.message);

@@ -443,16 +443,29 @@ export default function BookingRequestPage() {
               )}
 
               {info.line_reminder_enabled !== false && (
-                <div className="bg-green-50 border border-green-200 rounded-2xl p-4 text-left space-y-2">
-                  <div className="text-green-700 font-bold text-sm">🔔 รับการแจ้งเตือนก่อนถึงนัด</div>
-                  <p className="text-green-600 text-xs">
-                    เชื่อมต่อไลน์เพื่อให้ระบบแจ้งเตือนคุณล่วงหน้าก่อนถึงเวลานัด — ไม่บังคับ แต่แนะนำ
-                  </p>
-                  <a href={`/api/auth/line?intent=booking_link&shopId=${shopId}&bookingNo=${encodeURIComponent(doneInfo.booking_no)}`}
-                    className="block w-full text-center bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 rounded-xl text-sm transition-colors">
-                    🔗 เชื่อมต่อไลน์เพื่อรับการแจ้งเตือน
-                  </a>
-                </div>
+                doneInfo.line_linked ? (
+                  <div className="bg-green-50 border border-green-200 rounded-2xl p-4 text-left space-y-2">
+                    <div className="text-green-700 font-bold text-sm">🔔 พบว่าเคยเชื่อมต่อไลน์ไว้แล้ว</div>
+                    <p className="text-green-600 text-xs">
+                      ระบบจดจำไลน์ของคุณจากเบอร์โทรเดิมให้อัตโนมัติ — ถ้ายังไม่เคยเพิ่มเพื่อนไลน์ร้าน กดปุ่มด้านล่างเพื่อให้แจ้งเตือนถึงคุณได้จริง
+                    </p>
+                    <a href="https://lin.ee/wdnoEN5" target="_blank" rel="noreferrer"
+                      className="block w-full text-center bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 rounded-xl text-sm transition-colors">
+                      💬 เพิ่มเพื่อนไลน์ Smile Slip
+                    </a>
+                  </div>
+                ) : (
+                  <div className="bg-green-50 border border-green-200 rounded-2xl p-4 text-left space-y-2">
+                    <div className="text-green-700 font-bold text-sm">🔔 รับการแจ้งเตือนก่อนถึงนัด</div>
+                    <p className="text-green-600 text-xs">
+                      เชื่อมต่อไลน์เพื่อให้ระบบแจ้งเตือนคุณล่วงหน้าก่อนถึงเวลานัด — ไม่บังคับ แต่แนะนำ (จองครั้งต่อไปด้วยเบอร์เดิม ระบบจะจำให้อัตโนมัติ ไม่ต้องกดซ้ำ)
+                    </p>
+                    <a href={`/api/auth/line?intent=booking_link&shopId=${shopId}&bookingNo=${encodeURIComponent(doneInfo.booking_no)}`}
+                      className="block w-full text-center bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 rounded-xl text-sm transition-colors">
+                      🔗 เชื่อมต่อไลน์เพื่อรับการแจ้งเตือน
+                    </a>
+                  </div>
+                )
               )}
             </div>
           )}
