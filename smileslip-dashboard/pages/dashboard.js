@@ -79,6 +79,10 @@ export default function Dashboard() {
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [savingPassword, setSavingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
+  const [showDeleteShop, setShowDeleteShop] = useState(false);
+  const [deleteShopConfirmText, setDeleteShopConfirmText] = useState('');
+  const [deletingShop, setDeletingShop] = useState(false);
+  const [deleteShopError, setDeleteShopError] = useState('');
 
   // Sidebar
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -640,6 +644,31 @@ export default function Dashboard() {
       alert('ตั้งรหัสผ่านสำเร็จ ใช้เข้าสู่ระบบผ่าน "เข้าสู่ระบบด้วยอีเมล" ได้แล้ว');
     } catch { setPasswordError('เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง'); }
     finally { setSavingPassword(false); }
+  };
+
+  // ลบร้านค้าถาวร (soft-delete 6 เดือนก่อนล้างจริง — ดู lib/shop-deletion.js) — เดิม endpoint นี้
+  // (DELETE /api/shop/delete-shop) เข้าถึงได้ทางเดียวคือย้อนกลับไปหน้า /register ตอนมีบัญชีอยู่แล้ว
+  // (ซ่อนมาก ไม่มีใครเจอเอง) ทั้งที่ privacy.js บอกไว้ว่า "กด 'ลบร้าน' ผ่านเมนูตั้งค่า" — เพิ่มปุ่มจริง
+  // ในหน้าตั้งค่าให้ตรงกับที่สัญญาไว้
+  const handleDeleteShop = async () => {
+    setDeleteShopError('');
+    if (deleteShopConfirmText.trim() !== (shopInfo?.shop_name || '').trim()) {
+      setDeleteShopError('ชื่อร้านที่พิมพ์ไม่ตรงกับชื่อร้านจริง กรุณาตรวจสอบอีกครั้ง');
+      return;
+    }
+    setDeletingShop(true);
+    try {
+      const res = await fetch('/api/shop/delete-shop', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopId: shopInfo.id, lineUserId: shopInfo.owner_line_id, confirmShopName: deleteShopConfirmText.trim() }),
+      });
+      const data = await res.json();
+      if (data.error) { setDeleteShopError(data.error); return; }
+      alert(`ลบร้านสำเร็จ ระบบจะเก็บข้อมูลไว้อีก ${data.retentionMonths || 6} เดือนก่อนลบถาวร ถ้าเปลี่ยนใจสามารถเข้าสู่ระบบด้วย LINE บัญชีเดิมแล้วเลือก "กู้คืนข้อมูล" ได้ภายในระยะเวลานี้`);
+      router.push('/logout');
+    } catch { setDeleteShopError('เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง'); }
+    finally { setDeletingShop(false); }
   };
 
   const fetchTransactions = async (shopId, year, month) => {
@@ -3802,6 +3831,45 @@ export default function Dashboard() {
                       )}
                     </div>
                   )}
+
+                  {/* เขตอันตราย — ลบร้านค้า (soft-delete, เก็บไว้ 6 เดือนก่อนล้างถาวร) */}
+                  <div className="bg-red-50 p-6 rounded-2xl border-2 border-red-200">
+                    <h3 className="text-sm font-bold text-red-700 flex items-center gap-2 mb-2">
+                      <Trash2 size={16}/> ลบร้านค้า
+                    </h3>
+                    {!showDeleteShop ? (
+                      <>
+                        <p className="text-xs text-red-600/80 mb-4">
+                          ยกเลิกการสมัครสมาชิก/หยุดเรียกเก็บเงินทันที และปิดการเข้าถึงร้านนี้ทันที —
+                          ระบบจะเก็บข้อมูลไว้ต่ออีก 6 เดือนก่อนลบถาวร (กู้คืนได้ในช่วงนี้ถ้าเข้าสู่ระบบด้วย LINE บัญชีเดิมอีกครั้ง)
+                        </p>
+                        <button onClick={() => { setShowDeleteShop(true); setDeleteShopError(''); setDeleteShopConfirmText(''); }}
+                          className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-all">
+                          ลบร้านค้านี้
+                        </button>
+                      </>
+                    ) : (
+                      <div className="space-y-3 max-w-sm">
+                        {deleteShopError && (
+                          <div className="bg-white border border-red-300 text-red-600 text-xs font-bold px-3 py-2.5 rounded-xl">{deleteShopError}</div>
+                        )}
+                        <p className="text-xs text-red-700 font-medium">
+                          พิมพ์ชื่อร้าน "<strong>{shopInfo?.shop_name}</strong>" ให้ตรงเป๊ะเพื่อยืนยันการลบ
+                        </p>
+                        <input value={deleteShopConfirmText} onChange={e => setDeleteShopConfirmText(e.target.value)}
+                          placeholder={shopInfo?.shop_name}
+                          className="w-full border-2 border-red-300 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-red-500 transition-colors bg-white"/>
+                        <div className="flex gap-2 pt-1">
+                          <button onClick={() => { setShowDeleteShop(false); setDeleteShopConfirmText(''); setDeleteShopError(''); }}
+                            className="px-3 py-1.5 text-xs font-medium text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all">ยกเลิก</button>
+                          <button onClick={handleDeleteShop} disabled={deletingShop || !deleteShopConfirmText.trim()}
+                            className="px-3 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-all disabled:opacity-50">
+                            {deletingShop ? 'กำลังลบ...' : 'ยืนยันลบร้านค้านี้ถาวร'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
