@@ -111,6 +111,19 @@ async function isRecentDuplicateImage(hash, shopId) {
   imageHashCache.set(cacheKey, now);
   return false;
 }
+// ลบเครื่องหมาย "เคยส่งแล้ว" ออก — เรียกเฉพาะตอนประมวลผลรูปนี้ล้มเหลว (429/OCR error/ฯลฯ) หลังจากที่
+// isRecentDuplicateImage() ทำเครื่องหมายไว้แล้วตั้งแต่ก่อน OCR เริ่ม (มาร์คไว้ก่อนเพื่อกัน race
+// condition ถ้ารูปเดียวกันมาซ้อนกันจริงๆ) — ถ้าไม่ลบออกตอน error ผู้ใช้จะส่งรูปเดิมซ้ำไม่ได้เลย
+// ทั้งที่ไม่เคยถูกบันทึกจริงสักครั้ง (เจอบั๊กจริง: ผู้ใช้โดน 429 ตอน OCR แล้วส่งรูปเดิมซ้ำ ได้รับ
+// "สลิปนี้เคยถูกส่งมาแล้ว" ทั้งที่ไม่มีข้อมูลถูกบันทึกเลย)
+async function deleteImageHashGuard(hash, shopId) {
+  if (redis) {
+    try { await redis.del(`img:${shopId}:${hash}`); return; } catch (e) {
+      console.warn('[Redis] deleteImageHashGuard error:', e.message, '— fallback in-memory');
+    }
+  }
+  imageHashCache.delete(`${shopId}:${hash}`);
+}
 
 // Awaiting-receive-photo guard: ผู้ใช้พิมพ์ #รับสินค้า แล้วรอส่งรูปใบส่งของถัดไป (TTL 10 นาที)
 // Redis: SET EX ธรรมดา (ไม่ใช่ NX เพราะต้อง "อ่านค่าคืน" ตอน consume ไม่ใช่แค่เช็คว่ามีอยู่หรือไม่)
@@ -1866,6 +1879,9 @@ app.post('/webhook', async (req, res) => {
     }
 
     if (event.type === 'message' && event.message.type === 'image') {
+      // ประกาศไว้นอก try เพื่อให้ catch ท้ายบล็อกนี้เข้าถึงได้ (กันบั๊ก "ส่งรูปเดิมซ้ำไม่ได้"
+      // ถ้าประมวลผลล้มเหลวหลังมาร์คว่าเคยส่งแล้ว — ดู deleteImageHashGuard())
+      let imageHash = null, imageHashShopId = null;
       try {
         const sourceId = event.source.groupId || event.source.userId;
         console.log(`\n===================================================================`);
@@ -2032,7 +2048,8 @@ app.post('/webhook', async (req, res) => {
         // STEP 3: ดาวน์โหลดรูปภาพ + ตรวจสอบสลิปซ้ำชั้น 1 (image hash, in-memory)
         const imageBuffer = await getLineImage(event.message.id);
         const quoteToken = event.message.quoteToken || null;
-        const imageHash = getImageHash(imageBuffer);
+        imageHash = getImageHash(imageBuffer);
+        imageHashShopId = shop.id;
 
         if (await isRecentDuplicateImage(imageHash, shop.id)) {
           console.log(`[LOG] ♻️ [Duplicate] พบสลิปซ้ำ (${redis ? 'Redis' : 'in-memory'}) shop: ${shop.shop_name}`);
@@ -2240,6 +2257,11 @@ app.post('/webhook', async (req, res) => {
 
       } catch (error) {
         reportError(error, { handler: 'webhook-image', sourceId: event.source?.groupId || event.source?.userId });
+        // ประมวลผลล้มเหลวหลังมาร์คว่า "เคยส่งแล้ว" ไปแล้ว (STEP 3) — ต้องลบเครื่องหมายออก ไม่งั้น
+        // ผู้ใช้ส่งรูปเดิมซ้ำเพื่อลองใหม่ไม่ได้เลย ทั้งที่ไม่มีข้อมูลถูกบันทึกจริงสักครั้ง
+        if (imageHash && imageHashShopId) {
+          deleteImageHashGuard(imageHash, imageHashShopId).catch(() => {});
+        }
         try { await replyToLine(replyToken, [{ type: "text", text: `❌ ไม่สามารถตรวจสอบสลิปได้: ${error.message}` }]); } catch(e) {}
       }
     }
