@@ -921,22 +921,25 @@ async function replyToLine(replyToken, messages) {
   await axios.post('https://api.line.me/v2/bot/message/reply', { replyToken, messages }, LINE_HEADER);
 }
 
-// Retry wrapper สำหรับ Gemini — กัน 503 overload ด้วย exponential backoff + fallback model
+// Retry wrapper สำหรับ Gemini/Vision — กัน 503 (overload) และ 429 (rate limit ชั่วคราว) ด้วย
+// exponential backoff + fallback model — เดิมรีทรายแค่ 503 เท่านั้น ทำให้สลิปที่ยิงติดกันเร็วๆ
+// (เช่นทดสอบส่งหลายรูปรวด) โดน 429 แล้วพังทันทีไม่มีการรอ/ลองใหม่เลย ทั้งที่เป็นแค่ rate limit
+// ชั่วคราวที่รอสักครู่แล้วมักจะผ่านปกติ — ขยายเงื่อนไขให้ครอบคลุมทั้งสองแบบ
 async function withRetry(fn, fallbackFn = null, retries = 3, delayMs = 2000) {
   for (let i = 0; i < retries; i++) {
     try {
       return await fn();
     } catch (err) {
       const status = err.response?.status;
-      if (status === 503) {
+      if (status === 503 || status === 429) {
         if (i < retries - 1) {
-          console.log(`[LOG] ⏳ Gemini 503 — รอ ${delayMs * (i + 1)}ms แล้ว retry ครั้งที่ ${i + 2}...`);
+          console.log(`[LOG] ⏳ ${status} — รอ ${delayMs * (i + 1)}ms แล้ว retry ครั้งที่ ${i + 2}...`);
           await new Promise(r => setTimeout(r, delayMs * (i + 1)));
           continue;
         }
-        // หมด retry แล้วยัง 503 — สลับ fallback model
+        // หมด retry แล้วยัง error — สลับ fallback model
         if (fallbackFn) {
-          console.log(`[LOG] 🔄 Gemini หมด retry — สลับไปใช้ fallback model...`);
+          console.log(`[LOG] 🔄 หมด retry (${status}) — สลับไปใช้ fallback model...`);
           return await fallbackFn();
         }
       }
