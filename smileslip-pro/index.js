@@ -250,6 +250,24 @@ function isUnlimited(shop) {
 // backward compat
 function isSuper(shop) { return isUnlimited(shop); }
 
+// เช็ค/ตัดเครดิตสำหรับ #รับสินค้า และ #รายจ่าย (อ่านรูปด้วย Gemini เหมือนสแกนสลิป จึงมีต้นทุน AI
+// จริงต่อครั้งเหมือนกัน) — เดิมสองฟีเจอร์นี้ไม่ตัดเครดิตเลยไม่ว่า tier ไหน (ตั้งใจไว้แต่แรกว่าเป็น
+// ฟีเจอร์ POS คนละเรื่องจากสแกนสลิป) แต่ทำให้ร้านที่ไม่ใช่ Enterprise ใช้ AI ได้ไม่จำกัดฟรีโดยบริษัท
+// เป็นคนจ่ายต้นทุน Gemini เอง — เปลี่ยนให้ตัดเครดิตเหมือนสแกนสลิปปกติ (Enterprise/Super ยังไม่ตัด)
+async function checkAndBlockIfNoCredit(shop, replyToken) {
+  if (isUnlimited(shop)) return true;
+  const { data: cred } = await supabase.from('shop_credits').select('balance_credits').eq('shop_id', shop.id).single();
+  if (!cred || cred.balance_credits <= 0) {
+    await replyToLine(replyToken, [{ type: 'text', text: `⚠️ เครดิตของร้าน ${shop.shop_name} หมดแล้ว กรุณาเติมเครดิตนะคะ` }]);
+    return false;
+  }
+  return true;
+}
+async function deductCreditIfNeeded(shop) {
+  if (isUnlimited(shop)) return;
+  await supabase.rpc('deduct_shop_credit', { p_shop_id: shop.id });
+}
+
 // ค้นหาร้านค้าจาก sourceId — รองรับทั้ง shop_profiles และ shop_branches
 async function findShopBySource(sourceId) {
   // ร้านที่ถูก "ลบ" (soft-delete, 6-month retention ข้อ 91) ต้องไม่ถูกมองว่ามีอยู่จริงจากบอทเลย —
@@ -1896,9 +1914,10 @@ app.post('/webhook', async (req, res) => {
         const { shop, branchName } = found;
 
         // STEP 1.5: ถ้าผู้ส่งเพิ่งพิมพ์ #รับสินค้า ไว้ → รูปนี้คือใบส่งของ ไม่ใช่สลิปโอนเงิน แยกไปคนละ flow เลย
-        // (ไม่ตัดเครดิต เพราะเป็นฟีเจอร์ POS ไม่ใช่ระบบสแกนสลิปที่นับเครดิต)
+        // ตัดเครดิตเหมือนสแกนสลิปปกติ (Enterprise/Super ไม่ตัด) เพราะอ่านรูปด้วย Gemini มีต้นทุน AI จริง
         const awaitingReceive = event.source.userId ? await consumeAwaitingReceive(event.source.userId) : null;
         if (awaitingReceive && awaitingReceive.shopId === shop.id) {
+          if (!(await checkAndBlockIfNoCredit(shop, replyToken))) { continue; }
           try {
             const receiveImageBuffer = await getLineImage(event.message.id);
             const receiveData = await withRetry(
@@ -1952,6 +1971,7 @@ app.post('/webhook', async (req, res) => {
               type: 'text',
               text: `📥 อ่านใบส่งของสำเร็จ!\n🏢 ผู้จำหน่าย: ${receiveData.supplier || '-'}\n📄 เลขที่: ${receiveData.invoice_no || '-'}\n\n${itemsSummary || 'ไม่พบรายการสินค้า'}\n\n⚠️ ยังไม่ตัดเข้าสต็อค — เข้าไปตรวจสอบ/ยืนยันที่ Dashboard → รับสินค้า → รอยืนยันจาก LINE\n${dashboardUrl}`,
             }]);
+            await deductCreditIfNeeded(shop);
           } catch (recvErr) {
             console.error('[ERROR] รับสินค้าผ่าน LINE error:', recvErr.message);
             try { await replyToLine(replyToken, [{ type: 'text', text: `❌ อ่านใบส่งของไม่สำเร็จ: ${recvErr.message}` }]); } catch(e) {}
@@ -1960,9 +1980,10 @@ app.post('/webhook', async (req, res) => {
         }
 
         // STEP 1.6: ถ้าผู้ส่งเพิ่งพิมพ์ #รายจ่าย ไว้ → รูปนี้คือบิล/ใบเสร็จค่าใช้จ่าย ไม่ใช่สลิปโอนเงิน แยกไปคนละ flow
-        // (ไม่ตัดเครดิต เหมือน #รับสินค้า เพราะเป็นฟีเจอร์ POS ไม่ใช่ระบบสแกนสลิปที่นับเครดิต)
+        // ตัดเครดิตเหมือน #รับสินค้า/สแกนสลิปปกติ (Enterprise/Super ไม่ตัด)
         const awaitingExpense = event.source.userId ? await consumeAwaitingExpense(event.source.userId) : null;
         if (awaitingExpense && awaitingExpense.shopId === shop.id) {
+          if (!(await checkAndBlockIfNoCredit(shop, replyToken))) { continue; }
           try {
             const expenseImageBuffer = await getLineImage(event.message.id);
             const expenseData = await withRetry(
@@ -2011,6 +2032,7 @@ app.post('/webhook', async (req, res) => {
               type: 'text',
               text: `🧾 อ่านบิลค่าใช้จ่ายสำเร็จ!\n📝 รายการ: ${expenseData.label || '-'}\n🏢 ผู้รับเงิน: ${expenseData.vendor || '-'}\n💰 ยอด: ฿${(expenseData.amount || 0).toLocaleString()}\n\n⚠️ ยังไม่บันทึกเป็นรายจ่ายจริง — เข้าไปตรวจสอบ/ยืนยันที่ Dashboard → รายจ่าย → รอยืนยันจาก LINE\n${dashboardUrlE}`,
             }]);
+            await deductCreditIfNeeded(shop);
           } catch (expErr) {
             console.error('[ERROR] รายจ่ายผ่าน LINE error:', expErr.message);
             try { await replyToLine(replyToken, [{ type: 'text', text: `❌ อ่านบิลค่าใช้จ่ายไม่สำเร็จ: ${expErr.message}` }]); } catch(e) {}
