@@ -275,21 +275,30 @@ export default async function handler(req, res) {
 
       // Market Price Index + Procurement Fraud Detection (v1 retail-only, fail-safe เสมอ)
       // — ดูรายละเอียดการตัดสินใจ/สิ่งที่ยังไม่ชัวร์ใน CLAUDE.md ข้อ 30
+      //
+      // ⏸️ พักการเก็บข้อมูล (2026-08-28): ทั้ง checkProcurementFraud()/insertAnonymousMarketPrices()
+      // เรียก canonicalizeItems() ภายในซึ่งยิง Gemini API จริงทุกครั้ง (มี maxOutputTokens สูงเพราะกัน
+      // thinking-token truncation) — เดิมทำงานแบบไม่มีเงื่อนไขเลยแม้ MARKET_PRICE_FEATURE_LIVE=false
+      // (ตั้งใจไว้แต่แรกให้เก็บข้อมูลสะสมต่อเนื่องระหว่างรอทนายอนุมัติ — ดูข้อ 31) แต่กลายเป็นต้นทุน AI
+      // จริงที่จ่ายไปเรื่อยๆ ให้ฟีเจอร์ที่ลูกค้ายังมองไม่เห็นผลลัพธ์เลยสักครั้ง — ผู้ใช้ตัดสินใจให้พัก
+      // การเรียก Gemini ส่วนนี้ไว้ก่อนจนกว่าจะใกล้เปิดใช้งานจริง (ไม่ลบฟีเจอร์ทิ้ง แค่ไม่เรียกตอนนี้)
       let warnings = [];
-      try {
-        const { district, province } = await getShopDistrictProvince(shopId);
-        if (district && province && itemsForMarket.length) {
-          warnings = await checkProcurementFraud({
-            shopId, branchName: branch || branchName, receiveDocNo: receiveNo,
-            items: itemsForMarket, district, province,
-          });
-          // นับเข้าตารางกลางนิรนามเฉพาะตอนมีรูปแนบเป็นหลักฐาน (verified data filter)
-          if (photoUrl) {
-            await insertAnonymousMarketPrices({ shopId, items: itemsForMarket, district, province, priceType: 'retail' });
+      if (MARKET_PRICE_FEATURE_LIVE) {
+        try {
+          const { district, province } = await getShopDistrictProvince(shopId);
+          if (district && province && itemsForMarket.length) {
+            warnings = await checkProcurementFraud({
+              shopId, branchName: branch || branchName, receiveDocNo: receiveNo,
+              items: itemsForMarket, district, province,
+            });
+            // นับเข้าตารางกลางนิรนามเฉพาะตอนมีรูปแนบเป็นหลักฐาน (verified data filter)
+            if (photoUrl) {
+              await insertAnonymousMarketPrices({ shopId, items: itemsForMarket, district, province, priceType: 'retail' });
+            }
           }
+        } catch (marketErr) {
+          console.error('[pos/receives] market-price error:', marketErr.message);
         }
-      } catch (marketErr) {
-        console.error('[pos/receives] market-price error:', marketErr.message);
       }
 
       return res.json({ ok: true, receiveNo, subtotal: roundedSubtotal, vatTotal: roundedVat, totalCost: grandTotal, itemCount: items.length, warnings: MARKET_PRICE_FEATURE_LIVE ? warnings : [] });
