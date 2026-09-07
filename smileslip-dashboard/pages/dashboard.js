@@ -1136,7 +1136,7 @@ export default function Dashboard() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
-                        <a href="https://lin.ee/wdnoEN5" target="_blank" rel="noreferrer"
+                        <a href="https://lin.ee/o0ytFIG" target="_blank" rel="noreferrer"
                           className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-[#06C755] hover:bg-[#05a848] text-white font-bold text-xs px-4 py-2 rounded-xl transition-all">
                           <svg width="14" height="14" viewBox="0 0 48 48" fill="currentColor"><path d="M24 4C12.95 4 4 11.86 4 21.5c0 5.5 2.93 10.4 7.52 13.6L9.5 44l9.3-4.64C20.5 39.78 22.22 40 24 40c11.05 0 20-7.86 20-17.5S35.05 4 24 4z"/></svg>
                           เพิ่ม LINE Bot
@@ -2254,7 +2254,7 @@ export default function Dashboard() {
                             <span className="text-xs text-violet-600">🔒 เครดิตสำรองของคุณ:</span>
                             <span className="text-sm font-black text-violet-700 font-mono">{(credits||0).toLocaleString()} แผ่น</span>
                             <span className="text-[10px] text-violet-400">(ล็อคไว้ — จะใช้ได้เมื่อลดแพ็กเกจในอนาคต)</span>
-                            <a href="https://lin.ee/wdnoEN5" target="_blank" rel="noreferrer"
+                            <a href="https://lin.ee/o0ytFIG" target="_blank" rel="noreferrer"
                               className="ml-auto shrink-0 flex items-center gap-1.5 bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs px-4 py-1.5 rounded-xl transition-all">
                               VIP Support LINE
                             </a>

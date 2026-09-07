@@ -186,7 +186,7 @@ export default function BookingRequestPage() {
                 {router.query.bookingNo && <>รหัสการจอง <span className="font-bold text-slate-700">{router.query.bookingNo}</span><br /></>}
                 เหลืออีกขั้นตอนเดียว — กดเพิ่มเพื่อนไลน์ Smile Slip เพื่อให้ระบบส่งข้อความแจ้งเตือนถึงคุณได้จริง
               </p>
-              <a href="https://lin.ee/wdnoEN5" target="_blank" rel="noreferrer"
+              <a href="https://lin.ee/o0ytFIG" target="_blank" rel="noreferrer"
                 className="block w-full bg-green-600 hover:bg-green-700 text-white font-black py-3 rounded-2xl transition-colors">
                 💬 เพิ่มเพื่อนไลน์ Smile Slip
               </a>
@@ -449,7 +449,7 @@ export default function BookingRequestPage() {
                     <p className="text-green-600 text-xs">
                       ระบบจดจำไลน์ของคุณจากเบอร์โทรเดิมให้อัตโนมัติ — ถ้ายังไม่เคยเพิ่มเพื่อนไลน์ร้าน กดปุ่มด้านล่างเพื่อให้แจ้งเตือนถึงคุณได้จริง
                     </p>
-                    <a href="https://lin.ee/wdnoEN5" target="_blank" rel="noreferrer"
+                    <a href="https://lin.ee/o0ytFIG" target="_blank" rel="noreferrer"
                       className="block w-full text-center bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 rounded-xl text-sm transition-colors">
                       💬 เพิ่มเพื่อนไลน์ Smile Slip
                     </a>

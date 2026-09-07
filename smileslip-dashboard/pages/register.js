@@ -654,7 +654,7 @@ export default function Register() {
                     <span>พิมพ์ <strong>#ช่วยเหลือ</strong> ในกลุ่ม เพื่อเริ่มใช้งาน</span>
                   </div>
                 </div>
-                <a href="https://lin.ee/wdnoEN5" target="_blank" rel="noreferrer"
+                <a href="https://lin.ee/o0ytFIG" target="_blank" rel="noreferrer"
                   className="w-full flex items-center justify-center gap-2 bg-[#06C755] hover:bg-[#05a848] text-white font-black py-3 rounded-xl text-sm transition-all">
                   <svg width="18" height="18" viewBox="0 0 48 48" fill="currentColor"><path d="M24 4C12.95 4 4 11.86 4 21.5c0 5.5 2.93 10.4 7.52 13.6L9.5 44l9.3-4.64C20.5 39.78 22.22 40 24 40c11.05 0 20-7.86 20-17.5S35.05 4 24 4z"/></svg>
                   เพิ่ม Smile Slip Bot (@574unjqj)
