@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { CheckCircle, Zap, Shield, Building2, Crown, CreditCard, ArrowLeft, Sparkles } from 'lucide-react';
 import { findOwnerSessionTokenForOwnerId } from '../lib/client-owner-session';
@@ -241,6 +242,13 @@ export default function PricingPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans flex flex-col">
+      <Head>
+        {/* หน้านี้ไม่เคยมี viewport meta ของตัวเอง Next.js เลยใช้ค่า default
+            "width=device-width" เฉยๆ (ไม่มี initial-scale=1) ทำให้บาง mobile browser
+            คำนวณ viewport ผิดพลาด render ทั้งหน้าที่ความกว้างระดับเดสก์ท็อปแล้วบีบย่อลง
+            มาแทน (ยืนยันจริง: window.innerWidth ขึ้น 1280 ทั้งที่จอจริงกว้างแค่ 375px) */}
+        <meta name="viewport" content="width=device-width, initial-scale=1"/>
+      </Head>
 
       {/* ── Top bar ── */}
       <div className="max-w-7xl mx-auto px-6 pt-6 w-full">

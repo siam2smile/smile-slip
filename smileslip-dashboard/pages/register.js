@@ -483,7 +483,7 @@ export default function Register() {
 
               <div>
                 <label className={labelClass}>เลขที่ / อาคาร / ซอย / ถนน *</label>
-                <input required placeholder="เช่น 76 หมู่ 9 ถ.เชียงใหม่-หางดง"
+                <input required placeholder="เช่น 123 หมู่ 4 ถ.สุขุมวิท"
                   className={inputClass}
                   value={formData.addressDetail} onChange={set('addressDetail')}/>
               </div>
@@ -518,7 +518,7 @@ export default function Register() {
                 </div>
                 <div>
                   <label className={labelClass}>รหัสไปรษณีย์ *</label>
-                  <input required placeholder="50230" maxLength={5}
+                  <input required placeholder="10110" maxLength={5}
                     className={`${inputClass} font-mono`}
                     value={formData.postalCode} onChange={set('postalCode')}/>
                 </div>
@@ -596,7 +596,10 @@ export default function Register() {
                     <ShieldCheck size={15}/> อ่านและยอมรับเงื่อนไข & นโยบาย
                   </button>
                 ) : (
-                  <label className="flex items-start gap-3 cursor-pointer" onClick={() => setConsentChecked(false)}>
+                  /* บั๊กเดิม: onClick เดิมสั่งถอนการยอมรับตรงๆ — แตะกล่องติ๊กถูกที่ยอมรับแล้วซ้ำ
+                     (แม้เผลอ) จะถอนการยอมรับเงียบๆ ทันที ทำให้ปุ่มสมัครกลาย disabled โดยไม่รู้สาเหตุ —
+                     แก้เป็นเปิดโมดัลให้อ่านซ้ำแทน ไม่ถอนการยอมรับที่ทำไปแล้ว */
+                  <label className="flex items-start gap-3 cursor-pointer" onClick={() => setShowTermsModal(true)}>
                     <div className="w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 mt-0.5 bg-blue-600 border-blue-600">
                       <CheckCircle2 size={12} className="text-white"/>
                     </div>
