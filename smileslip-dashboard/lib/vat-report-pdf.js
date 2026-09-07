@@ -82,6 +82,23 @@ export function generateVatReportPdf(report) {
     doc.fillColor('#000');
     y += 24;
 
+    // ── ภาษีหัก ณ ที่จ่าย (WHT) — คนละก้อนจาก VAT ข้างบนเจตนา แสดงเฉพาะมีข้อมูลจริง ─────────
+    if ((report.whtFromCustomers || 0) > 0 || (report.whtToVendors || 0) > 0) {
+      ensureSpace(80);
+      doc.font('Sarabun-Bold').fontSize(11).text('ภาษีหัก ณ ที่จ่าย (WHT)', 40, y);
+      y += 18;
+      const whtBoxW = (pageWidth - 10) / 2;
+      const drawWhtBox = (x, label, value) => {
+        doc.roundedRect(x, y, whtBoxW, 46, 6).fillAndStroke('#fffbeb', '#fde68a');
+        doc.fillColor('#92400e').font('Sarabun').fontSize(8.5).text(label, x + 10, y + 8, { width: whtBoxW - 20 });
+        doc.fillColor('#92400e').font('Sarabun-Bold').fontSize(13).text(`฿${fmt(value)}`, x + 10, y + 24, { width: whtBoxW - 20 });
+        doc.fillColor('#000');
+      };
+      drawWhtBox(40, 'คู่ค้าหักภาษี ณ ที่จ่ายจากเรา (เครดิตภาษี)', report.whtFromCustomers || 0);
+      drawWhtBox(40 + whtBoxW + 10, 'เราหักภาษี ณ ที่จ่ายจากคู่ค้า (ต้องนำส่ง)', report.whtToVendors || 0);
+      y += 60;
+    }
+
     // ── แยกตามสาขา ──────────────────────────────────────────────────────────
     if (report.branchBreakdown?.length > 1) {
       ensureSpace(30 + report.branchBreakdown.length * 18);

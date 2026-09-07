@@ -46,6 +46,14 @@ export default async function handler(req, res) {
     const sheetYear = year || new Date().getFullYear().toString();
     const allRows = await fetchLedgerRows(shopId, { year: sheetYear, month });
 
+    // สรุปภาษีหัก ณ ที่จ่าย (WHT) — คนละก้อนจาก VAT ข้างล่างเจตนา ต้องคำนวณจาก allRows ตรงๆ
+    // (ไม่ใช่ filtered ที่กรองเฉพาะ taxAmount>0) เพราะธุรกรรมอาจมี WHT โดยไม่มี VAT เลยก็ได้
+    // (เช่น ค่าบริการ/ค่าเช่าที่ผู้จ่ายหัก ณ ที่จ่ายแต่ไม่มี VAT) — กรองตามสาขาเดียวกับ VAT report
+    // เพื่อความสอดคล้องกันถ้าระบุ branch มา
+    const whtRows = branch ? allRows.filter(r => (r.branch === '-' ? 'ไม่ระบุสาขา' : r.branch) === branch) : allRows;
+    const whtFromCustomers = whtRows.filter(r => r.type === 'รายรับ').reduce((s, r) => s + (r.whtAmount || 0), 0);
+    const whtToVendors = whtRows.filter(r => r.type === 'รายจ่าย').reduce((s, r) => s + (r.whtAmount || 0), 0);
+
     // กรองเฉพาะแถวที่มียอดภาษีจริง (taxAmount > 0) — **ไม่บังคับต้องมีเลขภาษีผู้ซื้อ/ผู้ขายอีกต่อไป**
     // เหตุผล: ร้านที่จดทะเบียน VAT ต้องนับภาษีขายจากยอดขายทุกบิลตามกฎหมาย (ภ.พ.30 นับจากยอดขายรวม
     // ทั้งหมด ไม่ใช่แค่บิลที่ลูกค้าขอใบกำกับภาษีเต็มรูปพร้อมเลขผู้ซื้อ) — แถวที่ไม่มีเลขภาษีคู่ค้า
@@ -123,6 +131,8 @@ export default async function handler(req, res) {
       salesVat: Math.round(salesVat * 100) / 100,
       purchaseVat: Math.round(purchaseVat * 100) / 100,
       salesCount, purchaseCount, netVat,
+      whtFromCustomers: Math.round(whtFromCustomers * 100) / 100,
+      whtToVendors: Math.round(whtToVendors * 100) / 100,
       totalRows: filtered.length,
       year: sheetYear,
       month: month || null,
@@ -153,6 +163,10 @@ export default async function handler(req, res) {
         ['ภาษีขาย (Output VAT)', reportPayload.salesVat, salesCount],
         ['ภาษีซื้อ (Input VAT)', reportPayload.purchaseVat, purchaseCount],
         [netVat >= 0 ? 'ภาษีที่ต้องนำส่ง' : 'ภาษีที่ขอคืนได้', Math.abs(netVat), salesCount + purchaseCount],
+        [''],
+        ['ภาษีหัก ณ ที่จ่าย (WHT)', '', ''],
+        ['คู่ค้าหักภาษี ณ ที่จ่ายจากเรา (เครดิตภาษี)', reportPayload.whtFromCustomers, ''],
+        ['เราหักภาษี ณ ที่จ่ายจากคู่ค้า (ต้องนำส่งสรรพากร)', reportPayload.whtToVendors, ''],
         [''],
         ['Export วันที่', new Date().toLocaleDateString('th-TH')],
       ];
@@ -207,6 +221,9 @@ export default async function handler(req, res) {
       dataRows.push(['', '', '', '', '', '', 'ภาษีขายรวม', reportPayload.salesVat, '']);
       dataRows.push(['', '', '', '', '', '', 'ภาษีซื้อรวม', reportPayload.purchaseVat, '']);
       dataRows.push(['', '', '', '', '', '', netVat >= 0 ? 'ภาษีที่ต้องนำส่ง' : 'ภาษีที่ขอคืนได้', Math.abs(netVat), '']);
+      dataRows.push([]);
+      dataRows.push(['', '', '', '', '', '', 'คู่ค้าหักภาษี ณ ที่จ่ายจากเรา (WHT เครดิตภาษี)', reportPayload.whtFromCustomers, '']);
+      dataRows.push(['', '', '', '', '', '', 'เราหักภาษี ณ ที่จ่ายจากคู่ค้า (WHT ต้องนำส่ง)', reportPayload.whtToVendors, '']);
 
       const csvLines = [headerRow, ...dataRows].map(row =>
         row.map(v => {

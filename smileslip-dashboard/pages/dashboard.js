@@ -169,12 +169,21 @@ export default function Dashboard() {
   }, [transactions, ledgerDate, ledgerTypeFilter, ledgerBranchFilter]);
 
   const ledgerTotals = useMemo(() => {
-    let income = 0, expense = 0;
+    let income = 0, expense = 0, whtFromCustomers = 0, whtToVendors = 0;
     for (const tx of filteredLedgerTx) {
       const amt = Number(tx.amount || 0);
-      if (tx.type === 'รายรับ') income += amt; else if (tx.type === 'รายจ่าย') expense += amt;
+      const wht = Number(tx.whtAmount || 0);
+      if (tx.type === 'รายรับ') {
+        income += amt;
+        // รายรับ + มี WHT = คู่ค้า/ลูกค้าหักภาษี ณ ที่จ่ายจากเรา — เรามีเครดิตภาษีสะสมไว้ตอนยื่นแบบ
+        whtFromCustomers += wht;
+      } else if (tx.type === 'รายจ่าย') {
+        expense += amt;
+        // รายจ่าย + มี WHT = เราเป็นคนหักภาษี ณ ที่จ่ายจากคู่ค้ารายนั้น — ต้องนำส่งสรรพากร
+        whtToVendors += wht;
+      }
     }
-    return { income, expense, net: income - expense };
+    return { income, expense, net: income - expense, whtFromCustomers, whtToVendors };
   }, [filteredLedgerTx]);
 
   // Referral
@@ -2539,6 +2548,24 @@ export default function Dashboard() {
                     </div>
                   )}
 
+                  {/* สรุปภาษีหัก ณ ที่จ่าย (WHT) — โชว์เฉพาะตอนช่วงที่กรองอยู่มีข้อมูล WHT จริง
+                      อย่างน้อยฝั่งใดฝั่งหนึ่ง กันการ์างเปล่าดูรกสำหรับร้านที่ไม่เคยมี WHT เลย —
+                      แยก 2 ทิศทางตามที่ผู้ใช้ขอ: "เราหักลูกค้าเท่าไหร่" (รายจ่ายที่เราหักคู่ค้า —
+                      ยอดที่เราติดหนี้สรรพากรต้องนำส่ง) vs "คู่ค้าหักเราเท่าไหร่" (รายรับที่ถูกหัก
+                      มา — เครดิตภาษีของเราไว้ใช้ตอนยื่นแบบ) */}
+                  {ledgerConnected && !loadingTransactions && (ledgerTotals.whtFromCustomers > 0 || ledgerTotals.whtToVendors > 0) && (
+                    <div className="grid grid-cols-2 gap-3 mb-5">
+                      <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 text-center">
+                        <p className="text-xs text-amber-600 font-medium">คู่ค้าหักภาษี ณ ที่จ่ายจากเรา (เครดิตภาษี)</p>
+                        <p className="text-lg sm:text-xl font-black text-amber-700 mt-1">฿{ledgerTotals.whtFromCustomers.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
+                      </div>
+                      <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 text-center">
+                        <p className="text-xs text-amber-600 font-medium">เราหักภาษี ณ ที่จ่ายจากคู่ค้า (ต้องนำส่งสรรพากร)</p>
+                        <p className="text-lg sm:text-xl font-black text-amber-700 mt-1">฿{ledgerTotals.whtToVendors.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left min-w-[640px]">
@@ -2712,7 +2739,7 @@ export default function Dashboard() {
                                 className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs px-4 py-1.5 rounded-xl transition-all">
                                 {taxReportLoading ? 'กำลังโหลด...' : 'ดูรายงาน'}
                               </button>
-                              {taxReport && !taxReport.error && taxReport.totalRows > 0 && (
+                              {taxReport && !taxReport.error && (taxReport.totalRows > 0 || (taxReport.whtFromCustomers ?? 0) > 0 || (taxReport.whtToVendors ?? 0) > 0) && (
                                 <>
                                   <a href={`/api/sheets/tax-report?shopId=${shopInfo.id}&year=${taxReportYear}${taxReportMonth ? `&month=${taxReportMonth}` : ''}${taxReportBranch ? `&branch=${encodeURIComponent(taxReportBranch)}` : ''}&format=csv`}
                                     download
@@ -2758,6 +2785,21 @@ export default function Dashboard() {
                                   </p>
                                 </div>
                               </div>
+
+                              {/* ภาษีหัก ณ ที่จ่าย (WHT) — คนละก้อนจาก VAT ข้างบนเจตนา คำนวณจาก
+                                  ทุกธุรกรรมที่มี WHT ไม่ว่าจะมี VAT ด้วยหรือไม่ก็ตาม (ดู tax-report.js) */}
+                              {((taxReport.whtFromCustomers ?? 0) > 0 || (taxReport.whtToVendors ?? 0) > 0) && (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+                                  <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center">
+                                    <p className="text-xs text-amber-600 font-medium">คู่ค้าหักภาษี ณ ที่จ่ายจากเรา (เครดิตภาษี)</p>
+                                    <p className="text-lg font-black text-amber-700 mt-0.5">฿{(taxReport.whtFromCustomers ?? 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
+                                  </div>
+                                  <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center">
+                                    <p className="text-xs text-amber-600 font-medium">เราหักภาษี ณ ที่จ่ายจากคู่ค้า (ต้องนำส่งสรรพากร)</p>
+                                    <p className="text-lg font-black text-amber-700 mt-0.5">฿{(taxReport.whtToVendors ?? 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
+                                  </div>
+                                </div>
+                              )}
 
                               {taxReport.branchBreakdown?.length > 1 && (
                                 <div className="mb-5 border border-slate-100 rounded-xl overflow-hidden">

@@ -167,6 +167,7 @@ function rowToTransactionShape(row) {
     taxId: row.tax_id || '-',
     taxpayerName: row.taxpayer_name || '-',
     taxAmount: row.tax_amount != null ? String(row.tax_amount) : '-',
+    whtAmount: row.wht_amount != null ? String(row.wht_amount) : '-',
     category: row.category || '-',
   };
 }
@@ -200,12 +201,13 @@ export default async function handler(req, res) {
 
   // ─── PATCH ───
   if (req.method === 'PATCH') {
-    const { shopId, ref, date, time, type, amount, sender, receiver, note, category, learnKeyword, taxId, taxpayerName, taxAmount } = req.body;
+    const { shopId, ref, date, time, type, amount, sender, receiver, note, category, learnKeyword, taxId, taxpayerName, taxAmount, whtAmount } = req.body;
     if (!shopId || !ref) return res.status(400).json({ error: 'ข้อมูลไม่ครบ (shopId, ref)' });
     if (type !== 'รายรับ' && type !== 'รายจ่าย') return res.status(400).json({ error: 'ประเภทต้องเป็น รายรับ หรือ รายจ่าย' });
     const amountNum = parseFloat(amount);
     if (isNaN(amountNum) || amountNum < 0) return res.status(400).json({ error: 'จำนวนเงินไม่ถูกต้อง' });
     const taxAmountNum = taxAmount !== undefined && taxAmount !== '' ? (parseFloat(taxAmount) || 0) : null;
+    const whtAmountNum = whtAmount !== undefined && whtAmount !== '' ? (parseFloat(whtAmount) || 0) : null;
     if (!requireOwnerAuth(req, res, shopId, { enforce: true })) return;
 
     try {
@@ -238,6 +240,7 @@ export default async function handler(req, res) {
       if (taxId !== undefined) updatePayload.tax_id = (taxId && taxId !== '-') ? taxId : null;
       if (taxpayerName !== undefined) updatePayload.taxpayer_name = (taxpayerName && taxpayerName !== '-') ? taxpayerName : null;
       if (taxAmountNum !== null) updatePayload.tax_amount = taxAmountNum;
+      if (whtAmountNum !== null) updatePayload.wht_amount = whtAmountNum || null;
       if (category && category !== '-') updatePayload.category = category;
 
       const { error: updErr } = await supabase

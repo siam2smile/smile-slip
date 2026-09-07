@@ -101,7 +101,7 @@ module.exports = function createLedgerGoogle({ axios, FormData, supabase, getTha
   // pre-check ของ Tier 4 ควรดักได้ก่อนอยู่แล้วในเกือบทุกกรณี อันนี้คือ defense-in-depth ชั้นสอง)
   async function persistLedgerTransaction(shopId, slipData, imageUrl, branchName, fingerprint, category, method, recorder) {
     const isNoImage = !imageUrl || imageUrl === 'ไม่มีรูปภาพ' || imageUrl === 'ไม่มีรูปภาพ (คีย์เอง)';
-    const { error } = await supabase.from('ledger_transactions').insert({
+    const { data: inserted, error } = await supabase.from('ledger_transactions').insert({
       shop_id: shopId,
       type: slipData.type === 'income' ? 'income' : 'expense',
       amount: slipData.amount,
@@ -120,7 +120,7 @@ module.exports = function createLedgerGoogle({ axios, FormData, supabase, getTha
       recorder_name: recorder === '-' ? null : recorder,
       transaction_at: parseTransactionAt(slipData.date, slipData.time),
       raw_data: { source: 'bot-ledger', fingerprint },
-    });
+    }).select('id').single();
     if (error) {
       if (error.code === '23505') {
         const dupErr = new Error('รายการนี้เคยถูกบันทึกไปแล้ว (ตรวจพบตอน insert — ซ้ำกับที่ dedup pre-check เจอไม่ทัน)');
@@ -129,6 +129,22 @@ module.exports = function createLedgerGoogle({ axios, FormData, supabase, getTha
       }
       throw error;
     }
+
+    // ภาษีหัก ณ ที่จ่าย (WHT) — คนละก้อนจาก tax_amount (VAT) เจตนาแยกชัดเจน เพราะเป็นภาษีคนละ
+    // ประเภท/อัตรากันโดยสิ้นเชิง ใช้ type (income/expense) ที่มีอยู่แล้วบอกทิศทางในตัว ไม่ต้องมี
+    // field ทิศทางแยก: income+wht_amount>0 = ลูกค้า/คู่ค้าหักเรา (เรามีเครดิตภาษีไว้ใช้ตอนยื่น),
+    // expense+wht_amount>0 = เราหักคู่ค้า (เราติดหนี้สรรพากร ต้องนำส่ง+ออกหนังสือรับรองให้คู่ค้า) —
+    // **แยกเป็น update ต่างหากหลัง insert หลักเสมอ** (ไม่รวมเข้า insert ก้อนใหญ่ด้านบน) เพราะ
+    // ledger_transactions.wht_amount ยังไม่มีอยู่จริงจนกว่าจะรัน SQL migration (scripts/wht-01-
+    // add-column.sql ฝั่ง dashboard) — ถ้ารวมเข้า insert หลักจะทำให้การบันทึกทุกธุรกรรม (ไม่ใช่แค่
+    // ที่มี WHT) พังไปด้วยทันทีถ้า deploy โค้ดนี้ก่อนรัน SQL — แยกไว้แบบนี้ปลอดภัยกว่า: ธุรกรรม
+    // หลักบันทึกสำเร็จเสมอไม่ว่าจะรัน SQL แล้วหรือยัง มีแค่ยอด WHT ที่จะไม่ถูกบันทึกจริงถ้ายังไม่รัน
+    if (slipData.wht_amount && slipData.wht_amount > 0 && inserted?.id) {
+      const { error: whtErr } = await supabase.from('ledger_transactions')
+        .update({ wht_amount: slipData.wht_amount }).eq('id', inserted.id);
+      if (whtErr) console.warn(`[WARN] บันทึก wht_amount ไม่สำเร็จ (คอลัมน์อาจยังไม่ถูกสร้าง — รอรัน SQL): ${whtErr.message}`);
+    }
+
     console.log(`[LOG] ✅ persistLedgerTransaction สำเร็จ (shop: ${shopId}, ${slipData.type} ฿${slipData.amount})`);
   }
 

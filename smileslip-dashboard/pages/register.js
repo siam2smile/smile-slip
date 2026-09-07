@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import axios from 'axios';
 import Head from 'next/head';
@@ -8,7 +8,7 @@ import {
   ChevronRight, CheckCircle2, MessageCircle, Building2,
   Hash, Landmark, ShieldCheck, AlertTriangle, Trash2, Plus, LogIn
 } from 'lucide-react';
-import { PROVINCES, DISTRICTS } from '../data/thailand-address';
+import { PROVINCES, districtsForProvince, subdistrictsForDistrict, lookupByPostalCode, postalCodeForSubdistrict } from '../data/thailand-address';
 import { setOwnerSessionToken } from '../lib/client-owner-session';
 
 const STEP_LABELS = ['ข้อมูลธุรกิจ', 'ที่อยู่ & ติดต่อ', 'ตั้งรหัสผ่าน'];
@@ -149,7 +149,21 @@ export default function Register() {
   };
 
   // Districts filtered by selected province
-  const availableDistricts = formData.province ? (DISTRICTS[formData.province] || []) : [];
+  const availableDistricts = formData.province ? districtsForProvince(formData.province) : [];
+
+  // รหัสไปรษณีย์ 5 หลักที่พิมพ์ครบแล้ว → หาตำบลที่ตรงกันทั้งหมด (อาจได้หลายตำบลถ้ารหัสนั้นครอบคลุมกว้าง
+  // แต่แทบทุกกรณีจะได้ อำเภอ+จังหวัด เดียวกันหมด ทำให้ auto-fill 2 ช่องนี้ได้แม่นเสมอ)
+  const zipMatches = useMemo(() => {
+    const digits = (formData.postalCode || '').trim();
+    if (digits.length !== 5 || !/^\d{5}$/.test(digits)) return [];
+    return lookupByPostalCode(digits);
+  }, [formData.postalCode]);
+
+  // ตัวเลือกตำบลที่จะโชว์ในดรอปดาวน์: ถ้ามีรหัสไปรษณีย์ที่ match แล้วให้ใช้ชุดที่ narrow ลงมาก่อนเสมอ
+  // (แม่นกว่า/สั้นกว่า) ถ้ายังไม่ได้กรอกรหัสไปรษณีย์ค่อย fallback ไปใช้ตำบลทั้งหมดของอำเภอที่เลือกไว้
+  const availableSubdistricts = zipMatches.length > 0
+    ? zipMatches.map(m => m.subDistrict)
+    : (formData.province && formData.district ? subdistrictsForDistrict(formData.province, formData.district) : []);
 
   const set = (field) => (e) => {
     const val = e.target ? e.target.value : e;
@@ -158,6 +172,55 @@ export default function Register() {
 
   const handleProvinceChange = (e) => {
     setFormData(prev => ({ ...prev, province: e.target.value, district: '', subDistrict: '', postalCode: '' }));
+  };
+
+  const handleDistrictChange = (e) => {
+    setFormData(prev => ({ ...prev, district: e.target.value, subDistrict: '', postalCode: '' }));
+  };
+
+  // พิมพ์รหัสไปรษณีย์ครบ 5 หลัก → auto-fill จังหวัด/อำเภอทันทีถ้า match ได้ (ปกติจะ match อำเภอ+จังหวัด
+  // เดียวกันเสมอแม้จะมีหลายตำบล) ส่วนตำบลปล่อยให้ผู้ใช้เลือกเองจากดรอปดาวน์ที่ narrow ลงมาแล้วด้านล่าง
+  const handlePostalCodeChange = (e) => {
+    const digits = e.target.value.replace(/\D/g, '').slice(0, 5);
+    setFormData(prev => {
+      const next = { ...prev, postalCode: digits };
+      if (digits.length === 5) {
+        const matches = lookupByPostalCode(digits);
+        if (matches.length > 0) {
+          const sameProvinceDistrict = matches.every(
+            m => m.province === matches[0].province && m.district === matches[0].district
+          );
+          if (sameProvinceDistrict) {
+            next.province = matches[0].province;
+            next.district = matches[0].district;
+            // ถ้ามีตำบลเดียวจริงๆ (ไม่ใช่แค่ อำเภอ/จังหวัดเดียวกัน) auto-fill ให้เสร็จเลย
+            next.subDistrict = matches.length === 1 ? matches[0].subDistrict : '';
+          } else {
+            // รหัสนี้ครอบคลุมมากกว่า 1 อำเภอ (พบยาก) — ปล่อยให้เลือกตำบลเองจากลิสต์ที่ narrow แล้ว
+            // แล้วค่อย auto-fill จังหวัด/อำเภอตามตำบลที่เลือกอีกที (ดู handleSubdistrictChange)
+            next.subDistrict = '';
+          }
+        }
+      } else {
+        next.subDistrict = '';
+      }
+      return next;
+    });
+  };
+
+  // เลือกตำบลจากดรอปดาวน์ (ไม่ว่าจะมาจากลิสต์ narrow-by-zip หรือลิสต์ปกติของอำเภอที่เลือกไว้) —
+  // เติมรหัสไปรษณีย์ให้อัตโนมัติเสมอ + เติมจังหวัด/อำเภอด้วยถ้ายังไม่ได้ตั้ง (เผื่อกรณีรหัสไปรษณีย์
+  // เดียวครอบคลุมหลายอำเภอที่ auto-fill ไม่ได้ตอนพิมพ์รหัส)
+  const handleSubdistrictChange = (e) => {
+    const name = e.target.value;
+    setFormData(prev => {
+      const matchFromZip = zipMatches.find(m => m.subDistrict === name);
+      if (matchFromZip) {
+        return { ...prev, subDistrict: name, province: matchFromZip.province, district: matchFromZip.district };
+      }
+      const zip = postalCodeForSubdistrict(prev.province, prev.district, name);
+      return { ...prev, subDistrict: name, postalCode: zip || prev.postalCode };
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -488,6 +551,20 @@ export default function Register() {
                   value={formData.addressDetail} onChange={set('addressDetail')}/>
               </div>
 
+              {/* รหัสไปรษณีย์ขึ้นก่อนเป็นทางลัด — พิมพ์ครบ 5 หลักแล้ว จังหวัด/อำเภอจะเติมให้อัตโนมัติ
+                  (ตำบลค่อยเลือกจากลิสต์สั้นๆ ด้านล่างอีกที เพราะ 1 รหัสไปรษณีย์มักครอบคลุมหลายตำบล) */}
+              <div>
+                <label className={labelClass}>รหัสไปรษณีย์ *</label>
+                <input required placeholder="10110" maxLength={5} inputMode="numeric"
+                  className={`${inputClass} font-mono`}
+                  value={formData.postalCode} onChange={handlePostalCodeChange}/>
+                <p className="text-slate-400 text-[11px] mt-1">
+                  {zipMatches.length > 0
+                    ? `✅ พบ ${zipMatches.length} ตำบลในรหัสนี้ — เลือกตำบลที่ถูกต้องด้านล่าง`
+                    : 'กรอกรหัสไปรษณีย์เพื่อค้นหาจังหวัด/อำเภอให้อัตโนมัติ หรือเลือกเองด้านล่างก็ได้'}
+                </p>
+              </div>
+
               {/* Province Dropdown */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -501,7 +578,7 @@ export default function Register() {
                 <div>
                   <label className={labelClass}>อำเภอ / เขต *</label>
                   <select required className={`${inputClass} cursor-pointer`}
-                    value={formData.district} onChange={set('district')}
+                    value={formData.district} onChange={handleDistrictChange}
                     disabled={!formData.province}>
                     <option value="">-- เลือกอำเภอ --</option>
                     {availableDistricts.map(d => <option key={d} value={d}>{d}</option>)}
@@ -509,19 +586,16 @@ export default function Register() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={labelClass}>ตำบล / แขวง *</label>
-                  <input required placeholder="ตำบล/แขวง"
-                    className={inputClass}
-                    value={formData.subDistrict} onChange={set('subDistrict')}/>
-                </div>
-                <div>
-                  <label className={labelClass}>รหัสไปรษณีย์ *</label>
-                  <input required placeholder="10110" maxLength={5}
-                    className={`${inputClass} font-mono`}
-                    value={formData.postalCode} onChange={set('postalCode')}/>
-                </div>
+              <div>
+                <label className={labelClass}>ตำบล / แขวง *</label>
+                <select required className={`${inputClass} cursor-pointer`}
+                  value={formData.subDistrict} onChange={handleSubdistrictChange}
+                  disabled={availableSubdistricts.length === 0}>
+                  <option value="">
+                    {availableSubdistricts.length === 0 ? '-- กรอกรหัสไปรษณีย์ หรือเลือกจังหวัด/อำเภอก่อน --' : '-- เลือกตำบล --'}
+                  </option>
+                  {availableSubdistricts.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
               </div>
 
               <div className="flex gap-3 pt-2">

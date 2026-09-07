@@ -1,0 +1,21 @@
+-- เพิ่มคอลัมน์ wht_amount ใน ledger_transactions (ภาษีหัก ณ ที่จ่าย — item 118 ในเซสชันนี้)
+--
+-- ทำไมต้องแยกคอลัมน์ใหม่ ไม่ใช้ tax_amount เดิม: tax_amount = VAT (ภาษีมูลค่าเพิ่ม) คนละก้อน/
+-- คนละอัตรากับ WHT (ภาษีหัก ณ ที่จ่าย) โดยสิ้นเชิง — ผสมกันจะทำให้รายงานภาษีทั้ง VAT และ WHT ผิด
+--
+-- ทิศทาง (ใครหักใคร) ไม่ต้องมีคอลัมน์แยก — ใช้ type ('income'/'expense') ที่มีอยู่แล้วบอกในตัว:
+--   type='income' + wht_amount>0  → คู่ค้า/ลูกค้าหักภาษี ณ ที่จ่ายจากเรา (เรามีเครดิตภาษีไว้ใช้ตอนยื่นแบบ)
+--   type='expense' + wht_amount>0 → เราหักภาษี ณ ที่จ่ายจากคู่ค้า (เราติดหนี้สรรพากร ต้องนำส่ง+ออก
+--                                     หนังสือรับรองการหักภาษี ณ ที่จ่ายให้คู่ค้า)
+--
+-- ก่อนรัน SQL นี้ ทุกจุดที่เขียน/อ่าน wht_amount (บอท, dashboard) fail-safe เต็มรูปแบบ ไม่พัง
+-- อะไรเลยแม้คอลัมน์ยังไม่มีจริง:
+--   • บอท (lib/ledger-google.js's persistLedgerTransaction) — ธุรกรรมหลักบันทึกสำเร็จปกติเสมอ
+--     (insert ก้อนหลักไม่มี wht_amount ปนอยู่) มีแค่ยอด WHT ที่แยก update ต่างหากทีหลัง ถ้าคอลัมน์
+--     ยังไม่มีจะ log warning เฉยๆ ไม่ throw — สลิป/รายการที่คีย์เองยังบันทึกได้ปกติ 100%
+--   • Dashboard (lib/ledger-supabase.js, api/sheets/update-transaction.js, tax-report.js) — อ่าน
+--     ด้วย `!= null` เสมอ (undefined ถ้าคอลัมน์ไม่มี → ตกเป็น 0/ค่าว่างเงียบๆ ไม่ error)
+-- สรุป: รัน SQL นี้เมื่อไหร่ก็ได้ ไม่บังคับต้องรันก่อน deploy โค้ด (ต่างจาก schema-critical migration
+-- อื่นในโปรเจกต์นี้) — แค่ก่อนรัน ยอด WHT จะยังไม่ถูกบันทึก/แสดงจริงเท่านั้น
+
+ALTER TABLE ledger_transactions ADD COLUMN IF NOT EXISTS wht_amount numeric;

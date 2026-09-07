@@ -24,7 +24,7 @@ export default function EditTransaction() {
 
   const [form, setForm] = useState({
     date: '', time: '', type: 'รายรับ', amount: '', sender: '', receiver: '', note: '', category: '',
-    taxId: '', taxpayerName: '', taxAmount: '',
+    taxId: '', taxpayerName: '', taxAmount: '', whtAmount: '',
   });
   const [shopTier, setShopTier] = useState('normal');
   const [shopName, setShopName] = useState('');
@@ -101,6 +101,7 @@ export default function EditTransaction() {
         taxId: t.taxId === '-' ? '' : (t.taxId || ''),
         taxpayerName: t.taxpayerName === '-' ? '' : (t.taxpayerName || ''),
         taxAmount: t.taxAmount === '-' || t.taxAmount === '0' ? '' : (t.taxAmount || ''),
+        whtAmount: t.whtAmount === '-' || t.whtAmount === '0' ? '' : (t.whtAmount || ''),
       });
       setTxYear(txData.year);
       setSlipUrl(t.slipUrl && !t.slipUrl.startsWith('ไม่มีรูปภาพ') ? t.slipUrl : '');
@@ -324,6 +325,31 @@ export default function EditTransaction() {
                 {form.taxAmount && parseFloat(form.taxAmount) > 0 && parseFloat(form.amount) > 0 && (
                   <p className="text-[11px] text-slate-400">
                     ราคาก่อน VAT ≈ ฿{(parseFloat(form.amount) - parseFloat(form.taxAmount)).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                  </p>
+                )}
+              </div>
+
+              {/* ภาษีหัก ณ ที่จ่าย (WHT) — คนละก้อนจาก VAT ข้างบนเจตนา ห้ามปนกัน (คนละอัตรา/
+                  ความหมายกันโดยสิ้นเชิง) แสดงได้ทั้งรายรับ/รายจ่าย ต่างจาก VAT ที่ผูกกับราคาสินค้า
+                  โดยตรง — ทิศทางความหมายเปลี่ยนตาม form.type: รายรับ = คู่ค้าหักเรา (เรามีเครดิต
+                  ภาษีไว้ใช้ตอนยื่น), รายจ่าย = เราหักคู่ค้า (เราติดหนี้สรรพากร ต้องนำส่ง+ออกหนังสือ
+                  รับรองให้คู่ค้า) — ปกติบอทจะอ่านค่านี้ให้อัตโนมัติจากเอกสารที่ระบุ "หัก ณ ที่จ่าย"
+                  ชัดเจน แต่เผื่อ OCR พลาด/เอกสารไม่ชัด แก้ไข-เติมเองตรงนี้ได้เสมอ */}
+              <div className="border-t border-slate-100 pt-4 space-y-3">
+                <p className="text-[10px] font-black text-amber-600 uppercase tracking-wider">ภาษีหัก ณ ที่จ่าย (WHT)</p>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">
+                    ยอดถูกหัก/ที่หัก ณ ที่จ่าย (บาท)
+                  </label>
+                  <input value={form.whtAmount} onChange={e => setForm({ ...form, whtAmount: e.target.value })}
+                    type="number" step="0.01" min="0" placeholder="เช่น 15.00 (เว้นว่าง = ไม่มี)"
+                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-amber-400 transition-colors"/>
+                </div>
+                {form.whtAmount && parseFloat(form.whtAmount) > 0 && (
+                  <p className="text-[11px] text-slate-400">
+                    {form.type === 'รายจ่าย'
+                      ? '💡 หมายถึง "เรา" เป็นคนหักภาษี ณ ที่จ่ายจากคู่ค้ารายนี้ — ต้องนำส่งสรรพากร + ออกหนังสือรับรองการหักภาษีให้คู่ค้า'
+                      : '💡 หมายถึงคู่ค้ารายนี้หักภาษี ณ ที่จ่ายจากเรา — เก็บไว้เป็นเครดิตภาษีตอนยื่นแบบ (ควรมีหนังสือรับรองการหักภาษี ณ ที่จ่ายจากคู่ค้าด้วย)'}
                   </p>
                 )}
               </div>

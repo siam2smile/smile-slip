@@ -119,6 +119,9 @@ export function rowToLedgerRow(row) {
     taxpayerName: row.taxpayer_name || '-',
     taxAmount: row.tax_amount != null ? Number(row.tax_amount) : 0,
     taxAddress: row.tax_address || '-',
+    // ภาษีหัก ณ ที่จ่าย (WHT) — คนละก้อนจาก taxAmount (VAT) เจตนา ดู lib/ledger-google.js's
+    // persistLedgerTransaction() ฝั่งบอทสำหรับคำอธิบายทิศทาง (income=ถูกหัก, expense=เราหัก)
+    whtAmount: row.wht_amount != null ? Number(row.wht_amount) : 0,
   };
 }
 

@@ -911,6 +911,17 @@ function createBeautifulFlexMessage(slipData, fingerprint, shop, quoteToken, sup
     }
   }
 
+  // ภาษีหัก ณ ที่จ่าย (WHT) — คนละบล็อกจาก VAT ข้างบน เจตนา เพราะโชว์ได้ทั้ง income/expense
+  // (ต่างจาก VAT ที่โชว์เฉพาะ expense) ทิศทางบอกด้วยคำใน label ตาม isIncome
+  if (slipData.wht_amount && slipData.wht_amount > 0) {
+    const whtAmt = parseFloat(slipData.wht_amount);
+    bodyContents.push({ type: "separator", margin: "sm" });
+    bodyContents.push(row(
+      isIncome ? "คู่ค้าหักภาษี ณ ที่จ่าย" : "เราหักภาษี ณ ที่จ่าย",
+      `฿${whtAmt.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`
+    ));
+  }
+
   bodyContents.push({ type: "separator", margin: "sm" });
   bodyContents.push(row("เลขที่รายการ", `#${txShortId}`, "#94a3b8"));
 
@@ -1142,7 +1153,7 @@ async function extractDataWithGemini(imageBuffer, modelOverride = null) {
     const todayBuddhistYear = Number(todayYear) + 543;
     const prompt = `วันนี้คือ ${todayThaiDate} (พ.ศ. ${todayBuddhistYear} / ค.ศ. ${todayYear})
 วิเคราะห์เอกสารการเงินนี้ (สลิปโอนเงิน / บิลลายมือ / ใบเสร็จพิมพ์ / ใบกำกับภาษี) แล้วตอบกลับเป็น JSON เท่านั้น ห้ามมีข้อความอื่น:
-{"type":"income หรือ expense","amount":0.00,"date":"วว/ดด/ปปปป","time":"นน:นน","sender":"ชื่อผู้โอน/ผู้ซื้อ/ลูกค้า","receiver":"ชื่อร้านค้า/ผู้รับเงิน","note":"รายการหลัก/หมายเหตุ","ref_no":"เลขอ้างอิงธุรกรรม หรือ -","tax_id":"เลขผู้เสียภาษี หรือ -","taxpayer_name":"ชื่อผู้เสียภาษี หรือ -","tax_amount":0.00,"tax_address":"ที่อยู่ผู้เสียภาษี หรือ -"}
+{"type":"income หรือ expense","amount":0.00,"date":"วว/ดด/ปปปป","time":"นน:นน","sender":"ชื่อผู้โอน/ผู้ซื้อ/ลูกค้า","receiver":"ชื่อร้านค้า/ผู้รับเงิน","note":"รายการหลัก/หมายเหตุ","ref_no":"เลขอ้างอิงธุรกรรม หรือ -","tax_id":"เลขผู้เสียภาษี หรือ -","taxpayer_name":"ชื่อผู้เสียภาษี หรือ -","tax_amount":0.00,"tax_address":"ที่อยู่ผู้เสียภาษี หรือ -","wht_amount":0.00}
 กฎ:
 ■ type: income=สลิปรับเงิน/ขายสินค้า, expense=บิลจ่ายเงิน/ซื้อของ/ค่าบริการ/ใบเสร็จ
 ■ amount (บิลลายมือหลายรายการ): ดูแถว "รวม"/"รวมทั้งสิ้น"/"จำนวนเงินรวมทั้งสิ้น" เท่านั้น ห้ามบวกรายการเอง ใช้ตัวเลขยอดสุดท้าย (รวมภาษีแล้ว ถ้ามี)
@@ -1150,7 +1161,8 @@ async function extractDataWithGemini(imageBuffer, modelOverride = null) {
 ■ note (บิลลายมือ): ใส่รายการแรก+จำนวน เช่น "แก๊สโซฮอล์ 95 3.67L" ถ้าหลายรายการเพิ่ม " และอื่นๆ"
 ■ sender/receiver (บิลซื้อของ): sender=ผู้ซื้อ (ส่วน "นาม/ชื่อลูกค้า"), receiver=ชื่อร้านในหัวบิล
 ■ ref_no: ใช้ "รหัสอ้างอิง"/"เลขที่อ้างอิง"/"รหัสธุรกรรม"/"Transaction ID" เฉพาะรายการนี้เท่านั้น ห้ามใช้ "รหัสร้านค้า"/"Merchant ID"/"Biller ID" (ซ้ำทุกรายการ) ถ้าไม่มีใส่ -
-■ date: ปีเป็น พ.ศ. ถ้าปีไม่ชัดให้ยึดปีปัจจุบันข้างบน อย่าเดาปีที่ห่างจากปัจจุบันมาก`;
+■ date: ปีเป็น พ.ศ. ถ้าปีไม่ชัดให้ยึดปีปัจจุบันข้างบน อย่าเดาปีที่ห่างจากปัจจุบันมาก
+■ wht_amount: ภาษีหัก ณ ที่จ่าย — ใส่ค่าเฉพาะเมื่อเอกสารมีบรรทัดระบุไว้ชัดเจนแยกต่างหากว่า "หัก ณ ที่จ่าย" / "ภาษีหัก ณ ที่จ่าย" / "WHT" / "Withholding Tax" เท่านั้น (มักเจอบนใบกำกับภาษี/ใบเสร็จรับเงินทางการ ไม่ใช่สลิปโอนเงินทั่วไป) เป็นคนละก้อนจาก tax_amount (VAT) โดยสิ้นเชิง ห้ามใช้ค่าเดียวกัน ห้ามเดา ถ้าเอกสารไม่ได้ระบุ WHT ไว้เลยให้ใส่ 0 เสมอ`;
 
     const base64Image = imageBuffer.toString('base64');
     const requestBody = {
@@ -1170,6 +1182,7 @@ async function extractDataWithGemini(imageBuffer, modelOverride = null) {
         if (!parsed.type || parsed.amount === undefined) throw new Error("JSON ขาด fields หลัก (type/amount)");
         parsed.amount = parseFloat(parsed.amount) || 0;
         parsed.tax_amount = parseFloat(parsed.tax_amount) || 0;
+        parsed.wht_amount = parseFloat(parsed.wht_amount) || 0;
         console.log(`[LOG] ✨ [Gemini AI] ประมวลผลสำเร็จ`);
         return parsed;
       } catch (parseErr) {
@@ -1237,8 +1250,8 @@ async function extractDataHybrid(imageBuffer) {
 ${rawText}
 
 JSON format:
-{"type":"income หรือ expense","amount":0.00,"date":"วว/ดด/ปปปป","time":"นน:นน","sender":"ชื่อผู้โอน","receiver":"ชื่อผู้รับ","note":"หมายเหตุ","ref_no":"เลขอ้างอิงธุรกรรม หรือ -","tax_id":"-","taxpayer_name":"-","tax_amount":0.00,"tax_address":"-"}
-กฎ: type=income ถ้าสลิปโอนเงิน, type=expense ถ้าบิล/ใบเสร็จ | ref_no: ใช้ "รหัสอ้างอิง" หรือ "เลขที่อ้างอิง" หรือ "รหัสธุรกรรม" หรือ "Transaction ID/Reference" เฉพาะรายการนี้เท่านั้น ห้ามใช้ "รหัสร้านค้า" / "Merchant ID" / "Biller ID" (ซ้ำทุกรายการ) ถ้าไม่มีใส่ - | date: ใส่ปีเป็น พ.ศ. ถ้าลายมือและปีไม่ชัดให้ยึดปีปัจจุบันข้างบน | amount สำหรับบิลลายมือที่มีช่องแยก บาท | สต.: ยอดคือ ช่องบาท + ช่องสต./100 เช่น 141 บาท - สต. = 141.00, 131 บาท 28 สต. = 131.28 ห้ามต่อตัวเลขสองช่อง ให้ใช้ยอดรวมสุดท้ายของบิล`;
+{"type":"income หรือ expense","amount":0.00,"date":"วว/ดด/ปปปป","time":"นน:นน","sender":"ชื่อผู้โอน","receiver":"ชื่อผู้รับ","note":"หมายเหตุ","ref_no":"เลขอ้างอิงธุรกรรม หรือ -","tax_id":"-","taxpayer_name":"-","tax_amount":0.00,"tax_address":"-","wht_amount":0.00}
+กฎ: type=income ถ้าสลิปโอนเงิน, type=expense ถ้าบิล/ใบเสร็จ | ref_no: ใช้ "รหัสอ้างอิง" หรือ "เลขที่อ้างอิง" หรือ "รหัสธุรกรรม" หรือ "Transaction ID/Reference" เฉพาะรายการนี้เท่านั้น ห้ามใช้ "รหัสร้านค้า" / "Merchant ID" / "Biller ID" (ซ้ำทุกรายการ) ถ้าไม่มีใส่ - | date: ใส่ปีเป็น พ.ศ. ถ้าลายมือและปีไม่ชัดให้ยึดปีปัจจุบันข้างบน | amount สำหรับบิลลายมือที่มีช่องแยก บาท | สต.: ยอดคือ ช่องบาท + ช่องสต./100 เช่น 141 บาท - สต. = 141.00, 131 บาท 28 สต. = 131.28 ห้ามต่อตัวเลขสองช่อง ให้ใช้ยอดรวมสุดท้ายของบิล | wht_amount: ภาษีหัก ณ ที่จ่าย ใส่เฉพาะถ้าข้อความมีระบุแยกชัดเจนว่า "หัก ณ ที่จ่าย"/"ภาษีหัก ณ ที่จ่าย"/"WHT"/"Withholding Tax" เท่านั้น เป็นคนละก้อนจาก tax_amount (VAT) ห้ามเดา/ห้ามใช้ค่าซ้ำกัน ถ้าไม่มีให้ใส่ 0`;
 
     const requestBody = { contents: [{ parts: [{ text: prompt }] }] };
     const response = await axios.post(url, requestBody, { headers: { 'Content-Type': 'application/json' } });
@@ -1249,6 +1262,7 @@ JSON format:
       const parsed = JSON.parse(jsonMatch[0]);
       parsed.amount = parseFloat(parsed.amount) || 0;
       parsed.tax_amount = parseFloat(parsed.tax_amount) || 0;
+      parsed.wht_amount = parseFloat(parsed.wht_amount) || 0;
       console.log(`[LOG] ✨ [Hybrid OCR] Gemini text-mode วิเคราะห์สำเร็จ`);
       return parsed;
     } catch (parseErr) {
