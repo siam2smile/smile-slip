@@ -24,17 +24,25 @@ export default function EditTransaction() {
 
   const [form, setForm] = useState({
     date: '', time: '', type: 'รายรับ', amount: '', sender: '', receiver: '', note: '', category: '',
-    taxId: '', taxpayerName: '', taxAmount: '', whtAmount: '',
+    taxId: '', taxpayerName: '', taxAddress: '', taxAmount: '', whtAmount: '',
   });
   const [shopTier, setShopTier] = useState('normal');
   const [shopName, setShopName] = useState('');
   const [shopAddress, setShopAddress] = useState('');
+  const [shopTaxId, setShopTaxId] = useState('');
   const [learnKeyword, setLearnKeyword] = useState('');
 
   // voucher state
   const [voucherStep, setVoucherStep] = useState(null); // null | 'preview' | 'saving' | 'saved'
   const [voucherResult, setVoucherResult] = useState(null); // { voucherNo, viewUrl, downloadUrl, fileName }
   const voucherPreviewUrl = useRef(null);
+
+  // หนังสือรับรองหัก ณ ที่จ่าย (WHT certificate) state
+  const [whtCertOpen, setWhtCertOpen] = useState(false);
+  const [whtCertStep, setWhtCertStep] = useState('form'); // 'form' | 'preview' | 'saving' | 'saved'
+  const [whtCert, setWhtCert] = useState(null);
+  const [whtCertResult, setWhtCertResult] = useState(null);
+  const whtCertPreviewUrl = useRef(null);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -70,6 +78,7 @@ export default function EditTransaction() {
       setShopTier(shopData.profile.subscription_tier || 'normal');
       setShopName(shopData.profile.shop_name || '');
       setShopAddress(shopData.profile.address || '');
+      setShopTaxId(shopData.profile.tax_id || '');
 
       // เก็บ token ไว้ผูกกับ shopId จริงตัวแรกที่รู้ (localStorage key ผูกกับ shopId ไม่ใช่ userId)
       // กันต้องพึ่ง query string ทุกครั้งที่เปิดหน้านี้ใหม่บนเครื่องเดียวกัน
@@ -100,6 +109,7 @@ export default function EditTransaction() {
         category: t.category === '-' ? '' : (t.category || ''),
         taxId: t.taxId === '-' ? '' : (t.taxId || ''),
         taxpayerName: t.taxpayerName === '-' ? '' : (t.taxpayerName || ''),
+        taxAddress: t.taxAddress === '-' ? '' : (t.taxAddress || ''),
         taxAmount: t.taxAmount === '-' || t.taxAmount === '0' ? '' : (t.taxAmount || ''),
         whtAmount: t.whtAmount === '-' || t.whtAmount === '0' ? '' : (t.whtAmount || ''),
       });
@@ -171,6 +181,86 @@ export default function EditTransaction() {
     } catch {
       alert('เกิดข้อผิดพลาด กรุณาลองใหม่');
       setVoucherStep('preview');
+    }
+  };
+
+  // ── หนังสือรับรองหัก ณ ที่จ่าย (WHT certificate) ──────────────────────────────
+  // ทิศทาง: type='รายจ่าย' = เราจ่าย+หักภาษีคู่ค้า (เอกสารทางการที่เราต้องออก), type='รายรับ' =
+  // คู่ค้าหักภาษีจากเรา (เราแค่ช่วยเตรียมร่างให้คู่ค้าตรวจสอบ+ออกในนามของเขาเอง — ไม่ใช่ฉบับทางการ)
+  const openWhtCert = () => {
+    const isWeWithhold = form.type === 'รายจ่าย';
+    const baseAmount = Math.max(0,
+      (parseFloat(form.amount) || 0) + (parseFloat(form.whtAmount) || 0) - (parseFloat(form.taxAmount) || 0)
+    ).toFixed(2);
+    const counterparty = {
+      name: form.taxpayerName || (isWeWithhold ? form.receiver : form.sender) || '',
+      address: form.taxAddress || '',
+      taxId: form.taxId || '',
+    };
+    const shopParty = { name: shopName, address: shopAddress, taxId: shopTaxId };
+    setWhtCert({
+      direction: isWeWithhold ? 'we_withhold' : 'they_withhold',
+      docDate: form.date || '',
+      baseAmount,
+      whtAmount: form.whtAmount || '',
+      incomeTypeCode: '5',
+      incomeTypeOther: '',
+      payer: isWeWithhold ? shopParty : counterparty,
+      payee: isWeWithhold ? counterparty : shopParty,
+      certNo: null,
+    });
+    setWhtCertStep('form');
+    setWhtCertOpen(true);
+    setWhtCertResult(null);
+  };
+
+  // นิยาม TIER_LEVEL ซ้ำเฉพาะที่นี่ (ไม่พึ่งค่าที่ประกาศไว้ทีหลังในไฟล์เดียวกัน — const ใน JS ไม่ hoist
+  // ให้เรียกใช้ก่อนบรรทัดประกาศได้ ถ้าอ้างอิงตัวแปรร่วมกันข้ามจุดจะเจอ ReferenceError จาก temporal
+  // dead zone) ค่าตรงกับ lib/tier-features.js's white_label threshold (Enterprise ขึ้นไป)
+  const isEnterprise = (({ normal: 0, pro: 1, advance: 2, business: 3, enterprise: 4, super: 4 }[shopTier] || 0) >= 4);
+
+  const buildWhtCertQuery = (extra = {}) => {
+    const c = { ...whtCert, ...extra };
+    return new URLSearchParams({
+      direction: c.direction, docDate: c.docDate,
+      baseAmount: c.baseAmount, whtAmount: c.whtAmount,
+      incomeTypeCode: c.incomeTypeCode, incomeTypeOther: c.incomeTypeOther || '',
+      payerName: c.payer.name || '', payerAddress: c.payer.address || '', payerTaxId: c.payer.taxId || '',
+      payeeName: c.payee.name || '', payeeAddress: c.payee.address || '', payeeTaxId: c.payee.taxId || '',
+      isWhiteLabel: isEnterprise ? '1' : '0',
+      certNo: c.certNo || '',
+    }).toString();
+  };
+
+  const handleWhtCertPreview = () => {
+    whtCertPreviewUrl.current = `/api/wht-certificate/preview?${buildWhtCertQuery()}`;
+    setWhtCertStep('preview');
+  };
+
+  const handleWhtCertSave = async () => {
+    setWhtCertStep('saving');
+    try {
+      const sessionToken = getOwnerSessionToken(shopId);
+      const res = await fetch('/api/wht-certificate/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(sessionToken ? { 'x-owner-session': sessionToken } : {}) },
+        body: JSON.stringify({
+          shopId, ref,
+          direction: whtCert.direction,
+          incomeTypeCode: whtCert.incomeTypeCode, incomeTypeOther: whtCert.incomeTypeOther,
+          baseAmount: whtCert.baseAmount, whtAmount: whtCert.whtAmount, docDate: whtCert.docDate,
+          payer: whtCert.payer, payee: whtCert.payee,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) { alert('บันทึกไม่สำเร็จ: ' + data.error); setWhtCertStep('preview'); return; }
+      setWhtCert(prev => ({ ...prev, certNo: data.certNo }));
+      whtCertPreviewUrl.current = `/api/wht-certificate/preview?${buildWhtCertQuery({ certNo: data.certNo })}`;
+      setWhtCertResult(data);
+      setWhtCertStep('saved');
+    } catch {
+      alert('เกิดข้อผิดพลาด กรุณาลองใหม่');
+      setWhtCertStep('preview');
     }
   };
 
@@ -322,6 +412,7 @@ export default function EditTransaction() {
                   </div>
                 </div>
                 {field('ชื่อผู้เสียภาษี', 'taxpayerName', { placeholder: 'ชื่อบริษัท/ร้านค้า' })}
+                {field('ที่อยู่ผู้เสียภาษี', 'taxAddress', { placeholder: 'ที่อยู่ตามหนังสือรับรอง/ใบกำกับภาษี' })}
                 {form.taxAmount && parseFloat(form.taxAmount) > 0 && parseFloat(form.amount) > 0 && (
                   <p className="text-[11px] text-slate-400">
                     ราคาก่อน VAT ≈ ฿{(parseFloat(form.amount) - parseFloat(form.taxAmount)).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
@@ -460,6 +551,175 @@ export default function EditTransaction() {
                 )}
               </div>
             </div>
+
+            {/* ── หนังสือรับรองหัก ณ ที่จ่าย — โผล่เฉพาะรายการที่มี WHT เท่านั้น ── */}
+            {form.whtAmount && parseFloat(form.whtAmount) > 0 && whtCert === null && !whtCertOpen && (
+              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                <div className="px-5 py-3 border-b border-slate-100">
+                  <span className="text-sm font-black text-slate-700 flex items-center gap-2">
+                    <FileText size={15} className="text-amber-500"/>
+                    หนังสือรับรองหัก ณ ที่จ่าย
+                  </span>
+                </div>
+                <div className="px-5 py-4 text-center">
+                  <p className="text-xs text-slate-400 mb-3">
+                    {form.type === 'รายจ่าย'
+                      ? 'ออกหนังสือรับรองการหักภาษี ณ ที่จ่ายให้คู่ค้ารายนี้ (เอกสารทางการที่กฎหมายบังคับให้เราต้องออก)'
+                      : 'เตรียมร่างหนังสือรับรองฯ ให้คู่ค้ารายนี้ตรวจสอบและออกในนามของเขาเอง'}
+                  </p>
+                  <button type="button" onClick={openWhtCert}
+                    className="flex items-center gap-2 mx-auto px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 transition-all">
+                    <FileText size={14}/> กรอกข้อมูล/ดูตัวอย่าง
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {whtCertOpen && whtCert && (
+              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                <div className="px-5 py-3 flex items-center justify-between border-b border-slate-100">
+                  <span className="text-sm font-black text-slate-700 flex items-center gap-2">
+                    <FileText size={15} className="text-amber-500"/>
+                    หนังสือรับรองหัก ณ ที่จ่าย
+                  </span>
+                  {whtCertStep !== 'saving' && (
+                    <button type="button" onClick={() => { setWhtCertOpen(false); setWhtCert(null); setWhtCertResult(null); setWhtCertStep('form'); }}
+                      className="text-slate-400 hover:text-slate-600">
+                      <X size={14}/>
+                    </button>
+                  )}
+                </div>
+
+                <div className="px-5 py-4">
+                  {whtCertStep === 'form' && (
+                    <div className="space-y-3">
+                      <div className={`text-[11px] font-semibold rounded-xl px-3 py-2 ${whtCert.direction === 'we_withhold' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'}`}>
+                        {whtCert.direction === 'we_withhold'
+                          ? '🟢 เราเป็นผู้จ่ายเงินและหักภาษีไว้ — เอกสารทางการที่เราต้องออกให้คู่ค้า'
+                          : '🟡 คู่ค้ารายนี้หักภาษีจากเรา — เอกสารนี้เป็นแค่ร่างให้คู่ค้าตรวจสอบและออกเอง'}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">เงินได้ที่จ่าย (ก่อนหัก)</label>
+                          <input type="number" step="0.01" min="0" value={whtCert.baseAmount}
+                            onChange={e => setWhtCert({ ...whtCert, baseAmount: e.target.value })}
+                            className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none focus:border-amber-400 transition-colors"/>
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">ภาษีที่หักไว้</label>
+                          <input type="number" step="0.01" min="0" value={whtCert.whtAmount}
+                            onChange={e => setWhtCert({ ...whtCert, whtAmount: e.target.value })}
+                            className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none focus:border-amber-400 transition-colors"/>
+                        </div>
+                      </div>
+                      {parseFloat(whtCert.baseAmount) > 0 && (
+                        <p className="text-[10px] text-slate-400">
+                          อัตราภาษีที่หัก ≈ {((parseFloat(whtCert.whtAmount || 0) / parseFloat(whtCert.baseAmount)) * 100).toFixed(2)}%
+                        </p>
+                      )}
+
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">ประเภทเงินได้ (ตามมาตรา 40)</label>
+                        <select value={whtCert.incomeTypeCode} onChange={e => setWhtCert({ ...whtCert, incomeTypeCode: e.target.value })}
+                          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-amber-400 transition-colors">
+                          <option value="1">1. เงินเดือน ค่าจ้าง เบี้ยเลี้ยง โบนัส ฯลฯ</option>
+                          <option value="2">2. ค่าธรรมเนียม ค่านายหน้า ฯลฯ</option>
+                          <option value="3">3. ค่าแห่งลิขสิทธิ์ ฯลฯ</option>
+                          <option value="4a">4(ก). ดอกเบี้ย ฯลฯ</option>
+                          <option value="4b">4(ข). เงินปันผล เงินส่วนแบ่งกำไร ฯลฯ</option>
+                          <option value="5">5. อื่นๆ (ค่าจ้างทำของ/ค่าบริการ/ค่าขนส่ง ฯลฯ)</option>
+                        </select>
+                      </div>
+                      {whtCert.incomeTypeCode === '5' && (
+                        <input value={whtCert.incomeTypeOther} onChange={e => setWhtCert({ ...whtCert, incomeTypeOther: e.target.value })}
+                          placeholder="ระบุ เช่น ค่าบริการ, ค่าเช่า, ค่าขนส่ง"
+                          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-amber-400 transition-colors"/>
+                      )}
+
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">วันที่จ่ายเงิน</label>
+                        <input value={whtCert.docDate} onChange={e => setWhtCert({ ...whtCert, docDate: e.target.value })}
+                          placeholder="วว/ดด/ปปปป"
+                          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none focus:border-amber-400 transition-colors"/>
+                      </div>
+
+                      {['payer', 'payee'].map(role => (
+                        <div key={role} className="border-t border-slate-100 pt-3 space-y-2">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                            {role === 'payer' ? 'ผู้จ่ายเงิน (ผู้มีหน้าที่หักภาษี)' : 'ผู้ถูกหักภาษี (ผู้รับเงิน)'}
+                          </p>
+                          <input value={whtCert[role].name} onChange={e => setWhtCert({ ...whtCert, [role]: { ...whtCert[role], name: e.target.value } })}
+                            placeholder="ชื่อ" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium outline-none focus:border-amber-400 transition-colors"/>
+                          <input value={whtCert[role].address} onChange={e => setWhtCert({ ...whtCert, [role]: { ...whtCert[role], address: e.target.value } })}
+                            placeholder="ที่อยู่" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-amber-400 transition-colors"/>
+                          <input value={whtCert[role].taxId} onChange={e => setWhtCert({ ...whtCert, [role]: { ...whtCert[role], taxId: e.target.value } })}
+                            placeholder="เลขประจำตัวผู้เสียภาษี/บัตรประชาชน" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-amber-400 transition-colors"/>
+                        </div>
+                      ))}
+
+                      <button type="button" onClick={handleWhtCertPreview}
+                        disabled={!(parseFloat(whtCert.whtAmount) > 0)}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-black text-white bg-amber-600 hover:bg-amber-700 transition-all disabled:opacity-50">
+                        <FileText size={14}/> ดูตัวอย่าง
+                      </button>
+                    </div>
+                  )}
+
+                  {(whtCertStep === 'preview' || whtCertStep === 'saving') && (
+                    <div className="space-y-3">
+                      <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
+                        <iframe
+                          src={whtCertPreviewUrl.current}
+                          className="w-full border-0"
+                          style={{ height: '480px' }}
+                          title="ตัวอย่างหนังสือรับรองหัก ณ ที่จ่าย"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setWhtCertStep('form')} disabled={whtCertStep === 'saving'}
+                          className="flex-1 py-2.5 rounded-xl text-sm font-bold text-slate-500 border border-slate-200 hover:bg-slate-50 transition-all disabled:opacity-50">
+                          ← แก้ไข
+                        </button>
+                        <button type="button" onClick={handleWhtCertSave} disabled={whtCertStep === 'saving'}
+                          className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-black text-white bg-amber-600 hover:bg-amber-700 transition-all disabled:opacity-50">
+                          <Save size={14}/>
+                          {whtCertStep === 'saving' ? 'กำลังบันทึก...' : 'บันทึกเลขที่ + สำเนา'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {whtCertStep === 'saved' && whtCertResult && (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
+                        <CheckCircle2 size={16} className="shrink-0"/>
+                        <div>
+                          <p className="text-sm font-bold">บันทึกสำเร็จแล้ว</p>
+                          <p className="text-xs text-amber-600">{whtCertResult.certNo}</p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <a href={whtCertPreviewUrl.current} target="_blank" rel="noreferrer"
+                          className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl border-2 border-slate-300 text-slate-600 text-xs font-bold hover:bg-slate-50 transition-all">
+                          <Printer size={13}/> ปริ้น
+                        </a>
+                        <a href={`${whtCertPreviewUrl.current}&download=1`} target="_blank" rel="noreferrer"
+                          className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-slate-700 text-white text-xs font-bold hover:bg-slate-600 transition-all">
+                          <Download size={13}/> ดาวน์โหลด PDF
+                        </a>
+                      </div>
+                      {whtCertResult.driveViewUrl && (
+                        <a href={whtCertResult.driveViewUrl} target="_blank" rel="noreferrer"
+                          className="block text-center text-[11px] text-blue-600 font-bold hover:underline">
+                          📁 เปิดสำเนาใน Google Drive
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             <p className="text-center text-[10px] text-slate-400">
               การแก้ไขจะอัปเดตข้อมูลรายการนี้ในระบบทันที
